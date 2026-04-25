@@ -71,6 +71,13 @@ HERMES_OVERLAYS: Dict[str, HermesOverlay] = {
         auth_type="oauth_external",
         base_url_override="cloudcode-pa://google",
     ),
+    "lmstudio": HermesOverlay(
+        transport="openai_chat",
+        auth_type="api_key",
+        extra_env_vars=("LM_API_KEY",),
+        base_url_override="http://127.0.0.1:1234/v1",
+        base_url_env_var="LM_BASE_URL",
+    ),
     "copilot-acp": HermesOverlay(
         transport="codex_responses",
         auth_type="external_process",
@@ -323,6 +330,12 @@ _LABEL_OVERRIDES: Dict[str, str] = {
     "copilot-acp": "GitHub Copilot ACP",
     "stepfun": "StepFun Step Plan",
     "xiaomi": "Xiaomi MiMo",
+<<<<<<< HEAD
+=======
+    "gmi": "GMI Cloud",
+    "tencent-tokenhub": "Tencent TokenHub",
+    "lmstudio": "LM Studio",
+>>>>>>> 214ca943a (feat(agent): add lmstudio integration)
     "local": "Local endpoint",
     "bedrock": "AWS Bedrock",
     "ollama-cloud": "Ollama Cloud",
