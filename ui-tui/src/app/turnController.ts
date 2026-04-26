@@ -83,6 +83,7 @@ class TurnController {
   turnTools: string[] = []
 
   private activeTools: ActiveTool[] = []
+  private reasoningSegmentIndex: null | number = null
   private activityId = 0
   private reasoningStreamingTimer: Timer = null
   private reasoningTimer: Timer = null
@@ -184,6 +185,33 @@ class TurnController {
 
       return next.length === state.turnTrail.length ? state : { ...state, turnTrail: next }
     })
+  }
+
+  private syncReasoningSegment() {
+    const thinking = this.reasoningText.trim()
+
+    if (!thinking) {
+      return
+    }
+
+    const msg: Msg = {
+      kind: 'trail',
+      role: 'system',
+      text: '',
+      thinking,
+      thinkingTokens: estimateTokensRough(thinking),
+      toolTokens: this.toolTokenAcc || undefined,
+      ...(this.pendingSegmentTools.length && { tools: this.pendingSegmentTools })
+    }
+
+    if (this.reasoningSegmentIndex === null) {
+      this.reasoningSegmentIndex = this.segmentMessages.length
+      this.segmentMessages = [...this.segmentMessages, msg]
+    } else {
+      this.segmentMessages = this.segmentMessages.map((item, i) => (i === this.reasoningSegmentIndex ? msg : item))
+    }
+
+    patchTurnState({ streamSegments: this.segmentMessages })
   }
 
   flushStreamingSegment() {
@@ -326,7 +354,8 @@ class TurnController {
       toolTokens: savedToolTokens || undefined,
       ...(tools.length && { tools })
     }
-    const finalMessages = hasDetails(finalDetails) ? [...segments, finalDetails] : [...segments]
+    const hasReasoningSegment = this.reasoningSegmentIndex !== null
+    const finalMessages = hasDetails(finalDetails) && !hasReasoningSegment ? [...segments, finalDetails] : [...segments]
 
     if (finalText) {
       finalMessages.push({ role: 'assistant', text: finalText })
@@ -386,6 +415,7 @@ class TurnController {
 
     this.reasoningText = incoming
     this.scheduleReasoning()
+    this.syncReasoningSegment()
     this.pulseReasoningStreaming()
   }
 
@@ -396,6 +426,7 @@ class TurnController {
 
     this.reasoningText += text
     this.scheduleReasoning()
+    this.syncReasoningSegment()
     this.pulseReasoningStreaming()
   }
 
@@ -480,6 +511,7 @@ class TurnController {
     this.lastStatusNote = ''
     this.pendingSegmentTools = []
     this.protocolWarned = false
+    this.reasoningSegmentIndex = null
     this.segmentMessages = []
     this.turnTools = []
     this.toolTokenAcc = 0
