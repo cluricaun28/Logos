@@ -33,11 +33,7 @@ const diffSegmentBody = (msg: Msg): null | string => {
   return m ? m[1]! : null
 }
 
-const insertBeforeFirstDiff = (segments: Msg[], msg: Msg): Msg[] => {
-  const index = segments.findIndex(segment => segment.kind === 'diff')
-
-  return index < 0 ? [...segments, msg] : [...segments.slice(0, index), msg, ...segments.slice(index)]
-}
+const hasDetails = (msg: Msg): boolean => Boolean(msg.thinking || msg.tools?.length || msg.toolTokens)
 
 export interface InterruptDeps {
   appendMessage: (msg: Msg) => void
@@ -64,6 +60,7 @@ class TurnController {
   persistSpawnTree?: (subagents: SubagentProgress[], sessionId: null | string) => Promise<void>
   protocolWarned = false
   reasoningText = ''
+  reasoningSegmentOffset = 0
   segmentMessages: Msg[] = []
   pendingSegmentTools: string[] = []
   statusTimer: Timer = null
@@ -89,6 +86,7 @@ class TurnController {
   clearReasoning() {
     this.reasoningTimer = clear(this.reasoningTimer)
     this.reasoningText = ''
+    this.reasoningSegmentOffset = 0
     this.toolTokenAcc = 0
     patchTurnState({ reasoning: '', reasoningTokens: 0, toolTokens: 0 })
   }
@@ -176,29 +174,33 @@ class TurnController {
 
   flushStreamingSegment() {
     const raw = this.bufRef.trimStart()
-
-    if (!raw) {
-      return
-    }
-
-    const split = hasReasoningTag(raw) ? splitReasoning(raw) : { reasoning: '', text: raw }
+    const split = raw ? (hasReasoningTag(raw) ? splitReasoning(raw) : { reasoning: '', text: raw }) : { reasoning: '', text: '' }
 
     if (split.reasoning && !this.reasoningText.trim()) {
       this.reasoningText = split.reasoning
       patchTurnState({ reasoning: this.reasoningText, reasoningTokens: estimateTokensRough(this.reasoningText) })
     }
 
-    const text = split.text
+    const thinking = this.reasoningText.slice(this.reasoningSegmentOffset).trim()
+    const msg: Msg = {
+      role: split.text ? 'assistant' : 'system',
+      text: split.text,
+      ...(!split.text && { kind: 'trail' as const }),
+      ...(thinking && {
+        thinking,
+        thinkingTokens: estimateTokensRough(thinking)
+      }),
+      ...(this.pendingSegmentTools.length && { tools: this.pendingSegmentTools })
+    }
 
     this.streamTimer = clear(this.streamTimer)
 
-    if (text) {
-      const tools = this.pendingSegmentTools
-
-      this.segmentMessages = [...this.segmentMessages, { role: 'assistant', text, ...(tools.length && { tools }) }]
-      this.pendingSegmentTools = []
+    if (split.text || hasDetails(msg)) {
+      this.segmentMessages = [...this.segmentMessages, msg]
     }
 
+    this.reasoningSegmentOffset = this.reasoningText.length
+    this.pendingSegmentTools = []
     this.bufRef = ''
     patchTurnState({ streamPendingTools: [], streamSegments: this.segmentMessages, streaming: '' })
   }
@@ -290,7 +292,6 @@ class TurnController {
     const finalText = split.text
     const existingReasoning = this.reasoningText.trim() || String(payload.reasoning ?? '').trim()
     const savedReasoning = [existingReasoning, existingReasoning ? '' : split.reasoning].filter(Boolean).join('\n\n')
-    const savedReasoningTokens = savedReasoning ? estimateTokensRough(savedReasoning) : 0
     const savedToolTokens = this.toolTokenAcc
     const tools = this.pendingSegmentTools
 
@@ -307,32 +308,20 @@ class TurnController {
       return body === null || (!finalHasOwnDiffFence && !finalText.includes(body))
     })
 
-    const hasDiffSegment = segments.some(msg => msg.kind === 'diff')
-    const detailsBelongBeforeDiff = hasDiffSegment && (tools.length > 0 || Boolean(savedReasoning))
-
-    const finalMessages = detailsBelongBeforeDiff
-      ? insertBeforeFirstDiff(segments, {
-          kind: 'trail',
-          role: 'system',
-          text: '',
-          thinking: savedReasoning || undefined,
-          thinkingTokens: savedReasoning ? savedReasoningTokens : undefined,
-          toolTokens: savedToolTokens || undefined,
-          ...(tools.length && { tools })
-        })
-      : [...segments]
+    const finalThinking = savedReasoning.slice(this.reasoningSegmentOffset).trim()
+    const finalDetails: Msg = {
+      kind: 'trail',
+      role: 'system',
+      text: '',
+      thinking: finalThinking || undefined,
+      thinkingTokens: finalThinking ? estimateTokensRough(finalThinking) : undefined,
+      toolTokens: savedToolTokens || undefined,
+      ...(tools.length && { tools })
+    }
+    const finalMessages = hasDetails(finalDetails) ? [...segments, finalDetails] : [...segments]
 
     if (finalText) {
-      finalMessages.push({
-        role: 'assistant',
-        text: finalText,
-        ...(!detailsBelongBeforeDiff && {
-          thinking: savedReasoning || undefined,
-          thinkingTokens: savedReasoning ? savedReasoningTokens : undefined,
-          toolTokens: savedToolTokens || undefined,
-          ...(tools.length && { tools })
-        })
-      })
+      finalMessages.push({ role: 'assistant', text: finalText })
     }
 
     const wasInterrupted = this.interrupted
