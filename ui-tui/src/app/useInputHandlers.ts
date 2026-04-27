@@ -281,12 +281,15 @@ export function useInputHandlers(ctx: InputHandlerContext): InputHandlerResult {
       return terminal.scrollWithSelection(key.pageUp ? -step : step)
     }
 
-    if (key.escape && terminal.hasSelection) {
-      return clearSelection()
-    }
-
+    // Queue-edit cancel beats selection-clear: the queue header explicitly
+    // promises "Esc cancel", so honoring it takes priority over the implicit
+    // selection-dismissal convention. Without an active edit, fall through.
     if (key.escape && cState.queueEditIdx !== null) {
       return cActions.clearIn()
+    }
+
+    if (key.escape && terminal.hasSelection) {
+      return clearSelection()
     }
 
     if (key.upArrow && !cState.inputBuf.length) {
