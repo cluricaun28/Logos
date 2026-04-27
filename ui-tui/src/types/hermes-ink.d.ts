@@ -76,6 +76,7 @@ declare module '@hermes/ink' {
   export const TextInput: React.ComponentType<any>
   export const stringWidth: (s: string) => number
 
+  export function forceRedraw(stdout?: NodeJS.WriteStream): boolean
   export function render(node: React.ReactNode, options?: NodeJS.WriteStream | RenderOptions): Instance
 
   export function useApp(): { readonly exit: (error?: Error) => void }
