@@ -1,6 +1,6 @@
 import { AlternateScreen, Box, NoSelect, ScrollBox, Text } from '@hermes/ink'
 import { useStore } from '@nanostores/react'
-import { Fragment, memo } from 'react'
+import { Fragment, memo, useMemo } from 'react'
 
 import { useGateway } from '../app/gatewayContext.js'
 import type { AppLayoutProgressProps, AppLayoutProps } from '../app/interfaces.js'
@@ -89,6 +89,17 @@ const TranscriptPane = memo(function TranscriptPane({
 }: Pick<AppLayoutProps, 'actions' | 'composer' | 'progress' | 'transcript'>) {
   const ui = useStore($uiState)
 
+  // Index of the latest user message — LiveTodoPanel is rendered as a child
+  // of that row so it visually belongs to the user's prompt and follows it
+  // during scroll. Falls back to -1 when no user message exists yet (empty
+  // session); LiveTodoPanel then doesn't render at all.
+  const lastUserIdx = useMemo(() => {
+    for (let i = transcript.historyItems.length - 1; i >= 0; i--) {
+      if (transcript.historyItems[i].role === 'user') return i
+    }
+    return -1
+  }, [transcript.historyItems])
+
   return (
     <>
       <ScrollBox flexDirection="column" flexGrow={1} flexShrink={1} ref={transcript.scrollRef} stickyScroll>
@@ -116,6 +127,8 @@ const TranscriptPane = memo(function TranscriptPane({
                   t={ui.theme}
                 />
               )}
+
+              {row.index === lastUserIdx && <LiveTodoPanel />}
             </Box>
           ))}
 
