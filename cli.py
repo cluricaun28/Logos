@@ -351,9 +351,9 @@ def load_cli_config() -> Dict[str, Any]:
             "inactivity_timeout": 120,  # Auto-cleanup inactive browser sessions after 2 min
             "record_sessions": False,  # Auto-record browser sessions as WebM videos
         },
-        "compression": {
-            "enabled": True,      # Auto-compress when approaching context limit
-            "threshold": 0.50,    # Compress at 50% of model's context limit
+        "archiving": {
+            "enabled": True,      # Auto-archive when approaching context limit
+            "threshold": 0.50,    # Archive at 50% of model's context limit
         },
         "agent": {
             "max_turns": 90,  # Default max tool-calling iterations (shared with subagents)
@@ -700,7 +700,7 @@ import fire
 
 # Import the agent and tool systems
 from run_agent import AIAgent
-from model_tools import get_tool_definitions, get_toolset_for_tool
+from model_tools import get_tool_definitions, get_selective_tool_definitions, get_deferred_tools_index, get_toolset_for_tool
 
 # Extracted CLI modules (Phase 3)
 from hermes_cli.banner import build_welcome_banner
@@ -2243,7 +2243,7 @@ class HermesCLI:
             "session_completion_tokens": 0,
             "session_total_tokens": 0,
             "session_api_calls": 0,
-            "compressions": 0,
+            "archives": 0,
         }
 
         if not agent:
@@ -2264,7 +2264,7 @@ class HermesCLI:
             context_length = getattr(compressor, "context_length", 0) or 0
             snapshot["context_tokens"] = context_tokens
             snapshot["context_length"] = context_length or None
-            snapshot["compressions"] = getattr(compressor, "compression_count", 0) or 0
+            snapshot["archives"] = getattr(compressor, "compression_count", 0) or 0
             if context_length:
                 snapshot["context_percent"] = max(0, min(100, round((context_tokens / context_length) * 100)))
 
@@ -3341,7 +3341,7 @@ class HermesCLI:
                 resolved_id = self.session_id
             if resolved_id and resolved_id != self.session_id:
                 ChatConsole().print(
-                    f"[{_DIM}]Session {_escape(self.session_id)} was compressed into "
+                    f"[{_DIM}]Session {_escape(self.session_id)} was archived into "
                     f"{_escape(resolved_id)}; resuming the descendant with your "
                     f"transcript.[/]"
                 )
@@ -3575,7 +3575,7 @@ class HermesCLI:
             resolved_id = self.session_id
         if resolved_id and resolved_id != self.session_id:
             self._console_print(
-                f"[dim]Session {self.session_id} was compressed into "
+                f"[dim]Session {self.session_id} was archived into "
                 f"{resolved_id}; resuming the descendant with your transcript.[/]"
             )
             self.session_id = resolved_id
@@ -4801,7 +4801,7 @@ class HermesCLI:
             resolved_id = target_id
         if resolved_id and resolved_id != target_id:
             _cprint(
-                f"  Session {target_id} was compressed into {resolved_id}; "
+                f"  Session {target_id} was archived into {resolved_id}; "
                 f"resuming the descendant with your transcript."
             )
             target_id = resolved_id
@@ -6132,8 +6132,8 @@ class HermesCLI:
             self._handle_reasoning_command(cmd_original)
         elif canonical == "fast":
             self._handle_fast_command(cmd_original)
-        elif canonical == "compress":
-            self._manual_compress(cmd_original)
+        elif canonical == "archive":
+            self._manual_archive(cmd_original)
         elif canonical == "usage":
             self._show_usage()
         elif canonical == "insights":
@@ -6953,16 +6953,16 @@ class HermesCLI:
         self._reasoning_preview_buf = getattr(self, "_reasoning_preview_buf", "") + reasoning_text
         self._flush_reasoning_preview(force=False)
 
-    def _manual_compress(self, cmd_original: str = ""):
-        """Manually trigger context compression on the current conversation.
+    def _manual_archive(self, cmd_original: str = ""):
+        """Manually archive the current conversation context.
 
-        Accepts an optional focus topic: ``/compress <focus>`` guides the
+        Accepts an optional focus topic: ``/archive <focus>`` guides the
         summariser to preserve information related to *focus* while being
         more aggressive about discarding everything else.  Inspired by
         Claude Code's ``/compact <focus>`` feature.
         """
         if not self.conversation_history or len(self.conversation_history) < 4:
-            print("(._.) Not enough conversation to compress (need at least 4 messages).")
+            print("(._.) Not enough conversation to archive (need at least 4 messages).")
             return
 
         if not self.agent:
@@ -6970,10 +6970,10 @@ class HermesCLI:
             return
 
         if not self.agent.compression_enabled:
-            print("(._.) Compression is disabled in config.")
+            print("(._.) Archiving is disabled in config.")
             return
 
-        # Extract optional focus topic from the command (e.g. "/compress database schema")
+        # Extract optional focus topic from the command (e.g. "/archive database schema")
         focus_topic = ""
         if cmd_original:
             parts = cmd_original.strip().split(None, 1)
@@ -6981,17 +6981,17 @@ class HermesCLI:
                 focus_topic = parts[1].strip()
 
         original_count = len(self.conversation_history)
-        with self._busy_command("Compressing context..."):
+        with self._busy_command("Archiving context..."):
             try:
                 from agent.model_metadata import estimate_messages_tokens_rough
                 from agent.manual_compression_feedback import summarize_manual_compression
                 original_history = list(self.conversation_history)
                 approx_tokens = estimate_messages_tokens_rough(original_history)
                 if focus_topic:
-                    print(f"🗜️  Compressing {original_count} messages (~{approx_tokens:,} tokens), "
+                    print(f"📦 Archiving {original_count} messages (~{approx_tokens:,} tokens), "
                           f"focus: \"{focus_topic}\"...")
                 else:
-                    print(f"🗜️  Compressing {original_count} messages (~{approx_tokens:,} tokens)...")
+                    print(f"📦 Archiving {original_count} messages (~{approx_tokens:,} tokens)...")
 
                 compressed, _ = self.agent._compress_context(
                     original_history,
@@ -7026,7 +7026,7 @@ class HermesCLI:
                     print(f"     {summary['note']}")
 
             except Exception as e:
-                print(f"  ❌ Compression failed: {e}")
+                print(f"  ❌ Archiving failed: {e}")
 
     def _handle_debug_command(self):
         """Handle /debug — upload debug report + logs and print paste URLs."""
@@ -7070,7 +7070,7 @@ class HermesCLI:
         last_prompt = compressor.last_prompt_tokens
         ctx_len = compressor.context_length
         pct = min(100, (last_prompt / ctx_len * 100)) if ctx_len else 0
-        compressions = compressor.compression_count
+        archives = compressor.compression_count
 
         msg_count = len(self.conversation_history)
         cost_result = estimate_usage_cost(
@@ -7110,7 +7110,7 @@ class HermesCLI:
         print(f"  {'─' * 40}")
         print(f"  Current context:  {last_prompt:,} / {ctx_len:,} ({pct:.0f}%)")
         print(f"  Messages:         {msg_count}")
-        print(f"  Compressions:     {compressions}")
+        print(f"  Archives:         {archives}")
         if cost_result.status == "unknown":
             print(f"  Note:             Pricing unknown for {agent.model}")
 
@@ -7276,7 +7276,7 @@ class HermesCLI:
 
             # Refresh the agent's tool list so the model can call new tools
             if self.agent is not None:
-                self.agent.tools = get_tool_definitions(
+                self.agent.tools = get_selective_tool_definitions(
                     enabled_toolsets=self.agent.enabled_toolsets
                     if hasattr(self.agent, "enabled_toolsets") else None,
                     quiet_mode=True,

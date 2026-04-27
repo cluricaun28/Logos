@@ -285,15 +285,14 @@ class HermesACPAgent(acp.Agent):
             return
 
         try:
-            from model_tools import get_tool_definitions
-
+            from model_tools import get_selective_tool_definitions
             enabled_toolsets = _expand_acp_enabled_toolsets(
                 getattr(state.agent, "enabled_toolsets", None) or ["hermes-acp"],
                 mcp_server_names=[server.name for server in mcp_servers],
             )
             state.agent.enabled_toolsets = enabled_toolsets
             disabled_toolsets = getattr(state.agent, "disabled_toolsets", None)
-            state.agent.tools = get_tool_definitions(
+            state.agent.tools = get_selective_tool_definitions(
                 enabled_toolsets=enabled_toolsets,
                 disabled_toolsets=disabled_toolsets,
                 quiet_mode=True,
@@ -835,11 +834,11 @@ class HermesACPAgent(acp.Agent):
             new_count = len(state.history)
             new_tokens = estimate_messages_tokens_rough(state.history)
             return (
-                f"Context compressed: {original_count} -> {new_count} messages\n"
+                f"Context archived: {original_count} -> {new_count} messages\n"
                 f"~{approx_tokens:,} -> ~{new_tokens:,} tokens"
             )
         except Exception as e:
-            return f"Compression failed: {e}"
+            return f"Archiving failed: {e}"
 
     def _cmd_version(self, args: str, state: SessionState) -> str:
         return f"Hermes Agent v{HERMES_VERSION}"

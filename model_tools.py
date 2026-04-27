@@ -34,6 +34,118 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
+# ToolRouter — Selective Injection (lazy singleton)
+# =============================================================================
+# Loaded from safe harbor: ~/.hermes/plugins/tool_router/tool_router.py
+# Provides essential vs deferred tool split for context reduction.
+
+_tool_router_instance = None
+_tool_router_lock = threading.Lock()
+
+
+def _get_tool_router():
+    """Lazy-initialized, thread-safe ToolRouter singleton."""
+    global _tool_router_instance
+    if _tool_router_instance is not None:
+        return _tool_router_instance
+    
+    with _tool_router_lock:
+        if _tool_router_instance is not None:
+            return _tool_router_instance
+        
+        try:
+            # Import from safe harbor location
+            import sys
+            plugin_dir = str(Path.home() / ".hermes" / "plugins" / "tool_router")
+            if plugin_dir not in sys.path:
+                sys.path.insert(0, plugin_dir)
+            
+            from tool_router import ToolRouter, get_tool_router as _tr_get
+            _tool_router_instance = _tr_get()
+            logger.info("ToolRouter initialized — selective injection active")
+        except Exception as e:
+            logger.warning("Failed to initialize ToolRouter (selective injection disabled): %s", e)
+        
+        return _tool_router_instance
+
+
+def get_tool_router():
+    """Public accessor for ToolRouter. Returns None if unavailable."""
+    try:
+        return _get_tool_router()
+    except Exception as e:
+        logger.warning("Failed to get ToolRouter: %s", e)
+        return None
+
+
+def get_deferred_tools_index() -> Optional[str]:
+    """Get the deferred tools index for system prompt injection.
+    
+    Returns a formatted markdown string listing all deferred tools with
+    one-line descriptions and RL lookup path, or empty string if ToolRouter unavailable.
+    """
+    router = _get_tool_router()
+    if router is None:
+        return ""
+    try:
+        return router.get_deferred_index()
+    except Exception as e:
+        logger.warning("Failed to get deferred tools index: %s", e)
+        return ""
+
+
+def get_selective_tool_definitions(
+    enabled_toolsets: List[str] = None,
+    disabled_toolsets: List[str] = None,
+    quiet_mode: bool = False,
+) -> List[Dict[str, Any]]:
+    """Get only essential tool definitions (selective injection mode).
+    
+    Returns a filtered list containing only essential tools whose full schemas
+    should be injected on every API call. Deferred tools are listed in the system
+    prompt via get_deferred_tools_index() and looked up from RL when needed.
+    
+    Falls back to standard get_tool_definitions() if ToolRouter is unavailable.
+    """
+    router = _get_tool_router()
+    if router is None:
+        # Fallback: return all tools (standard behavior)
+        logger.debug("ToolRouter unavailable — returning all tool definitions")
+        return get_tool_definitions(
+            enabled_toolsets=enabled_toolsets,
+            disabled_toolsets=disabled_toolsets,
+            quiet_mode=quiet_mode,
+        )
+    
+    try:
+        # Get all tools first (standard filtering)
+        all_tools = get_tool_definitions(
+            enabled_toolsets=enabled_toolsets,
+            disabled_toolsets=disabled_toolsets,
+            quiet_mode=quiet_mode,
+        )
+        
+        # Filter to essential only
+        essential = router.get_essential_definitions(all_tools)
+        logger.info(
+            "Selective injection: %d essential / %d total tools",
+            len(essential), len(all_tools),
+        )
+        return essential
+    except Exception as e:
+        logger.warning("Selective injection failed, falling back to all tools: %s", e)
+        return get_tool_definitions(
+            enabled_toolsets=enabled_toolsets,
+            disabled_toolsets=disabled_toolsets,
+            quiet_mode=quiet_mode,
+        )
+
+
+# pathlib import needed for ToolRouter path resolution
+from pathlib import Path
+
+
+# =============================================================================
 # Async Bridging  (single source of truth -- used by registry.dispatch too)
 # =============================================================================
 

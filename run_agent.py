@@ -69,6 +69,8 @@ else:
 # Import our tool system
 from model_tools import (
     get_tool_definitions,
+    get_selective_tool_definitions,
+    get_deferred_tools_index,
     get_toolset_for_tool,
     handle_function_call,
     check_toolset_requirements,
@@ -1466,8 +1468,9 @@ class AIAgent:
                 print(f"🔄 Fallback chain ({len(self._fallback_chain)} providers): " +
                       " → ".join(f"{f['model']} ({f['provider']})" for f in self._fallback_chain))
 
-        # Get available tools with filtering
-        self.tools = get_tool_definitions(
+        # Get available tools with selective injection (essential tools only)
+        # Deferred tools are listed in system prompt and looked up from RL when needed
+        self.tools = get_selective_tool_definitions(
             enabled_toolsets=enabled_toolsets,
             disabled_toolsets=disabled_toolsets,
             quiet_mode=self.quiet_mode,
@@ -1727,22 +1730,25 @@ class AIAgent:
             _api_retries = 3
         self._api_max_retries = _api_retries
 
-        # Initialize context compressor for automatic context management
-        # Compresses conversation when approaching model's context limit
-        # Configuration via config.yaml (compression section)
-        _compression_cfg = _agent_cfg.get("compression", {})
-        if not isinstance(_compression_cfg, dict):
-            _compression_cfg = {}
-        compression_threshold = float(_compression_cfg.get("threshold", 0.50))
-        compression_enabled = str(_compression_cfg.get("enabled", True)).lower() in ("true", "1", "yes")
-        compression_target_ratio = float(_compression_cfg.get("target_ratio", 0.20))
-        compression_protect_last = int(_compression_cfg.get("protect_last_n", 20))
+        # Initialize context archiver for automatic context management
+        # Archives conversation when approaching model's context limit
+        # Configuration via config.yaml (archiving section)
+        _archiving_cfg = _agent_cfg.get("archiving", {})
+        if not isinstance(_archiving_cfg, dict):
+            # Backward compat: check old key name
+            _archiving_cfg = _agent_cfg.get("compression", {})
+        if not isinstance(_archiving_cfg, dict):
+            _archiving_cfg = {}
+        archiving_threshold = float(_archiving_cfg.get("threshold", 0.50))
+        compression_enabled = str(_archiving_cfg.get("enabled", True)).lower() in ("true", "1", "yes")
+        archiving_target_ratio = float(_archiving_cfg.get("target_ratio", 0.20))
+        archiving_protect_last = int(_archiving_cfg.get("protect_last_n", 20))
 
         # Read optional explicit context_length override for the auxiliary
         # compression model. Custom endpoints often cannot report this via
         # /models, so the startup feasibility check needs the config hint.
         try:
-            _aux_cfg = _agent_cfg.get("auxiliary", {}).get("compression", {})
+            _aux_cfg = _agent_cfg.get("auxiliary", {}).get("archiving", {}) or _agent_cfg.get("auxiliary", {}).get("compression", {})
         except Exception:
             _aux_cfg = {}
         if isinstance(_aux_cfg, dict):
@@ -1859,7 +1865,8 @@ class AIAgent:
             # Try loading from plugins/context_engine/<name>/
             try:
                 from plugins.context_engine import load_context_engine
-                _selected_engine = load_context_engine(_engine_name)
+                _engine_config = _ctx_cfg.get(_engine_name, {}) if isinstance(_ctx_cfg, dict) else {}
+                _selected_engine = load_context_engine(_engine_name, config=_engine_config)
             except Exception as _ce_load_err:
                 logger.debug("Context engine load from plugins/context_engine/: %s", _ce_load_err)
 
@@ -1904,10 +1911,10 @@ class AIAgent:
         else:
             self.context_compressor = ContextCompressor(
                 model=self.model,
-                threshold_percent=compression_threshold,
+                threshold_percent=archiving_threshold,
                 protect_first_n=3,
-                protect_last_n=compression_protect_last,
-                summary_target_ratio=compression_target_ratio,
+                protect_last_n=archiving_protect_last,
+                summary_target_ratio=archiving_target_ratio,
                 summary_model_override=None,
                 quiet_mode=self.quiet_mode,
                 base_url=self.base_url,
@@ -2003,9 +2010,9 @@ class AIAgent:
 
         if not self.quiet_mode:
             if compression_enabled:
-                print(f"📊 Context limit: {self.context_compressor.context_length:,} tokens (compress at {int(compression_threshold*100)}% = {self.context_compressor.threshold_tokens:,})")
+                print(f"📊 Context limit: {self.context_compressor.context_length:,} tokens (archive at {int(archiving_threshold*100)}% = {self.context_compressor.threshold_tokens:,})")
             else:
-                print(f"📊 Context limit: {self.context_compressor.context_length:,} tokens (auto-compression disabled)")
+                print(f"📊 Context limit: {self.context_compressor.context_length:,} tokens (auto-archiving disabled)")
 
         # Check immediately so CLI users see the warning at startup.
         # Gateway status_callback is not yet wired, so any warning is stored
@@ -2493,7 +2500,7 @@ class AIAgent:
                     )
                 safe_pct = int((aux_context / main_ctx) * 100) if main_ctx else 50
                 msg = (
-                    f"⚠ Compression model ({aux_model}) context is "
+                    f"⚠ Archiving model ({aux_model}) context is "
                     f"{aux_context:,} tokens, but the main model's "
                     f"compression threshold was {old_threshold:,} tokens. "
                     f"Auto-lowered this session's threshold to "
@@ -4589,6 +4596,16 @@ class AIAgent:
             skills_prompt = ""
         if skills_prompt:
             prompt_parts.append(skills_prompt)
+
+        # Deferred tools index — compact listing of non-essential tools
+        # that require RL lookup before use. Injected after skills so the
+        # model sees both indexes together.
+        try:
+            deferred_index = get_deferred_tools_index()
+            if deferred_index:
+                prompt_parts.append(deferred_index)
+        except Exception as e:
+            logger.warning("Failed to build deferred tools index: %s", e)
 
         if not self.skip_context_files:
             # Use TERMINAL_CWD for context file discovery when set (gateway
@@ -8100,9 +8117,10 @@ class AIAgent:
         )
 
         # Notify external memory provider before compression discards context
+        pre_compress_content = ""
         if self._memory_manager:
             try:
-                self._memory_manager.on_pre_compress(messages)
+                pre_compress_content = self._memory_manager.on_pre_compress(messages) or ""
             except Exception:
                 pass
 
@@ -8118,9 +8136,13 @@ class AIAgent:
             if getattr(self, "_last_compression_summary_warning", None) != summary_error:
                 self._last_compression_summary_warning = summary_error
                 self._emit_warning(
-                    f"⚠ Compression summary failed: {summary_error}. "
+                    f"⚠ Archiving summary failed: {summary_error}. "
                     "Inserted a fallback context marker."
                 )
+
+        # Inject Context Bridge (active tasks, files being edited, knowledge gaps) before todo snapshot
+        if pre_compress_content.strip():
+            compressed.append({"role": "user", "content": pre_compress_content})
 
         todo_snapshot = self._todo_store.format_for_injection()
         if todo_snapshot:
@@ -8180,7 +8202,7 @@ class AIAgent:
         _cc = self.context_compressor.compression_count
         if _cc >= 2:
             self._vprint(
-                f"{self.log_prefix}⚠️  Session compressed {_cc} times — "
+                f"{self.log_prefix}⚠️  Session archived {_cc} times — "
                 f"accuracy may degrade. Consider /new to start fresh.",
                 force=True,
             )

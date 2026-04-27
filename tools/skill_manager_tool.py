@@ -373,11 +373,96 @@ def _create_skill(name: str, content: str, category: str = None) -> Dict[str, An
     }
     if category:
         result["category"] = category
+
+    # Auto-generate RL lookup card for this skill
+    rl_path = _generate_rl_lookup_card(name, content, category)
+    if rl_path:
+        result["rl_page"] = str(rl_path)
+
     result["hint"] = (
         "To add reference files, templates, or scripts, use "
         "skill_manage(action='write_file', name='{}', file_path='references/example.md', file_content='...')".format(name)
     )
     return result
+
+
+def _generate_rl_lookup_card(skill_name: str, content: str, category: str = None) -> Optional[Path]:
+    """Generate a lightweight RL lookup card for a skill.
+
+    Creates ~/.hermes/reference-library/skills/{skill_name}.md with trigger
+    conditions, key steps summary, and reference to full skill via skill_view().
+
+    Returns the path to the created file, or None on failure.
+    """
+    try:
+        rl_dir = Path(os.path.expanduser("~/.hermes/reference-library/skills"))
+        rl_dir.mkdir(parents=True, exist_ok=True)
+
+        # Extract description from frontmatter if available
+        desc_match = re.search(r'description:\s*>\s*\n((?:\s+.+\n)+)', content)
+        if not desc_match:
+            desc_match = re.search(r'description:\s*(.+?)(?:\n|$)', content)
+
+        description = ""
+        if desc_match:
+            raw = desc_match.group(1).strip()
+            # Clean up multi-line continuation
+            description = " ".join(raw.split())
+
+        # Extract trigger conditions from the skill content
+        triggers = []
+        trigger_section = re.search(r'##\s*(?:When to Use|Trigger|Triggers)', content)
+        if trigger_section:
+            section_start = trigger_section.end()
+            next_header = re.search(r'\n## ', content[section_start:])
+            if next_header:
+                section_text = content[section_start:section_start + next_header.start()]
+            else:
+                section_text = content[section_start:section_start + 500]
+            # Extract bullet points or numbered items as triggers
+            for line in section_text.split('\n'):
+                line = line.strip()
+                if line.startswith('-') or line.startswith('*') or re.match(r'^\d+\.', line):
+                    triggers.append(line.lstrip('-*1234567890. '))
+
+        # Build lookup card content
+        lines = [
+            f"---",
+            f"name: {skill_name}",
+            f"category: {category or 'general'}",
+            f"description: {description[:200] if description else 'Skill for task automation'}",
+            f"---",
+            "",
+            f"# {skill_name}",
+            "",
+        ]
+
+        if triggers:
+            lines.append("## When to Use")
+            for t in triggers[:5]:  # Limit to first 5 triggers
+                lines.append(f"- {t}")
+            lines.append("")
+
+        lines.extend([
+            "## Quick Reference",
+            f"Load full skill instructions with:",
+            "",
+            "```python",
+            f"skill_view('{skill_name}')",
+            "```",
+            "",
+            f"**Category:** {category or 'general'}",
+            f"**Full path:** `~/.hermes/skills/{category if category else ''}{skill_name}/SKILL.md`",
+        ])
+
+        rl_path = rl_dir / f"{skill_name}.md"
+        rl_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        logger.info("Generated RL lookup card for skill '%s' at %s", skill_name, rl_path)
+        return rl_path
+
+    except Exception as e:
+        logger.warning("Failed to generate RL lookup card for skill '%s': %s", skill_name, e)
+        return None
 
 
 def _edit_skill(name: str, content: str) -> Dict[str, Any]:
@@ -408,6 +493,16 @@ def _edit_skill(name: str, content: str) -> Dict[str, Any]:
         if original_content is not None:
             _atomic_write_text(skill_md, original_content)
         return {"success": False, "error": scan_error}
+
+    # Regenerate RL lookup card for updated skill
+    rl_path = _generate_rl_lookup_card(name, content)
+    if rl_path:
+        return {
+            "success": True,
+            "message": f"Skill '{name}' updated.",
+            "path": str(existing["path"]),
+            "rl_page": str(rl_path),
+        }
 
     return {
         "success": True,

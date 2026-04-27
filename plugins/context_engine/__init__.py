@@ -9,6 +9,9 @@ in the repo and are always available without user installation.  Only ONE
 can be active at a time, selected via ``context.engine`` in config.yaml.
 The default engine is ``"compressor"`` (the built-in ContextCompressor).
 
+User-installed context engines can also be placed in ``$HERMES_HOME/plugins/context_engines/<name>/``
+and will survive `hermes update` automatically. Bundled takes precedence on name collisions.
+
 Usage:
     from plugins.context_engine import discover_context_engines, load_context_engine
 
@@ -30,23 +33,40 @@ logger = logging.getLogger(__name__)
 _CONTEXT_ENGINE_PLUGINS_DIR = Path(__file__).parent
 
 
-def discover_context_engines() -> List[Tuple[str, str, bool]]:
-    """Scan plugins/context_engine/ for available engines.
+def _get_user_context_engines_dir() -> Optional[Path]:
+    """Return ``$HERMES_HOME/plugins/context_engines/`` or None if unavailable."""
+    try:
+        from hermes_constants import get_hermes_home
+        d = get_hermes_home() / "plugins" / "context_engines"
+        return d if d.is_dir() else None
+    except Exception:
+        return None
+
+
+def _scan_engine_directory(engine_dir: Path, seen: set) -> List[Tuple[str, str, bool]]:
+    """Scan a directory for context engine plugins.
+
+    Args:
+        engine_dir: Directory to scan (bundled or user-installed)
+        seen: Set of already-discovered names (for deduplication)
 
     Returns list of (name, description, is_available) tuples.
-    Does NOT import the engines — just reads plugin.yaml for metadata
-    and does a lightweight availability check.
     """
     results = []
-    if not _CONTEXT_ENGINE_PLUGINS_DIR.is_dir():
+    if not engine_dir.is_dir():
         return results
 
-    for child in sorted(_CONTEXT_ENGINE_PLUGINS_DIR.iterdir()):
+    for child in sorted(engine_dir.iterdir()):
         if not child.is_dir() or child.name.startswith(("_", ".")):
+            continue
+        # Skip if already discovered (bundled takes precedence)
+        if child.name in seen:
             continue
         init_file = child / "__init__.py"
         if not init_file.exists():
             continue
+
+        seen.add(child.name)
 
         # Read description from plugin.yaml if available
         desc = ""
@@ -63,7 +83,7 @@ def discover_context_engines() -> List[Tuple[str, str, bool]]:
         # Quick availability check — try loading and calling is_available()
         available = True
         try:
-            engine = _load_engine_from_dir(child)
+            engine = _load_engine_from_dir(child, config={})
             if engine is None:
                 available = False
             elif hasattr(engine, "is_available"):
@@ -76,33 +96,83 @@ def discover_context_engines() -> List[Tuple[str, str, bool]]:
     return results
 
 
-def load_context_engine(name: str) -> Optional["ContextEngine"]:
+def discover_context_engines() -> List[Tuple[str, str, bool]]:
+    """Scan for available context engines.
+
+    Scans bundled first (``plugins/context_engine/``), then user-installed
+    (``$HERMES_HOME/plugins/context_engines/``). Bundled takes precedence
+    on name collisions.
+
+    Returns list of (name, description, is_available) tuples.
+    Does NOT import the engines — just reads plugin.yaml for metadata
+    and does a lightweight availability check.
+    """
+    seen: set = set()
+    results = []
+
+    # 1. Bundled engines (plugins/context_engine/<name>/)
+    if _CONTEXT_ENGINE_PLUGINS_DIR.is_dir():
+        results.extend(_scan_engine_directory(_CONTEXT_ENGINE_PLUGINS_DIR, seen))
+
+    # 2. User-installed engines ($HERMES_HOME/plugins/context_engines/<name>/)
+    user_dir = _get_user_context_engines_dir()
+    if user_dir:
+        results.extend(_scan_engine_directory(user_dir, seen))
+
+    return results
+
+
+def load_context_engine(name: str, config: dict = None) -> Optional["ContextEngine"]:
     """Load and return a ContextEngine instance by name.
+
+    Checks both bundled (``plugins/context_engine/<name>/``) and user-installed
+    (``$HERMES_HOME/plugins/context_engines/<name>/``) directories. Bundled takes
+    precedence on name collisions.
+
+    Args:
+        name: Engine name (e.g., "rolling_window", "lcm")
+        config: Engine-specific configuration dict (e.g., {"window_size": 20, "max_tokens": 131072})
 
     Returns None if the engine is not found or fails to load.
     """
+    # Try bundled first
     engine_dir = _CONTEXT_ENGINE_PLUGINS_DIR / name
-    if not engine_dir.is_dir():
-        logger.debug("Context engine '%s' not found in %s", name, _CONTEXT_ENGINE_PLUGINS_DIR)
-        return None
+    if engine_dir.is_dir():
+        try:
+            engine = _load_engine_from_dir(engine_dir, config=config)
+            if engine:
+                return engine
+            logger.warning("Context engine '%s' loaded but no engine instance found", name)
+        except Exception as e:
+            logger.warning("Failed to load context engine '%s': %s", name, e)
 
-    try:
-        engine = _load_engine_from_dir(engine_dir)
-        if engine:
-            return engine
-        logger.warning("Context engine '%s' loaded but no engine instance found", name)
-        return None
-    except Exception as e:
-        logger.warning("Failed to load context engine '%s': %s", name, e)
-        return None
+    # Fall back to user-installed
+    user_dir = _get_user_context_engines_dir()
+    if user_dir:
+        user_engine_dir = user_dir / name
+        if user_engine_dir.is_dir():
+            try:
+                engine = _load_engine_from_dir(user_engine_dir, config=config)
+                if engine:
+                    return engine
+                logger.warning("Context engine '%s' loaded but no engine instance found", name)
+            except Exception as e:
+                logger.warning("Failed to load context engine '%s': %s", name, e)
+
+    logger.debug("Context engine '%s' not found in bundled or user plugins", name)
+    return None
 
 
-def _load_engine_from_dir(engine_dir: Path) -> Optional["ContextEngine"]:
+def _load_engine_from_dir(engine_dir: Path, config: dict = None) -> Optional["ContextEngine"]:
     """Import an engine module and extract the ContextEngine instance.
 
     The module must have either:
     - A register(ctx) function (plugin-style) — we simulate a ctx
-    - A top-level class that extends ContextEngine — we instantiate it
+    - A top-level class that extends ContextEngine — we instantiate it with config
+    
+    Args:
+        engine_dir: Path to the engine directory
+        config: Engine-specific configuration dict passed from run_agent.py
     """
     name = engine_dir.name
     module_name = f"plugins.context_engine.{name}"
@@ -182,14 +252,15 @@ def _load_engine_from_dir(engine_dir: Path) -> Optional["ContextEngine"]:
         except Exception as e:
             logger.debug("register() failed for %s: %s", name, e)
 
-    # Fallback: find a ContextEngine subclass and instantiate it
+    # Fallback: find a ContextEngine subclass and instantiate it with config
     from agent.context_engine import ContextEngine
     for attr_name in dir(mod):
         attr = getattr(mod, attr_name, None)
         if (isinstance(attr, type) and issubclass(attr, ContextEngine)
                 and attr is not ContextEngine):
             try:
-                return attr()
+                # Pass config as kwargs to the engine constructor
+                return attr(**(config or {}))
             except Exception:
                 pass
 
