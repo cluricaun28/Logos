@@ -344,7 +344,7 @@ REFERENCE_LIBRARY_SEARCH_SCHEMA = {
 SESSION_SEARCH_SCHEMA = {
     "name": "session_search",
     "description": (
-        "Use ONLY for recent conversation context — what Patrick said/did in the last\n"
+        "Use ONLY for recent conversation context — what the user said/did in the last\n"
         "few turns. NEVER use this tool for facts, history, or analysis.\n\n"
         "STRICT BOUNDARY:\n"
         "• session_search = recent conversation memory only\n"

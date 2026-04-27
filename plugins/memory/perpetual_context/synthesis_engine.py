@@ -11,7 +11,7 @@ Architecture:
   - RLUpdateDetector: Detects stale/contradictory RL pages needing updates
 
 All operations degrade gracefully — returns original draft if LM Studio unavailable.
-NO data leaves the local system. All inference runs on Patrick's machine via LM Studio.
+NO data leaves the local system. All inference runs on your machine via LM Studio.
 """
 
 from __future__ import annotations
