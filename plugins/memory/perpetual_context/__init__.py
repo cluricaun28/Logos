@@ -766,12 +766,14 @@ class PerpetualContextProvider(MemoryProvider):
         self._last_user_message = message
 
     def on_session_end(self, messages: List[Dict[str, Any]]) -> None:
-        """Called at end of session — extract topics and relationships."""
+        """Called at end of session — extract topics and build co-occurrence edges."""
         if not self._db or not self._db._initialized:
             return
 
         try:
-            # Extract topics from recent conversation
+            # Collect all unique topics across the last 10 messages
+            all_session_topics = set()
+
             for msg in messages[-10:]:  # Last 10 messages
                 content = msg.get("content", "").lower()
                 # Topic extraction: capture meaningful technical phrases only.
@@ -791,11 +793,26 @@ class PerpetualContextProvider(MemoryProvider):
                         t = next((g for g in t if g), "")
                     flat_topics.append(t)
                 filtered_topics = [t for t in flat_topics if len(t) > 3 and t.lower() not in _STOPWORDS]
+
+                # Add topics to DB and collect unique set for co-occurrence
                 for topic in filtered_topics[:3]:  # Max 3 topics per message (after filtering)
+                    topic_stripped = topic.strip()
                     self._db.add_topic(
                         session_id=self._session_id or "",
-                        topic_name=topic.strip(),
+                        topic_name=topic_stripped,
                         confidence=0.6,
+                    )
+                    all_session_topics.add(topic_stripped.lower())
+
+            # Build co-occurrence edges between all unique topic pairs in this session
+            unique_topics = sorted(all_session_topics)  # Sort for deterministic ordering
+            for i, t1 in enumerate(unique_topics):
+                for t2 in unique_topics[i + 1:]:
+                    self._db.increment_relationship(
+                        session_id=self._session_id or "",
+                        source_entity=t1,
+                        target_entity=t2,
+                        delta=0.1,  # Small increment — grows over repeated co-occurrence
                     )
 
         except Exception as e:

@@ -1684,6 +1684,70 @@ class PerpetualContextDB:
             logger.error("Failed to add relationship: %s", e)
             return None
 
+    def increment_relationship(
+        self,
+        session_id: str,
+        source_entity: str,
+        target_entity: str,
+        delta: float = 0.1,
+    ) -> Optional[int]:
+        """Increment relationship strength or create new one (UPSERT).
+
+        If a relationship already exists for this source/target pair, increment its
+        strength by `delta` (capped at 1.0). Otherwise insert a new row with initial
+        strength equal to `delta`.
+
+        Args:
+            session_id: The conversation session ID
+            source_entity: Source entity/topic name
+            target_entity: Target entity/topic name
+            delta: Strength increment per co-occurrence (default 0.1)
+
+        Returns:
+            Relationship ID if created/updated, None on error
+        """
+        if not self._initialized or not self._conn:
+            return None
+
+        # Normalize ordering so A↔B and B↔A are the same edge
+        s, t = (source_entity.lower(), target_entity.lower())
+        if s > t:
+            s, t = t, s
+
+        try:
+            with self._lock:
+                # Check if relationship already exists (either direction)
+                cursor = self._conn.execute(
+                    """SELECT id, strength FROM relationships
+                       WHERE (source_entity = ? AND target_entity = ?)
+                          OR (source_entity = ? AND target_entity = ?)""",
+                    (s, t, t, s),
+                )
+                existing = cursor.fetchone()
+
+                if existing:
+                    rel_id, current_strength = existing
+                    new_strength = min(1.0, current_strength + delta)
+                    self._conn.execute(
+                        "UPDATE relationships SET strength = ? WHERE id = ?",
+                        (new_strength, rel_id),
+                    )
+                    self._conn.commit()
+                    return rel_id
+                else:
+                    cursor = self._conn.execute(
+                        """INSERT INTO relationships (session_id, source_entity, target_entity,
+                           relationship_type, strength) VALUES (?, ?, ?, 'related', ?)""",
+                        (session_id, s, t, delta),
+                    )
+                    rel_id = cursor.lastrowid
+                    self._conn.commit()
+                    return rel_id
+
+        except Exception as e:
+            logger.error("Failed to increment relationship (%s ↔ %s): %s", source_entity, target_entity, e)
+            return None
+
     def get_relationships(
         self, 
         session_id: str = None,
