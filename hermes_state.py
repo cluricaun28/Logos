@@ -31,7 +31,11 @@ T = TypeVar("T")
 
 DEFAULT_DB_PATH = get_hermes_home() / "state.db"
 
+<<<<<<< HEAD
 SCHEMA_VERSION = 9
+=======
+SCHEMA_VERSION = 11
+>>>>>>> 8d76d69d4 (fix(state): repair FTS5 delete trigger and add v11 migration for tool-call indexing)
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -110,12 +114,50 @@ CREATE TRIGGER IF NOT EXISTS messages_fts_insert AFTER INSERT ON messages BEGIN
 END;
 
 CREATE TRIGGER IF NOT EXISTS messages_fts_delete AFTER DELETE ON messages BEGIN
-    INSERT INTO messages_fts(messages_fts, rowid, content) VALUES('delete', old.id, old.content);
+    DELETE FROM messages_fts WHERE rowid = old.id;
 END;
 
 CREATE TRIGGER IF NOT EXISTS messages_fts_update AFTER UPDATE ON messages BEGIN
+<<<<<<< HEAD
     INSERT INTO messages_fts(messages_fts, rowid, content) VALUES('delete', old.id, old.content);
     INSERT INTO messages_fts(rowid, content) VALUES (new.id, new.content);
+=======
+    DELETE FROM messages_fts WHERE rowid = old.id;
+    INSERT INTO messages_fts(rowid, content) VALUES (
+        new.id,
+        COALESCE(new.content, '') || ' ' || COALESCE(new.tool_name, '') || ' ' || COALESCE(new.tool_calls, '')
+    );
+END;
+"""
+
+# Trigram FTS5 table for CJK substring search.  The default unicode61
+# tokenizer splits CJK characters into individual tokens, breaking phrase
+# matching.  The trigram tokenizer creates overlapping 3-byte sequences so
+# substring queries work natively for any script (CJK, Thai, etc.).
+FTS_TRIGRAM_SQL = """
+CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts_trigram USING fts5(
+    content,
+    tokenize='trigram'
+);
+
+CREATE TRIGGER IF NOT EXISTS messages_fts_trigram_insert AFTER INSERT ON messages BEGIN
+    INSERT INTO messages_fts_trigram(rowid, content) VALUES (
+        new.id,
+        COALESCE(new.content, '') || ' ' || COALESCE(new.tool_name, '') || ' ' || COALESCE(new.tool_calls, '')
+    );
+END;
+
+CREATE TRIGGER IF NOT EXISTS messages_fts_trigram_delete AFTER DELETE ON messages BEGIN
+    DELETE FROM messages_fts_trigram WHERE rowid = old.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS messages_fts_trigram_update AFTER UPDATE ON messages BEGIN
+    DELETE FROM messages_fts_trigram WHERE rowid = old.id;
+    INSERT INTO messages_fts_trigram(rowid, content) VALUES (
+        new.id,
+        COALESCE(new.content, '') || ' ' || COALESCE(new.tool_name, '') || ' ' || COALESCE(new.tool_calls, '')
+    );
+>>>>>>> 8d76d69d4 (fix(state): repair FTS5 delete trigger and add v11 migration for tool-call indexing)
 END;
 """
 
@@ -291,6 +333,7 @@ class SessionDB:
                         "CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_title_unique "
                         "ON sessions(title) WHERE title IS NOT NULL"
                     )
+<<<<<<< HEAD
                 except sqlite3.OperationalError:
                     pass  # Index already exists
                 cursor.execute("UPDATE schema_version SET version = 4")
@@ -366,6 +409,58 @@ class SessionDB:
                 except sqlite3.OperationalError:
                     pass  # Column already exists
                 cursor.execute("UPDATE schema_version SET version = 9")
+=======
+            if current_version < 11:
+                # v11: re-index FTS5 tables to cover tool_name + tool_calls and
+                # switch from external-content to inline mode. Existing DBs have
+                # old-schema FTS tables and triggers that IF NOT EXISTS won't
+                # overwrite, so we drop them explicitly and let the post-migration
+                # existence checks (below) recreate them from FTS_SQL /
+                # FTS_TRIGRAM_SQL, then backfill every message row. Fixes #16751.
+                for _trig in (
+                    "messages_fts_insert",
+                    "messages_fts_delete",
+                    "messages_fts_update",
+                    "messages_fts_trigram_insert",
+                    "messages_fts_trigram_delete",
+                    "messages_fts_trigram_update",
+                ):
+                    try:
+                        cursor.execute(f"DROP TRIGGER IF EXISTS {_trig}")
+                    except sqlite3.OperationalError:
+                        pass
+                for _tbl in ("messages_fts", "messages_fts_trigram"):
+                    try:
+                        cursor.execute(f"DROP TABLE IF EXISTS {_tbl}")
+                    except sqlite3.OperationalError:
+                        pass
+                # Recreate virtual tables + triggers with the new inline-mode
+                # schema that indexes content || tool_name || tool_calls.
+                cursor.executescript(FTS_SQL)
+                cursor.executescript(FTS_TRIGRAM_SQL)
+                # Backfill both indexes from every existing messages row.
+                cursor.execute(
+                    "INSERT INTO messages_fts(rowid, content) "
+                    "SELECT id, "
+                    "COALESCE(content, '') || ' ' || "
+                    "COALESCE(tool_name, '') || ' ' || "
+                    "COALESCE(tool_calls, '') "
+                    "FROM messages"
+                )
+                cursor.execute(
+                    "INSERT INTO messages_fts_trigram(rowid, content) "
+                    "SELECT id, "
+                    "COALESCE(content, '') || ' ' || "
+                    "COALESCE(tool_name, '') || ' ' || "
+                    "COALESCE(tool_calls, '') "
+                    "FROM messages"
+                )
+            if current_version < SCHEMA_VERSION:
+                cursor.execute(
+                    "UPDATE schema_version SET version = ?",
+                    (SCHEMA_VERSION,),
+                )
+>>>>>>> 8d76d69d4 (fix(state): repair FTS5 delete trigger and add v11 migration for tool-call indexing)
 
         # Unique title index — always ensure it exists (safe to run after migrations
         # since the title column is guaranteed to exist at this point)
