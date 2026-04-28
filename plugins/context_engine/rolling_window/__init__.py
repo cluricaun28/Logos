@@ -47,7 +47,7 @@ class RollingWindowContextEngine(ContextEngine):
     # Compaction parameters (override defaults as needed)
     threshold_percent: float = 0.75
     protect_first_n: int = 3
-    protect_last_n: int = 6
+    protect_last_n: int = 30
 
     def __init__(self, **kwargs):
         super().__init__()

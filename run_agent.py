@@ -12056,31 +12056,23 @@ class AIAgent:
                     if _tc_names == {"execute_code"}:
                         self.iteration_budget.refund()
                     
-                    # Use real token counts from the API response to decide
-                    # compression.  prompt_tokens + completion_tokens is the
-                    # actual context size the provider reported plus the
-                    # assistant turn — a tight lower bound for the next prompt.
-                    # Tool results appended above aren't counted yet, but the
-                    # threshold (default 50%) leaves ample headroom; if tool
-                    # results push past it, the next API call will report the
-                    # real total and trigger compression then.
+                    # Idle-time compression: defer compaction until the next
+                    # turn starts (preflight before API call) rather than firing
+                    # mid-tool-call-loop.  This ensures the user's latest message
+                    # is already in the messages list and protected by
+                    # protect_last_n when the window is rebuilt.  (#2026-04-27)
                     #
-                    # If last_prompt_tokens is 0 (stale after API disconnect
-                    # or provider returned no usage data), fall back to rough
-                    # estimate to avoid missing compression.  Without this,
-                    # a session can grow unbounded after disconnects because
-                    # should_compress(0) never fires.  (#2153)
+                    # Token tracking still happens here so should_compress() has
+                    # fresh data on the next preflight check.
                     _compressor = self.context_compressor
                     if _compressor.last_prompt_tokens > 0:
-                        # Only use prompt_tokens — completion/reasoning
-                        # tokens don't consume context window space.
-                        # Thinking models (GLM-5.1, QwQ, DeepSeek R1)
-                        # inflate completion_tokens with reasoning,
-                        # causing premature compression.  (#12026)
                         _real_tokens = _compressor.last_prompt_tokens
                     else:
                         _real_tokens = estimate_messages_tokens_rough(messages)
 
+                    # Preflight compression: fire at start of next API call
+                    # instead of mid-tool-call-loop.  User's message is already
+                    # in DB and protected by protect_last_n.
                     if self.compression_enabled and _compressor.should_compress(_real_tokens):
                         self._safe_print("  ⟳ compacting context…")
                         messages, active_system_prompt = self._compress_context(
@@ -12088,9 +12080,6 @@ class AIAgent:
                             approx_tokens=self.context_compressor.last_prompt_tokens,
                             task_id=effective_task_id,
                         )
-                        # Compression created a new session — clear history so
-                        # _flush_messages_to_session_db writes compressed messages
-                        # to the new session (see preflight compression comment).
                         conversation_history = None
                     
                     # Save session log incrementally (so progress is visible even if interrupted)
