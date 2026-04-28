@@ -47,6 +47,7 @@ AUTHOR_MAP = {
     "focusflow.app.help@gmail.com": "yes999zc",
     "343873859@qq.com": "DrStrangerUJN",
     "uzmpsk.dilekakbas@gmail.com": "dlkakbs",
+    "beliefanx@gmail.com": "BeliefanX",
     "jefferson@heimdallstrategy.com": "Mind-Dragon",
     "130918800+devorun@users.noreply.github.com": "devorun",
     "sonoyuncudmr@gmail.com": "Sonoyunchu",
