@@ -21,20 +21,29 @@ Full plugin suite providing perpetual memory tools to the agent:
 ### 3. Rolling Window Context Archiving (`plugins/context_engine/rolling_window/`)
 Replaces passive context retention with active archiving: compress completed conversation turns to permanent storage while keeping the working window lean for deep present-moment reasoning. State continuity through retrieval, not retention.
 
-### 4. Dataset Export Utilities (`agent/export_dataset.py`)
-Export conversation trajectories for DPO training data extraction and analysis.
+### Modified Core Files (7 files)
 
-### Modified Core Files (8 files)
-| File | Change |
-|------|--------|
-| `run_agent.py` | Context Bridge injection at archival boundary, rolling window integration |
-| `agent/prompt_builder.py` | System prompt modifications for perpetual memory context |
-| `plugins/context_engine/__init__.py` | Architecture changes for rolling window archiving |
-| `acp_adapter/server.py` | ACP server customizations |
-| `cli.py` | CLI commands for perpetual memory operations |
-| `model_tools.py` | Local inference priority routing |
-| `tools/skill_manager_tool.py` | Fork-aware skill paths |
-| `.gitignore` | Patterns for custom plugin artifacts |
+These are the upstream Hermes Agent files we changed. The diffs are committed in this repo — you can see exactly what changed with `git diff upstream/main -- <file>`. Key changes:
+
+| File | What Changed | Why It Matters |
+|------|-------------|----------------|
+| `run_agent.py` | Renamed "compression" → "archiving", added Context Bridge injection at archival boundary, selective tool loading | Enables rolling window + perpetual memory integration. Config key is now `archiving:` instead of `compression:` |
+| `agent/prompt_builder.py` | Skills section changed from mandatory to on-demand loading with validation | Prevents context bloat — only loads skills actually relevant to the task |
+| `plugins/context_engine/__init__.py` | Added rolling window engine loader with config passthrough | Pluggable context archiving strategy |
+| `model_tools.py` | Added `get_selective_tool_definitions()` and deferred tools index | Essential tools loaded inline, deferred tools listed for RL lookup — saves context tokens |
+| `cli.py` | Perpetual memory CLI commands (`hermes pm search`, etc.) | Query your conversation history from the terminal |
+| `tools/skill_manager_tool.py` | Fork-aware skill path resolution | Skills find custom categories correctly |
+| `.gitignore` | Patterns for plugin artifacts and cache files | Keeps git clean |
+
+**Config note:** The config key changed from `compression:` to `archiving:`. Your `config.yaml` should use:
+```yaml
+archiving:
+  enabled: true
+  threshold: 0.50
+  target_ratio: 0.20
+  protect_last_n: 20
+```
+(Old `compression:` key still works for backward compatibility.)
 
 ---
 

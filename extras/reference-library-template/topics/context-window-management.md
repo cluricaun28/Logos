@@ -1,6 +1,6 @@
 # Context Window Management for LLM Agents
 
-**Last updated:** 2026-04-26
+**Last updated:** YYYY-MM-DD
 **Status:** Research synthesis + practical recommendations
 
 ---

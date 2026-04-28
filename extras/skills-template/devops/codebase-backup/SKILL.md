@@ -3,8 +3,8 @@ name: codebase-backup
 description: Versioned backup system for project directories with git-based snapshots and rsync mirrors.
 trigger_keywords: [backup, snapshot, versioned, archive, mirror, rsync, preserve]
 category: devops
-created: 2026-04-27
-last_updated: 2026-04-27
+created: YYYY-MM-DD
+last_updated: YYYY-MM-DD
 confidence: high
 ---
 

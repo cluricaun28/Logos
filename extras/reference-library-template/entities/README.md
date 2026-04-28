@@ -35,8 +35,8 @@ category: publication
 ownership: "Owner name"
 funders: ["Subscription revenue", "Advertising"]
 institutional_ties: ["Parent company"]
-first_seen: 2026-01-01
-last_updated: 2026-01-01
+first_seen: YYYY-MM-DD
+last_updated: YYYY-MM-DD
 credibility_scores:
   technology: medium
   politics: low
