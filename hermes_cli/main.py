@@ -1765,11 +1765,8 @@ def select_provider_and_model(args=None):
         "arcee",
         "nvidia",
         "ollama-cloud",
-<<<<<<< HEAD
-=======
         "tencent-tokenhub",
         "lmstudio",
->>>>>>> 214ca943a (feat(agent): add lmstudio integration)
     ):
         _model_flow_api_key_provider(config, selected_provider, current_model)
 
