@@ -379,8 +379,10 @@ class PerpetualContextProvider(MemoryProvider):
         self._current_depth: str = "moderate"
         self._prefetch_queue: List[Dict[str, Any]] = []
         self._lock = threading.Lock()
-        # Prefetch injection toggle — disabled by default to avoid noise
-        self._prefetch_enabled: bool = True
+        # Prefetch injection toggle — disabled by default to avoid injecting
+        # irrelevant noise into every turn. The agent has tools (perpetual_search,
+        # reference_library_search) and knows when to use them from the system prompt.
+        self._prefetch_enabled: bool = False
         # SRP-compliant sub-components — instantiated in initialize() once DB is ready
         self._extraction: Optional[ExtractionEngine] = None
         self._tools: Optional[ToolHandler] = None
