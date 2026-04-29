@@ -379,6 +379,8 @@ class PerpetualContextProvider(MemoryProvider):
         self._current_depth: str = "moderate"
         self._prefetch_queue: List[Dict[str, Any]] = []
         self._lock = threading.Lock()
+        # Prefetch injection toggle — disabled by default to avoid noise
+        self._prefetch_enabled: bool = True
         # SRP-compliant sub-components — instantiated in initialize() once DB is ready
         self._extraction: Optional[ExtractionEngine] = None
         self._tools: Optional[ToolHandler] = None
@@ -444,9 +446,26 @@ class PerpetualContextProvider(MemoryProvider):
         """
         self._session_id = session_id
 
-        # Get config
-        config = kwargs.get("config", {})
-        pc_config = config.get("perpetual_context", {}) if isinstance(config, dict) else {}
+        # Get config — try kwargs first, fall back to reading config.yaml directly
+        pc_config = {}
+        _cfg_from_kwargs = kwargs.get("config", {})
+        if isinstance(_cfg_from_kwargs, dict):
+            pc_config = _cfg_from_kwargs.get("perpetual_context", {}) or {}
+
+        # Fallback: read config.yaml directly if not passed via kwargs
+        if not pc_config and "hermes_home" in kwargs:
+            try:
+                import yaml as _yaml
+                cfg_path = os.path.join(kwargs["hermes_home"], "config.yaml")
+                if os.path.exists(cfg_path):
+                    with open(cfg_path) as _f:
+                        _full_cfg = _yaml.safe_load(_f) or {}
+                    pc_config = (_full_cfg.get("memory", {}) or {}).get("perpetual_context", {}) or {}
+            except Exception:
+                pass
+
+        # Prefetch injection toggle — disable to stop auto-injecting context into every turn
+        self._prefetch_enabled = pc_config.get("prefetch_enabled", True)
 
         # Determine DB path — always resolve through ~/.hermes/ first,
         # falling back to hermes_home from kwargs (which may be the project dir).
@@ -510,6 +529,9 @@ class PerpetualContextProvider(MemoryProvider):
         Returns formatted text to inject as context, with source attribution
         and gap flags for Phase 2 when local recall is insufficient.
         """
+        # Respect prefetch_enabled config — return empty if disabled
+        if not self._prefetch_enabled:
+            return ""
         if not self._db or not self._db._initialized:
             return ""
 
