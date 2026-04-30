@@ -21,6 +21,11 @@ Full plugin suite providing perpetual memory tools to the agent:
 ### 3. Rolling Window Context Archiving (`plugins/context_engine/rolling_window/`)
 Replaces passive context retention with active archiving: compress completed conversation turns to permanent storage while keeping the working window lean for deep present-moment reasoning. State continuity through retrieval, not retention.
 
+Key components and optimizations:
+- **`task_tagger.py`** — Task detection engine with precompiled regex patterns (module-level constants), 10-message detection window, and role-aware outcome extraction
+- **`task_pruner.py`** — O(n) pruning via index-based lookups instead of list slicing; deduped summary logic through shared `build_task_summary()`
+- **`test_task_pruning.py`** — Full test suite covering task tagging (10 tests), pruning strategies (8 tests), and edge cases (4 tests) = 22 total
+
 ### Modified Core Files (7 files)
 
 These are the upstream Hermes Agent files we changed. The diffs are committed in this repo — you can see exactly what changed with `git diff upstream/main -- <file>`. Key changes:
@@ -29,6 +34,7 @@ These are the upstream Hermes Agent files we changed. The diffs are committed in
 |------|-------------|----------------|
 | `run_agent.py` | Renamed "compression" → "archiving", added Context Bridge injection at archival boundary, selective tool loading | Enables rolling window + perpetual memory integration. Config key is now `archiving:` instead of `compression:` |
 | `agent/prompt_builder.py` | Skills section changed from mandatory to on-demand loading with validation | Prevents context bloat — only loads skills actually relevant to the task |
+| `agent/context_engine.py` | Integrated rolling window engine, context bridge injection at archival boundary | Core archiving logic that preserves active tasks across compression boundaries |
 | `plugins/context_engine/__init__.py` | Added rolling window engine loader with config passthrough | Pluggable context archiving strategy |
 | `model_tools.py` | Added `get_selective_tool_definitions()` and deferred tools index | Essential tools loaded inline, deferred tools listed for RL lookup — saves context tokens |
 | `cli.py` | Perpetual memory CLI commands (`hermes pm search`, etc.) | Query your conversation history from the terminal |
