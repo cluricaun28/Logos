@@ -64,9 +64,9 @@ async def test_compress_command_reports_noop_without_success_banner():
     agent_instance = MagicMock()
     agent_instance.shutdown_memory_provider = MagicMock()
     agent_instance.close = MagicMock()
-    agent_instance.context_compressor.has_content_to_compress.return_value = True
+    agent_instance.context_archiver.has_content_to_compress.return_value = True
     agent_instance.session_id = "sess-1"
-    agent_instance._compress_context.return_value = (list(history), "")
+    agent_instance._archive_context.return_value = (list(history), "")
 
     def _estimate(messages):
         assert messages == history
@@ -99,9 +99,9 @@ async def test_compress_command_explains_when_token_estimate_rises():
     agent_instance = MagicMock()
     agent_instance.shutdown_memory_provider = MagicMock()
     agent_instance.close = MagicMock()
-    agent_instance.context_compressor.has_content_to_compress.return_value = True
+    agent_instance.context_archiver.has_content_to_compress.return_value = True
     agent_instance.session_id = "sess-1"
-    agent_instance._compress_context.return_value = (compressed, "")
+    agent_instance._archive_context.return_value = (compressed, "")
 
     def _estimate(messages):
         if messages == history:
@@ -143,16 +143,16 @@ async def test_compress_command_appends_warning_when_summary_generation_fails():
     agent_instance = MagicMock()
     agent_instance.shutdown_memory_provider = MagicMock()
     agent_instance.close = MagicMock()
-    agent_instance.context_compressor.has_content_to_compress.return_value = True
+    agent_instance.context_archiver.has_content_to_compress.return_value = True
     # Simulate summary-generation failure: fallback flag set, dropped count
     # populated, error string captured.
-    agent_instance.context_compressor._last_summary_fallback_used = True
-    agent_instance.context_compressor._last_summary_dropped_count = 7
-    agent_instance.context_compressor._last_summary_error = (
+    agent_instance.context_archiver._last_summary_fallback_used = True
+    agent_instance.context_archiver._last_summary_dropped_count = 7
+    agent_instance.context_archiver._last_summary_error = (
         "404 model not found: gemini-3-flash-preview"
     )
     agent_instance.session_id = "sess-1"
-    agent_instance._compress_context.return_value = (compressed, "")
+    agent_instance._archive_context.return_value = (compressed, "")
 
     def _estimate(messages):
         if messages == history:
@@ -200,20 +200,20 @@ async def test_compress_command_surfaces_aux_model_failure_even_when_recovered()
     agent_instance = MagicMock()
     agent_instance.shutdown_memory_provider = MagicMock()
     agent_instance.close = MagicMock()
-    agent_instance.context_compressor.has_content_to_compress.return_value = True
+    agent_instance.context_archiver.has_content_to_compress.return_value = True
     # Fallback placeholder was NOT used — recovery succeeded.
-    agent_instance.context_compressor._last_summary_fallback_used = False
-    agent_instance.context_compressor._last_summary_dropped_count = 0
-    agent_instance.context_compressor._last_summary_error = None
+    agent_instance.context_archiver._last_summary_fallback_used = False
+    agent_instance.context_archiver._last_summary_dropped_count = 0
+    agent_instance.context_archiver._last_summary_error = None
     # But the configured aux model DID fail before the retry succeeded.
-    agent_instance.context_compressor._last_aux_model_failure_model = (
+    agent_instance.context_archiver._last_aux_model_failure_model = (
         "gemini-3-flash-preview"
     )
-    agent_instance.context_compressor._last_aux_model_failure_error = (
+    agent_instance.context_archiver._last_aux_model_failure_error = (
         "404 model not found: gemini-3-flash-preview"
     )
     agent_instance.session_id = "sess-1"
-    agent_instance._compress_context.return_value = (compressed, "")
+    agent_instance._archive_context.return_value = (compressed, "")
 
     def _estimate(messages):
         if messages == history:

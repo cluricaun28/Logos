@@ -2239,9 +2239,9 @@ class DiscordAdapter(BasePlatformAdapter):
         async def slash_steer(interaction: discord.Interaction, prompt: str):
             await self._run_simple_slash(interaction, f"/steer {prompt}".strip())
 
-        @tree.command(name="compress", description="Compress conversation context")
-        async def slash_compress(interaction: discord.Interaction):
-            await self._run_simple_slash(interaction, "/compress")
+        @tree.command(name="archive", description="Archive conversation context")
+        async def slash_archive(interaction: discord.Interaction):
+            await self._run_simple_slash(interaction, "/archive")
 
         @tree.command(name="title", description="Set or show the session title")
         @discord.app_commands.describe(name="Session title. Leave empty to show current.")

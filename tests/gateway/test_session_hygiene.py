@@ -315,8 +315,8 @@ async def test_session_hygiene_messages_stay_in_originating_topic(monkeypatch, t
             self.close = MagicMock()
             type(self).last_instance = self
 
-        def _compress_context(self, messages, *_args, **_kwargs):
-            # Simulate real _compress_context: create a new session_id
+        def _archive_context(self, messages, *_args, **_kwargs):
+            # Simulate real _archive_context: create a new session_id
             self.session_id = f"{self.session_id}_compressed"
             return ([{"role": "assistant", "content": "compressed"}], None)
 
@@ -423,7 +423,7 @@ async def test_session_hygiene_warns_user_when_summary_generation_fails(monkeypa
             )
             type(self).last_instance = self
 
-        def _compress_context(self, messages, *_args, **_kwargs):
+        def _archive_context(self, messages, *_args, **_kwargs):
             self.session_id = f"{self.session_id}_compressed"
             return ([{"role": "assistant", "content": "compressed"}], None)
 
@@ -542,7 +542,7 @@ async def test_session_hygiene_informs_user_when_aux_model_fails_but_recovers(mo
             )
             type(self).last_instance = self
 
-        def _compress_context(self, messages, *_args, **_kwargs):
+        def _archive_context(self, messages, *_args, **_kwargs):
             self.session_id = f"{self.session_id}_compressed"
             return ([{"role": "assistant", "content": "real summary"}], None)
 
@@ -661,7 +661,7 @@ async def test_session_hygiene_honors_configurable_hard_message_limit(
             self.close = MagicMock()
             type(self).last_instance = self
 
-        def _compress_context(self, messages, *_args, **_kwargs):
+        def _archive_context(self, messages, *_args, **_kwargs):
             self.session_id = f"{self.session_id}_compressed"
             return ([{"role": "assistant", "content": "compressed"}], None)
 
@@ -774,7 +774,7 @@ async def test_session_hygiene_default_hard_message_limit_does_not_fire_at_12_me
             self.shutdown_memory_provider = MagicMock()
             self.close = MagicMock()
 
-        def _compress_context(self, messages, *_args, **_kwargs):
+        def _archive_context(self, messages, *_args, **_kwargs):
             return ([{"role": "assistant", "content": "compressed"}], None)
 
     fake_run_agent = types.ModuleType("run_agent")

@@ -82,6 +82,7 @@ def _make_413_error(*, use_status_code=True, message="Request entity too large")
 def agent():
     with (
         patch("run_agent.get_tool_definitions", return_value=_make_tool_defs("web_search")),
+        patch("run_agent.get_selective_tool_definitions", return_value=_make_tool_defs("web_search")),
         patch("run_agent.check_toolset_requirements", return_value={}),
         patch("run_agent.OpenAI"),
     ):
@@ -109,7 +110,7 @@ class TestHTTP413Compression:
     """413 errors should trigger compression, not abort as generic 4xx."""
 
     def test_413_triggers_compression(self, agent):
-        """A 413 error should call _compress_context and retry, not abort."""
+        """A 413 error should call _archive_context and retry, not abort."""
         # First call raises 413; second call succeeds after compression.
         err_413 = _make_413_error()
         ok_resp = _mock_response(content="Success after compression", finish_reason="stop")
@@ -122,7 +123,7 @@ class TestHTTP413Compression:
         ]
 
         with (
-            patch.object(agent, "_compress_context") as mock_compress,
+            patch.object(agent, "_archive_context") as mock_compress,
             patch.object(agent, "_persist_session"),
             patch.object(agent, "_save_trajectory"),
             patch.object(agent, "_cleanup_task_resources"),
@@ -150,7 +151,7 @@ class TestHTTP413Compression:
         ]
 
         with (
-            patch.object(agent, "_compress_context") as mock_compress,
+            patch.object(agent, "_archive_context") as mock_compress,
             patch.object(agent, "_persist_session"),
             patch.object(agent, "_save_trajectory"),
             patch.object(agent, "_cleanup_task_resources"),
@@ -177,7 +178,7 @@ class TestHTTP413Compression:
         ]
 
         with (
-            patch.object(agent, "_compress_context") as mock_compress,
+            patch.object(agent, "_archive_context") as mock_compress,
             patch.object(agent, "_persist_session"),
             patch.object(agent, "_save_trajectory"),
             patch.object(agent, "_cleanup_task_resources"),
@@ -194,7 +195,7 @@ class TestHTTP413Compression:
     def test_413_clears_conversation_history_on_persist(self, agent):
         """After 413-triggered compression, _persist_session must receive None history.
 
-        Bug: _compress_context() creates a new session and resets _last_flushed_db_idx=0,
+        Bug: _archive_context() creates a new session and resets _last_flushed_db_idx=0,
         but if conversation_history still holds the original (pre-compression) list,
         _flush_messages_to_session_db computes flush_from = max(len(history), 0) which
         exceeds len(compressed_messages), so messages[flush_from:] is empty and nothing
@@ -212,7 +213,7 @@ class TestHTTP413Compression:
         persist_calls = []
 
         with (
-            patch.object(agent, "_compress_context") as mock_compress,
+            patch.object(agent, "_archive_context") as mock_compress,
             patch.object(
                 agent, "_persist_session",
                 side_effect=lambda msgs, hist: persist_calls.append(hist),
@@ -251,7 +252,7 @@ class TestHTTP413Compression:
         persist_calls = []
 
         with (
-            patch.object(agent, "_compress_context") as mock_compress,
+            patch.object(agent, "_archive_context") as mock_compress,
             patch.object(
                 agent, "_persist_session",
                 side_effect=lambda msgs, hist: persist_calls.append(hist),
@@ -294,7 +295,7 @@ class TestHTTP413Compression:
         ]
 
         with (
-            patch.object(agent, "_compress_context") as mock_compress,
+            patch.object(agent, "_archive_context") as mock_compress,
             patch.object(agent, "_persist_session"),
             patch.object(agent, "_save_trajectory"),
             patch.object(agent, "_cleanup_task_resources"),
@@ -326,7 +327,7 @@ class TestHTTP413Compression:
         ]
 
         with (
-            patch.object(agent, "_compress_context") as mock_compress,
+            patch.object(agent, "_archive_context") as mock_compress,
             patch.object(agent, "_persist_session"),
             patch.object(agent, "_save_trajectory"),
             patch.object(agent, "_cleanup_task_resources"),
@@ -366,7 +367,7 @@ class TestHTTP413Compression:
         ]
 
         with (
-            patch.object(agent, "_compress_context") as mock_compress,
+            patch.object(agent, "_archive_context") as mock_compress,
             patch.object(agent, "_persist_session"),
             patch.object(agent, "_save_trajectory"),
             patch.object(agent, "_cleanup_task_resources"),
@@ -395,7 +396,7 @@ class TestHTTP413Compression:
         agent.client.chat.completions.create.side_effect = [err_413]
 
         with (
-            patch.object(agent, "_compress_context") as mock_compress,
+            patch.object(agent, "_archive_context") as mock_compress,
             patch.object(agent, "_persist_session"),
             patch.object(agent, "_save_trajectory"),
             patch.object(agent, "_cleanup_task_resources"),
@@ -434,7 +435,7 @@ class TestPreflightCompression:
         agent.client.chat.completions.create.side_effect = [ok_resp]
 
         with (
-            patch.object(agent, "_compress_context") as mock_compress,
+            patch.object(agent, "_archive_context") as mock_compress,
             patch.object(agent, "_persist_session"),
             patch.object(agent, "_save_trajectory"),
             patch.object(agent, "_cleanup_task_resources"),
@@ -477,7 +478,7 @@ class TestPreflightCompression:
         agent.client.chat.completions.create.side_effect = [ok_resp]
 
         with (
-            patch.object(agent, "_compress_context") as mock_compress,
+            patch.object(agent, "_archive_context") as mock_compress,
             patch.object(agent, "_persist_session"),
             patch.object(agent, "_save_trajectory"),
             patch.object(agent, "_cleanup_task_resources"),
@@ -502,7 +503,7 @@ class TestPreflightCompression:
         agent.client.chat.completions.create.side_effect = [ok_resp]
 
         with (
-            patch.object(agent, "_compress_context") as mock_compress,
+            patch.object(agent, "_archive_context") as mock_compress,
             patch.object(agent, "_persist_session"),
             patch.object(agent, "_save_trajectory"),
             patch.object(agent, "_cleanup_task_resources"),
@@ -517,11 +518,11 @@ class TestToolResultPreflightCompression:
 
     def test_large_tool_results_trigger_compression(self, agent):
         """When tool results push estimated tokens past threshold, compress before next call."""
-        agent.compression_enabled = True
-        agent.context_compressor.context_length = 200_000
-        agent.context_compressor.threshold_tokens = 130_000  # below the 135k reported usage
-        agent.context_compressor.last_prompt_tokens = 130_000
-        agent.context_compressor.last_completion_tokens = 5_000
+        agent.archiving_enabled = True
+        agent.context_archiver.context_length = 200_000
+        agent.context_archiver.threshold_tokens = 130_000  # below the 135k reported usage
+        agent.context_archiver.last_prompt_tokens = 130_000
+        agent.context_archiver.last_completion_tokens = 5_000
 
         tc = SimpleNamespace(
             id="tc1", type="function",
@@ -540,7 +541,7 @@ class TestToolResultPreflightCompression:
 
         with (
             patch("run_agent.handle_function_call", return_value=large_result),
-            patch.object(agent, "_compress_context") as mock_compress,
+            patch.object(agent, "_archive_context") as mock_compress,
             patch.object(agent, "_persist_session"),
             patch.object(agent, "_save_trajectory"),
             patch.object(agent, "_cleanup_task_resources"),
@@ -568,7 +569,7 @@ class TestToolResultPreflightCompression:
         ]
 
         with (
-            patch.object(agent, "_compress_context") as mock_compress,
+            patch.object(agent, "_archive_context") as mock_compress,
             patch.object(agent, "_persist_session"),
             patch.object(agent, "_save_trajectory"),
             patch.object(agent, "_cleanup_task_resources"),

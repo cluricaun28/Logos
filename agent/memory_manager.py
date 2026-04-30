@@ -80,6 +80,92 @@ def build_memory_context_block(raw_context: str) -> str:
     )
 
 
+class StreamingContextScrubber:
+    """Stateful scrubber for streaming deltas that may split <memory-context> spans.
+
+    The one-shot ``sanitize_context()`` regex fails when tags arrive in separate
+    stream chunks.  This class tracks span state across feed() calls so that
+    payload inside unclosed spans is never emitted to the UI.
+
+    Usage:
+        scrubber = StreamingContextScrubber()
+        for delta in stream:
+            chunk = scrubber.feed(delta)
+            # send chunk to UI immediately
+        remainder = scrubber.flush()  # release held-back tail or drop if in span
+    """
+
+    _OPEN = '<memory-context>'       # 16 chars
+    _CLOSE = '</memory-context>'     # 17 chars
+    _OPEN_LEN = len(_OPEN)
+    _CLOSE_LEN = len(_CLOSE)
+    # Max chars to hold back at chunk boundaries so split tags aren't missed.
+    # A tag can start with any prefix up to max_len-1 before the next delta completes it.
+    _HOLD_BACK = max(_OPEN_LEN, _CLOSE_LEN) - 1  # 16
+
+    def __init__(self):
+        self._buffer = ''
+        self._in_span = False
+
+    def feed(self, text: str) -> str:
+        """Process a streaming delta. Return the clean portion safe for UI."""
+        if not text:
+            return ''
+        self._buffer += text
+        emitted = []
+        lb = self._buffer.lower()
+        pos = 0
+        while True:
+            if not self._in_span:
+                idx = lb.find(self._OPEN, pos)
+                if idx == -1:
+                    # No open tag found. Only hold back the tail if there's a '<'
+                    # that could be starting one — plain prose passes through immediately.
+                    next_lt = lb.find('<', pos)
+                    if next_lt == -1:
+                        # No '<' at all — everything is safe to emit.
+                        emitted.append(self._buffer[pos:])
+                        self._buffer = ''
+                    else:
+                        # There's a '<' somewhere — hold back from that point plus
+                        # _HOLD_BACK chars so split tags aren't missed.
+                        hold_at = min(len(self._buffer), next_lt + self._HOLD_BACK + 1)
+                        emitted.append(self._buffer[pos:next_lt])
+                        self._buffer = self._buffer[next_lt:]
+                    break
+                # Found open tag — emit content before it, skip the tag
+                emitted.append(self._buffer[pos:idx])
+                pos = idx + self._OPEN_LEN
+                lb = self._buffer.lower()
+                self._in_span = True
+            else:
+                idx = lb.find(self._CLOSE, pos)
+                if idx == -1:
+                    # No close tag yet — hold everything for next feed.
+                    # The </memory-context> may arrive split across deltas.
+                    self._buffer = self._buffer[pos:]
+                    break
+                # Found close tag — discard content inside span, skip the tag
+                pos = idx + self._CLOSE_LEN
+                lb = self._buffer.lower()
+                self._in_span = False
+        return ''.join(emitted)
+
+    def flush(self) -> str:
+        """Release any held-back tail. Drops everything if still in span."""
+        if self._in_span:
+            self._buffer = ''
+            return ''
+        result = self._buffer
+        self._buffer = ''
+        return result
+
+    def reset(self):
+        """Clear all state for cross-turn resets."""
+        self._buffer = ''
+        self._in_span = False
+
+
 class MemoryManager:
     """Orchestrates the built-in provider plus at most one external provider.
 

@@ -1582,7 +1582,7 @@ class AIAgent:
         self._memory_write_origin = "assistant_tool"
         self._memory_write_context = "foreground"
         
-        # Cached system prompt -- built once per session, only rebuilt on compression
+        # Cached system prompt -- built once per session, only rebuilt on archiving
         self._cached_system_prompt: Optional[str] = None
         
         # Filesystem checkpoint manager (transparent — not a tool)
@@ -1625,16 +1625,16 @@ class AIAgent:
         from tools.todo_tool import TodoStore
         self._todo_store = TodoStore()
         
-        # Load config once for memory, skills, and compression sections
+        # Load config once for memory, skills, and archiving sections
         try:
             from hermes_cli.config import load_config as _load_agent_config
             _agent_cfg = _load_agent_config()
         except Exception:
             _agent_cfg = {}
-        # Cache only the derived auxiliary compression context override that is
+        # Cache only the derived auxiliary archiving context override that is
         # needed later by the startup feasibility check.  Avoid exposing a
         # broad pseudo-public config object on the agent instance.
-        self._aux_compression_context_length_config = None
+        self._aux_archiving_context_length_config = None
 
         # Persistent memory (MEMORY.md + USER.md) -- loaded from disk
         self._memory_store = None
@@ -1776,18 +1776,18 @@ class AIAgent:
         # Archives conversation when approaching model's context limit
         # Configuration via config.yaml (archiving section)
         _archiving_cfg = _agent_cfg.get("archiving", {})
-        if not isinstance(_archiving_cfg, dict):
+        if not _archiving_cfg:
             # Backward compat: check old key name
             _archiving_cfg = _agent_cfg.get("compression", {})
         if not isinstance(_archiving_cfg, dict):
             _archiving_cfg = {}
         archiving_threshold = float(_archiving_cfg.get("threshold", 0.50))
-        compression_enabled = str(_archiving_cfg.get("enabled", True)).lower() in ("true", "1", "yes")
+        archiving_enabled = str(_archiving_cfg.get("enabled", True)).lower() in ("true", "1", "yes")
         archiving_target_ratio = float(_archiving_cfg.get("target_ratio", 0.20))
         archiving_protect_last = int(_archiving_cfg.get("protect_last_n", 20))
 
         # Read optional explicit context_length override for the auxiliary
-        # compression model. Custom endpoints often cannot report this via
+        # archiving model. Custom endpoints often cannot report this via
         # /models, so the startup feasibility check needs the config hint.
         try:
             _aux_cfg = _agent_cfg.get("auxiliary", {}).get("archiving", {}) or _agent_cfg.get("auxiliary", {}).get("compression", {})
@@ -1802,7 +1802,7 @@ class AIAgent:
                 _aux_context_config = int(_aux_context_config)
             except (TypeError, ValueError):
                 _aux_context_config = None
-        self._aux_compression_context_length_config = _aux_context_config
+        self._aux_archiving_context_length_config = _aux_context_config
 
         # Read explicit context_length override from model config
         _model_cfg = _agent_cfg.get("model", {})
@@ -1934,7 +1934,7 @@ class AIAgent:
         # else: config says "compressor" — use built-in, don't auto-activate plugins
 
         if _selected_engine is not None:
-            self.context_compressor = _selected_engine
+            self.context_archiver = _selected_engine
             # Resolve context_length for plugin engines — mirrors switch_model() path
             from agent.model_metadata import get_model_context_length
             _plugin_ctx_len = get_model_context_length(
@@ -1945,7 +1945,7 @@ class AIAgent:
                 provider=self.provider,
                 custom_providers=_custom_providers,
             )
-            self.context_compressor.update_model(
+            self.context_archiver.update_model(
                 model=self.model,
                 context_length=_plugin_ctx_len,
                 base_url=self.base_url,
@@ -1955,7 +1955,7 @@ class AIAgent:
             if not self.quiet_mode:
                 logger.info("Using context engine: %s", _selected_engine.name)
         else:
-            self.context_compressor = ContextCompressor(
+            self.context_archiver = ContextCompressor(
                 model=self.model,
                 threshold_percent=archiving_threshold,
                 protect_first_n=3,
@@ -1969,12 +1969,12 @@ class AIAgent:
                 provider=self.provider,
                 api_mode=self.api_mode,
             )
-        self.compression_enabled = compression_enabled
+        self.archiving_enabled = archiving_enabled
 
         # Reject models whose context window is below the minimum required
         # for reliable tool-calling workflows (64K tokens).
         from agent.model_metadata import MINIMUM_CONTEXT_LENGTH
-        _ctx = getattr(self.context_compressor, "context_length", 0)
+        _ctx = getattr(self.context_archiver, "context_length", 0)
         if _ctx and _ctx < MINIMUM_CONTEXT_LENGTH:
             raise ValueError(
                 f"Model {self.model} has a context window of {_ctx:,} tokens, "
@@ -1986,8 +1986,8 @@ class AIAgent:
 
         # Inject context engine tool schemas (e.g. lcm_grep, lcm_describe, lcm_expand)
         self._context_engine_tool_names: set = set()
-        if hasattr(self, "context_compressor") and self.context_compressor and self.tools is not None:
-            for _schema in self.context_compressor.get_tool_schemas():
+        if hasattr(self, "context_archiver") and self.context_archiver and self.tools is not None:
+            for _schema in self.context_archiver.get_tool_schemas():
                 _wrapped = {"type": "function", "function": _schema}
                 self.tools.append(_wrapped)
                 _tname = _schema.get("name", "")
@@ -1996,14 +1996,14 @@ class AIAgent:
                     self._context_engine_tool_names.add(_tname)
 
         # Notify context engine of session start
-        if hasattr(self, "context_compressor") and self.context_compressor:
+        if hasattr(self, "context_archiver") and self.context_archiver:
             try:
-                self.context_compressor.on_session_start(
+                self.context_archiver.on_session_start(
                     self.session_id,
                     hermes_home=str(get_hermes_home()),
                     platform=self.platform or "cli",
                     model=self.model,
-                    context_length=getattr(self.context_compressor, "context_length", 0),
+                    context_length=getattr(self.context_archiver, "context_length", 0),
                 )
             except Exception as _ce_err:
                 logger.debug("Context engine on_session_start: %s", _ce_err)
@@ -2055,22 +2055,22 @@ class AIAgent:
             )
 
         if not self.quiet_mode:
-            if compression_enabled:
-                print(f"📊 Context limit: {self.context_compressor.context_length:,} tokens (archive at {int(archiving_threshold*100)}% = {self.context_compressor.threshold_tokens:,})")
+            if archiving_enabled:
+                print(f"📊 Context limit: {self.context_archiver.context_length:,} tokens (archive at {int(archiving_threshold*100)}% = {self.context_archiver.threshold_tokens:,})")
             else:
-                print(f"📊 Context limit: {self.context_compressor.context_length:,} tokens (auto-archiving disabled)")
+                print(f"📊 Context limit: {self.context_archiver.context_length:,} tokens (auto-archiving disabled)")
 
         # Check immediately so CLI users see the warning at startup.
         # Gateway status_callback is not yet wired, so any warning is stored
-        # in _compression_warning and replayed in the first run_conversation().
-        self._compression_warning = None
-        self._check_compression_model_feasibility()
+        # in _archiving_warning and replayed in the first run_conversation().
+        self._archiving_warning = None
+        self._check_archiving_model_feasibility()
 
         # Snapshot primary runtime for per-turn restoration.  When fallback
         # activates during a turn, the next turn restores these values so the
         # preferred model gets a fresh attempt each time.  Uses a single dict
         # so new state fields are easy to add without N individual attributes.
-        _cc = self.context_compressor
+        _cc = self.context_archiver
         self._primary_runtime = {
             "model": self.model,
             "provider": self.provider,
@@ -2083,12 +2083,12 @@ class AIAgent:
             # Context engine state that _try_activate_fallback() overwrites.
             # Use getattr for model/base_url/api_key/provider since plugin
             # engines may not have these (they're ContextCompressor-specific).
-            "compressor_model": getattr(_cc, "model", self.model),
-            "compressor_base_url": getattr(_cc, "base_url", self.base_url),
-            "compressor_api_key": getattr(_cc, "api_key", ""),
-            "compressor_provider": getattr(_cc, "provider", self.provider),
-            "compressor_context_length": _cc.context_length,
-            "compressor_threshold_tokens": _cc.threshold_tokens,
+            "archiver_model": getattr(_cc, "model", self.model),
+            "archiver_base_url": getattr(_cc, "base_url", self.base_url),
+            "archiver_api_key": getattr(_cc, "api_key", ""),
+            "archiver_provider": getattr(_cc, "provider", self.provider),
+            "archiver_context_length": _cc.context_length,
+            "archiver_threshold_tokens": _cc.threshold_tokens,
         }
         if self.api_mode == "anthropic_messages":
             self._primary_runtime.update({
@@ -2107,9 +2107,9 @@ class AIAgent:
         - API call count
         - Reasoning tokens
         - Estimated cost tracking
-        - Context compressor internal counters
+        - Context archiver internal counters
         
-        The method safely handles optional attributes (e.g., context compressor)
+        The method safely handles optional attributes (e.g., context archiver)
         using ``hasattr`` checks.
         
         This keeps the counter reset logic DRY and maintainable in one place
@@ -2132,9 +2132,9 @@ class AIAgent:
         # Turn counter (added after reset_session_state was first written — #2635)
         self._user_turn_count = 0
 
-        # Context engine reset (works for both built-in compressor and plugins)
-        if hasattr(self, "context_compressor") and self.context_compressor:
-            self.context_compressor.on_session_reset()
+        # Context engine reset (works for both built-in archiver and plugins)
+        if hasattr(self, "context_archiver") and self.context_archiver:
+            self.context_archiver.on_session_reset()
     
     def _ensure_lmstudio_runtime_loaded(self, config_context_length: Optional[int] = None) -> None:
         """
@@ -2161,7 +2161,7 @@ class AIAgent:
         ``model_switch.switch_model()`` has resolved credentials and
         validated the model.  This method performs the actual runtime
         swap: rebuilding clients, updating caching flags, and refreshing
-        the context compressor.
+        the context archiver.
 
         The implementation mirrors ``_try_activate_fallback()`` for the
         client-swap logic but also updates ``_primary_runtime`` so the
@@ -2252,8 +2252,8 @@ class AIAgent:
         # ── LM Studio: preload before probing context length ──
         self._ensure_lmstudio_runtime_loaded()
 
-        # ── Update context compressor ──
-        if hasattr(self, "context_compressor") and self.context_compressor:
+        # ── Update context archiver ──
+        if hasattr(self, "context_archiver") and self.context_archiver:
             from agent.model_metadata import get_model_context_length
             # Re-read custom_providers from live config so per-model
             # context_length overrides are honored when switching to a
@@ -2273,7 +2273,7 @@ class AIAgent:
                 config_context_length=getattr(self, "_config_context_length", None),
                 custom_providers=_sm_custom_providers,
             )
-            self.context_compressor.update_model(
+            self.context_archiver.update_model(
                 model=self.model,
                 context_length=new_context_length,
                 base_url=self.base_url,
@@ -2286,7 +2286,7 @@ class AIAgent:
         self._cached_system_prompt = None
 
         # ── Update _primary_runtime so the change persists across turns ──
-        _cc = self.context_compressor if hasattr(self, "context_compressor") and self.context_compressor else None
+        _cc = self.context_archiver if hasattr(self, "context_archiver") and self.context_archiver else None
         self._primary_runtime = {
             "model": self.model,
             "provider": self.provider,
@@ -2296,12 +2296,12 @@ class AIAgent:
             "client_kwargs": dict(self._client_kwargs),
             "use_prompt_caching": self._use_prompt_caching,
             "use_native_cache_layout": self._use_native_cache_layout,
-            "compressor_model": getattr(_cc, "model", self.model) if _cc else self.model,
-            "compressor_base_url": getattr(_cc, "base_url", self.base_url) if _cc else self.base_url,
-            "compressor_api_key": getattr(_cc, "api_key", "") if _cc else "",
-            "compressor_provider": getattr(_cc, "provider", self.provider) if _cc else self.provider,
-            "compressor_context_length": _cc.context_length if _cc else 0,
-            "compressor_threshold_tokens": _cc.threshold_tokens if _cc else 0,
+            "archiver_model": getattr(_cc, "model", self.model) if _cc else self.model,
+            "archiver_base_url": getattr(_cc, "base_url", self.base_url) if _cc else self.base_url,
+            "archiver_api_key": getattr(_cc, "api_key", "") if _cc else "",
+            "archiver_provider": getattr(_cc, "provider", self.provider) if _cc else self.provider,
+            "archiver_context_length": _cc.context_length if _cc else 0,
+            "archiver_threshold_tokens": _cc.threshold_tokens if _cc else 0,
         }
         if api_mode == "anthropic_messages":
             self._primary_runtime.update({
@@ -2439,7 +2439,7 @@ class AIAgent:
         """Emit a user-visible warning through the same status plumbing.
 
         Unlike debug logs, these warnings are meant for degraded side paths
-        such as auxiliary compression or memory flushes where the main turn can
+        such as auxiliary archiving or memory flushes where the main turn can
         continue but the user needs to know something important failed.
         """
         try:
@@ -2473,21 +2473,21 @@ class AIAgent:
             "api_mode": getattr(self, "api_mode", "") or "",
         }
 
-    def _check_compression_model_feasibility(self) -> None:
-        """Warn at session start if the auxiliary compression model's context
-        window is smaller than the main model's compression threshold.
+    def _check_archiving_model_feasibility(self) -> None:
+        """Warn at session start if the auxiliary archiving model's context
+        window is smaller than the main model's archiving threshold.
 
         When the auxiliary model cannot fit the content that needs summarising,
-        compression will either fail outright (the LLM call errors) or produce
+        archiving will either fail outright (the LLM call errors) or produce
         a severely truncated summary.
 
         Called during ``__init__`` so CLI users see the warning immediately
         (via ``_vprint``).  The gateway sets ``status_callback`` *after*
-        construction, so ``_replay_compression_warning()`` re-sends the
+        construction, so ``_replay_archiving_warning()`` re-sends the
         stored warning through the callback on the first
         ``run_conversation()`` call.
         """
-        if not self.compression_enabled:
+        if not self.archiving_enabled:
             return
         try:
             from agent.auxiliary_client import get_text_auxiliary_client
@@ -2497,19 +2497,19 @@ class AIAgent:
             )
 
             client, aux_model = get_text_auxiliary_client(
-                "compression",
+                "archiving",
                 main_runtime=self._current_main_runtime(),
             )
             if client is None or not aux_model:
                 msg = (
                     "⚠ No auxiliary LLM provider configured — context "
-                    "compression will drop middle turns without a summary. "
+                    "archiving will drop middle turns without a summary. "
                     "Run `hermes setup` or set OPENROUTER_API_KEY."
                 )
-                self._compression_warning = msg
+                self._archiving_warning = msg
                 self._emit_status(msg)
                 logger.warning(
-                    "No auxiliary LLM provider for compression — "
+                    "No auxiliary LLM provider for archiving — "
                     "summaries will be unavailable."
                 )
                 return
@@ -2521,48 +2521,48 @@ class AIAgent:
                 aux_model,
                 base_url=aux_base_url,
                 api_key=aux_api_key,
-                config_context_length=getattr(self, "_aux_compression_context_length_config", None),
+                config_context_length=getattr(self, "_aux_archiving_context_length_config", None),
                 provider=getattr(self, "provider", ""),
             )
 
-            # Hard floor: the auxiliary compression model must have at least
+            # Hard floor: the auxiliary archiving model must have at least
             # MINIMUM_CONTEXT_LENGTH (64K) tokens of context.  The main model
             # is already required to meet this floor (checked earlier in
-            # __init__), so the compression model must too — otherwise it
+            # __init__), so the archiving model must too — otherwise it
             # cannot summarise a full threshold-sized window of main-model
             # content.  Mirrors the main-model rejection pattern.
             if aux_context and aux_context < MINIMUM_CONTEXT_LENGTH:
                 raise ValueError(
-                    f"Auxiliary compression model {aux_model} has a context "
+                    f"Auxiliary archiving model {aux_model} has a context "
                     f"window of {aux_context:,} tokens, which is below the "
                     f"minimum {MINIMUM_CONTEXT_LENGTH:,} required by Hermes "
-                    f"Agent.  Choose a compression model with at least "
+                    f"Agent.  Choose a archiving model with at least "
                     f"{MINIMUM_CONTEXT_LENGTH // 1000}K context (set "
-                    f"auxiliary.compression.model in config.yaml), or set "
-                    f"auxiliary.compression.context_length to override the "
+                    f"auxiliary.archiving.model in config.yaml), or set "
+                    f"auxiliary.archiving.context_length to override the "
                     f"detected value if it is wrong."
                 )
 
-            threshold = self.context_compressor.threshold_tokens
+            threshold = self.context_archiver.threshold_tokens
             if aux_context < threshold:
                 # Auto-correct: lower the live session threshold so
-                # compression actually works this session.  The hard floor
+                # archiving actually works this session.  The hard floor
                 # above guarantees aux_context >= MINIMUM_CONTEXT_LENGTH,
                 # so the new threshold is always >= 64K.
                 #
-                # The compression summariser sends a single user-role
+                # The archiving engine sends a single user-role
                 # prompt (no system prompt, no tools) to the aux model, so
                 # new_threshold == aux_context is safe: the request is
                 # the raw messages plus a small summarisation instruction.
                 old_threshold = threshold
                 new_threshold = aux_context
-                self.context_compressor.threshold_tokens = new_threshold
+                self.context_archiver.threshold_tokens = new_threshold
                 # Keep threshold_percent in sync so future main-model
                 # context_length changes (update_model) re-derive from a
                 # sensible number rather than the original too-high value.
-                main_ctx = self.context_compressor.context_length
+                main_ctx = self.context_archiver.context_length
                 if main_ctx:
-                    self.context_compressor.threshold_percent = (
+                    self.context_archiver.threshold_percent = (
                         new_threshold / main_ctx
                     )
                 safe_pct = int((aux_context / main_ctx) * 100) if main_ctx else 50
@@ -2571,9 +2571,9 @@ class AIAgent:
                     f"{aux_context:,} tokens, but the main model's "
                     f"compression threshold was {old_threshold:,} tokens. "
                     f"Auto-lowered this session's threshold to "
-                    f"{new_threshold:,} tokens so compression can run.\n"
+                    f"{new_threshold:,} tokens so archiving can run.\n"
                     f"  To make this permanent, edit config.yaml — either:\n"
-                    f"  1. Use a larger compression model:\n"
+                    f"  1. Use a larger archiving model:\n"
                     f"       auxiliary:\n"
                     f"         compression:\n"
                     f"           model: <model-with-{old_threshold:,}+-context>\n"
@@ -2581,10 +2581,10 @@ class AIAgent:
                     f"       compression:\n"
                     f"         threshold: 0.{safe_pct:02d}"
                 )
-                self._compression_warning = msg
+                self._archiving_warning = msg
                 self._emit_status(msg)
                 logger.warning(
-                    "Auxiliary compression model %s has %d token context, "
+                    "Auxiliary archiving model %s has %d token context, "
                     "below the main model's compression threshold of %d "
                     "tokens — auto-lowered session threshold to %d to "
                     "keep compression working.",
@@ -2602,8 +2602,8 @@ class AIAgent:
                 "Compression feasibility check failed (non-fatal): %s", exc
             )
 
-    def _replay_compression_warning(self) -> None:
-        """Re-send the compression warning through ``status_callback``.
+    def _replay_archiving_warning(self) -> None:
+        """Re-send the archiving warning through ``status_callback``.
 
         During ``__init__`` the gateway's ``status_callback`` is not yet
         wired, so ``_emit_status`` only reaches ``_vprint`` (CLI).  This
@@ -2612,12 +2612,48 @@ class AIAgent:
         so every platform (Telegram, Discord, Slack, etc.) receives the
         warning.
         """
-        msg = getattr(self, "_compression_warning", None)
+        msg = getattr(self, "_archiving_warning", None)
         if msg and self.status_callback:
             try:
                 self.status_callback("lifecycle", msg)
             except Exception:
                 pass
+
+    # ── Backward compat aliases (compress → archive rename) ──
+    _check_compression_model_feasibility = _check_archiving_model_feasibility
+    _replay_compression_warning = _replay_archiving_warning
+
+    @property
+    def compression_enabled(self):
+        return getattr(self, "archiving_enabled", False)
+
+    @compression_enabled.setter
+    def compression_enabled(self, value):
+        self.archiving_enabled = value
+
+    @property
+    def context_compressor(self):
+        return getattr(self, "context_archiver", None)
+
+    @context_compressor.setter
+    def context_compressor(self, value):
+        self.context_archiver = value
+
+    @property
+    def _compression_warning(self):
+        return getattr(self, "_archiving_warning", None)
+
+    @_compression_warning.setter
+    def _compression_warning(self, value):
+        self._archiving_warning = value
+
+    @property
+    def _aux_compression_context_length_config(self):
+        return getattr(self, "_aux_archiving_context_length_config", None)
+
+    @_aux_compression_context_length_config.setter
+    def _aux_compression_context_length_config(self, value):
+        self._aux_archiving_context_length_config = value
 
     def _is_direct_openai_url(self, base_url: str = None) -> bool:
         """Return True when a base URL targets OpenAI's native API."""
@@ -4012,7 +4048,7 @@ class AIAgent:
         Stores every message exactly as the agent sees it: user messages,
         assistant messages (with reasoning, finish_reason, tool_calls),
         tool responses (with tool_call_id, tool_name), and injected system
-        messages (compression summaries, todo snapshots, etc.).
+        messages (archiving summaries, todo snapshots, etc.).
 
         REASONING_SCRATCHPAD tags are converted to <think> blocks for consistency.
         Overwritten after each turn so it always reflects the latest state.
@@ -4351,9 +4387,9 @@ class AIAgent:
             except Exception:
                 pass
         # Notify context engine of session end (flush DAG, close DBs, etc.)
-        if hasattr(self, "context_compressor") and self.context_compressor:
+        if hasattr(self, "context_archiver") and self.context_archiver:
             try:
-                self.context_compressor.on_session_end(
+                self.context_archiver.on_session_end(
                     self.session_id or "",
                     messages or [],
                 )
@@ -4362,7 +4398,7 @@ class AIAgent:
     
     def commit_memory_session(self, messages: list = None) -> None:
         """Trigger end-of-session extraction without tearing providers down.
-        Called when session_id rotates (e.g. /new, context compression);
+        Called when session_id rotates (e.g. /new, context archiving);
         providers keep their state and continue running under the old
         session_id — they just flush pending extraction now."""
         if not self._memory_manager:
@@ -4569,7 +4605,7 @@ class AIAgent:
         Assemble the full system prompt from all layers.
         
         Called once per session (cached on self._cached_system_prompt) and only
-        rebuilt after context compression events. This ensures the system prompt
+        rebuilt after context archiving events. This ensures the system prompt
         is stable across all turns in a session, maximizing prefix cache hits.
         """
         # Layers (in order):
@@ -4761,7 +4797,7 @@ class AIAgent:
     def _sanitize_api_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Fix orphaned tool_call / tool_result pairs before every LLM call.
 
-        Runs unconditionally — not gated on whether the context compressor
+        Runs unconditionally — not gated on whether the context archiver
         is present — so orphans from session loading or manual message
         manipulation are always caught.
         """
@@ -5091,7 +5127,7 @@ class AIAgent:
         """
         Invalidate the cached system prompt, forcing a rebuild on the next turn.
         
-        Called after context compression events. Also reloads memory from disk
+        Called after context archiving events. Also reloads memory from disk
         so the rebuilt prompt captures any writes from this session.
         """
         self._cached_system_prompt = None
@@ -7303,21 +7339,21 @@ class AIAgent:
             # LM Studio: preload before probing the fallback's context length.
             self._ensure_lmstudio_runtime_loaded()
 
-            # Update context compressor limits for the fallback model.
-            # Without this, compression decisions use the primary model's
+            # Update context archiver limits for the fallback model.
+            # Without this, archiving decisions use the primary model's
             # context window (e.g. 200K) instead of the fallback's (e.g. 32K),
             # causing oversized sessions to overflow the fallback.
             # Also pass _config_context_length so the explicit config override
             # (model.context_length in config.yaml) is respected — without this,
             # the fallback activation drops to 128K even when config says 204800.
-            if hasattr(self, 'context_compressor') and self.context_compressor:
+            if hasattr(self, 'context_archiver') and self.context_archiver:
                 from agent.model_metadata import get_model_context_length
                 fb_context_length = get_model_context_length(
                     self.model, base_url=self.base_url,
                     api_key=self.api_key, provider=self.provider,
                     config_context_length=getattr(self, "_config_context_length", None),
                 )
-                self.context_compressor.update_model(
+                self.context_archiver.update_model(
                     model=self.model,
                     context_length=fb_context_length,
                     base_url=self.base_url,
@@ -7395,13 +7431,13 @@ class AIAgent:
                 )
 
             # ── Restore context engine state ──
-            cc = self.context_compressor
+            cc = self.context_archiver
             cc.update_model(
-                model=rt["compressor_model"],
-                context_length=rt["compressor_context_length"],
-                base_url=rt["compressor_base_url"],
-                api_key=rt["compressor_api_key"],
-                provider=rt["compressor_provider"],
+                model=rt["archiver_model"],
+                context_length=rt["archiver_context_length"],
+                base_url=rt["archiver_base_url"],
+                api_key=rt["archiver_api_key"],
+                provider=rt["archiver_provider"],
             )
 
             # ── Reset fallback chain for the new turn ──
@@ -7943,7 +7979,7 @@ class AIAgent:
         if self.api_mode == "anthropic_messages":
             _transport = self._get_transport()
             anthropic_messages = self._prepare_anthropic_messages_for_api(api_messages)
-            ctx_len = getattr(self, "context_compressor", None)
+            ctx_len = getattr(self, "context_archiver", None)
             ctx_len = ctx_len.context_length if ctx_len else None
             ephemeral_out = getattr(self, "_ephemeral_max_output_tokens", None)
             if ephemeral_out is not None:
@@ -8281,7 +8317,7 @@ class AIAgent:
         # session), and pollute generated session titles.  One strip at the
         # storage boundary cleans content for every downstream consumer:
         # API replay, session transcript, gateway delivery, CLI display,
-        # compression, title generation.
+        # archiving, title generation.
         if isinstance(_san_content, str) and _san_content:
             _san_content = sanitize_context(self._strip_think_blocks(_san_content)).strip()
 
@@ -8647,52 +8683,52 @@ class AIAgent:
         """
         return self.api_mode != "codex_responses"
 
-    def _compress_context(self, messages: list, system_message: str, *, approx_tokens: int = None, task_id: str = "default", focus_topic: str = None) -> tuple:
-        """Compress conversation context and split the session in SQLite.
+    def _archive_context(self, messages: list, system_message: str, *, approx_tokens: int = None, task_id: str = "default", focus_topic: str = None) -> tuple:
+        """Archive conversation context and split the session in SQLite.
 
         Args:
-            focus_topic: Optional focus string for guided compression — the
+            focus_topic: Optional focus string for guided archiving — the
                 summariser will prioritise preserving information related to
                 this topic.  Inspired by Claude Code's ``/compact <focus>``.
 
         Returns:
-            (compressed_messages, new_system_prompt) tuple
+            (archived_messages, new_system_prompt) tuple
         """
         _pre_msg_count = len(messages)
         logger.info(
-            "context compression started: session=%s messages=%d tokens=~%s model=%s focus=%r",
+            "context archiving started: session=%s messages=%d tokens=~%s model=%s focus=%r",
             self.session_id or "none", _pre_msg_count,
             f"{approx_tokens:,}" if approx_tokens else "unknown", self.model,
             focus_topic,
         )
 
-        # Notify external memory provider before compression discards context
-        pre_compress_content = ""
+        # Notify external memory provider before archiving discards context
+        pre_archive_content = ""
         if self._memory_manager:
             try:
-                pre_compress_content = self._memory_manager.on_pre_compress(messages) or ""
+                pre_archive_content = self._memory_manager.on_pre_compress(messages) or ""
             except Exception:
                 pass
 
-        # Task-aware annotation: inject task markers before compression (Phase 1)
-        # Markers survive compression and help pruner identify closed vs open tasks
-        if hasattr(self.context_compressor, 'annotate_tasks'):
+        # Task-aware annotation: inject task markers before archiving (Phase 1)
+        # Markers survive archiving and help pruner identify closed vs open tasks
+        if hasattr(self.context_archiver, 'annotate_tasks'):
             try:
-                messages = self.context_compressor.annotate_tasks(messages)
+                messages = self.context_archiver.annotate_tasks(messages)
             except Exception as _tag_err:
                 logger.debug("Task annotation failed (non-fatal): %s", _tag_err)
 
         try:
-            compressed = self.context_compressor.compress(messages, current_tokens=approx_tokens, focus_topic=focus_topic)
+            archived = self.context_archiver.archive(messages, current_tokens=approx_tokens, focus_topic=focus_topic)
         except TypeError:
             # Plugin context engine with strict signature that doesn't accept
             # focus_topic — fall back to calling without it.
-            compressed = self.context_compressor.compress(messages, current_tokens=approx_tokens)
+            archived = self.context_archiver.archive(messages, current_tokens=approx_tokens)
 
-        summary_error = getattr(self.context_compressor, "_last_summary_error", None)
+        summary_error = getattr(self.context_archiver, "_last_summary_error", None)
         if summary_error:
-            if getattr(self, "_last_compression_summary_warning", None) != summary_error:
-                self._last_compression_summary_warning = summary_error
+            if getattr(self, "_last_archiving_summary_warning", None) != summary_error:
+                self._last_archiving_summary_warning = summary_error
                 self._emit_warning(
                     f"⚠ Archiving summary failed: {summary_error}. "
                     "Inserted a fallback context marker."
@@ -8700,28 +8736,28 @@ class AIAgent:
         else:
             # No hard failure — but did the configured aux model error out
             # and get recovered by retrying on main?  Surface that so users
-            # know their auxiliary.compression.model setting is broken even
-            # though compression succeeded.
-            _aux_fail_model = getattr(self.context_compressor, "_last_aux_model_failure_model", None)
-            _aux_fail_err = getattr(self.context_compressor, "_last_aux_model_failure_error", None)
+            # know their auxiliary.archiving.model setting is broken even
+            # though archiving succeeded.
+            _aux_fail_model = getattr(self.context_archiver, "_last_aux_model_failure_model", None)
+            _aux_fail_err = getattr(self.context_archiver, "_last_aux_model_failure_error", None)
             if _aux_fail_model:
                 # Dedup on (model, error) so we don't spam on every compaction
                 _aux_key = (_aux_fail_model, _aux_fail_err)
                 if getattr(self, "_last_aux_fallback_warning_key", None) != _aux_key:
                     self._last_aux_fallback_warning_key = _aux_key
                     self._emit_warning(
-                        f"ℹ Configured compression model '{_aux_fail_model}' failed "
+                        f"ℹ Configured archiving model '{_aux_fail_model}' failed "
                         f"({_aux_fail_err or 'unknown error'}). Recovered using main model — "
-                        "check auxiliary.compression.model in config.yaml."
+                        "check auxiliary.archiving.model in config.yaml."
                     )
 
         # Inject Context Bridge (active tasks, files being edited, knowledge gaps) before todo snapshot
-        if pre_compress_content.strip():
-            compressed.append({"role": "user", "content": pre_compress_content})
+        if pre_archive_content.strip():
+            archived.append({"role": "user", "content": pre_archive_content})
 
         todo_snapshot = self._todo_store.format_for_injection()
         if todo_snapshot:
-            compressed.append({"role": "user", "content": todo_snapshot})
+            archived.append({"role": "user", "content": todo_snapshot})
 
         self._invalidate_system_prompt()
         new_system_prompt = self._build_system_prompt(system_message)
@@ -8733,7 +8769,7 @@ class AIAgent:
                 old_title = self._session_db.get_session_title(self.session_id)
                 # Trigger memory extraction on the old session before it rotates.
                 self.commit_memory_session(messages)
-                self._session_db.end_session(self.session_id, "compression")
+                self._session_db.end_session(self.session_id, "archiving")
                 old_session_id = self.session_id
                 self.session_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
                 # Update session_log_file to point to the new session's JSON file
@@ -8750,31 +8786,31 @@ class AIAgent:
                         new_title = self._session_db.get_next_title_in_lineage(old_title)
                         self._session_db.set_session_title(self.session_id, new_title)
                     except (ValueError, Exception) as e:
-                        logger.debug("Could not propagate title on compression: %s", e)
+                        logger.debug("Could not propagate title on archiving: %s", e)
                 self._session_db.update_system_prompt(self.session_id, new_system_prompt)
                 # Reset flush cursor — new session starts with no messages written
                 self._last_flushed_db_idx = 0
             except Exception as e:
-                logger.warning("Session DB compression split failed — new session will NOT be indexed: %s", e)
+                logger.warning("Session DB archiving split failed — new session will NOT be indexed: %s", e)
 
         # Notify the context engine that the session_id rotated because of
-        # compression (not a fresh /new). Plugin engines (e.g. hermes-lcm) use
-        # boundary_reason="compression" to preserve DAG lineage across the
+        # archiving (not a fresh /new). Plugin engines (e.g. hermes-lcm) use
+        # boundary_reason="archiving" to preserve DAG lineage across the
         # rollover instead of re-initializing fresh per-session state.
         # See hermes-lcm#68. Built-in ContextCompressor ignores kwargs.
         try:
             _old_sid = locals().get("old_session_id")
-            if _old_sid and hasattr(self.context_compressor, "on_session_start"):
-                self.context_compressor.on_session_start(
+            if _old_sid and hasattr(self.context_archiver, "on_session_start"):
+                self.context_archiver.on_session_start(
                     self.session_id or "",
-                    boundary_reason="compression",
+                    boundary_reason="archiving",
                     old_session_id=_old_sid,
                 )
         except Exception as _ce_err:
-            logger.debug("context engine on_session_start (compression): %s", _ce_err)
+            logger.debug("context engine on_session_start (archiving): %s", _ce_err)
 
-        # Warn on repeated compressions (quality degrades with each pass)
-        _cc = self.context_compressor.compression_count
+        # Warn on repeated archives (quality degrades with each pass)
+        _cc = self.context_archiver.archive_count
         if _cc >= 2:
             self._vprint(
                 f"{self.log_prefix}⚠️  Session archived {_cc} times — "
@@ -8783,15 +8819,15 @@ class AIAgent:
             )
 
         # Update token estimate after compaction so pressure calculations
-        # use the post-compression count, not the stale pre-compression one.
-        _compressed_est = (
+        # use the post-archiving count, not the stale pre-archiving one.
+        _archived_est = (
             estimate_tokens_rough(new_system_prompt)
-            + estimate_messages_tokens_rough(compressed)
+            + estimate_messages_tokens_rough(archived)
         )
-        self.context_compressor.last_prompt_tokens = _compressed_est
-        self.context_compressor.last_completion_tokens = 0
+        self.context_archiver.last_prompt_tokens = _archived_est
+        self.context_archiver.last_completion_tokens = 0
 
-        # Clear the file-read dedup cache.  After compression the original
+        # Clear the file-read dedup cache.  After archiving the original
         # read content is summarised away — if the model re-reads the same
         # file it needs the full content, not a "file unchanged" stub.
         try:
@@ -8801,11 +8837,14 @@ class AIAgent:
             pass
 
         logger.info(
-            "context compression done: session=%s messages=%d->%d tokens=~%s",
-            self.session_id or "none", _pre_msg_count, len(compressed),
-            f"{_compressed_est:,}",
+            "context archiving done: session=%s messages=%d->%d tokens=~%s",
+            self.session_id or "none", _pre_msg_count, len(archived),
+            f"{_archived_est:,}",
         )
-        return compressed, new_system_prompt
+        return archived, new_system_prompt
+
+    # Backward compatibility alias — tests and external code may still reference _compress_context
+    _compress_context = _archive_context
 
     def _execute_tool_calls(self, assistant_message, messages: list, effective_task_id: str, api_call_count: int = 0) -> None:
         """Execute tool calls from the assistant message and append results to messages.
@@ -9502,7 +9541,7 @@ class AIAgent:
                     spinner.start()
                 _ce_result = None
                 try:
-                    function_result = self.context_compressor.handle_tool_call(function_name, function_args, messages=messages)
+                    function_result = self.context_archiver.handle_tool_call(function_name, function_args, messages=messages)
                     _ce_result = function_result
                 except Exception as tool_error:
                     function_result = json.dumps({"error": f"Context engine tool '{function_name}' failed: {tool_error}"})
@@ -9961,9 +10000,9 @@ class AIAgent:
                 pass
         # Replay compression warning through status_callback for gateway
         # platforms (the callback was not wired during __init__).
-        if self._compression_warning:
-            self._replay_compression_warning()
-            self._compression_warning = None  # send once
+        if self._archiving_warning:
+            self._replay_archiving_warning()
+            self._archiving_warning = None  # send once
 
         # NOTE: _turns_since_memory and _iters_since_skill are NOT reset here.
         # They are initialized in __init__ and must persist across run_conversation
@@ -10079,13 +10118,13 @@ class AIAgent:
         # Before entering the main loop, check if the loaded conversation
         # history already exceeds the model's context threshold.  This handles
         # cases where a user switches to a model with a smaller context window
-        # while having a large existing session — compress proactively rather
+        # while having a large existing session — archive proactively rather
         # than waiting for an API error (which might be caught as a non-retryable
         # 4xx and abort the request entirely).
         if (
-            self.compression_enabled
-            and len(messages) > self.context_compressor.protect_first_n
-                                + self.context_compressor.protect_last_n + 1
+            self.archiving_enabled
+            and len(messages) > self.context_archiver.protect_first_n
+                                + self.context_archiver.protect_last_n + 1
         ):
             # Include tool schema tokens — with many tools these can add
             # 20-30K+ tokens that the old sys+msg estimate missed entirely.
@@ -10095,52 +10134,52 @@ class AIAgent:
                 tools=self.tools or None,
             )
 
-            if _preflight_tokens >= self.context_compressor.threshold_tokens:
+            if _preflight_tokens >= self.context_archiver.threshold_tokens:
                 logger.info(
-                    "Preflight compression: ~%s tokens >= %s threshold (model %s, ctx %s)",
+                    "Preflight archiving: ~%s tokens >= %s threshold (model %s, ctx %s)",
                     f"{_preflight_tokens:,}",
-                    f"{self.context_compressor.threshold_tokens:,}",
+                    f"{self.context_archiver.threshold_tokens:,}",
                     self.model,
-                    f"{self.context_compressor.context_length:,}",
+                    f"{self.context_archiver.context_length:,}",
                 )
                 if not self.quiet_mode:
                     self._safe_print(
-                        f"📦 Preflight compression: ~{_preflight_tokens:,} tokens "
-                        f">= {self.context_compressor.threshold_tokens:,} threshold"
+                        f"📦 Preflight archiving: ~{_preflight_tokens:,} tokens "
+                        f">= {self.context_archiver.threshold_tokens:,} threshold"
                     )
                 # May need multiple passes for very large sessions with small
                 # context windows (each pass summarises the middle N turns).
                 for _pass in range(3):
                     _orig_len = len(messages)
-                    messages, active_system_prompt = self._compress_context(
+                    messages, active_system_prompt = self._archive_context(
                         messages, system_message, approx_tokens=_preflight_tokens,
                         task_id=effective_task_id,
                     )
                     if len(messages) >= _orig_len:
-                        break  # Cannot compress further
+                        break  # Cannot archive further
                     # Compression created a new session — clear the history
                     # reference so _flush_messages_to_session_db writes ALL
                     # compressed messages to the new session's SQLite, not
                     # skipping them because conversation_history is still the
-                    # pre-compression length.
+                    # pre-archiving length.
                     conversation_history = None
-                    # Fix: reset retry counters after compression so the model
+                    # Fix: reset retry counters after archiving so the model
                     # gets a fresh budget on the compressed context.  Without
                     # this, pre-compression retries carry over and the model
-                    # hits "(empty)" immediately after compression-induced
+                    # hits "(empty)" immediately after archiving-induced
                     # context loss.
                     self._empty_content_retries = 0
                     self._thinking_prefill_retries = 0
                     self._last_content_with_tools = None
                     self._last_content_tools_all_housekeeping = False
                     self._mute_post_response = False
-                    # Re-estimate after compression
+                    # Re-estimate after archiving
                     _preflight_tokens = estimate_request_tokens_rough(
                         messages,
                         system_prompt=active_system_prompt or "",
                         tools=self.tools or None,
                     )
-                    if _preflight_tokens < self.context_compressor.threshold_tokens:
+                    if _preflight_tokens < self.context_archiver.threshold_tokens:
                         break  # Under threshold
 
         # Plugin hook: pre_llm_call
@@ -10187,7 +10226,7 @@ class AIAgent:
         length_continue_retries = 0
         truncated_tool_call_retries = 0
         truncated_response_prefix = ""
-        compression_attempts = 0
+        archive_attempts = 0
         _turn_exit_reason = "unknown"  # Diagnostic: why the loop ended
         
         # Record the execution thread so interrupt()/clear_interrupt() can
@@ -10440,7 +10479,7 @@ class AIAgent:
 
             # Safety net: strip orphaned tool results / add stubs for missing
             # results before sending to the API.  Runs unconditionally — not
-            # gated on context_compressor — so orphans from session loading or
+            # gated on context_archiver — so orphans from session loading or
             # manual message manipulation are always caught.
             api_messages = self._sanitize_api_messages(api_messages)
 
@@ -10529,7 +10568,7 @@ class AIAgent:
             retry_count = 0
             max_retries = self._api_max_retries
             primary_recovery_attempted = False
-            max_compression_attempts = 3
+            max_archive_attempts = 3
             codex_auth_retry_attempted=False
             anthropic_auth_retry_attempted=False
             nous_auth_retry_attempted=False
@@ -10537,7 +10576,7 @@ class AIAgent:
             thinking_sig_retry_attempted = False
             image_shrink_retry_attempted = False
             has_retried_429 = False
-            restart_with_compressed_messages = False
+            restart_with_archived_messages = False
             restart_with_length_continuation = False
 
             finish_reason = "stop"
@@ -10569,7 +10608,7 @@ class AIAgent:
                             self._emit_status(f"⏳ {_nous_msg}")
                             if self._try_activate_fallback():
                                 retry_count = 0
-                                compression_attempts = 0
+                                archive_attempts = 0
                                 primary_recovery_attempted = False
                                 continue
                             # No fallback available — return with clear message
@@ -10791,7 +10830,7 @@ class AIAgent:
                             self._emit_status("⚠️ Empty/malformed response — switching to fallback...")
                         if self._try_activate_fallback():
                             retry_count = 0
-                            compression_attempts = 0
+                            archive_attempts = 0
                             primary_recovery_attempted = False
                             continue
 
@@ -10861,7 +10900,7 @@ class AIAgent:
                             self._emit_status(f"⚠️ Max retries ({max_retries}) for invalid responses — trying fallback...")
                             if self._try_activate_fallback():
                                 retry_count = 0
-                                compression_attempts = 0
+                                archive_attempts = 0
                                 primary_recovery_attempted = False
                                 continue
                             self._emit_status(f"❌ Max retries ({max_retries}) exceeded for invalid responses. Giving up.")
@@ -11134,18 +11173,18 @@ class AIAgent:
                             "completion_tokens": completion_tokens,
                             "total_tokens": total_tokens,
                         }
-                        self.context_compressor.update_from_response(usage_dict)
+                        self.context_archiver.update_from_response(usage_dict)
 
                         # Cache discovered context length after successful call.
                         # Only persist limits confirmed by the provider (parsed
                         # from the error message), not guessed probe tiers.
-                        if getattr(self.context_compressor, "_context_probed", False):
-                            ctx = self.context_compressor.context_length
-                            if getattr(self.context_compressor, "_context_probe_persistable", False):
+                        if getattr(self.context_archiver, "_context_probed", False):
+                            ctx = self.context_archiver.context_length
+                            if getattr(self.context_archiver, "_context_probe_persistable", False):
                                 save_context_length(self.model, self.base_url, ctx)
                                 self._safe_print(f"{self.log_prefix}💾 Cached context length: {ctx:,} tokens for {self.model}")
-                            self.context_compressor._context_probed = False
-                            self.context_compressor._context_probe_persistable = False
+                            self.context_archiver._context_probed = False
+                            self.context_archiver._context_probe_persistable = False
 
                         self.session_prompt_tokens += prompt_tokens
                         self.session_completion_tokens += completion_tokens
@@ -11437,7 +11476,7 @@ class AIAgent:
                     error_context = self._extract_api_error_context(api_error)
 
                     # ── Classify the error for structured recovery decisions ──
-                    _compressor = getattr(self, "context_compressor", None)
+                    _compressor = getattr(self, "context_archiver", None)
                     _ctx_len = getattr(_compressor, "context_length", 200000) if _compressor else 200000
                     classified = classify_api_error(
                         api_error,
@@ -11448,7 +11487,7 @@ class AIAgent:
                         num_messages=len(api_messages) if api_messages else 0,
                     )
                     logger.debug(
-                        "Error classified: reason=%s status=%s retryable=%s compress=%s rotate=%s fallback=%s",
+                        "Error classified: reason=%s status=%s retryable=%s archive=%s rotate=%s fallback=%s",
                         classified.reason.value, classified.status_code,
                         classified.retryable, classified.should_compress,
                         classified.should_rotate_credential, classified.should_fallback,
@@ -11665,7 +11704,7 @@ class AIAgent:
                     
                     # Check for 413 payload-too-large BEFORE generic 4xx handler.
                     # A 413 is a payload-size error — the correct response is to
-                    # compress history and retry, not abort immediately.
+                    # archive history and retry, not abort immediately.
                     status_code = getattr(api_error, "status_code", None)
 
                     # ── Anthropic Sonnet long-context tier gate ───────────
@@ -11674,10 +11713,10 @@ class AIAgent:
                     # subscription doesn't include the 1M-context tier.  This
                     # is NOT a transient rate limit — retrying or switching
                     # credentials won't help.  Reduce context to 200k (the
-                    # standard tier) and compress.
+                    # standard tier) and archive.
                     if classified.reason == FailoverReason.long_context_tier:
                         _reduced_ctx = 200000
-                        compressor = self.context_compressor
+                        compressor = self.context_archiver
                         old_ctx = compressor.context_length
                         if old_ctx > _reduced_ctx:
                             compressor.update_model(
@@ -11703,10 +11742,10 @@ class AIAgent:
                                 force=True,
                             )
 
-                        compression_attempts += 1
-                        if compression_attempts <= max_compression_attempts:
+                        archive_attempts += 1
+                        if archive_attempts <= max_archive_attempts:
                             original_len = len(messages)
-                            messages, active_system_prompt = self._compress_context(
+                            messages, active_system_prompt = self._archive_context(
                                 messages, system_message,
                                 approx_tokens=approx_tokens,
                                 task_id=effective_task_id,
@@ -11721,7 +11760,7 @@ class AIAgent:
                                     f"(was {old_ctx:,}), retrying..."
                                 )
                                 time.sleep(2)
-                                restart_with_compressed_messages = True
+                                restart_with_archived_messages = True
                                 break
                         # Fall through to normal error handling if compression
                         # is exhausted or didn't help.
@@ -11745,7 +11784,7 @@ class AIAgent:
                             self._emit_status("⚠️ Rate limited — switching to fallback provider...")
                             if self._try_activate_fallback(reason=classified.reason):
                                 retry_count = 0
-                                compression_attempts = 0
+                                archive_attempts = 0
                                 primary_recovery_attempted = False
                                 continue
 
@@ -11819,25 +11858,25 @@ class AIAgent:
                     )
 
                     if is_payload_too_large:
-                        compression_attempts += 1
-                        if compression_attempts > max_compression_attempts:
-                            self._vprint(f"{self.log_prefix}❌ Max compression attempts ({max_compression_attempts}) reached for payload-too-large error.", force=True)
-                            self._vprint(f"{self.log_prefix}   💡 Try /new to start a fresh conversation, or /compress to retry compression.", force=True)
-                            logging.error(f"{self.log_prefix}413 compression failed after {max_compression_attempts} attempts.")
+                        archive_attempts += 1
+                        if archive_attempts > max_archive_attempts:
+                            self._vprint(f"{self.log_prefix}❌ Max archiving attempts ({max_archive_attempts}) reached for payload-too-large error.", force=True)
+                            self._vprint(f"{self.log_prefix}   💡 Try /new to start a fresh conversation, or /archive to retry compression.", force=True)
+                            logging.error(f"{self.log_prefix}413 compression failed after {max_archive_attempts} attempts.")
                             self._persist_session(messages, conversation_history)
                             return {
                                 "messages": messages,
                                 "completed": False,
                                 "api_calls": api_call_count,
-                                "error": f"Request payload too large: max compression attempts ({max_compression_attempts}) reached.",
+                                "error": f"Request payload too large: max archiving attempts ({max_archive_attempts}) reached.",
                                 "partial": True,
                                 "failed": True,
-                                "compression_exhausted": True,
+                                "archive_exhausted": True,
                             }
-                        self._emit_status(f"⚠️  Request payload too large (413) — compression attempt {compression_attempts}/{max_compression_attempts}...")
+                        self._emit_status(f"⚠️  Request payload too large (413) — archiving attempt {archive_attempts}/{max_archive_attempts}...")
 
                         original_len = len(messages)
-                        messages, active_system_prompt = self._compress_context(
+                        messages, active_system_prompt = self._archive_context(
                             messages, system_message, approx_tokens=approx_tokens,
                             task_id=effective_task_id,
                         )
@@ -11849,21 +11888,21 @@ class AIAgent:
                         if len(messages) < original_len:
                             self._emit_status(f"🗜️ Compressed {original_len} → {len(messages)} messages, retrying...")
                             time.sleep(2)  # Brief pause between compression retries
-                            restart_with_compressed_messages = True
+                            restart_with_archived_messages = True
                             break
                         else:
-                            self._vprint(f"{self.log_prefix}❌ Payload too large and cannot compress further.", force=True)
-                            self._vprint(f"{self.log_prefix}   💡 Try /new to start a fresh conversation, or /compress to retry compression.", force=True)
-                            logging.error(f"{self.log_prefix}413 payload too large. Cannot compress further.")
+                            self._vprint(f"{self.log_prefix}❌ Payload too large and cannot archive further.", force=True)
+                            self._vprint(f"{self.log_prefix}   💡 Try /new to start a fresh conversation, or /archive to retry compression.", force=True)
+                            logging.error(f"{self.log_prefix}413 payload too large. Cannot archive further.")
                             self._persist_session(messages, conversation_history)
                             return {
                                 "messages": messages,
                                 "completed": False,
                                 "api_calls": api_call_count,
-                                "error": "Request payload too large (413). Cannot compress further.",
+                                "error": "Request payload too large (413). Cannot archive further.",
                                 "partial": True,
                                 "failed": True,
-                                "compression_exhausted": True,
+                                "archive_exhausted": True,
                             }
 
                     # Check for context-length errors BEFORE generic 4xx handler.
@@ -11875,12 +11914,12 @@ class AIAgent:
                     )
 
                     if is_context_length_error:
-                        compressor = self.context_compressor
+                        compressor = self.context_archiver
                         old_ctx = compressor.context_length
 
                         # ── Distinguish two very different errors ───────────
                         # 1. "Prompt too long": the INPUT exceeds the context window.
-                        #    Fix: reduce context_length + compress history.
+                        #    Fix: reduce context_length + archive history.
                         # 2. "max_tokens too large": input is fine, but
                         #    input_tokens + requested max_tokens > context_window.
                         #    Fix: reduce max_tokens (the OUTPUT cap) for this call.
@@ -11901,24 +11940,24 @@ class AIAgent:
                                 f"(available_tokens={available_out:,}; context_length unchanged at {old_ctx:,})",
                                 force=True,
                             )
-                            # Still count against compression_attempts so we don't
+                            # Still count against archive_attempts so we don't
                             # loop forever if the error keeps recurring.
-                            compression_attempts += 1
-                            if compression_attempts > max_compression_attempts:
-                                self._vprint(f"{self.log_prefix}❌ Max compression attempts ({max_compression_attempts}) reached.", force=True)
-                                self._vprint(f"{self.log_prefix}   💡 Try /new to start a fresh conversation, or /compress to retry compression.", force=True)
-                                logging.error(f"{self.log_prefix}Context compression failed after {max_compression_attempts} attempts.")
+                            archive_attempts += 1
+                            if archive_attempts > max_archive_attempts:
+                                self._vprint(f"{self.log_prefix}❌ Max archiving attempts ({max_archive_attempts}) reached.", force=True)
+                                self._vprint(f"{self.log_prefix}   💡 Try /new to start a fresh conversation, or /archive to retry compression.", force=True)
+                                logging.error(f"{self.log_prefix}Context compression failed after {max_archive_attempts} attempts.")
                                 self._persist_session(messages, conversation_history)
                                 return {
                                     "messages": messages,
                                     "completed": False,
                                     "api_calls": api_call_count,
-                                    "error": f"Context length exceeded: max compression attempts ({max_compression_attempts}) reached.",
+                                    "error": f"Context length exceeded: max archiving attempts ({max_archive_attempts}) reached.",
                                     "partial": True,
                                     "failed": True,
-                                    "compression_exhausted": True,
+                                    "archive_exhausted": True,
                                 }
-                            restart_with_compressed_messages = True
+                            restart_with_archived_messages = True
                             break
 
                         # Error is about the INPUT being too large — reduce context_length.
@@ -11945,7 +11984,7 @@ class AIAgent:
                             new_ctx = old_ctx
                             self._vprint(
                                 f"{self.log_prefix}Provider reported overflow amount only; "
-                                f"keeping context_length at {old_ctx:,} tokens and compressing.",
+                                f"keeping context_length at {old_ctx:,} tokens and archiving.",
                                 force=True,
                             )
                         else:
@@ -11974,27 +12013,27 @@ class AIAgent:
                                 )
                             self._vprint(f"{self.log_prefix}⚠️  Context length exceeded — stepping down: {old_ctx:,} → {new_ctx:,} tokens", force=True)
                         else:
-                            self._vprint(f"{self.log_prefix}⚠️  Context length exceeded at minimum tier — attempting compression...", force=True)
+                            self._vprint(f"{self.log_prefix}⚠️  Context length exceeded at minimum tier — attempting archiving...", force=True)
 
-                        compression_attempts += 1
-                        if compression_attempts > max_compression_attempts:
-                            self._vprint(f"{self.log_prefix}❌ Max compression attempts ({max_compression_attempts}) reached.", force=True)
-                            self._vprint(f"{self.log_prefix}   💡 Try /new to start a fresh conversation, or /compress to retry compression.", force=True)
-                            logging.error(f"{self.log_prefix}Context compression failed after {max_compression_attempts} attempts.")
+                        archive_attempts += 1
+                        if archive_attempts > max_archive_attempts:
+                            self._vprint(f"{self.log_prefix}❌ Max archiving attempts ({max_archive_attempts}) reached.", force=True)
+                            self._vprint(f"{self.log_prefix}   💡 Try /new to start a fresh conversation, or /archive to retry compression.", force=True)
+                            logging.error(f"{self.log_prefix}Context compression failed after {max_archive_attempts} attempts.")
                             self._persist_session(messages, conversation_history)
                             return {
                                 "messages": messages,
                                 "completed": False,
                                 "api_calls": api_call_count,
-                                "error": f"Context length exceeded: max compression attempts ({max_compression_attempts}) reached.",
+                                "error": f"Context length exceeded: max archiving attempts ({max_archive_attempts}) reached.",
                                 "partial": True,
                                 "failed": True,
-                                "compression_exhausted": True,
+                                "archive_exhausted": True,
                             }
-                        self._emit_status(f"🗜️ Context too large (~{approx_tokens:,} tokens) — compressing ({compression_attempts}/{max_compression_attempts})...")
+                        self._emit_status(f"🗜️ Context too large (~{approx_tokens:,} tokens) — archiving ({archive_attempts}/{max_archive_attempts})...")
 
                         original_len = len(messages)
-                        messages, active_system_prompt = self._compress_context(
+                        messages, active_system_prompt = self._archive_context(
                             messages, system_message, approx_tokens=approx_tokens,
                             task_id=effective_task_id,
                         )
@@ -12007,22 +12046,22 @@ class AIAgent:
                             if len(messages) < original_len:
                                 self._emit_status(f"🗜️ Compressed {original_len} → {len(messages)} messages, retrying...")
                             time.sleep(2)  # Brief pause between compression retries
-                            restart_with_compressed_messages = True
+                            restart_with_archived_messages = True
                             break
                         else:
-                            # Can't compress further and already at minimum tier
-                            self._vprint(f"{self.log_prefix}❌ Context length exceeded and cannot compress further.", force=True)
-                            self._vprint(f"{self.log_prefix}   💡 The conversation has accumulated too much content. Try /new to start fresh, or /compress to manually trigger compression.", force=True)
-                            logging.error(f"{self.log_prefix}Context length exceeded: {approx_tokens:,} tokens. Cannot compress further.")
+                            # Can't archive further and already at minimum tier
+                            self._vprint(f"{self.log_prefix}❌ Context length exceeded and cannot archive further.", force=True)
+                            self._vprint(f"{self.log_prefix}   💡 The conversation has accumulated too much content. Try /new to start fresh, or /archive to manually trigger archiving.", force=True)
+                            logging.error(f"{self.log_prefix}Context length exceeded: {approx_tokens:,} tokens. Cannot archive further.")
                             self._persist_session(messages, conversation_history)
                             return {
                                 "messages": messages,
                                 "completed": False,
                                 "api_calls": api_call_count,
-                                "error": f"Context length exceeded ({approx_tokens:,} tokens). Cannot compress further.",
+                                "error": f"Context length exceeded ({approx_tokens:,} tokens). Cannot archive further.",
                                 "partial": True,
                                 "failed": True,
-                                "compression_exhausted": True,
+                                "archive_exhausted": True,
                             }
 
                     # Check for non-retryable client errors.  The classifier
@@ -12073,7 +12112,7 @@ class AIAgent:
                         self._emit_status(f"⚠️ Non-retryable error (HTTP {status_code}) — trying fallback...")
                         if self._try_activate_fallback():
                             retry_count = 0
-                            compression_attempts = 0
+                            archive_attempts = 0
                             primary_recovery_attempted = False
                             continue
                         if api_kwargs is not None:
@@ -12140,7 +12179,7 @@ class AIAgent:
                         self._emit_status(f"⚠️ Max retries ({max_retries}) exhausted — trying fallback...")
                         if self._try_activate_fallback():
                             retry_count = 0
-                            compression_attempts = 0
+                            archive_attempts = 0
                             primary_recovery_attempted = False
                             continue
                         _final_summary = self._summarize_api_error(api_error)
@@ -12263,14 +12302,14 @@ class AIAgent:
                 _turn_exit_reason = "interrupted_during_api_call"
                 break
 
-            if restart_with_compressed_messages:
+            if restart_with_archived_messages:
                 api_call_count -= 1
                 self.iteration_budget.refund()
                 # Count compression restarts toward the retry limit to prevent
-                # infinite loops when compression reduces messages but not enough
+                # infinite loops when archiving reduces messages but not enough
                 # to fit the context window.
                 retry_count += 1
-                restart_with_compressed_messages = False
+                restart_with_archived_messages = False
                 continue
 
             if restart_with_length_continuation:
@@ -12724,20 +12763,20 @@ class AIAgent:
                     #
                     # Token tracking still happens here so should_compress() has
                     # fresh data on the next preflight check.
-                    _compressor = self.context_compressor
+                    _compressor = self.context_archiver
                     if _compressor.last_prompt_tokens > 0:
                         _real_tokens = _compressor.last_prompt_tokens
                     else:
                         _real_tokens = estimate_messages_tokens_rough(messages)
 
-                    # Preflight compression: fire at start of next API call
+                    # Preflight archiving: fire at start of next API call
                     # instead of mid-tool-call-loop.  User's message is already
                     # in DB and protected by protect_last_n.
-                    if self.compression_enabled and _compressor.should_compress(_real_tokens):
+                    if self.archiving_enabled and _compressor.should_archive(_real_tokens):
                         self._safe_print("  ⟳ compacting context…")
-                        messages, active_system_prompt = self._compress_context(
+                        messages, active_system_prompt = self._archive_context(
                             messages, system_message,
-                            approx_tokens=self.context_compressor.last_prompt_tokens,
+                            approx_tokens=self.context_archiver.last_prompt_tokens,
                             task_id=effective_task_id,
                         )
                         conversation_history = None
@@ -13225,7 +13264,7 @@ class AIAgent:
             "prompt_tokens": self.session_prompt_tokens,
             "completion_tokens": self.session_completion_tokens,
             "total_tokens": self.session_total_tokens,
-            "last_prompt_tokens": getattr(self.context_compressor, "last_prompt_tokens", 0) or 0,
+            "last_prompt_tokens": getattr(self.context_archiver, "last_prompt_tokens", 0) or 0,
             "estimated_cost_usd": self.session_estimated_cost_usd,
             "cost_status": self.session_cost_status,
             "cost_source": self.session_cost_source,

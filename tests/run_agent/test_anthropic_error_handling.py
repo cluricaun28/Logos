@@ -471,7 +471,7 @@ def test_prompt_too_long_triggers_compression(monkeypatch):
             self._save_trajectory = lambda messages, user_message, completed: None
             self._save_session_log = lambda messages: None
 
-        def _compress_context(self, messages, system_message, approx_tokens=0, task_id=None):
+        def _archive_context(self, messages, system_message, approx_tokens=0, task_id=None):
             type(self).compress_called += 1
             # Simulate compression by dropping oldest non-system message
             if len(messages) > 2:

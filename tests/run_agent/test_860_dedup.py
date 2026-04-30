@@ -146,7 +146,7 @@ class TestFlushDeduplication:
             old_session = agent.session_id
             assert agent._last_flushed_db_idx == 2
 
-            # Simulate what _compress_context does: new session, reset idx
+            # Simulate what _archive_context does: new session, reset idx
             agent.session_id = "compressed-session-new"
             db.create_session(session_id=agent.session_id, source="test")
             agent._last_flushed_db_idx = 0

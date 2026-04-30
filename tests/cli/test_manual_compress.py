@@ -19,10 +19,10 @@ def test_manual_compress_reports_noop_without_success_banner(capsys):
     history = _make_history()
     shell.conversation_history = history
     shell.agent = MagicMock()
-    shell.agent.compression_enabled = True
+    shell.agent.archiving_enabled = True
     shell.agent._cached_system_prompt = ""
     shell.agent.session_id = shell.session_id  # no-op compression: no split
-    shell.agent._compress_context.return_value = (list(history), "")
+    shell.agent._archive_context.return_value = (list(history), "")
 
     def _estimate(messages):
         assert messages == history
@@ -47,10 +47,10 @@ def test_manual_compress_explains_when_token_estimate_rises(capsys):
     ]
     shell.conversation_history = history
     shell.agent = MagicMock()
-    shell.agent.compression_enabled = True
+    shell.agent.archiving_enabled = True
     shell.agent._cached_system_prompt = ""
     shell.agent.session_id = shell.session_id  # no-op: no split
-    shell.agent._compress_context.return_value = (compressed, "")
+    shell.agent._archive_context.return_value = (compressed, "")
 
     def _estimate(messages):
         if messages == history:
@@ -71,7 +71,7 @@ def test_manual_compress_explains_when_token_estimate_rises(capsys):
 def test_manual_compress_syncs_session_id_after_split():
     """Regression for cli.session_id desync after /compress.
 
-    _compress_context ends the parent session and creates a new child session,
+    _archive_context ends the parent session and creates a new child session,
     mutating agent.session_id. Without syncing, cli.session_id still points
     at the ended parent — causing /status, /resume, exit summary, and the
     next end_session() call (e.g. from /resume <id>) to target the wrong row.
@@ -87,13 +87,13 @@ def test_manual_compress_syncs_session_id_after_split():
     ]
     shell.conversation_history = history
     shell.agent = MagicMock()
-    shell.agent.compression_enabled = True
+    shell.agent.archiving_enabled = True
     shell.agent._cached_system_prompt = ""
-    # Simulate _compress_context mutating agent.session_id as a side effect.
+    # Simulate _archive_context mutating agent.session_id as a side effect.
     def _fake_compress(*args, **kwargs):
         shell.agent.session_id = new_child_id
         return (compressed, "")
-    shell.agent._compress_context.side_effect = _fake_compress
+    shell.agent._archive_context.side_effect = _fake_compress
     shell.agent.session_id = old_id  # starts in sync
     shell._pending_title = "stale title"
 
@@ -116,10 +116,10 @@ def test_manual_compress_no_sync_when_session_id_unchanged():
     history = _make_history()
     shell.conversation_history = history
     shell.agent = MagicMock()
-    shell.agent.compression_enabled = True
+    shell.agent.archiving_enabled = True
     shell.agent._cached_system_prompt = ""
     shell.agent.session_id = shell.session_id
-    shell.agent._compress_context.return_value = (list(history), "")
+    shell.agent._archive_context.return_value = (list(history), "")
     shell._pending_title = "keep me"
 
     with patch("agent.model_metadata.estimate_messages_tokens_rough", return_value=100):

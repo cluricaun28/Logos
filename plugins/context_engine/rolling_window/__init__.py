@@ -1,8 +1,8 @@
 """Rolling Window Context Engine.
 
-Replaces LLM-based compression with a deterministic rolling window architecture.
-Instead of summarizing old turns, drop them entirely and rely on Perpetual Memory
-for historical retrieval. Designed for models with large native context windows (131k+ tokens).
+Replaces LLM-based summarization with a deterministic rolling window architecture.
+Instead of summarizing old turns, archive them to Perpetual Memory and rely on
+retrieval for historical recall. Designed for models with large native context windows (131k+ tokens).
 
 Architecture:
 - Context = working RAM (short-term, rolling window)
@@ -53,7 +53,7 @@ class RollingWindowContextEngine(ContextEngine):
     last_total_tokens: int = 0
     threshold_tokens: int = 0
     context_length: int = 0
-    compression_count: int = 0
+    archive_count: int = 0
 
     protect_first_n: int = 3
     protect_last_n: int = 30
@@ -65,13 +65,13 @@ class RollingWindowContextEngine(ContextEngine):
         self.max_tokens: int = kwargs.get("max_tokens", 131072)
         self.task_aware: bool = kwargs.get("task_aware", True)
         self.threshold_percent: float = kwargs.get("threshold_percent", 0.75)
-        self.compression_target: float = kwargs.get("compression_target", 0.65)
+        self.archive_target: float = kwargs.get("archive_target", 0.65)
         self.hard_ceiling_percent: float = kwargs.get("hard_ceiling_percent", 0.95)
 
     def annotate_tasks(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Inject task markers into assistant messages for task-aware compression.
+        """Inject task markers into assistant messages for task-aware archiving.
 
-        Called by run_agent.py before compress() to tag message boundaries.
+        Called by run_agent.py before archive() to tag message boundaries.
         Idempotent — safe to call multiple times on same messages.
         """
         if not self.task_aware:
@@ -90,21 +90,21 @@ class RollingWindowContextEngine(ContextEngine):
             self.last_completion_tokens = int(usage.get("completion_tokens", 0))
             self.last_total_tokens = int(usage.get("total_tokens", 0))
 
-    def should_compress(self, prompt_tokens: int = None) -> bool:
-        """Return True if compaction should fire this turn."""
+    def should_archive(self, prompt_tokens: int = None) -> bool:
+        """Return True if archiving should fire this turn."""
         tokens = prompt_tokens if prompt_tokens is not None else self.last_prompt_tokens
         # Guard against zero threshold (update_model hasn't been called yet)
         if self.threshold_tokens <= 0:
             return False
         return tokens > self.threshold_tokens
 
-    def compress(
+    def archive(
         self,
         messages: List[Dict[str, Any]],
         current_tokens: int = None,
         **kwargs,  # focus_topic and any future params are ignored (deterministic pruning)
     ) -> List[Dict[str, Any]]:
-        """Compact the message list and return the new message list.
+        """Archive old messages and return the new message list.
 
         Rolling window approach — deterministic pruning without LLM summarization.
         Designed for models with large native context windows (131k+ tokens).
@@ -134,19 +134,19 @@ class RollingWindowContextEngine(ContextEngine):
         pressure = tokens / self.max_tokens if self.max_tokens else 0.0
 
         # Escalating target: the closer to full, the more we drop.
-        # At threshold (75%) → aim for compression_target (65%).
+        # At threshold (75%) → aim for archive_target (65%).
         # Near capacity (95%+) → aim lower (~40%) for safety margin.
         # Linear interpolation between these two points.
         low_pressure = self.threshold_percent
         high_pressure = 0.95
         if pressure <= low_pressure:
-            target_ratio = self.compression_target
+            target_ratio = self.archive_target
         elif pressure >= high_pressure:
-            target_ratio = max(0.3, self.compression_target * 0.6)
+            target_ratio = max(0.3, self.archive_target * 0.6)
         else:
             # Linear interpolation
             t = (pressure - low_pressure) / (high_pressure - low_pressure)
-            target_ratio = self.compression_target * (1.0 - 0.4 * t)
+            target_ratio = self.archive_target * (1.0 - 0.4 * t)
 
         target_tokens = int(self.max_tokens * target_ratio)
 
@@ -154,7 +154,7 @@ class RollingWindowContextEngine(ContextEngine):
         if self.task_aware:
             try:
                 from .task_pruner import TaskAwarePruner
-                result = TaskAwarePruner.compress(
+                result = TaskAwarePruner.archive(
                     messages,
                     max_tokens=self.max_tokens,
                     target_tokens=target_tokens,
@@ -163,7 +163,7 @@ class RollingWindowContextEngine(ContextEngine):
                     window_size=self.window_size,
                     task_aware=True,
                 )
-                self.compression_count += 1
+                self.archive_count += 1
                 return result
             except Exception as e:
                 # Graceful degradation — if pruner fails for any reason,
@@ -173,15 +173,15 @@ class RollingWindowContextEngine(ContextEngine):
                 )
 
         # Original "drop middle" algorithm (fallback)
-        return self._original_compress(messages, target_tokens=target_tokens)
+        return self._original_archive(messages, target_tokens=target_tokens)
 
-    def _original_compress(
+    def _original_archive(
         self, messages: List[Dict[str, Any]], target_tokens: int = None
     ) -> List[Dict[str, Any]]:
-        """Fallback wrapper — delegates to shared original_compress function."""
-        from .task_pruner import original_compress
+        """Fallback wrapper — delegates to shared original_archive function."""
+        from .task_pruner import original_archive
 
-        result = original_compress(
+        result = original_archive(
             messages,
             max_tokens=self.max_tokens,
             protect_first_n=self.protect_first_n,
@@ -189,7 +189,7 @@ class RollingWindowContextEngine(ContextEngine):
             window_size=self.window_size,
             target_tokens=target_tokens,
         )
-        self.compression_count += 1
+        self.archive_count += 1
         return result
 
     def on_session_start(self, session_id: str, **kwargs) -> None:
@@ -205,7 +205,7 @@ class RollingWindowContextEngine(ContextEngine):
         self.last_prompt_tokens = 0
         self.last_completion_tokens = 0
         self.last_total_tokens = 0
-        self.compression_count = 0
+        self.archive_count = 0
 
     def get_tool_schemas(self) -> List[Dict[str, Any]]:
         """Return tool schemas this engine provides. Default returns empty list."""
@@ -226,10 +226,10 @@ class RollingWindowContextEngine(ContextEngine):
                 min(100, self.last_prompt_tokens / self.context_length * 100)
                 if self.context_length else 0
             ),
-            "compression_count": self.compression_count,
+            "archive_count": self.archive_count,
             "task_aware": self.task_aware,
             "threshold_percent": self.threshold_percent,
-            "compression_target": self.compression_target,
+            "archive_target": self.archive_target,
             "hard_ceiling_percent": self.hard_ceiling_percent,
         }
 

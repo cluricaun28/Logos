@@ -18,7 +18,7 @@ class StubEngine(ContextEngine):
     def __init__(self, context_length=200000, threshold_pct=0.50):
         self.context_length = context_length
         self.threshold_tokens = int(context_length * threshold_pct)
-        self._compress_called = False
+        self._archive_called = False
         self._tools_called = []
 
     @property
@@ -30,13 +30,13 @@ class StubEngine(ContextEngine):
         self.last_completion_tokens = usage.get("completion_tokens", 0)
         self.last_total_tokens = usage.get("total_tokens", 0)
 
-    def should_compress(self, prompt_tokens: int = None) -> bool:
+    def should_archive(self, prompt_tokens: int = None) -> bool:
         tokens = prompt_tokens if prompt_tokens is not None else self.last_prompt_tokens
         return tokens >= self.threshold_tokens
 
-    def compress(self, messages: List[Dict[str, Any]], current_tokens: int = None) -> List[Dict[str, Any]]:
-        self._compress_called = True
-        self.compression_count += 1
+    def archive(self, messages: List[Dict[str, Any]], current_tokens: int = None) -> List[Dict[str, Any]]:
+        self._archive_called = True
+        self.archive_count += 1
         # Trivial: just return as-is
         return messages
 
@@ -115,10 +115,10 @@ class TestDefaults:
     def test_on_session_reset(self):
         engine = StubEngine()
         engine.last_prompt_tokens = 999
-        engine.compression_count = 3
+        engine.archive_count = 3
         engine.on_session_reset()
         assert engine.last_prompt_tokens == 0
-        assert engine.compression_count == 0
+        assert engine.archive_count == 0
 
 
 
@@ -128,19 +128,19 @@ class TestDefaults:
 
 class TestStubEngine:
 
-    def test_should_compress(self):
+    def test_should_archive(self):
         engine = StubEngine(context_length=100000, threshold_pct=0.50)
-        assert not engine.should_compress(40000)
-        assert engine.should_compress(50000)
-        assert engine.should_compress(60000)
+        assert not engine.should_archive(40000)
+        assert engine.should_archive(50000)
+        assert engine.should_archive(60000)
 
-    def test_compress_tracks_count(self):
+    def test_archive_tracks_count(self):
         engine = StubEngine()
         msgs = [{"role": "user", "content": "hello"}]
-        result = engine.compress(msgs)
+        result = engine.archive(msgs)
         assert result == msgs
-        assert engine._compress_called
-        assert engine.compression_count == 1
+        assert engine._archive_called
+        assert engine.archive_count == 1
 
     def test_tool_schemas(self):
         engine = StubEngine()

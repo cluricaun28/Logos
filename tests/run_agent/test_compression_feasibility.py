@@ -72,7 +72,7 @@ def test_auto_corrects_threshold_when_aux_context_below_threshold(mock_get_clien
     agent._check_compression_model_feasibility()
 
     assert len(messages) == 1
-    assert "Compression model" in messages[0]
+    assert "Archiving model" in messages[0]
     assert "80,000" in messages[0]        # aux context
     assert "100,000" in messages[0]       # old threshold
     assert "Auto-lowered" in messages[0]
@@ -149,7 +149,7 @@ def test_feasibility_check_passes_live_main_runtime():
         agent._check_compression_model_feasibility()
 
     mock_get_client.assert_called_once_with(
-        "compression",
+        "archiving",
         main_runtime={
             "model": "gpt-5.4",
             "provider": "openai-codex",

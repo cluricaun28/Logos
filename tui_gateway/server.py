@@ -839,7 +839,7 @@ def _apply_model_switch(sid: str, session: dict, raw_input: str) -> dict:
     os.environ["HERMES_INFERENCE_MODEL"] = result.new_model
     # Keep the process-level provider env vars in sync with the user's
     # explicit choice so any ambient re-resolution (credential pool refresh,
-    # compressor rebuild, aux clients) and startup re-resolution on /new
+    # archiver rebuild, aux clients) and startup re-resolution on /new
     # both pick up the new provider instead of the original one persisted
     # in config or env.
     #
@@ -855,7 +855,7 @@ def _apply_model_switch(sid: str, session: dict, raw_input: str) -> dict:
     return {"value": result.new_model, "warning": result.warning_message or ""}
 
 
-def _compress_session_history(
+def _archive_session_history(
     session: dict, focus_topic: str | None = None
 ) -> tuple[int, dict]:
     from agent.model_metadata import estimate_messages_tokens_rough
@@ -865,15 +865,15 @@ def _compress_session_history(
     if len(history) < 4:
         return 0, _get_usage(agent)
     approx_tokens = estimate_messages_tokens_rough(history)
-    compressed, _ = agent._compress_context(
+    archived, _ = agent._archive_context(
         history,
         getattr(agent, "_cached_system_prompt", "") or "",
         approx_tokens=approx_tokens,
         focus_topic=focus_topic or None,
     )
-    session["history"] = compressed
+    session["history"] = archived
     session["history_version"] = int(session.get("history_version", 0)) + 1
-    return len(history) - len(compressed), _get_usage(agent)
+    return len(history) - len(archived), _get_usage(agent)
 
 
 def _get_usage(agent) -> dict:
@@ -889,15 +889,15 @@ def _get_usage(agent) -> dict:
         "total": g("session_total_tokens"),
         "calls": g("session_api_calls"),
     }
-    comp = getattr(agent, "context_compressor", None)
-    if comp:
-        ctx_used = getattr(comp, "last_prompt_tokens", 0) or usage["total"] or 0
-        ctx_max = getattr(comp, "context_length", 0) or 0
+    archiver = getattr(agent, "context_archiver", None)
+    if archiver:
+        ctx_used = getattr(archiver, "last_prompt_tokens", 0) or usage["total"] or 0
+        ctx_max = getattr(archiver, "context_length", 0) or 0
         if ctx_max:
             usage["context_used"] = ctx_used
             usage["context_max"] = ctx_max
             usage["context_percent"] = max(0, min(100, round(ctx_used / ctx_max * 100)))
-        usage["compressions"] = getattr(comp, "compression_count", 0) or 0
+        usage["archives"] = getattr(archiver, "archive_count", 0) or 0
     try:
         from agent.usage_pricing import CanonicalUsage, estimate_usage_cost
 
@@ -1722,7 +1722,7 @@ def _(rid, params: dict) -> dict:
 
         limit = int(params.get("limit", 200) or 200)
         # Over-fetch modestly so per-source filtering doesn't leave us
-        # short; the compression-tip projection in ``list_sessions_rich``
+        # short; the archival-tip projection in ``list_sessions_rich``
         # can also merge rows.
         fetch_limit = max(limit * 2, 200)
         rows = [
@@ -1900,18 +1900,18 @@ def _(rid, params: dict) -> dict:
     return _ok(rid, {"removed": removed})
 
 
-@method("session.compress")
+@method("session.archive")
 def _(rid, params: dict) -> dict:
     session, err = _sess(params, rid)
     if err:
         return err
     if session.get("running"):
         return _err(
-            rid, 4009, "session busy — /interrupt the current turn before /compress"
+            rid, 4009, "session busy — /interrupt the current turn before /archive"
         )
     try:
         with session["history_lock"]:
-            removed, usage = _compress_session_history(
+            removed, usage = _archive_session_history(
                 session, str(params.get("focus_topic", "") or "").strip()
             )
             messages = list(session.get("history", []))
@@ -1920,7 +1920,7 @@ def _(rid, params: dict) -> dict:
         return _ok(
             rid,
             {
-                "status": "compressed",
+                "status": "archived",
                 "removed": removed,
                 "usage": usage,
                 "info": info,
@@ -2453,7 +2453,7 @@ def _(rid, params: dict) -> dict:
                             session["history_version"] = history_version + 1
                         else:
                             # History mutated externally during the turn
-                            # (undo/compress/retry/rollback now guard on
+                            # (undo/archive/retry/rollback now guard on
                             # session.running, but this is the defensive
                             # backstop for any path that slips past).
                             # Surface the desync rather than silently
@@ -4120,9 +4120,9 @@ def _mirror_slash_side_effects(sid: str, session: dict, command: str) -> str:
     # Reject agent-mutating commands during an in-flight turn.  These
     # all do read-then-mutate on live agent/session state that the
     # worker thread running agent.run_conversation is using.  Parity
-    # with the session.compress / session.undo guards and the gateway
+    # with the session.archive / session.undo guards and the gateway
     # runner's running-agent /model guard.
-    _MUTATES_WHILE_RUNNING = {"model", "personality", "prompt", "compress"}
+    _MUTATES_WHILE_RUNNING = {"model", "personality", "prompt", "archive"}
     if name in _MUTATES_WHILE_RUNNING and session.get("running"):
         return f"session busy — /interrupt the current turn before running /{name}"
 
@@ -4138,9 +4138,9 @@ def _mirror_slash_side_effects(sid: str, session: dict, command: str) -> str:
             new_prompt = (cfg.get("agent") or {}).get("system_prompt", "") or ""
             agent.ephemeral_system_prompt = new_prompt or None
             agent._cached_system_prompt = None
-        elif name == "compress" and agent:
+        elif name == "archive" and agent:
             with session["history_lock"]:
-                _compress_session_history(session, arg)
+                _archive_session_history(session, arg)
             _emit("session.info", sid, _session_info(agent))
         elif name == "fast" and agent:
             mode = arg.lower()

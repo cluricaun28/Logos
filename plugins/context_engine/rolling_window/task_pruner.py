@@ -1,6 +1,6 @@
-"""Task-Aware Context Pruning — Selective Compression Logic.
+"""Task-Aware Context Pruning — Selective Archival Logic.
 
-Replaces blind "drop middle" compression with selective archival of completed
+Replaces blind "drop middle" archival with selective archival of completed
 tasks while preserving active work. Falls back to original algorithm when no
 task markers are present.
 
@@ -40,7 +40,7 @@ def _estimate_tokens(messages: List[Dict[str, Any]]) -> int:
 def _strip_and_truncate(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Strip raw assistant tool calls and truncate role:'tool' results.
 
-    Shared utility used by both TaskAwarePruner.compress() and original_compress().
+    Shared utility used by both TaskAwarePruner.archive() and original_archive().
     Returns a new list — does not mutate input messages.
     """
     result = []
@@ -64,7 +64,7 @@ def _strip_and_truncate(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 
 class TaskAwarePruner:
-    """Selective compression based on task boundaries.
+    """Selective archival based on task boundaries.
 
     When task markers are present, archives closed tasks first and keeps open
     tasks alive. Falls back to the original rolling window algorithm when no
@@ -72,7 +72,7 @@ class TaskAwarePruner:
     """
 
     @staticmethod
-    def compress(
+    def archive(
         messages: List[Dict[str, Any]],
         max_tokens: int = 131072,
         target_tokens: int = None,
@@ -81,20 +81,20 @@ class TaskAwarePruner:
         window_size: int = 20,
         task_aware: bool = True,
     ) -> List[Dict[str, Any]]:
-        """Task-aware compression with fallback to original algorithm.
+        """Task-aware archival with fallback to original algorithm.
 
         Args:
-            messages: Full message list to compress (already annotated by tagger).
+            messages: Full message list to archive (already annotated by tagger).
             max_tokens: Hard token budget for the context window.
             target_tokens: Target token count after pruning. If None, defaults to 70% of max_tokens.
                 Set lower for more aggressive pruning under pressure.
             protect_first_n: First N messages never dropped (system prompt, etc.).
             protect_last_n: Last N messages never dropped (recent conversation).
-            window_size: Target message count after pruning.
+            window_size: Target message count after archival.
             task_aware: If False, skip task-aware logic entirely.
 
         Returns:
-            Compressed message list.
+            Archived message list.
         """
         from .task_tagger import MARKER_START_PREFIX, categorize_tasks, build_task_summary
 
@@ -111,7 +111,7 @@ class TaskAwarePruner:
                 "Task-aware pruner: no markers found (%d messages), using original algorithm",
                 len(messages)
             )
-            return original_compress(
+            return original_archive(
                 stripped, max_tokens, protect_first_n, protect_last_n, window_size, target_tokens
             )
 
@@ -124,7 +124,7 @@ class TaskAwarePruner:
                 "Task-aware pruner: no closed tasks (%d messages), using original algorithm",
                 len(messages)
             )
-            return original_compress(
+            return original_archive(
                 stripped, max_tokens, protect_first_n, protect_last_n, window_size, target_tokens
             )
 
@@ -182,11 +182,11 @@ class TaskAwarePruner:
             )
 
         logger.info(
-            "Task-aware pruner: compressed %d -> %d messages (%d closed tasks archived)",
+            "Task-aware pruner: archived %d -> %d messages (%d closed tasks archived)",
             len(stripped), len(remaining), len(closed_indices)
         )
 
-        # Post-compression validation: did we actually hit our target?
+        # Post-archival validation: did we actually hit our target?
         final_tokens = _estimate_tokens(remaining)
         if final_tokens > target_tokens:
             logger.warning(
@@ -226,11 +226,25 @@ class TaskAwarePruner:
         protected_tail = set(range(protected_tail_start, len(messages)))
         protected = protected_head | protected_tail
 
-        # Build droppable indices (unprotected, non-system), sorted oldest-first
+        # Build droppable indices (unprotected, non-system), sorted oldest-first.
+        # System messages are never dropped — this includes the system prompt with
+        # RL/PM/tool/skill hooks AND injected archived-task summaries.
         unprotected_end = max(protect_first_n, len(messages) - protect_last_n)
         droppable = []
         for idx in range(protect_first_n, unprotected_end):
             if idx not in protected and messages[idx].get("role") != "system":
+                # Extra safety: never drop critical injected context.
+                # These are appended after archival by run_agent.py and contain
+                # active task state that the model needs to continue work.
+                content = messages[idx].get("content", "") or ""
+                if "_archived_summary" in str(messages[idx]) or "Archived Tasks" in content:
+                    continue
+                if "[Your active task list was preserved" in content:
+                    # Todo snapshot — contains pending/in_progress action items
+                    continue
+                if content.startswith("## Context Bridge") or "<context-bridge>" in content:
+                    # Perpetual context bridge — active tasks, files, knowledge gaps
+                    continue
                 droppable.append(idx)
 
         # Drop oldest first until under budget
@@ -248,7 +262,7 @@ class TaskAwarePruner:
         return [messages[i] for i in range(len(messages)) if i not in drop_set]
 
 
-def original_compress(
+def original_archive(
     messages: List[Dict[str, Any]],
     max_tokens: int = 131072,
     protect_first_n: int = 3,
@@ -256,7 +270,7 @@ def original_compress(
     window_size: int = 20,
     target_tokens: int = None,
 ) -> List[Dict[str, Any]]:
-    """Original rolling window compression — shared fallback algorithm.
+    """Original rolling window archival — shared fallback algorithm.
 
     Single source of truth used by both TaskAwarePruner (when no markers found)
     and RollingWindowContextEngine (when task-aware pruner fails entirely).
@@ -271,19 +285,29 @@ def original_compress(
     # Step 1-2: Strip tool calls & truncate results (shared utility)
     truncated = _strip_and_truncate(messages)
 
-    # Step 3: Drop oldest messages when window_size is exceeded
+    # Step 3: Drop oldest messages when window_size is exceeded.
+    # CRITICAL: Must preserve the head (system prompt + hooks) AND tail (recent context).
+    # The old code did `truncated[-keep_count:]` which dropped the system prompt entirely.
     if len(truncated) > window_size:
         protected_first = min(protect_first_n, len(truncated))
         protected_last = min(protect_last_n, len(truncated))
 
         keep_count = max(protected_first + protected_last, window_size)
         if len(truncated) > keep_count:
-            truncated = truncated[-keep_count:]
+            # Keep head (system prompt + hooks) and fill rest from tail.
+            # Never drop the first `protected_first` messages — they contain the
+            # system prompt with RL/PM/tool/skill indexes that the model needs
+            # to function after archival.
+            head = truncated[:protected_first]
+            remaining_slots = keep_count - protected_first
+            tail = truncated[-remaining_slots:] if remaining_slots > 0 else []
+            truncated = head + tail
 
-    # Step 4: Enforce token budget with aggressive truncation as last resort
+    # Step 4: Enforce token budget with aggressive truncation as last resort.
+    # Keeps first quarter (includes system prompt + hooks) and last quarter.
     current_tokens = _estimate_tokens(truncated)
     if current_tokens and current_tokens > target_tokens:
-        keep_first = max(1, len(truncated) // 4)
+        keep_first = max(protect_first_n, len(truncated) // 4)  # Never drop below protect_first_n
         keep_last = max(1, len(truncated) // 4)
         truncated = truncated[:keep_first] + truncated[-keep_last:]
 

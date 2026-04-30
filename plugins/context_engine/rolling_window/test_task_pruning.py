@@ -216,31 +216,31 @@ def run_tests():
     try:
         tagged = annotate_tasks(FIXTURE_MULTI_TASK)
         
-        compressed = TaskAwarePruner.compress(
+        archived = TaskAwarePruner.archive(
             tagged,
             max_tokens=131072,
             protect_first_n=3,
             protect_last_n=30,
             task_aware=True,
         )
-        
+
         # Verify no closed task messages remain (except in summary)
         has_closed_content = any(
             "status=closed" in (m.get("content") or "") and "[task-end:" in (m.get("content") or "")
-            for m in compressed
+            for m in archived
         )
-        
+
         if has_closed_content:
             print(f"  ⚠️  WARN — Some closed task messages remain (may be protected head/tail)")
-        
+
         # Verify open task content survives
         has_open_content = any(
             "missing a `return`" in (m.get("content") or "") or "CREATE TABLE" in (m.get("content") or "")
-            for m in compressed
+            for m in archived
         )
-        
-        assert len(compressed) < len(tagged), f"Expected compression to reduce messages: {len(compressed)} vs {len(tagged)}"
-        print(f"  ✅ PASS — Compressed {len(tagged)} → {len(compressed)} messages")
+
+        assert len(archived) < len(tagged), f"Expected archival to reduce messages: {len(archived)} vs {len(tagged)}"
+        print(f"  ✅ PASS — Archived {len(tagged)} → {len(archived)} messages")
         passed += 1
     except AssertionError as e:
         print(f"  ❌ FAIL — {e}")
@@ -254,18 +254,18 @@ def run_tests():
             for i in range(50)
         ]
         
-        compressed = TaskAwarePruner.compress(
+        archived = TaskAwarePruner.archive(
             plain_messages,
             max_tokens=131072,
             protect_first_n=3,
             protect_last_n=30,
             task_aware=True,  # Enabled but should fall back
         )
-        
-        assert len(compressed) < len(plain_messages), "Fallback algorithm should still compress"
-        assert len(compressed[:3]) == 3, "Protected head should be preserved"
-        
-        print(f"  ✅ PASS — Fallback to original algorithm works ({len(plain_messages)} → {len(compressed)})")
+
+        assert len(archived) < len(plain_messages), "Fallback algorithm should still archive"
+        assert len(archived[:3]) == 3, "Protected head should be preserved"
+
+        print(f"  ✅ PASS — Fallback to original algorithm works ({len(plain_messages)} → {len(archived)})")
         passed += 1
     except AssertionError as e:
         print(f"  ❌ FAIL — {e}")
@@ -276,17 +276,17 @@ def run_tests():
     try:
         tagged = annotate_tasks(FIXTURE_SCHEMA_VERSIONING)
         
-        compressed = TaskAwarePruner.compress(
+        archived = TaskAwarePruner.archive(
             tagged,
-            max_tokens=100,  # Very low to force aggressive compression
+            max_tokens=100,  # Very low to force aggressive archival
             protect_first_n=3,
             protect_last_n=5,
             task_aware=True,
         )
-        
-        assert len(compressed) >= 8, f"Expected at least {3+5} protected messages, got {len(compressed)}"
-        
-        print(f"  ✅ PASS — Protection zones respected ({len(compressed)} messages after aggressive compression)")
+
+        assert len(archived) >= 8, f"Expected at least {3+5} protected messages, got {len(archived)}"
+
+        print(f"  ✅ PASS — Protection zones respected ({len(archived)} messages after aggressive archival)")
         passed += 1
     except AssertionError as e:
         print(f"  ❌ FAIL — {e}")

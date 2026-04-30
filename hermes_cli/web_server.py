@@ -343,7 +343,7 @@ _CATEGORY_MERGE: Dict[str, str] = {
 # Display order for tabs — unlisted categories sort alphabetically after these.
 _CATEGORY_ORDER = [
     "general", "agent", "terminal", "display", "delegation",
-    "memory", "compression", "security", "browser", "voice",
+    "memory", "archiving", "security", "browser", "voice",
     "tts", "stt", "logging", "discord", "auxiliary",
 ]
 

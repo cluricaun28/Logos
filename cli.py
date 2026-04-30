@@ -2301,7 +2301,7 @@ class HermesCLI:
             context_length = getattr(compressor, "context_length", 0) or 0
             snapshot["context_tokens"] = context_tokens
             snapshot["context_length"] = context_length or None
-            snapshot["archives"] = getattr(compressor, "compression_count", 0) or 0
+            snapshot["archives"] = getattr(compressor, "archive_count", 0) or 0
             if context_length:
                 snapshot["context_percent"] = max(0, min(100, round((context_tokens / context_length) * 100)))
 
@@ -6174,7 +6174,7 @@ class HermesCLI:
             self._handle_reasoning_command(cmd_original)
         elif canonical == "fast":
             self._handle_fast_command(cmd_original)
-        elif canonical == "archive":
+        elif canonical in ("archive", "compress"):
             self._manual_archive(cmd_original)
         elif canonical == "usage":
             self._show_usage()
@@ -7087,21 +7087,21 @@ class HermesCLI:
                 else:
                     print(f"📦 Archiving {original_count} messages (~{approx_tokens:,} tokens)...")
 
-                # Pass None as system_message so _compress_context rebuilds
+                # Pass None as system_message so _archive_context rebuilds
                 # the system prompt from scratch via _build_system_prompt(None).
                 # Passing _cached_system_prompt caused duplication because
                 # _build_system_prompt appends system_message to prompt_parts
                 # which already contain the agent identity — resulting in the
                 # identity block appearing twice (issue #15281).
-                compressed, _ = self.agent._compress_context(
+                compressed, _ = self.agent._archive_context(
                     original_history,
                     None,
                     approx_tokens=approx_tokens,
                     focus_topic=focus_topic or None,
                 )
                 self.conversation_history = compressed
-                # _compress_context ends the old session and creates a new child
-                # session on the agent (run_agent.py::_compress_context). Sync the
+                # _archive_context ends the old session and creates a new child
+                # session on the agent (run_agent.py::_archive_context). Sync the
                 # CLI's session_id so /status, /resume, exit summary, and title
                 # generation all point at the live continuation session, not the
                 # ended parent. Without this, subsequent end_session() calls target
@@ -7127,6 +7127,9 @@ class HermesCLI:
 
             except Exception as e:
                 print(f"  ❌ Archiving failed: {e}")
+
+    # Backward compat alias for tests and legacy code
+    _manual_compress = _manual_archive
 
     def _handle_debug_command(self):
         """Handle /debug — upload debug report + logs and print paste URLs."""
@@ -7170,7 +7173,7 @@ class HermesCLI:
         last_prompt = compressor.last_prompt_tokens
         ctx_len = compressor.context_length
         pct = min(100, (last_prompt / ctx_len * 100)) if ctx_len else 0
-        archives = compressor.compression_count
+        archives = compressor.archive_count
 
         msg_count = len(self.conversation_history)
         cost_result = estimate_usage_cost(

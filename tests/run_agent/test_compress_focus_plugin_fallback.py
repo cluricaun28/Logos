@@ -1,8 +1,8 @@
-"""Regression test: _compress_context tolerates plugin engines with strict signatures.
+"""Regression test: _archive_context tolerates plugin engines with strict signatures.
 
 Added to ``ContextEngine.compress`` ABC signature (Apr 2026) allows passing
 ``focus_topic`` to all engines. Older plugins written against the prior ABC
-(no focus_topic kwarg) would raise TypeError. _compress_context retries
+(no focus_topic kwarg) would raise TypeError. _archive_context retries
 without focus_topic on TypeError so manual /compress <focus> doesn't crash
 on older plugins.
 """
@@ -30,14 +30,14 @@ def _make_agent_with_engine(engine):
     agent.log_prefix = ""
     agent._vprint = lambda *a, **kw: None
     agent._last_flushed_db_idx = 0
-    # Stub the few AIAgent methods _compress_context uses.
+    # Stub the few AIAgent methods _archive_context uses.
     agent._invalidate_system_prompt = lambda *a, **kw: None
     agent._build_system_prompt = lambda *a, **kw: "new-system-prompt"
     agent.commit_memory_session = lambda *a, **kw: None
     return agent
 
 
-def test_compress_context_falls_back_when_engine_rejects_focus_topic():
+def test_archive_context_falls_back_when_engine_rejects_focus_topic():
     """Older plugins without focus_topic in compress() signature don't crash."""
     captured_kwargs = []
 

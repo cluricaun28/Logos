@@ -674,12 +674,13 @@ class TestSlashCommands:
             {"role": "user", "content": "three"},
             {"role": "assistant", "content": "four"},
         ]
-        state.agent.compression_enabled = True
+        state.agent.compression_enabled = True  # BC alias
+        state.agent.archiving_enabled = True
         state.agent._cached_system_prompt = "system"
         original_session_db = object()
         state.agent._session_db = original_session_db
 
-        def _compress_context(messages, system_prompt, *, approx_tokens, task_id):
+        def _archive_context(messages, system_prompt, *, approx_tokens, task_id):
             assert state.agent._session_db is None
             assert messages == state.history
             assert system_prompt == "system"
@@ -687,7 +688,7 @@ class TestSlashCommands:
             assert task_id == state.session_id
             return [{"role": "user", "content": "summary"}], "new-system"
 
-        state.agent._compress_context = MagicMock(side_effect=_compress_context)
+        state.agent._archive_context = MagicMock(side_effect=_archive_context)
 
         with (
             patch.object(agent.session_manager, "save_session") as mock_save,
@@ -702,7 +703,7 @@ class TestSlashCommands:
         assert "~40 -> ~12 tokens" in result
         assert state.history == [{"role": "user", "content": "summary"}]
         assert state.agent._session_db is original_session_db
-        state.agent._compress_context.assert_called_once_with(
+        state.agent._archive_context.assert_called_once_with(
             [
                 {"role": "user", "content": "one"},
                 {"role": "assistant", "content": "two"},

@@ -137,7 +137,7 @@ export interface SessionUsageResponse {
   cache_read?: number
   cache_write?: number
   calls?: number
-  compressions?: number
+  archives?: number
   context_max?: number
   context_percent?: number
   context_used?: number
@@ -149,7 +149,7 @@ export interface SessionUsageResponse {
   total?: number
 }
 
-export interface SessionCompressResponse {
+export interface SessionArchiveResponse {
   info?: SessionInfo
   messages?: GatewayTranscriptMessage[]
   removed?: number

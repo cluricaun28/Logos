@@ -23,6 +23,8 @@ import time
 from dataclasses import dataclass
 from typing import Any, Optional
 
+from agent.memory_manager import StreamingContextScrubber
+
 logger = logging.getLogger("gateway.stream_consumer")
 
 # Sentinel to signal the stream is complete
@@ -126,6 +128,11 @@ class GatewayStreamConsumer:
         # Think-block filter state (mirrors CLI's _stream_delta tag suppression)
         self._in_think_block = False
         self._think_buffer = ""
+
+        # Memory-context scrubber: strips <memory-context>...</memory-context>
+        # spans from streaming deltas so recalled context never leaks to the UI.
+        # Stateful because tags can arrive split across stream chunks.
+        self._context_scrubber = StreamingContextScrubber()
 
     @property
     def already_sent(self) -> bool:
@@ -302,7 +309,12 @@ class GatewayStreamConsumer:
                         if isinstance(item, tuple) and len(item) == 2 and item[0] is _COMMENTARY:
                             commentary_text = item[1]
                             break
-                        self._filter_and_accumulate(item)
+                        # Run through memory-context scrubber first — strips
+                        # <memory-context> spans that may leak recalled context
+                        # to the UI when split across stream deltas.
+                        clean = self._context_scrubber.feed(item)
+                        if clean:
+                            self._filter_and_accumulate(clean)
                     except queue.Empty:
                         break
 
@@ -311,6 +323,10 @@ class GatewayStreamConsumer:
                 # tag is not lost.
                 if got_done:
                     self._flush_think_buffer()
+                    # Release any tail held back by the memory-context scrubber
+                    tail = self._context_scrubber.flush()
+                    if tail:
+                        self._filter_and_accumulate(tail)
 
                 # Decide whether to flush an edit
                 now = time.monotonic()
@@ -461,6 +477,9 @@ class GatewayStreamConsumer:
                     ):
                         await self._flush_segment_tail_on_edit_failure()
                     self._reset_segment_state(preserve_no_edit=True)
+                    # Reset context scrubber so a hung span from the previous
+                    # segment doesn't suppress text in the next one.
+                    self._context_scrubber.reset()
 
                 await asyncio.sleep(0.05)  # Small yield to not busy-loop
 

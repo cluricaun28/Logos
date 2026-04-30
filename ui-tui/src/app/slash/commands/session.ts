@@ -5,7 +5,7 @@ import type {
   ConfigSetResponse,
   ImageAttachResponse,
   SessionBranchResponse,
-  SessionCompressResponse,
+  SessionArchiveResponse,
   SessionUsageResponse,
   VoiceToggleResponse
 } from '../../../gatewayTypes.js'
@@ -117,16 +117,16 @@ export const sessionCommands: SlashCommand[] = [
   },
 
   {
-    help: 'compress transcript',
-    name: 'compress',
+    help: 'archive transcript',
+    name: 'archive',
     run: (arg, ctx) => {
       ctx.gateway
-        .rpc<SessionCompressResponse>('session.compress', {
+        .rpc<SessionArchiveResponse>('session.archive', {
           session_id: ctx.sid,
           ...(arg ? { focus_topic: arg } : {})
         })
         .then(
-          ctx.guarded<SessionCompressResponse>(r => {
+          ctx.guarded<SessionArchiveResponse>(r => {
             if (Array.isArray(r.messages)) {
               const rows = toTranscriptMessages(r.messages)
 
@@ -142,11 +142,11 @@ export const sessionCommands: SlashCommand[] = [
             }
 
             if ((r.removed ?? 0) <= 0) {
-              return ctx.transcript.sys('nothing to compress')
+              return ctx.transcript.sys('nothing to archive')
             }
 
             ctx.transcript.sys(
-              `compressed ${r.removed} messages${r.usage?.total ? ` · ${fmtK(r.usage.total)} tok` : ''}`
+              `archived ${r.removed} messages${r.usage?.total ? ` · ${fmtK(r.usage.total)} tok` : ''}`
             )
           })
         )
@@ -415,8 +415,8 @@ export const sessionCommands: SlashCommand[] = [
           sections.push({ text: `Context: ${f(r.context_used)} / ${f(r.context_max)} (${r.context_percent}%)` })
         }
 
-        if (r.compressions) {
-          sections.push({ text: `Compressions: ${r.compressions}` })
+        if (r.archives) {
+          sections.push({ text: `Archives: ${r.archives}` })
         }
 
         ctx.transcript.panel('Usage', sections)

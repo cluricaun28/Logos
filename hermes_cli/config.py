@@ -577,12 +577,12 @@ DEFAULT_CONFIG = {
         "max_line_length": 2000,
     },
 
-    "compression": {
+    "archiving": {
         "enabled": True,
-        "threshold": 0.50,            # compress when context usage exceeds this ratio
+        "threshold": 0.50,            # archive when context usage exceeds this ratio
         "target_ratio": 0.20,         # fraction of threshold to preserve as recent tail
-        "protect_last_n": 20,         # minimum recent messages to keep uncompressed
-        "hygiene_hard_message_limit": 400,  # gateway session-hygiene force-compress threshold by message count
+        "protect_last_n": 20,         # minimum recent messages to keep unarchived
+        "hygiene_hard_message_limit": 400,  # gateway session-hygiene force-archive threshold by message count
     },
 
     # Anthropic prompt caching (Claude via OpenRouter or native Anthropic API).
@@ -635,12 +635,12 @@ DEFAULT_CONFIG = {
             "timeout": 360,        # seconds (6min) — per-attempt LLM summarization timeout; increase for slow local models
             "extra_body": {},
         },
-        "compression": {
+        "archiving": {
             "provider": "auto",
             "model": "",
             "base_url": "",
             "api_key": "",
-            "timeout": 120,        # seconds — compression summarises large contexts; increase for local models
+            "timeout": 120,        # seconds — archival summarises large contexts; increase for local models
             "extra_body": {},
         },
         "session_search": {
@@ -798,8 +798,8 @@ DEFAULT_CONFIG = {
     # Context engine -- controls how the context window is managed when
     # approaching the model's token limit.
     # "compressor" = built-in lossy summarization (default).
-    # Set to a plugin name to activate an alternative engine (e.g. "lcm"
-    # for Lossless Context Management).  The engine must be installed as
+    # Set to a plugin name to activate an alternative engine (e.g. "rolling_window"
+    # for task-aware archival).  The engine must be installed as
     # a plugin in plugins/context_engine/<name>/ or ~/.hermes/plugins/.
     "context": {
         "engine": "compressor",
@@ -2482,7 +2482,7 @@ def check_config_version() -> Tuple[int, int]:
 _KNOWN_ROOT_KEYS = {
     "_config_version", "model", "providers", "fallback_model",
     "fallback_providers", "credential_pool_strategies", "toolsets",
-    "agent", "terminal", "display", "compression", "delegation",
+    "agent", "terminal", "display", "archiving", "delegation",
     "auxiliary", "custom_providers", "context", "memory", "gateway",
     "sessions",
 }
@@ -2964,39 +2964,42 @@ def migrate_config(interactive: bool = True, quiet: bool = False) -> Dict[str, A
     # ── Version 16 → 17: remove legacy compression.summary_* keys ──
     if current_ver < 17:
         config = read_raw_config()
-        comp = config.get("compression", {})
+        comp = config.get("compression", {}) or config.get("archiving", {})  # backward compat
         if isinstance(comp, dict):
             s_model = comp.pop("summary_model", None)
             s_provider = comp.pop("summary_provider", None)
             s_base_url = comp.pop("summary_base_url", None)
             migrated_keys = []
-            # Migrate non-empty, non-default values to auxiliary.compression
+            # Migrate non-empty, non-default values to auxiliary.archiving (backward compat: also check compression)
             if s_model and str(s_model).strip():
                 aux = config.setdefault("auxiliary", {})
-                aux_comp = aux.setdefault("compression", {})
-                if not aux_comp.get("model"):
-                    aux_comp["model"] = str(s_model).strip()
+                aux_arch = aux.setdefault("archiving", {})
+                if not aux_arch.get("model"):
+                    aux_arch["model"] = str(s_model).strip()
                     migrated_keys.append(f"model={s_model}")
             if s_provider and str(s_provider).strip() not in ("", "auto"):
                 aux = config.setdefault("auxiliary", {})
-                aux_comp = aux.setdefault("compression", {})
-                if not aux_comp.get("provider") or aux_comp.get("provider") == "auto":
-                    aux_comp["provider"] = str(s_provider).strip()
+                aux_arch = aux.setdefault("archiving", {})
+                if not aux_arch.get("provider") or aux_arch.get("provider") == "auto":
+                    aux_arch["provider"] = str(s_provider).strip()
                     migrated_keys.append(f"provider={s_provider}")
             if s_base_url and str(s_base_url).strip():
                 aux = config.setdefault("auxiliary", {})
-                aux_comp = aux.setdefault("compression", {})
-                if not aux_comp.get("base_url"):
-                    aux_comp["base_url"] = str(s_base_url).strip()
+                aux_arch = aux.setdefault("archiving", {})
+                if not aux_arch.get("base_url"):
+                    aux_arch["base_url"] = str(s_base_url).strip()
                     migrated_keys.append(f"base_url={s_base_url}")
             if migrated_keys or s_model is not None or s_provider is not None or s_base_url is not None:
-                config["compression"] = comp
+                # Clean up empty old key
+                comp_section = config.get("compression", {}) or config.get("archiving", {})
+                if isinstance(comp_section, dict) and not any(k.startswith("summary_") for k in comp_section):
+                    pass  # keep non-summary keys
                 save_config(config)
                 if not quiet:
                     if migrated_keys:
-                        print(f"  ✓ Migrated compression.summary_* → auxiliary.compression: {', '.join(migrated_keys)}")
+                        print(f"  ✓ Migrated summary_* → auxiliary.archiving: {', '.join(migrated_keys)}")
                     else:
-                        print("  ✓ Removed unused compression.summary_* keys")
+                        print("  ✓ Removed unused summary_* keys")
 
     # ── Version 20 → 21: plugins are now opt-in; grandfather existing user plugins ──
     # The loader now requires plugins to appear in ``plugins.enabled`` before
@@ -4067,22 +4070,22 @@ def show_config():
     else:
         print(f"  Timezone:     {color('(server-local)', Colors.DIM)}")
 
-    # Compression
+    # Archiving (context compression)
     print()
-    print(color("◆ Context Compression", Colors.CYAN, Colors.BOLD))
-    compression = config.get('compression', {})
-    enabled = compression.get('enabled', True)
+    print(color("◆ Context Archiving", Colors.CYAN, Colors.BOLD))
+    archiving = config.get('archiving', {}) or config.get('compression', {})  # backward compat
+    enabled = archiving.get('enabled', True)
     print(f"  Enabled:      {'yes' if enabled else 'no'}")
     if enabled:
-        print(f"  Threshold:    {compression.get('threshold', 0.50) * 100:.0f}%")
-        print(f"  Target ratio: {compression.get('target_ratio', 0.20) * 100:.0f}% of threshold preserved")
-        print(f"  Protect last: {compression.get('protect_last_n', 20)} messages")
-        _aux_comp = config.get('auxiliary', {}).get('compression', {})
-        _sm = _aux_comp.get('model', '') or '(auto)'
+        print(f"  Threshold:    {archiving.get('threshold', 0.50) * 100:.0f}%")
+        print(f"  Target ratio: {archiving.get('target_ratio', 0.20) * 100:.0f}% of threshold preserved")
+        print(f"  Protect last: {archiving.get('protect_last_n', 20)} messages")
+        _aux_arch = config.get('auxiliary', {}).get('archiving', {}) or config.get('auxiliary', {}).get('compression', {})  # backward compat
+        _sm = _aux_arch.get('model', '') or '(auto)'
         print(f"  Model:        {_sm}")
-        comp_provider = _aux_comp.get('provider', 'auto')
-        if comp_provider and comp_provider != 'auto':
-            print(f"  Provider:     {comp_provider}")
+        arch_provider = _aux_arch.get('provider', 'auto')
+        if arch_provider and arch_provider != 'auto':
+            print(f"  Provider:     {arch_provider}")
     
     # Auxiliary models
     auxiliary = config.get('auxiliary', {})

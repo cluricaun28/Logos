@@ -1093,20 +1093,20 @@ def test_config_set_personality_resets_history_and_returns_info(monkeypatch):
     assert ("session.info", "sid", {"model": "x"}) in emits
 
 
-def test_session_compress_uses_compress_helper(monkeypatch):
+def test_session_archive_uses_archive_helper(monkeypatch):
     agent = types.SimpleNamespace()
     server._sessions["sid"] = _session(agent=agent)
 
     monkeypatch.setattr(
         server,
-        "_compress_session_history",
+        "_archive_session_history",
         lambda session, focus_topic=None: (2, {"total": 42}),
     )
     monkeypatch.setattr(server, "_session_info", lambda _agent: {"model": "x"})
 
     with patch("tui_gateway.server._emit") as emit:
         resp = server.handle_request(
-            {"id": "1", "method": "session.compress", "params": {"session_id": "sid"}}
+            {"id": "1", "method": "session.archive", "params": {"session_id": "sid"}}
         )
 
     assert resp["result"]["removed"] == 2
@@ -1555,11 +1555,11 @@ def test_session_undo_allowed_when_idle():
         server._sessions.pop("sid", None)
 
 
-def test_session_compress_rejects_while_running(monkeypatch):
+def test_session_archive_rejects_while_running(monkeypatch):
     server._sessions["sid"] = _session(running=True)
     try:
         resp = server.handle_request(
-            {"id": "1", "method": "session.compress", "params": {"session_id": "sid"}}
+            {"id": "1", "method": "session.archive", "params": {"session_id": "sid"}}
         )
         assert resp.get("error")
         assert resp["error"]["code"] == 4009
@@ -1831,7 +1831,7 @@ def test_respond_unpacks_sid_tuple_correctly():
 # session is running.  agent.switch_model() mutates self.model, self.provider,
 # self.base_url, self.client etc. in place — the worker thread running
 # agent.run_conversation is reading those on every iteration.  Same class of
-# bug as the session.undo / session.compress mid-run silent-drop; same fix
+# bug as the session.undo / session.archive mid-run silent-drop; same fix
 # pattern: reject with 4009 while running.
 # ---------------------------------------------------------------------------
 
@@ -1898,23 +1898,23 @@ def test_config_set_model_allowed_when_idle(monkeypatch):
 
 def test_mirror_slash_side_effects_rejects_mutating_commands_while_running(monkeypatch):
     """Slash worker passthrough (e.g. /model, /personality, /prompt,
-    /compress) must reject during an in-flight turn.  Same race as
+    /archive) must reject during an in-flight turn.  Same race as
     config.set — mutates live agent state while run_conversation is
     reading it."""
     import types
 
-    applied = {"model": False, "compress": False}
+    applied = {"model": False, "archive": False}
 
     def _fake_apply_model(sid, session, arg):
         applied["model"] = True
         return {"value": arg, "warning": ""}
 
-    def _fake_compress(session, focus):
-        applied["compress"] = True
+    def _fake_archive(session, focus):
+        applied["archive"] = True
         return (0, {})
 
     monkeypatch.setattr(server, "_apply_model_switch", _fake_apply_model)
-    monkeypatch.setattr(server, "_compress_session_history", _fake_compress)
+    monkeypatch.setattr(server, "_archive_session_history", _fake_archive)
 
     session = _session(running=True)
     session["agent"] = types.SimpleNamespace(model="x")
@@ -1923,7 +1923,7 @@ def test_mirror_slash_side_effects_rejects_mutating_commands_while_running(monke
         ("/model new/model", "model"),
         ("/personality default", "personality"),
         ("/prompt", "prompt"),
-        ("/compress", "compress"),
+        ("/archive", "archive"),
     ]:
         warning = server._mirror_slash_side_effects("sid", session, cmd)
         assert (
@@ -1933,7 +1933,7 @@ def test_mirror_slash_side_effects_rejects_mutating_commands_while_running(monke
 
     # None of the mutating side-effect helpers should have fired.
     assert not applied["model"], "model switch fired despite running session"
-    assert not applied["compress"], "compress fired despite running session"
+    assert not applied["archive"], "archive fired despite running session"
 
 
 def test_mirror_slash_side_effects_allowed_when_idle(monkeypatch):

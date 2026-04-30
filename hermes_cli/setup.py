@@ -1518,8 +1518,8 @@ def _apply_default_agent_settings(config: dict):
 
     config.setdefault("display", {})["tool_progress"] = "all"
 
-    config.setdefault("compression", {})["enabled"] = True
-    config["compression"]["threshold"] = 0.50
+    config.setdefault("archiving", {})["enabled"] = True
+    config["archiving"]["threshold"] = 0.50
 
     config.setdefault("session_reset", {}).update({
         "mode": "both",
@@ -1584,26 +1584,26 @@ def setup_agent_settings(config: dict):
     else:
         print_warning(f"Unknown mode '{mode}', keeping '{current_mode}'")
 
-    # ── Context Compression ──
-    print_header("Context Compression")
-    print_info("Automatically summarizes old messages when context gets too long.")
+    # ── Context Archiving ──
+    print_header("Context Archiving")
+    print_info("Automatically archives old messages when context gets too long.")
     print_info(
-        "Higher threshold = compress later (use more context). Lower = compress sooner."
+        "Higher threshold = archive later (use more context). Lower = archive sooner."
     )
 
-    config.setdefault("compression", {})["enabled"] = True
+    config.setdefault("archiving", {})["enabled"] = True
 
-    current_threshold = config.get("compression", {}).get("threshold", 0.50)
-    threshold_str = prompt("Compression threshold (0.5-0.95)", str(current_threshold))
+    current_threshold = config.get("archiving", {}).get("threshold", 0.50)
+    threshold_str = prompt("Archiving threshold (0.5-0.95)", str(current_threshold))
     try:
         threshold = float(threshold_str)
         if 0.5 <= threshold <= 0.95:
-            config["compression"]["threshold"] = threshold
+            config["archiving"]["threshold"] = threshold
     except ValueError:
         pass
 
     print_success(
-        f"Context compression threshold set to {config['compression'].get('threshold', 0.50)}"
+        f"Context archiving threshold set to {config['archiving'].get('threshold', 0.50)}"
     )
 
     # ── Session Reset Policy ──

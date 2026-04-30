@@ -1,13 +1,13 @@
-"""Test: the context engine is notified of a compression-boundary rollover.
+"""Test: the context engine is notified of an archiving-boundary rollover.
 
-When _compress_context rotates session_id (compression split), the active
-context engine receives on_session_start(new_sid, boundary_reason="compression",
+When _archive_context rotates session_id (archiving split), the active
+context engine receives on_session_start(new_sid, boundary_reason="archiving",
 old_session_id=<old>). This lets plugin engines (e.g. hermes-lcm) preserve
 DAG lineage across the split instead of treating it as a fresh /new.
 
-See hermes-lcm#68: after Hermes compresses and mints a new physical session,
-LCM was losing continuity (compression_count: 1, store_messages: 0,
-dag_nodes: 0). With boundary_reason="compression" plugins can distinguish
+See hermes-lcm#68: after Hermes archives and mints a new physical session,
+LCM was losing continuity (archive_count: 1, store_messages: 0,
+dag_nodes: 0). With boundary_reason="archiving" plugins can distinguish
 this from a real user-initiated /new.
 """
 
@@ -59,25 +59,25 @@ class TestCompressionBoundaryHook:
                 {"role": "user", "content": f"m{i}"} for i in range(10)
             ]
 
-            agent._compress_context(messages, "sys", approx_tokens=10_000)
+            agent._archive_context(messages, "sys", approx_tokens=10_000)
 
             # Session_id rotated
             assert agent.session_id != original_sid, \
                 "compression should rotate session_id when session_db is set"
 
-            # Hook fired with boundary_reason="compression" and old_session_id
+            # Hook fired with boundary_reason="archiving" and old_session_id
             calls = [
                 c for c in compressor.on_session_start.call_args_list
             ]
             assert calls, "on_session_start was never called on the context engine"
-            # Find the compression boundary call (there may be others from init)
+            # Find the archiving boundary call (there may be others from init)
             comp_calls = [
                 c for c in calls
-                if c.kwargs.get("boundary_reason") == "compression"
+                if c.kwargs.get("boundary_reason") == "archiving"
             ]
             assert comp_calls, (
                 f"Expected an on_session_start call with "
-                f"boundary_reason='compression', got {calls!r}"
+                f"boundary_reason='archiving', got {calls!r}"
             )
             call = comp_calls[-1]
             # Positional new session_id
@@ -110,13 +110,13 @@ class TestCompressionBoundaryHook:
         agent.context_compressor = compressor
 
         original_sid = agent.session_id
-        agent._compress_context([{"role": "user", "content": "m"}], "sys", approx_tokens=100)
+        agent._archive_context([{"role": "user", "content": "m"}], "sys", approx_tokens=100)
 
         # No DB => no rotation => no compression-boundary hook
         assert agent.session_id == original_sid
         comp_calls = [
             c for c in compressor.on_session_start.call_args_list
-            if c.kwargs.get("boundary_reason") == "compression"
+            if c.kwargs.get("boundary_reason") == "archiving"
         ]
         assert not comp_calls, (
             f"No compression hook should fire without session_db rotation, "
@@ -138,18 +138,18 @@ class TestCompressionBoundaryHook:
             compressor.last_completion_tokens = 0
             compressor._last_summary_error = None
 
-            # Raise only on the compression-boundary call, not on earlier calls.
-            def _raise_on_compression(*args, **kwargs):
-                if kwargs.get("boundary_reason") == "compression":
+            # Raise only on the archiving-boundary call, not on earlier calls.
+            def _raise_on_archiving(*args, **kwargs):
+                if kwargs.get("boundary_reason") == "archiving":
                     raise RuntimeError("plugin exploded")
                 return None
-            compressor.on_session_start.side_effect = _raise_on_compression
+            compressor.on_session_start.side_effect = _raise_on_archiving
             agent.context_compressor = compressor
 
             original_sid = agent.session_id
 
             # Must not raise
-            compressed, _prompt = agent._compress_context(
+            compressed, _prompt = agent._archive_context(
                 [{"role": "user", "content": "m"}], "sys", approx_tokens=100
             )
             assert compressed

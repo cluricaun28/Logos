@@ -833,7 +833,7 @@ class HermesACPAgent(acp.Agent):
             agent = state.agent
             if not getattr(agent, "compression_enabled", True):
                 return "Context compression is disabled for this agent."
-            if not hasattr(agent, "_compress_context"):
+            if not hasattr(agent, "_archive_context"):
                 return "Context compression not available for this agent."
 
             from agent.model_metadata import estimate_messages_tokens_rough
@@ -844,9 +844,9 @@ class HermesACPAgent(acp.Agent):
 
             try:
                 # ACP sessions must keep a stable session id, so avoid the
-                # SQLite session-splitting side effect inside _compress_context.
+                # SQLite session-splitting side effect inside _archive_context.
                 agent._session_db = None
-                compressed, _ = agent._compress_context(
+                compressed, _ = agent._archive_context(
                     state.history,
                     getattr(agent, "_cached_system_prompt", "") or "",
                     approx_tokens=approx_tokens,

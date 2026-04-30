@@ -172,7 +172,7 @@ class TestEphemeralMaxOutputTokens:
 
         compressor = MagicMock()
         compressor.context_length = 200_000
-        agent.context_compressor = compressor
+        agent.context_archiver = compressor
 
         # Stub out the internal message-preparation helper
         agent._prepare_anthropic_messages_for_api = MagicMock(
@@ -247,7 +247,7 @@ class TestContextNotHalvedOnOutputCapError:
         compressor = MagicMock(spec=ContextCompressor)
         compressor.context_length = context_length
         compressor.threshold_percent = 0.75
-        agent.context_compressor = compressor
+        agent.context_archiver = compressor
 
         agent._prepare_anthropic_messages_for_api = MagicMock(
             return_value=[{"role": "user", "content": "hi"}]
@@ -270,7 +270,7 @@ class TestContextNotHalvedOnOutputCapError:
 
         # Simulate the handler logic from run_agent.py
         agent = self._make_agent_with_compressor(context_length=200_000)
-        old_ctx = agent.context_compressor.context_length
+        old_ctx = agent.context_archiver.context_length
 
         available_out = parse_available_output_tokens_from_error(error_msg)
         assert available_out == 20_000, "parser must detect the error"
@@ -279,7 +279,7 @@ class TestContextNotHalvedOnOutputCapError:
         agent._ephemeral_max_output_tokens = max(1, available_out - 64)
 
         # context_length must be untouched
-        assert agent.context_compressor.context_length == old_ctx
+        assert agent.context_archiver.context_length == old_ctx
         assert agent._ephemeral_max_output_tokens == 19_936
 
     def test_prompt_too_long_still_triggers_probe_tier(self):

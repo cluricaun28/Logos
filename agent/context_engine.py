@@ -48,7 +48,7 @@ class ContextEngine(ABC):
     last_total_tokens: int = 0
     threshold_tokens: int = 0
     context_length: int = 0
-    compression_count: int = 0
+    archive_count: int = 0
 
     # -- Compaction parameters (read by run_agent.py for preflight) --------
     #
@@ -70,17 +70,17 @@ class ContextEngine(ABC):
         """
 
     @abstractmethod
-    def should_compress(self, prompt_tokens: int = None) -> bool:
-        """Return True if compaction should fire this turn."""
+    def should_archive(self, prompt_tokens: int = None) -> bool:
+        """Return True if archiving should fire this turn."""
 
     @abstractmethod
-    def compress(
+    def archive(
         self,
         messages: List[Dict[str, Any]],
         current_tokens: int = None,
         focus_topic: str = None,
     ) -> List[Dict[str, Any]]:
-        """Compact the message list and return the new message list.
+        """Archive old messages and return the new message list.
 
         This is the main entry point. The engine receives the full message
         list and returns a (possibly shorter) list that fits within the
@@ -89,19 +89,19 @@ class ContextEngine(ABC):
         OpenAI-format message sequence.
 
         Args:
-            focus_topic: Optional topic string from manual ``/compress <focus>``.
-                Engines that support guided compression should prioritise
+            focus_topic: Optional topic string from manual ``/archive <focus>``.
+                Engines that support guided archiving should prioritise
                 preserving information related to this topic.  Engines that
                 don't support it may simply ignore this argument.
         """
 
-    # -- Optional: manual /compress preflight ------------------------------
+    # -- Optional: manual /archive preflight ------------------------------
 
-    def has_content_to_compress(self, messages: List[Dict[str, Any]]) -> bool:
-        """Quick check: is there anything in ``messages`` that can be compacted?
+    def has_content_to_archive(self, messages: List[Dict[str, Any]]) -> bool:
+        """Quick check: is there anything in ``messages`` that can be archived?
 
-        Used by the gateway ``/compress`` command as a preflight guard —
-        returning False lets the gateway report "nothing to compress yet"
+        Used by the gateway ``/archive`` command as a preflight guard —
+        returning False lets the gateway report "nothing to archive yet"
         without making an LLM call.
 
         Default returns True (always attempt).  Engines with a cheap way
@@ -129,12 +129,12 @@ class ContextEngine(ABC):
     def on_session_reset(self) -> None:
         """Called on /new or /reset. Reset per-session state.
 
-        Default resets compression_count and token tracking.
+        Default resets archive_count and token tracking.
         """
         self.last_prompt_tokens = 0
         self.last_completion_tokens = 0
         self.last_total_tokens = 0
-        self.compression_count = 0
+        self.archive_count = 0
 
     # -- Optional: tools ---------------------------------------------------
 
@@ -173,7 +173,7 @@ class ContextEngine(ABC):
                 min(100, self.last_prompt_tokens / self.context_length * 100)
                 if self.context_length else 0
             ),
-            "compression_count": self.compression_count,
+            "archive_count": self.archive_count,
         }
 
     # -- Optional: model switch support ------------------------------------

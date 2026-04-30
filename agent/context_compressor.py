@@ -477,12 +477,17 @@ class ContextCompressor(ContextEngine):
             if not self.quiet_mode:
                 logger.warning(
                     "Compression skipped — last %d compressions saved <10%% each. "
-                    "Consider /new to start a fresh session, or /compress <topic> "
-                    "for focused compression.",
+                    "Consider /new to start a fresh session, or /archive <topic> "
+                    "for focused archiving.",
                     self._ineffective_compression_count,
                 )
             return False
         return True
+
+    # ContextEngine ABC compatibility — alias for should_compress()
+    def should_archive(self, prompt_tokens: int = None) -> bool:
+        """Alias for should_compress() — satisfies ContextEngine ABC."""
+        return self.should_compress(prompt_tokens=prompt_tokens)
 
     # ------------------------------------------------------------------
     # Tool output pruning (cheap pre-pass, no LLM call)
@@ -853,7 +858,7 @@ The user has requested that this compaction PRIORITISE preserving all informatio
 
         try:
             call_kwargs = {
-                "task": "compression",
+                "task": "archiving",
                 "main_runtime": {
                     "model": self.model,
                     "provider": self.provider,
@@ -1217,10 +1222,10 @@ The user has requested that this compaction PRIORITISE preserving all informatio
     # ContextEngine: manual /compress preflight
     # ------------------------------------------------------------------
 
-    def has_content_to_compress(self, messages: List[Dict[str, Any]]) -> bool:
+    def has_content_to_archive(self, messages: List[Dict[str, Any]]) -> bool:
         """Return True if there is a non-empty middle region to compact.
 
-        Overrides the ABC default so the gateway ``/compress`` guard can
+        Overrides the ABC default so the gateway ``/archive`` guard can
         skip the LLM call when the transcript is still entirely inside
         the protected head/tail.
         """
@@ -1228,25 +1233,28 @@ The user has requested that this compaction PRIORITISE preserving all informatio
         compress_end = self._find_tail_cut_by_tokens(messages, compress_start)
         return compress_start < compress_end
 
+    # Backward compat alias
+    has_content_to_compress = has_content_to_archive
+
     # ------------------------------------------------------------------
-    # Main compression entry point
+    # Main compression entry point (renamed archive for user-facing consistency)
     # ------------------------------------------------------------------
 
-    def compress(self, messages: List[Dict[str, Any]], current_tokens: int = None, focus_topic: str = None) -> List[Dict[str, Any]]:
-        """Compress conversation messages by summarizing middle turns.
+    def archive(self, messages: List[Dict[str, Any]], current_tokens: int = None, focus_topic: str = None) -> List[Dict[str, Any]]:
+        """Archive conversation messages by summarizing middle turns.
 
         Algorithm:
           1. Prune old tool results (cheap pre-pass, no LLM call)
           2. Protect head messages (system prompt + first exchange)
           3. Find tail boundary by token budget (~20K tokens of recent context)
           4. Summarize middle turns with structured LLM prompt
-          5. On re-compression, iteratively update the previous summary
+          5. On re-archiving, iteratively update the previous summary
 
-        After compression, orphaned tool_call / tool_result pairs are cleaned
+        After archiving, orphaned tool_call / tool_result pairs are cleaned
         up so the API never receives mismatched IDs.
 
         Args:
-            focus_topic: Optional focus string for guided compression.  When
+            focus_topic: Optional focus string for guided archiving.  When
                 provided, the summariser will prioritise preserving information
                 related to this topic and be more aggressive about compressing
                 everything else.  Inspired by Claude Code's ``/compact``.
@@ -1403,12 +1411,24 @@ The user has requested that this compaction PRIORITISE preserving all informatio
 
         if not self.quiet_mode:
             logger.info(
-                "Compressed: %d -> %d messages (~%d tokens saved, %.0f%%)",
+                "Archived: %d -> %d messages (~%d tokens saved, %.0f%%)",
                 n_messages,
                 len(compressed),
                 saved_estimate,
                 savings_pct,
             )
-            logger.info("Compression #%d complete", self.compression_count)
+            logger.info("Archive #%d complete", self.compression_count)
 
         return compressed
+
+    # Backward compatibility alias — external code may still call .compress()
+    compress = archive
+
+    @property
+    def archive_count(self):
+        """Backward compat: maps to compression_count."""
+        return self.compression_count
+
+    @archive_count.setter
+    def archive_count(self, value):
+        self.compression_count = value

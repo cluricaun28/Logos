@@ -37,7 +37,7 @@ def _make_mock_agent(**overrides):
     ctx.last_prompt_tokens = 30_000
     ctx.context_length = 200_000
     ctx.compression_count = 1
-    agent.context_compressor = ctx
+    agent.context_archiver = ctx
 
     return agent
 

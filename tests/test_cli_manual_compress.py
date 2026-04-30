@@ -5,12 +5,13 @@ from cli import HermesCLI
 
 class DummyAgent:
     def __init__(self):
-        self.compression_enabled = True
+        self.archiving_enabled = True
+        self.compression_enabled = True  # BC alias for cli.py _manual_archive check
         self._cached_system_prompt = "FULL CACHED SYSTEM PROMPT SHOULD NOT BE NESTED"
         self.session_id = "new-session"
         self.calls = []
 
-    def _compress_context(self, messages, system_message, *, approx_tokens=None, focus_topic=None):
+    def _archive_context(self, messages, system_message, *, approx_tokens=None, focus_topic=None):
         self.calls.append(
             {
                 "messages": messages,

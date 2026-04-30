@@ -23,7 +23,7 @@ const MUTATING_COMMANDS = [
   'browser',
   'busy',
   'clear',
-  'compress',
+  'archive',
   'fast',
   'model',
   'new',

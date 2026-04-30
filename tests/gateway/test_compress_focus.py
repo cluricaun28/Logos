@@ -59,14 +59,14 @@ def _make_runner(history: list[dict[str, str]]):
 
 @pytest.mark.asyncio
 async def test_compress_focus_topic_passed_to_agent():
-    """Focus topic from /compress <focus> is passed through to _compress_context."""
+    """Focus topic from /compress <focus> is passed through to _archive_context."""
     history = _make_history()
     compressed = [history[0], history[-1]]
     runner = _make_runner(history)
     agent_instance = MagicMock()
-    agent_instance.context_compressor.has_content_to_compress.return_value = True
+    agent_instance.context_archiver.has_content_to_compress.return_value = True
     agent_instance.session_id = "sess-1"
-    agent_instance._compress_context.return_value = (compressed, "")
+    agent_instance._archive_context.return_value = (compressed, "")
 
     def _estimate(messages):
         return 100
@@ -80,8 +80,8 @@ async def test_compress_focus_topic_passed_to_agent():
         result = await runner._handle_compress_command(_make_event("/compress database schema"))
 
     # Verify focus_topic was passed
-    agent_instance._compress_context.assert_called_once()
-    call_kwargs = agent_instance._compress_context.call_args
+    agent_instance._archive_context.assert_called_once()
+    call_kwargs = agent_instance._archive_context.call_args
     assert call_kwargs.kwargs.get("focus_topic") == "database schema"
 
     # Verify focus is mentioned in response
@@ -94,9 +94,9 @@ async def test_compress_no_focus_passes_none():
     history = _make_history()
     runner = _make_runner(history)
     agent_instance = MagicMock()
-    agent_instance.context_compressor.has_content_to_compress.return_value = True
+    agent_instance.context_archiver.has_content_to_compress.return_value = True
     agent_instance.session_id = "sess-1"
-    agent_instance._compress_context.return_value = (list(history), "")
+    agent_instance._archive_context.return_value = (list(history), "")
 
     with (
         patch("gateway.run._resolve_runtime_agent_kwargs", return_value={"api_key": "***"}),
@@ -106,8 +106,8 @@ async def test_compress_no_focus_passes_none():
     ):
         result = await runner._handle_compress_command(_make_event("/compress"))
 
-    agent_instance._compress_context.assert_called_once()
-    call_kwargs = agent_instance._compress_context.call_args
+    agent_instance._archive_context.assert_called_once()
+    call_kwargs = agent_instance._archive_context.call_args
     assert call_kwargs.kwargs.get("focus_topic") is None
 
     # No focus line in response

@@ -2361,7 +2361,7 @@ def get_text_auxiliary_client(
     """Return (client, default_model_slug) for text-only auxiliary tasks.
 
     Args:
-        task: Optional task name ("compression", "web_extract") to check
+        task: Optional task name ("archiving", "web_extract") to check
               for a task-specific provider override.
 
     Callers may override the returned model via config.yaml
@@ -3174,7 +3174,7 @@ def call_llm(
     handles auth, request formatting, and model-specific arg adjustments.
 
     Args:
-        task: Auxiliary task name ("compression", "vision", "web_extract",
+        task: Auxiliary task name ("archiving", "vision", "web_extract",
               "session_search", "skills_hub", "mcp", "title_generation").
               Reads provider:model from config/env. Ignored if provider is set.
         provider: Explicit provider override.

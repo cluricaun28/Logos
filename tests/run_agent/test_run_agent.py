@@ -2317,7 +2317,7 @@ class TestRunConversation:
         # 6 responses: original + 2 prefill + 3 retries after prefill exhaustion
         with (
             patch.object(agent, "_interruptible_api_call", side_effect=[empty_resp] * 6),
-            patch.object(agent, "_compress_context") as mock_compress,
+            patch.object(agent, "_archive_context") as mock_compress,
             patch.object(agent, "_persist_session"),
             patch.object(agent, "_save_trajectory"),
             patch.object(agent, "_cleanup_task_resources"),
@@ -2649,6 +2649,7 @@ class TestRunConversation:
         """When compressor says should_compress, compression runs."""
         self._setup_agent(agent)
         agent.compression_enabled = True
+        agent.archiving_enabled = True  # Direct set for reliability
 
         tc = _mock_tool_call(name="web_search", arguments="{}", call_id="c1")
         resp1 = _mock_response(content="", finish_reason="tool_calls", tool_calls=[tc])
@@ -2658,14 +2659,14 @@ class TestRunConversation:
         with (
             patch("run_agent.handle_function_call", return_value="result"),
             patch.object(
-                agent.context_compressor, "should_compress", return_value=True
+                agent.context_archiver, "should_archive", return_value=True
             ),
-            patch.object(agent, "_compress_context") as mock_compress,
+            patch.object(agent, "_archive_context") as mock_compress,
             patch.object(agent, "_persist_session"),
             patch.object(agent, "_save_trajectory"),
             patch.object(agent, "_cleanup_task_resources"),
         ):
-            # _compress_context should return (messages, system_prompt)
+            # _archive_context should return (messages, system_prompt)
             mock_compress.return_value = (
                 [{"role": "user", "content": "search something"}],
                 "compressed system prompt",
@@ -2690,7 +2691,7 @@ class TestRunConversation:
         ]
 
         with (
-            patch.object(agent, "_compress_context") as mock_compress,
+            patch.object(agent, "_archive_context") as mock_compress,
             patch.object(agent, "_persist_session"),
             patch.object(agent, "_save_trajectory"),
             patch.object(agent, "_cleanup_task_resources"),
@@ -2732,7 +2733,7 @@ class TestRunConversation:
         ]
 
         with (
-            patch.object(agent, "_compress_context") as mock_compress,
+            patch.object(agent, "_archive_context") as mock_compress,
             patch.object(agent, "_persist_session"),
             patch.object(agent, "_save_trajectory"),
             patch.object(agent, "_cleanup_task_resources"),
@@ -2772,7 +2773,7 @@ class TestRunConversation:
         ]
 
         with (
-            patch.object(agent, "_compress_context") as mock_compress,
+            patch.object(agent, "_archive_context") as mock_compress,
             patch.object(agent, "_persist_session"),
             patch.object(agent, "_save_trajectory"),
             patch.object(agent, "_cleanup_task_resources"),

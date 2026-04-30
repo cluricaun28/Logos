@@ -4148,7 +4148,7 @@ class GatewayRunner:
         if canonical == "sethome":
             return await self._handle_set_home_command(event)
 
-        if canonical == "compress":
+        if canonical in ("compress", "archive"):
             return await self._handle_compress_command(event)
 
         if canonical == "usage":
@@ -4755,10 +4755,10 @@ class GatewayRunner:
                         _hyg_provider = _model_cfg.get("provider") or None
                         _hyg_base_url = _model_cfg.get("base_url") or None
 
-                    # Read compression settings — only use enabled flag.
+                    # Read archiving settings — only use enabled flag.
                     # The threshold is intentionally separate from the agent's
-                    # compression.threshold (hygiene runs higher).
-                    _comp_cfg = _hyg_data.get("compression", {})
+                    # archiving.threshold (hygiene runs higher).
+                    _comp_cfg = _hyg_data.get("archiving", {}) or _hyg_data.get("compression", {})
                     if isinstance(_comp_cfg, dict):
                         _hyg_compression_enabled = str(
                             _comp_cfg.get("enabled", True)
@@ -4905,13 +4905,13 @@ class GatewayRunner:
                                     loop = asyncio.get_running_loop()
                                     _compressed, _ = await loop.run_in_executor(
                                         None,
-                                        lambda: _hyg_agent._compress_context(
+                                        lambda: _hyg_agent._archive_context(
                                             _hyg_msgs, "",
                                             approx_tokens=_approx_tokens,
                                         ),
                                     )
 
-                                    # _compress_context ends the old session and creates
+                                    # _archive_context ends the old session and creates
                                     # a new session_id.  Write compressed messages into
                                     # the NEW session so the old transcript stays intact
                                     # and searchable via session_search.
@@ -4941,7 +4941,7 @@ class GatewayRunner:
                                     if _new_tokens >= _warn_token_threshold:
                                         logger.warning(
                                             "Session hygiene: still ~%s tokens after "
-                                            "compression",
+                                            "archiving",
                                             f"{_new_tokens:,}",
                                         )
 
@@ -7607,17 +7607,17 @@ class GatewayRunner:
             try:
                 tmp_agent._print_fn = lambda *a, **kw: None
 
-                compressor = tmp_agent.context_compressor
-                if not compressor.has_content_to_compress(msgs):
+                archiver = tmp_agent.context_archiver
+                if not archiver.has_content_to_archive(msgs):
                     return "Nothing to compress yet (the transcript is still all protected context)."
 
                 loop = asyncio.get_running_loop()
                 compressed, _ = await loop.run_in_executor(
                     None,
-                    lambda: tmp_agent._compress_context(msgs, "", approx_tokens=approx_tokens, focus_topic=focus_topic)
+                    lambda: tmp_agent._archive_context(msgs, "", approx_tokens=approx_tokens, focus_topic=focus_topic)
                 )
 
-                # _compress_context already calls end_session() on the old session
+                # _archive_context already calls end_session() on the old session
                 # (preserving its full transcript in SQLite) and creates a new
                 # session_id for the continuation.  Write the compressed messages
                 # into the NEW session so the original history stays searchable.
@@ -7641,14 +7641,14 @@ class GatewayRunner:
                 # Detect summary-generation failure so we can surface a
                 # visible warning to the user even on the manual /compress
                 # path (otherwise the failure is silently logged).
-                _summary_failed = bool(getattr(compressor, "_last_summary_fallback_used", False))
-                _dropped_count = int(getattr(compressor, "_last_summary_dropped_count", 0) or 0)
-                _summary_err = getattr(compressor, "_last_summary_error", None)
+                _summary_failed = bool(getattr(archiver, "_last_summary_fallback_used", False))
+                _dropped_count = int(getattr(archiver, "_last_summary_dropped_count", 0) or 0)
+                _summary_err = getattr(archiver, "_last_summary_error", None)
                 # Separately: did the user's CONFIGURED aux model fail
                 # and we recovered via main?  Surface that as an info
                 # note so they can fix their config.
-                _aux_fail_model = getattr(compressor, "_last_aux_model_failure_model", None)
-                _aux_fail_err = getattr(compressor, "_last_aux_model_failure_error", None)
+                _aux_fail_model = getattr(archiver, "_last_aux_model_failure_model", None)
+                _aux_fail_err = getattr(archiver, "_last_aux_model_failure_error", None)
             finally:
                 self._cleanup_agent_resources(tmp_agent)
             lines = [f"🗜️ {summary['headline']}"]
@@ -7991,13 +7991,13 @@ class GatewayRunner:
             except Exception:
                 pass
 
-            # Context window and compressions
-            ctx = agent.context_compressor
+            # Context window and archives
+            ctx = agent.context_archiver
             if ctx.last_prompt_tokens:
                 pct = min(100, ctx.last_prompt_tokens / ctx.context_length * 100) if ctx.context_length else 0
                 lines.append(f"Context: {ctx.last_prompt_tokens:,} / {ctx.context_length:,} ({pct:.0f}%)")
-            if ctx.compression_count:
-                lines.append(f"Compressions: {ctx.compression_count}")
+            if ctx.archive_count:
+                lines.append(f"Archives: {ctx.archive_count}")
 
             if account_lines:
                 lines.append("")
@@ -9202,6 +9202,11 @@ class GatewayRunner:
     # Add more here as new baked-at-construction config settings are added.
     _CACHE_BUSTING_CONFIG_KEYS: tuple = (
         ("model", "context_length"),
+        ("archiving", "enabled"),
+        ("archiving", "threshold"),
+        ("archiving", "target_ratio"),
+        ("archiving", "protect_last_n"),
+        # Backward compat: also check old key names
         ("compression", "enabled"),
         ("compression", "threshold"),
         ("compression", "target_ratio"),
@@ -10926,11 +10931,11 @@ class GatewayRunner:
             _output_toks = 0
             _context_length = 0
             _agent = agent_holder[0]
-            if _agent and hasattr(_agent, "context_compressor"):
-                _last_prompt_toks = getattr(_agent.context_compressor, "last_prompt_tokens", 0)
+            if _agent and hasattr(_agent, "context_archiver"):
+                _last_prompt_toks = getattr(_agent.context_archiver, "last_prompt_tokens", 0)
                 _input_toks = getattr(_agent, "session_prompt_tokens", 0)
                 _output_toks = getattr(_agent, "session_completion_tokens", 0)
-                _context_length = getattr(_agent.context_compressor, "context_length", 0) or 0
+                _context_length = getattr(_agent.context_archiver, "context_length", 0) or 0
             _resolved_model = getattr(_agent, "model", None) if _agent else None
 
             if not final_response:
@@ -10986,7 +10991,7 @@ class GatewayRunner:
                     final_response = final_response + "\n" + "\n".join(unique_tags)
             
             # Sync session_id: the agent may have created a new session during
-            # mid-run context compression (_compress_context splits sessions).
+            # mid-run context archiving (_archive_context splits sessions).
             # If so, update the session store entry so the NEXT message loads
             # the compressed transcript, not the stale pre-compression one.
             agent = agent_holder[0]
