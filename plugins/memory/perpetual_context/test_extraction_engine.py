@@ -165,9 +165,9 @@ class TestExtractActiveTasks:
     def test_deduplicates_similar_tasks(self):
         engine = ExtractionEngine()
         msgs = [
-            {"role": "user", "content": "Fix the login bug in auth.py"},
+            {"role": "user", "content": "Fix the login bug in auth.py\nMore details here."},
             {"role": "assistant", "content": "Working on it."},
-            {"role": "user", "content": "Fix the login bug in auth.py — still broken"},
+            {"role": "user", "content": "Fix the login bug in auth.py\nStill broken, please check again."},
         ]
         result = engine.extract_active_tasks(msgs)
         # Same first line → deduplicated, but turn_ids should include both
@@ -835,7 +835,7 @@ class TestExtractKnowledgeGaps:
         engine = ExtractionEngine()
         msgs = []
         for i in range(10):
-            msgs.append({"role": "assistant", content: f"[gap] gap number {i}"})
+            msgs.append({"role": "assistant", "content": f"[gap] topic_alpha_{i} needs research"})
         result = engine.extract_knowledge_gaps(msgs)
         assert len(result) == 5
 

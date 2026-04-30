@@ -23,7 +23,7 @@ import re as _re
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -335,6 +335,25 @@ class RLUpdateDetector:
 
     def __init__(self, rl_dir: str = "~/.hermes/reference-library/") -> None:
         self._rl_dir = Path(os.path.expanduser(rl_dir))
+        # Cache file contents to avoid re-reading on every comparison
+        self._file_cache: Dict[str, Tuple[str, float]] = {}  # path -> (content, mtime)
+        self._cache_ttl = 60  # Seconds to cache file contents
+
+    def _read_file_cached(self, md_file: Path, max_bytes: int = 5000) -> Optional[str]:
+        """Read RL file with caching based on modification time."""
+        try:
+            mtime = md_file.stat().st_mtime
+            if md_file in self._file_cache:
+                cached_content, cached_mtime = self._file_cache[md_file]
+                if abs(mtime - cached_mtime) < self._cache_ttl:
+                    return cached_content[:max_bytes]
+
+            content = md_file.read_text(encoding="utf-8")[:max_bytes]
+            self._file_cache[md_file] = (content, mtime)
+            return content
+        except Exception as e:
+            logger.debug("Failed to read RL page %s: %s", md_file.name, e)
+            return None
 
     def check_for_updates(self, new_facts: List[Dict[str, Any]],
                           rl_dir: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -367,7 +386,10 @@ class RLUpdateDetector:
 
                 for md_file in md_files:
                     try:
-                        content = md_file.read_text(encoding="utf-8")[:5000]  # Read first 5KB
+                        content = self._read_file_cached(md_file)
+                        if not content:
+                            continue
+
                         content_lower = content.lower()
 
                         # Check for topic overlap

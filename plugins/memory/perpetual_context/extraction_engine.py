@@ -17,17 +17,11 @@ import os
 import re as _re
 from typing import Any, Dict, List, Tuple
 
-
-# Common English stopwords to filter from topic extraction
+# Common English stopwords for topic filtering (used by __init__.py auto-tagging)
 _STOPWORDS = frozenset({
     'the', 'and', 'this', 'that', 'with', 'from', 'have', 'been', 'were', 'are',
-    'was', 'for', 'not', 'but', 'what', 'all', 'their', 'which', 'would', 'could',
-    'should', 'about', 'into', 'through', 'during', 'before', 'after', 'above',
-    'below', 'between', 'another', 'same', 'other', 'some', 'such', 'no', 'nor',
-    'too', 'very', 'just', 'because', 'as', 'until', 'while', 'of', 'at', 'by',
-    'an', 'or', 'if', 'on', 'in', 'to', 'is', 'it', 'its', 'i', 'me', 'my',
-    'we', 'our', 'you', 'your', 'he', 'him', 'his', 'she', 'her', 'they', 'them',
-    'then', 'there', 'here', 'when', 'where', 'why', 'how', 'can', 'may',
+    'was', 'for', 'not', 'but', 'what', 'all', 'their', 'which', 'would',
+    'it', 'its', 'in', 'to', 'of', 'a', 'an', 'is', 'on', 'at', 'by',
 })
 
 
@@ -37,6 +31,41 @@ class ExtractionEngine:
     All methods take a list of message dicts and return structured results.
     Each method degrades gracefully — returns empty list on failure, never raises.
     """
+
+    # -----------------------------------------------------------------------
+    # Pre-compiled regex patterns (class-level constants — compiled once)
+    # -----------------------------------------------------------------------
+
+    # Decision patterns in assistant messages (substantive decisions, not just statements)
+    _DECISION_PATTERNS = _re.compile(
+        r'(?:decided|will use|architecture is|plan outlines|confirmed|agreed)'
+        r'|(?:key design principle|must never|always check|mandatory)'
+        r'|(?:instead of|rather than|chose to|opted for)',  # Decision trade-offs
+        _re.IGNORECASE,
+    )
+
+    # Exception type patterns to catch
+    _EXCEPTION_PATTERNS = _re.compile(
+        r'(TypeError|ValueError|AttributeError|KeyError|ImportError|'\
+        r'ModuleNotFoundError|FileNotFoundError|PermissionError|'\
+        r'SyntaxError|IndexError|RuntimeError|OSError|IOError|'\
+        r'JSONDecodeError|UnicodeDecodeError)',
+    )
+
+    # Fix-location patterns (case-insensitive)
+    _FIX_PATTERNS = [
+        _re.compile(r'(?:fix(?:ed)?\s+(?:in\s+)?[\'\"]?(/[^\'\"\n]+))', _re.IGNORECASE),
+        _re.compile(r'(?:applied\s+to\s+[\'\"]?(/[^\'\"\n]+))', _re.IGNORECASE),
+        _re.compile(r'(?:resolved\s+at\s+line\s+(\d+))', _re.IGNORECASE),
+    ]
+
+    # Consolidated file ops text patterns (single pass instead of three)
+    _FILE_OPS_TEXT_PATTERN = _re.compile(
+        r'(?:wrote|saved|created)\s+(?:to\s+)?[\'\"]?(/[^\'\\"\n]+)'  # wrote to /path
+        r'|(?:patched|modified|updated)\s+[\'\"]?(/[^\'\\"\n]+)'       # patched /path
+        r'|(?:reading|read)\s+[\'\"]?(/[^\'\\"\n]+)',                   # reading /path
+        _re.IGNORECASE,
+    )
 
     # -----------------------------------------------------------------------
     # Public extraction methods
@@ -60,14 +89,6 @@ class ExtractionEngine:
             'write', 'update', 'migrate', 'deploy', 'configure', 'set up',
             'resolve', 'address', 'handle', 'support', 'enable', 'disable',
         })
-
-        # Decision patterns in assistant messages (substantive decisions, not just statements)
-        _DECISION_PATTERNS = [
-            r'(?:decided|will use|architecture is|plan outlines|confirmed|agreed)',
-            r'(?:key design principle|must never|always check|mandatory)',
-            r'(?:instead of|rather than|chose to|opted for)',  # Decision trade-offs
-        ]
-        decision_regex = _re.compile("|".join(_DECISION_PATTERNS), _re.IGNORECASE)
 
         # Dedup key -> first occurrence data (case-insensitive, whitespace-normalized)
         seen: Dict[str, Dict[str, Any]] = {}
@@ -110,7 +131,7 @@ class ExtractionEngine:
                         if len(line) < 20 or len(line) > 300:
                             continue
 
-                        if decision_regex.search(line):
+                        if self._DECISION_PATTERNS.search(line):
                             # Avoid duplicates and skip examples/pseudocode
                             if (line not in [d['text'] for d in task_data['decisions']] and
                                 not any(kw in line.lower() for kw in ["example", "pseudocode", "todo"])):
@@ -192,32 +213,30 @@ class ExtractionEngine:
                             f"{existing_desc}, {op_label}"
                         )
 
-            # --- Text patterns for file operations ---
-            text_patterns = [
-                r'(?:wrote|saved|created)\s+(?:to\s+)?[\'\"]?(/[^\'\"\n]+)',  # wrote to /path
-                r'(?:patched|modified|updated)\s+[\'\"]?(/[^\'\"\n]+)',       # patched /path
-                r'(?:reading|read)\s+[\'\"]?(/[^\'\"\n]+)',                   # reading /path
-            ]
-            for pat in text_patterns:
-                for m in _re.finditer(pat, content):
-                    path = m.group(1).strip().rstrip(".,;")
-                    norm_key = path.lower().split("?")[0]
-                    if norm_key not in seen:
-                        # Find related discussion turns
-                        related_turns, related_desc = self.find_related_discussions(
-                            messages, idx, path, window=10
-                        )
+            # --- Text patterns for file operations (single consolidated pass) ---
+            for m in self._FILE_OPS_TEXT_PATTERN.finditer(content):
+                # Get the matched path from whichever group captured
+                path = next((g for g in m.groups() if g), None)
+                if not path:
+                    continue
+                path = path.strip().rstrip(".,;")
+                norm_key = path.lower().split("?")[0]
+                if norm_key not in seen:
+                    # Find related discussion turns
+                    related_turns, related_desc = self.find_related_discussions(
+                        messages, idx, path, window=10
+                    )
 
-                        seen[norm_key] = {
-                            "path": path,
-                            "last_edit_turn": idx,
-                            "description": f"Text pattern match",
-                            "related_turns": related_turns[:5],
-                            "related_description": related_desc or "related discussion",
-                        }
+                    seen[norm_key] = {
+                        "path": path,
+                        "last_edit_turn": idx,
+                        "description": f"Text pattern match",
+                        "related_turns": related_turns[:5],
+                        "related_description": related_desc or "related discussion",
+                    }
 
-        # Return most recently edited first (reverse insertion order)
-        return list(reversed(seen.values()))[:10]
+        # Return most recently edited first (backwards iteration = most recent inserted first into dict)
+        return list(seen.values())[:10]
 
     def find_related_discussions(self, messages: List[Dict[str, Any]],
                                  edit_turn: int, file_path: str,
@@ -289,21 +308,11 @@ class ExtractionEngine:
         if not messages:
             return []
 
-        # Exception type patterns to catch
-        _EXCEPTION_PATTERNS = [
-            r'(TypeError|ValueError|AttributeError|KeyError|ImportError|'
-            r'ModuleNotFoundError|FileNotFoundError|PermissionError|'
-            r'SyntaxError|IndexError|RuntimeError|OSError|IOError|'
-            r'JSONDecodeError|UnicodeDecodeError)',
-        ]
+        # Exception type patterns to catch (now at class level)
+        _EXCEPTION_PATTERNS = [self._EXCEPTION_PATTERNS]
 
-        # Fix-location patterns (case-insensitive)
-        _FIX_PATTERNS = [
-            r'(?:fix(?:ed)?\s+(?:in\s+)?[\'\"]?(/[^\'\"\n]+))',
-            r'(?:applied\s+to\s+[\'\"]?(/[^\'\"\n]+))',
-            r'(?:resolved\s+at\s+line\s+(\d+))',
-        ]
-        _FIX_COMPILED = [_re.compile(p, _re.IGNORECASE) for p in _FIX_PATTERNS]
+        # Fix-location patterns (now at class level)
+        _FIX_COMPILED = self._FIX_PATTERNS
 
         seen: Dict[str, Dict[str, Any]] = {}
 
@@ -440,5 +449,5 @@ class ExtractionEngine:
                             "turn_ids": [idx],
                         }
 
-        # Return most recent gaps first
-        return list(reversed(seen.values()))[:5]
+        # Return most recent gaps first (backwards iteration = most recent inserted first into dict)
+        return list(seen.values())[:5]

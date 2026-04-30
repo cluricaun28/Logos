@@ -120,9 +120,6 @@ class TestDefaults:
         assert engine.last_prompt_tokens == 0
         assert engine.compression_count == 0
 
-    def test_should_compress_preflight_default_false(self):
-        engine = StubEngine()
-        assert engine.should_compress_preflight([]) is False
 
 
 # ---------------------------------------------------------------------------

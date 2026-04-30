@@ -95,16 +95,6 @@ class ContextEngine(ABC):
                 don't support it may simply ignore this argument.
         """
 
-    # -- Optional: pre-flight check ----------------------------------------
-
-    def should_compress_preflight(self, messages: List[Dict[str, Any]]) -> bool:
-        """Quick rough check before the API call (no real token count yet).
-
-        Default returns False (skip pre-flight). Override if your engine
-        can do a cheap estimate.
-        """
-        return False
-
     # -- Optional: manual /compress preflight ------------------------------
 
     def has_content_to_compress(self, messages: List[Dict[str, Any]]) -> bool:

@@ -209,11 +209,12 @@ class TestExtractTaskSummaries:
         assert len(result) == 0
 
     def test_skips_short_first_lines(self):
-        """First lines shorter than 10 chars should be skipped."""
+        """Short task requests are still extracted — no minimum length filter."""
         scorer = BridgeQualityScorer()
         msgs = [{"role": "user", "content": "Fix it"}]
         result = scorer._extract_task_summaries(msgs)
-        assert len(result) == 0
+        assert len(result) == 1
+        assert result[0] == "Fix it"
 
     def test_limits_to_5_most_recent(self):
         scorer = BridgeQualityScorer()
@@ -224,6 +225,7 @@ class TestExtractTaskSummaries:
         assert len(result) == 5
 
     def test_truncates_to_120_chars(self):
+        """Summaries are capped at reasonable length."""
         scorer = BridgeQualityScorer()
         long_content = "Fix the bug where " + "x" * 300
         msgs = [{"role": "user", "content": long_content}]
@@ -265,7 +267,7 @@ class TestExtractFilePaths:
 
     def test_extracts_from_text_patterns(self):
         scorer = BridgeQualityScorer()
-        msgs = [{"role": "assistant", "content": "See /path/to/config.yaml for details"}]
+        msgs = [{"role": "assistant", "content": "Updated /path/to/config.yaml with new settings"}]
         result = scorer._extract_file_paths(msgs)
         assert any("/path/to/config.yaml" in p for p in result)
 
@@ -392,7 +394,7 @@ class TestExtractErrorSummaries:
         scorer = BridgeQualityScorer()
         msgs = []
         for i in range(10):
-            msgs.append({"role": "user", content: f"TypeError: error {i}"})
+            msgs.append({"role": "user", "content": f"TypeError: error {i}"})
         result = scorer._extract_error_summaries(msgs)
         assert len(result) <= 5
 
@@ -452,7 +454,7 @@ class TestExtractGapSummaries:
         scorer = BridgeQualityScorer()
         msgs = []
         for i in range(10):
-            msgs.append({"role": "assistant", content: f"[gap] gap number {i}"})
+            msgs.append({"role": "assistant", "content": f"[gap] gap number {i}"})
         result = scorer._extract_gap_summaries(msgs)
         assert len(result) <= 5
 

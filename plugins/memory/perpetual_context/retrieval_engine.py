@@ -12,6 +12,7 @@ for local open-source hardware by prioritizing indexed lookups over broad FTS5
 searches and caching results to minimize I/O latency.
 """
 
+import hashlib
 import logging
 import re as _re
 import threading
@@ -219,7 +220,8 @@ class SmartRetriever:
             logger.debug("Auto-routed '%s' → %s", query_text[:50], query_type)
 
         # Check cache first to avoid redundant DB hits
-        cache_key = f"{query_type}:{query_text}"
+        # Hash the query text to keep cache keys short and bounded
+        cache_key = f"{query_type}:{hashlib.md5(query_text.encode()).hexdigest()[:16]}"
         cached_result = self.cache.get(cache_key)
         if cached_result is not None:
             return cached_result
@@ -314,47 +316,3 @@ class SmartRetriever:
         except Exception as e:
             logger.exception("Failed to retrieve file history for '%s'", query_text)
             raise RuntimeError(f"File history unavailable: {e}") from e
-
-    def _find_decision_turn(self, query_text: str) -> Optional[Dict[str, Any]]:
-        """Finds the turn ID where a specific decision was made.
-        
-        Searches recent sessions using hybrid_search for plain-text keywords.
-        FTS5 does not support regex operators — use simple word matching only.
-        
-        Returns dict with 'turn_id', 'session_id' if found, else None.
-        """
-        try:
-            # Use plain text keywords only — no regex (FTS5 doesn't support *)
-            decision_keywords = "decided chose instead architecture plan confirmed"
-            search_query = f"{query_text} {decision_keywords}"
-            
-            # Search recent sessions only (last 5) for efficiency
-            results = self.db.hybrid_search(
-                query=search_query, session_id=None, top_k=3
-            )
-            
-            if results and len(results) > 0:
-                result = results[0]
-                return {
-                    'turn_id': result.get('id'),
-                    'session_id': result.get('session_id'),
-                }
-        except Exception as e:
-            logger.exception("Failed to find decision turn for '%s'", query_text)
-        
-        # Fallback: search with just the query text
-        try:
-            results = self.db.hybrid_search(
-                query=query_text, session_id=None, top_k=5
-            )
-            
-            if results and len(results) > 0:
-                result = results[0]
-                return {
-                    'turn_id': result.get('id'),
-                    'session_id': result.get('session_id'),
-                }
-        except Exception as e:
-            logger.exception("Fallback decision search failed for '%s'", query_text)
-        
-        return None

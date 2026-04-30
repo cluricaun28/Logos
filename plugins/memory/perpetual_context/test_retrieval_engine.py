@@ -370,64 +370,6 @@ class TestSmartRetrieverSpecializedEngines:
 
 
 # ---------------------------------------------------------------------------
-# Tests: _find_decision_turn (legacy method)
-# ---------------------------------------------------------------------------
-
-class TestFindDecisionTurn:
-    """Test the legacy _find_decision_turn method."""
-
-    def test_finds_decision_with_keywords(self):
-        expected_result = [{"id": 42, "session_id": "sess_1"}]
-        db = type("MockDB", (), {})()
-        db.hybrid_search = lambda query="", session_id=None, top_k=10: expected_result
-        db.get_recent_messages = lambda n=20, session_id=None, role=None: []
-
-        retriever = SmartRetriever(db)
-        result = retriever._find_decision_turn("caching strategy")
-        assert result is not None
-        assert result["turn_id"] == 42
-        assert result["session_id"] == "sess_1"
-
-    def test_fallback_search_on_empty_primary(self):
-        """Should fall back to plain query search if keyword search returns nothing."""
-        call_count = [0]
-
-        class MockDB:
-            def hybrid_search(self, query="", session_id=None, top_k=10):
-                call_count[0] += 1
-                if "decided" in query:
-                    return []  # Primary search fails
-                else:
-                    return [{"id": 99, "session_id": "sess_2"}]
-            def get_recent_messages(self, n=20, session_id=None, role=None):
-                return []
-
-        retriever = SmartRetriever(MockDB())
-        result = retriever._find_decision_turn("caching")
-        assert result is not None
-        assert call_count[0] == 2  # Both primary and fallback called
-
-    def test_returns_none_when_both_searches_fail(self):
-        db = type("MockDB", (), {})()
-        db.hybrid_search = lambda query="", session_id=None, top_k=10: []
-        db.get_recent_messages = lambda n=20, session_id=None, role=None: []
-
-        retriever = SmartRetriever(db)
-        result = retriever._find_decision_turn("nonexistent decision")
-        assert result is None
-
-    def test_handles_db_exception_gracefully(self):
-        """Should not raise when DB throws exceptions."""
-        db = type("MockDB", (), {})()
-        db.hybrid_search = lambda query="", session_id=None, top_k=10: (_ for _ in ()).throw(Exception("DB error"))
-        db.get_recent_messages = lambda n=20, session_id=None, role=None: []
-
-        retriever = SmartRetriever(db)
-        result = retriever._find_decision_turn("test")
-        assert result is None
-
-
-# ---------------------------------------------------------------------------
 # Tests: AUTO_ROUTING constants
 # ---------------------------------------------------------------------------
 

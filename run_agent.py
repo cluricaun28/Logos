@@ -8674,6 +8674,14 @@ class AIAgent:
             except Exception:
                 pass
 
+        # Task-aware annotation: inject task markers before compression (Phase 1)
+        # Markers survive compression and help pruner identify closed vs open tasks
+        if hasattr(self.context_compressor, 'annotate_tasks'):
+            try:
+                messages = self.context_compressor.annotate_tasks(messages)
+            except Exception as _tag_err:
+                logger.debug("Task annotation failed (non-fatal): %s", _tag_err)
+
         try:
             compressed = self.context_compressor.compress(messages, current_tokens=approx_tokens, focus_topic=focus_topic)
         except TypeError:

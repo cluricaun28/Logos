@@ -115,95 +115,101 @@ class BridgeQualityScorer:
         }
 
     # -----------------------------------------------------------------------
-    # Extraction helpers — mirror what ExtractionEngine does, but lightweight
+    # Extraction helpers — delegate to ExtractionEngine to avoid duplication
     # -----------------------------------------------------------------------
 
     def _extract_task_summaries(self, messages: List[Dict[str, Any]]) -> List[str]:
-        """Extract task summary strings from user messages."""
-        _TASK_KEYWORDS = frozenset({
-            'fix', 'implement', 'create', 'build', 'add', 'refactor', 'debug',
-            'write', 'update', 'migrate', 'deploy', 'configure', 'set up',
-            'resolve', 'address', 'handle', 'support', 'enable', 'disable',
-        })
-        summaries = []
-        for msg in messages:
-            if msg.get("role") != "user":
-                continue
-            content = (msg.get("content") or "").strip()
-            if not content:
-                continue
-            if any(kw in content.lower() for kw in _TASK_KEYWORDS):
-                first_line = content.split("\n")[0].strip()
-                if len(first_line) > 10:
-                    summaries.append(first_line[:120])
-        return summaries[-5:]  # Most recent 5
+        """Extract task summary strings from user messages via ExtractionEngine."""
+        try:
+            from .extraction_engine import ExtractionEngine
+            engine = ExtractionEngine()
+            tasks = engine.extract_active_tasks(messages)
+            return [t['summary'] for t in tasks if 'summary' in t]
+        except Exception:
+            # Fallback: simple keyword-based extraction if import fails
+            _TASK_KEYWORDS = frozenset({
+                'fix', 'implement', 'create', 'build', 'add', 'refactor', 'debug',
+                'write', 'update', 'migrate', 'deploy', 'configure', 'set up',
+                'resolve', 'address', 'handle', 'support', 'enable', 'disable',
+            })
+            summaries = []
+            for msg in messages:
+                if msg.get("role") != "user":
+                    continue
+                content = (msg.get("content") or "").strip()
+                if not content:
+                    continue
+                if any(kw in content.lower() for kw in _TASK_KEYWORDS):
+                    first_line = content.split("\n")[0].strip()
+                    if len(first_line) > 10:
+                        summaries.append(first_line[:120])
+            return summaries[-5:]
 
     def _extract_file_paths(self, messages: List[Dict[str, Any]]) -> List[str]:
-        """Extract file paths from tool calls and text patterns."""
-        paths = set()
-        for msg in messages:
-            content = (msg.get("content") or "") + "\n"
-
-            # Structured tool_calls
-            for tc in msg.get("tool_calls", []) or []:
-                if not isinstance(tc, dict):
-                    continue
-                fn = tc.get("function", {})
-                name = fn.get("name", "")
-                args_str = fn.get("arguments", "{}")
-                if name not in ("write_file", "patch", "read_file"):
-                    continue
-                try:
-                    import json as _json
-                    args = _json.loads(args_str) if isinstance(args_str, str) else {}
-                except (TypeError, ValueError):
-                    continue
-                path = args.get("path") or args.get("file_path", "")
-                if path:
-                    paths.add(path)
-
-            # Text patterns — file paths with extensions
-            for m in _re.finditer(r'(/[^\s\'"`\n]+?\.(?:py|md|yaml|json|txt|sh|cfg|ini))', content):
-                p = m.group(1).rstrip(".,;:)")
-                if len(p) > 5:
-                    paths.add(p)
-
-        return list(paths)[-10:]  # Most recent 10
+        """Extract file paths from tool calls and text patterns via ExtractionEngine."""
+        try:
+            from .extraction_engine import ExtractionEngine
+            engine = ExtractionEngine()
+            edits = engine.extract_file_edits(messages)
+            return [e['path'] for e in edits if 'path' in e]
+        except Exception:
+            # Fallback: simple regex extraction if import fails
+            paths = set()
+            for msg in messages:
+                content = (msg.get("content") or "") + "\n"
+                for m in _re.finditer(r'(/[^\s\'"`\n]+?\.(?:py|md|yaml|json|txt|sh|cfg|ini))', content):
+                    p = m.group(1).rstrip(".,;:)")
+                    if len(p) > 5:
+                        paths.add(p)
+            return list(paths)[-10:]
 
     def _extract_error_summaries(self, messages: List[Dict[str, Any]]) -> List[str]:
-        """Extract error type strings from messages."""
-        errors = []
-        for msg in messages:
-            content = (msg.get("content") or "") + "\n"
-            for m in _re.finditer(
-                r'(TypeError|ValueError|AttributeError|KeyError|ImportError|'
-                r'ModuleNotFoundError|FileNotFoundError|PermissionError|'
-                r'SyntaxError|IndexError|RuntimeError|OSError)',
-                content,
-            ):
-                exc_type = m.group(1)
-                # Grab context after the exception type
-                start = m.end()
-                end = min(start + 80, len(content))
-                error_msg = content[start:end].strip().split("\n")[0]
-                if error_msg:
-                    errors.append(f"{exc_type}: {error_msg[:60]}")
-        return list(dict.fromkeys(errors))[-5:]  # Dedup, keep recent
+        """Extract error type strings from messages via ExtractionEngine."""
+        try:
+            from .extraction_engine import ExtractionEngine
+            engine = ExtractionEngine()
+            errors = engine.extract_known_errors(messages)
+            return [e['summary'] for e in errors if 'summary' in e]
+        except Exception:
+            # Fallback: simple regex extraction if import fails
+            errors = []
+            for msg in messages:
+                content = (msg.get("content") or "") + "\n"
+                for m in _re.finditer(
+                    r'(TypeError|ValueError|AttributeError|KeyError|ImportError|'
+                    r'ModuleNotFoundError|FileNotFoundError|PermissionError|'
+                    r'SyntaxError|IndexError|RuntimeError|OSError)',
+                    content,
+                ):
+                    exc_type = m.group(1)
+                    start = m.end()
+                    end = min(start + 80, len(content))
+                    error_msg = content[start:end].strip().split("\n")[0]
+                    if error_msg:
+                        errors.append(f"{exc_type}: {error_msg[:60]}")
+            return list(dict.fromkeys(errors))[-5:]
 
     def _extract_gap_summaries(self, messages: List[Dict[str, Any]]) -> List[str]:
-        """Extract knowledge gap markers from messages."""
-        gaps = []
-        for msg in messages:
-            content = (msg.get("content") or "") + "\n"
-            for m in _re.finditer(
-                r'(?:knowledge\s+gap|RL\s+(?:entry|page)|\[gap\]|'
-                r'\[(?:pending|needs research)\])\s*[:—\-]?\s*(.*?)(?:\n|$)',
-                content, _re.IGNORECASE,
-            ):
-                summary = (m.group(1) or "").strip()
-                if len(summary) > 3:
-                    gaps.append(summary[:80])
-        return list(dict.fromkeys(gaps))[-5:]
+        """Extract knowledge gap markers from messages via ExtractionEngine."""
+        try:
+            from .extraction_engine import ExtractionEngine
+            engine = ExtractionEngine()
+            gaps = engine.extract_knowledge_gaps(messages)
+            return [g['summary'] for g in gaps if 'summary' in g]
+        except Exception:
+            # Fallback: simple regex extraction if import fails
+            gaps = []
+            for msg in messages:
+                content = (msg.get("content") or "") + "\n"
+                for m in _re.finditer(
+                    r'(?:knowledge\s+gap|RL\s+(?:entry|page)|\[gap\]|'
+                    r'\[(?:pending|needs research)\])\s*[:—\-]?\s*(.*?)(?:\n|$)',
+                    content, _re.IGNORECASE,
+                ):
+                    summary = (m.group(1) or "").strip()
+                    if len(summary) > 3:
+                        gaps.append(summary[:80])
+            return list(dict.fromkeys(gaps))[-5:]
 
     # -----------------------------------------------------------------------
     # Scoring helpers

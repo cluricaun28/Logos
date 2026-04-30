@@ -244,6 +244,7 @@ class PerpetualContextDB:
         self._lock = threading.RLock()  # Changed to RLock for reentrant calls
         self._initialized = False
         self._time_column: Optional[str] = None  # Cached: 'created_at' or 'timestamp'
+        self._schema_version: int = 0  # Cached schema version to skip redundant migrations
 
     @property
     def time_column(self) -> str:
@@ -317,10 +318,21 @@ class PerpetualContextDB:
 
         Handles backward compatibility with existing schemas by adding
         missing columns via ALTER TABLE if they don't exist.
+
+        Uses schema version caching to skip redundant migrations on subsequent calls.
         """
         conn = self._conn
         if not conn:
             raise RuntimeError("Database not initialized")
+
+        # Read schema version from database header — no table dependency.
+        # PRAGMA user_version is a SQLite integer stored in the DB header itself,
+        # available even before any tables exist. Zero on new databases.
+        cursor = conn.execute("PRAGMA user_version")
+        self._schema_version = cursor.fetchone()[0]
+
+        if self._schema_version >= 2:
+            logger.debug("Schema version %d is current, skipping migrations", self._schema_version)
 
         # Messages table — stores all conversation turns
         conn.execute("""
@@ -334,14 +346,9 @@ class PerpetualContextDB:
             )
         """)
 
-        # Backward compatibility: add missing columns from old schema.
+        # Backward compatibility: add missing columns from old schema (only if schema < v2).
         # NOTE: SQLite does NOT support function calls in ALTER TABLE ADD COLUMN defaults.
         # Use constant defaults here; triggers handle auto-timestamping where needed.
-        self._ensure_column('messages', 'metadata', "TEXT DEFAULT '{}'")
-        self._ensure_column('messages', 'created_at', "REAL DEFAULT 0")
-        self._ensure_column('messages', 'token_count', "INTEGER DEFAULT 0")
-        # Embedding BLOB column — stores 384-dim float vectors (struct.pack, ~1.5KB per message)
-        self._ensure_column('messages', 'embedding', "BLOB DEFAULT NULL")
 
         # FTS5 virtual table for full-text search
         # Check if existing FTS table has the right columns, recreate if needed
@@ -418,10 +425,10 @@ class PerpetualContextDB:
             )
         """)
 
-        # Backward compatibility: ensure topics has required columns.
-        # SQLite doesn't support function-call defaults in ALTER TABLE — use constant default.
-        self._ensure_column('topics', 'created_at', "REAL DEFAULT 0")
-        self._ensure_column('topics', 'updated_at', "REAL DEFAULT 0")
+        # Backward compatibility: ensure topics has required columns (only if schema < v2).
+        if self._schema_version < 2:
+            self._ensure_column('topics', 'created_at', "REAL DEFAULT 0")
+            self._ensure_column('topics', 'updated_at', "REAL DEFAULT 0")
 
         # Topic messages — links between topics and messages
         conn.execute("""
@@ -446,11 +453,11 @@ class PerpetualContextDB:
             )
         """)
 
-        # Backward compatibility: ensure relationships has required columns.
-        # SQLite doesn't support function-call defaults in ALTER TABLE — use constant default.
-        self._ensure_column('relationships', 'relationship_type', "TEXT DEFAULT 'related'")
-        self._ensure_column('relationships', 'strength', "REAL DEFAULT 0.5")
-        self._ensure_column('relationships', 'created_at', "REAL DEFAULT 0")
+        # Backward compatibility: ensure relationships has required columns (only if schema < v2).
+        if self._schema_version < 2:
+            self._ensure_column('relationships', 'relationship_type', "TEXT DEFAULT 'related'")
+            self._ensure_column('relationships', 'strength', "REAL DEFAULT 0.5")
+            self._ensure_column('relationships', 'created_at', "REAL DEFAULT 0")
 
         # Session metadata table
         conn.execute("""
@@ -462,10 +469,10 @@ class PerpetualContextDB:
             )
         """)
 
-        # Backward compatibility: ensure session_metadata has required columns.
-        # SQLite doesn't support function-call defaults in ALTER TABLE — use constant default.
-        self._ensure_column('session_metadata', 'topic_count', "INTEGER DEFAULT 0")
-        self._ensure_column('session_metadata', 'last_updated', "REAL DEFAULT 0")
+        # Backward compatibility: ensure session_metadata has required columns (only if schema < v2).
+        if self._schema_version < 2:
+            self._ensure_column('session_metadata', 'topic_count', "INTEGER DEFAULT 0")
+            self._ensure_column('session_metadata', 'last_updated', "REAL DEFAULT 0")
 
         # Knowledge gaps table — stores unresolved questions from previous sessions
         # Focus: worldview-aligned reference library entries, not ephemeral search results
@@ -485,13 +492,14 @@ class PerpetualContextDB:
             )
         """)
 
-        # Backward compatibility: ensure knowledge_gaps has required columns
-        self._ensure_column('knowledge_gaps', 'resolved', "INTEGER DEFAULT 0")
-        self._ensure_column('knowledge_gaps', 'resolution_text', "TEXT DEFAULT ''")
-        self._ensure_column('knowledge_gaps', 'resolution_timestamp', "REAL DEFAULT 0")
-        # Legacy column: needs_wiki_update (renamed to needs_reference_library_update in docs)
-        self._ensure_column('knowledge_gaps', 'needs_wiki_update', "INTEGER DEFAULT 1")
-        self._ensure_column('knowledge_gaps', 'first_principles', "TEXT DEFAULT ''")
+        # Backward compatibility: ensure knowledge_gaps has required columns (only if schema < v2).
+        if self._schema_version < 2:
+            self._ensure_column('knowledge_gaps', 'resolved', "INTEGER DEFAULT 0")
+            self._ensure_column('knowledge_gaps', 'resolution_text', "TEXT DEFAULT ''")
+            self._ensure_column('knowledge_gaps', 'resolution_timestamp', "REAL DEFAULT 0")
+            # Legacy column: needs_wiki_update (renamed to needs_reference_library_update in docs)
+            self._ensure_column('knowledge_gaps', 'needs_wiki_update', "INTEGER DEFAULT 1")
+            self._ensure_column('knowledge_gaps', 'first_principles', "TEXT DEFAULT ''")
 
         # Indexes for common queries
         conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id)")
@@ -530,6 +538,12 @@ class PerpetualContextDB:
                 WHERE id = new.id;
             END
         """)
+
+        # Write schema version to database header if we ran migrations
+        if self._schema_version < 2:
+            conn.execute("PRAGMA user_version = 2")
+            self._schema_version = 2
+            logger.info("Schema migrated to v2 (user_version)")
 
         conn.commit()
 

@@ -9,9 +9,16 @@ Architecture:
 - Perpetual Memory/Wiki = long-term storage (infinite recall via SQLite/FTS5)
 - [ACTIVE TASKS] anchor survives pruning to prevent mid-session drift
 
-Pruning Rules:
+Pruning Rules (task-aware mode):
 1. Strip raw assistant tool calls entirely (verbose JSON bloat)
 2. Truncate role:"tool" results to first/last 3 lines
+3. Categorize messages by task status (closed vs open) via task markers
+4. Drop closed tasks first (searchable in Perpetual Memory)
+5. If still over budget, drop oldest open tasks from unprotected middle zone
+6. Enforce hard token budget with aggressive truncation as last resort
+
+Fallback (no task markers):
+1-2. Same strip/truncate steps
 3. Drop oldest messages when window_size is exceeded
 4. Enforce hard token budget with aggressive truncation as last resort
 """
@@ -19,7 +26,7 @@ Pruning Rules:
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List
 
 from agent.context_engine import ContextEngine
 
@@ -30,6 +37,10 @@ class RollingWindowContextEngine(ContextEngine):
     """Rolling window context engine — deterministic pruning without LLM summarization.
 
     Inherits from ContextEngine ABC — all abstract methods must be implemented.
+
+    Task-aware mode (default): Uses task markers injected by annotate_tasks() to
+    selectively archive closed tasks while keeping active work in context. Falls
+    back to original algorithm when no markers are present.
     """
 
     @property
@@ -44,8 +55,6 @@ class RollingWindowContextEngine(ContextEngine):
     context_length: int = 0
     compression_count: int = 0
 
-    # Compaction parameters (override defaults as needed)
-    threshold_percent: float = 0.75
     protect_first_n: int = 3
     protect_last_n: int = 30
 
@@ -54,6 +63,25 @@ class RollingWindowContextEngine(ContextEngine):
         # Set engine-specific config from kwargs or defaults
         self.window_size: int = kwargs.get("window_size", 20)
         self.max_tokens: int = kwargs.get("max_tokens", 131072)
+        self.task_aware: bool = kwargs.get("task_aware", True)
+        self.threshold_percent: float = kwargs.get("threshold_percent", 0.75)
+        self.compression_target: float = kwargs.get("compression_target", 0.65)
+        self.hard_ceiling_percent: float = kwargs.get("hard_ceiling_percent", 0.95)
+
+    def annotate_tasks(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Inject task markers into assistant messages for task-aware compression.
+
+        Called by run_agent.py before compress() to tag message boundaries.
+        Idempotent — safe to call multiple times on same messages.
+        """
+        if not self.task_aware:
+            return messages
+        try:
+            from .task_tagger import annotate_tasks
+            return annotate_tasks(messages)
+        except Exception as e:
+            logger.debug("Task annotation failed (non-fatal): %s", e)
+            return messages
 
     def update_from_response(self, usage: Dict[str, Any]) -> None:
         """Update tracked token usage from an API response."""
@@ -65,6 +93,9 @@ class RollingWindowContextEngine(ContextEngine):
     def should_compress(self, prompt_tokens: int = None) -> bool:
         """Return True if compaction should fire this turn."""
         tokens = prompt_tokens if prompt_tokens is not None else self.last_prompt_tokens
+        # Guard against zero threshold (update_model hasn't been called yet)
+        if self.threshold_tokens <= 0:
+            return False
         return tokens > self.threshold_tokens
 
     def compress(
@@ -78,60 +109,88 @@ class RollingWindowContextEngine(ContextEngine):
         Rolling window approach — deterministic pruning without LLM summarization.
         Designed for models with large native context windows (131k+ tokens).
 
-        Algorithm:
+        Escalating pressure model:
+          - 75-80% full → light touch (closed tasks only)
+          - 80-90% full → moderate (closed + oldest open from middle zone)
+          - 90-95% full → aggressive (drop more open tasks, tighten target)
+          - 95%+ full → nuclear (aggressive truncation as last resort)
+
+        When task_aware=True and task markers are present:
           1. Strip raw assistant tool calls entirely (verbose JSON bloat)
           2. Truncate role:"tool" results to first/last 3 lines
-          3. Drop oldest messages when window_size is exceeded
-          4. Enforce hard token budget with aggressive truncation as last resort
+          3. Categorize messages by task status (closed vs open) via task markers
+          4. Drop closed tasks first (searchable in Perpetual Memory)
+          5. If still over budget, drop oldest open tasks from unprotected middle zone
+          6. Enforce hard token budget with aggressive truncation as last resort
+
+        When no task markers or task_aware=False:
+          Falls back to original "drop middle" algorithm.
         """
         if not messages:
             return messages
 
-        # Step 1: Strip raw assistant tool calls (verbose JSON bloat)
-        stripped = []
-        for msg in messages:
-            if msg.get("role") == "assistant" and msg.get("tool_calls"):
-                # Keep the message but remove tool_calls to save space
-                stripped.append({**msg, "tool_calls": None})
-            else:
-                stripped.append(msg)
+        # Calculate pressure ratio — how full is the window?
+        tokens = current_tokens or self.last_prompt_tokens
+        pressure = tokens / self.max_tokens if self.max_tokens else 0.0
 
-        # Step 2: Truncate role:"tool" results to first/last 3 lines
-        truncated = []
-        for msg in stripped:
-            if msg.get("role") == "tool":
-                content = msg.get("content", "")
-                if isinstance(content, str) and len(content.split("\n")) > 6:
-                    lines = content.split("\n")
-                    # Keep first 3 and last 3 lines
-                    truncated_content = "\n".join(lines[:3]) + "\n...[truncated]...\n" + "\n".join(lines[-3:])
-                    msg = {**msg, "content": truncated_content}
-            truncated.append(msg)
+        # Escalating target: the closer to full, the more we drop.
+        # At threshold (75%) → aim for compression_target (65%).
+        # Near capacity (95%+) → aim lower (~40%) for safety margin.
+        # Linear interpolation between these two points.
+        low_pressure = self.threshold_percent
+        high_pressure = 0.95
+        if pressure <= low_pressure:
+            target_ratio = self.compression_target
+        elif pressure >= high_pressure:
+            target_ratio = max(0.3, self.compression_target * 0.6)
+        else:
+            # Linear interpolation
+            t = (pressure - low_pressure) / (high_pressure - low_pressure)
+            target_ratio = self.compression_target * (1.0 - 0.4 * t)
 
-        # Step 3: Drop oldest messages when window_size is exceeded
-        if len(truncated) > self.window_size:
-            # Protect first_n and last_n messages
-            protected_first = min(self.protect_first_n, len(truncated))
-            protected_last = min(self.protect_last_n, len(truncated))
+        target_tokens = int(self.max_tokens * target_ratio)
 
-            # Calculate how many to drop from the middle
-            keep_count = max(protected_first + protected_last, self.window_size)
-            if len(truncated) > keep_count:
-                # Drop oldest messages beyond window_size
-                truncated = truncated[-keep_count:]
+        # Try task-aware pruner first (when enabled)
+        if self.task_aware:
+            try:
+                from .task_pruner import TaskAwarePruner
+                result = TaskAwarePruner.compress(
+                    messages,
+                    max_tokens=self.max_tokens,
+                    target_tokens=target_tokens,
+                    protect_first_n=self.protect_first_n,
+                    protect_last_n=self.protect_last_n,
+                    window_size=self.window_size,
+                    task_aware=True,
+                )
+                self.compression_count += 1
+                return result
+            except Exception as e:
+                # Graceful degradation — if pruner fails for any reason,
+                # fall back to original algorithm. Never crash the agent loop.
+                logger.warning(
+                    "Task-aware pruner failed (%s), falling back to original algorithm", e
+                )
 
-        # Step 4: Enforce hard token budget with aggressive truncation as last resort
-        if current_tokens and current_tokens > self.max_tokens:
-            # Aggressive truncation — reduce to first/last N messages only
-            keep_first = max(1, len(truncated) // 4)
-            keep_last = max(1, len(truncated) // 4)
-            truncated = truncated[:keep_first] + truncated[-keep_last:]
+        # Original "drop middle" algorithm (fallback)
+        return self._original_compress(messages, target_tokens=target_tokens)
 
-        return truncated
+    def _original_compress(
+        self, messages: List[Dict[str, Any]], target_tokens: int = None
+    ) -> List[Dict[str, Any]]:
+        """Fallback wrapper — delegates to shared original_compress function."""
+        from .task_pruner import original_compress
 
-    def should_compress_preflight(self, messages: List[Dict[str, Any]]) -> bool:
-        """Quick rough check before the API call. Default returns False."""
-        return False
+        result = original_compress(
+            messages,
+            max_tokens=self.max_tokens,
+            protect_first_n=self.protect_first_n,
+            protect_last_n=self.protect_last_n,
+            window_size=self.window_size,
+            target_tokens=target_tokens,
+        )
+        self.compression_count += 1
+        return result
 
     def on_session_start(self, session_id: str, **kwargs) -> None:
         """Called when a new conversation session begins."""
@@ -168,6 +227,10 @@ class RollingWindowContextEngine(ContextEngine):
                 if self.context_length else 0
             ),
             "compression_count": self.compression_count,
+            "task_aware": self.task_aware,
+            "threshold_percent": self.threshold_percent,
+            "compression_target": self.compression_target,
+            "hard_ceiling_percent": self.hard_ceiling_percent,
         }
 
     def update_model(self, model: str, context_length: int, **kwargs) -> None:
