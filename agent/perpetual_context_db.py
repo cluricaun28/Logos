@@ -118,17 +118,18 @@ class EmbeddingEngine:
 
     def _load_model(self):
         """Load the SentenceTransformer model on first use.
-
-        Downloads ~80MB on first call — this takes a minute. Logged clearly.
+        
+        Loads from sovereign local path to ensure zero network latency and total sovereignty.
         """
         if self._model is not None:
             return self._model
         try:
             from sentence_transformers import SentenceTransformer
+            local_path = os.path.expanduser("~/.hermes/models/embeddings/all-MiniLM-L6-v2")
             logger.info(
-                "Loading embedding model '%s' (first use, ~80MB download)...", EMBED_MODEL_NAME
+                "Loading embedding model from local path '%s'...", local_path
             )
-            self._model = SentenceTransformer(EMBED_MODEL_NAME)
+            self._model = SentenceTransformer(local_path, device="cuda" if torch.cuda.is_available() else "cpu", local_files_only=True)
             logger.info("Embedding model loaded successfully (%d-dim vectors)", EMBED_DIM)
         except ImportError:
             logger.warning(
@@ -137,7 +138,7 @@ class EmbeddingEngine:
             )
             self._model = None
         except Exception as e:
-            logger.error("Failed to load embedding model '%s': %s", EMBED_MODEL_NAME, e)
+            logger.error("Failed to load embedding model from local path '%s': %s", local_path, e)
             self._model = None
         return self._model
 

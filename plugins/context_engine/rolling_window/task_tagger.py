@@ -5,9 +5,10 @@ that survive compression. Markers are part of message content, not metadata,
 so they work with any context engine without schema changes.
 
 Marker Format:
-    📋 [task: <name>] ← task start (injected on first assistant message)
+    📋 [task: <name> | label: <display>] ← task start (injected on first assistant message)
+    📋 [task: <name>] ← legacy format (backward compatible)
     [phase: <phase>] ← optional phase tag
-    📋 [task-end: <name> | status=<open|closed> | phase=<phase> | duration=<time>]
+    📋 [task-end: <name> | status=<open|closed|soft_closed> | phase=<phase> | duration=<time>]
 
 Why in content, not metadata:
 1. Survives compression without special handling
@@ -19,6 +20,7 @@ Why in content, not metadata:
 
 from __future__ import annotations
 
+import datetime
 import logging
 import re
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -31,29 +33,31 @@ MARKER_END_PREFIX = "📋 [task-end:"
 PHASE_PREFIX = "[phase:"
 
 # Precompiled regex patterns for parsing markers (module-level, compiled once)
-_TASK_START_RE = re.compile(re.escape(MARKER_START_PREFIX) + r"\s*:\s*([^\]]+)\]")
+# Handles both new format with pipe-separated label and legacy format without it.
+_TASK_START_RE = re.compile(
+    re.escape(MARKER_START_PREFIX) + r"\s*(.+?)\s*\]"
+)
 
 # Conclusive language patterns for closure detection (case-insensitive).
 # Only checks assistant message content — no peeking at future messages.
 CLOSURE_PATTERNS = [
-    r"resolved\s*(?:✅|✓|\^)",
+    r"resolved\s*(?:✅|✓|\\^)",
     r"(?:both|all)\s+open\s+items?\s+(?:are\s+)?(?:resolved|done|complete)",
     r"✅\s*(?:both|all)\s+",
     r"(?:fixed|implemented|completed|deployed)\s+(?:and\s+)?(?:verified|tested|confirmed)",
+    # Natural completion phrases — "here you go", "that's it", "all set"
+    r"(?:here\s+you\s+go|that'?s?\s+(?:it|all)|all\s+set)",
+    # Standalone done/complete (with optional trailing emoji)
+    r"(?:done|complete)\b.*?(?:✅|✓)?",
+    # Wrapped-up / finished phrases
+    r"(?:wrapped\s+up|finished\s+up|that'?s?\s+everything)",
 ]
 
 # Precompiled closure patterns
 _CLOSURE_RE = [re.compile(p, re.IGNORECASE) for p in CLOSURE_PATTERNS]
 
-# Topic shift detection patterns (precompiled)
-_TOPIC_SHIFT_PATTERNS = [
-    re.compile(
-        r"(?:new\s+topic|different\s+thing|separate\s+issue|another\s+task)"
-        + r"|(?:switch\s+(?:to|over)|let's?\s+(?:move|switch))"
-        + r"|(?:by\s+the\s+way|on\s+a\s+different\s+note)",
-        re.IGNORECASE,
-    ),
-]
+# Sequential daily task naming — counter keyed by date string (YYYY-MM-DD).
+_daily_counter: Dict[str, int] = {}
 
 # Task name detection pattern (precompiled) — look for action verbs + object
 _TASK_NAME_RE = re.compile(
@@ -89,11 +93,13 @@ class TaskTagger:
     """
 
     @classmethod
-    def annotate(cls, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def annotate(cls, messages: List[Dict[str, Any]], pm_context: str = None) -> List[Dict[str, Any]]:
         """Analyze message list and inject task markers where missing.
 
         Args:
             messages: List of OpenAI-format messages with 'role' and 'content'.
+            pm_context: Optional Perpetual Memory context string (open task summaries).
+                       Currently unused — reserved for future closure detection enhancement.
 
         Returns:
             New message list with task markers injected into assistant messages.
@@ -105,8 +111,8 @@ class TaskTagger:
         # Deep copy to avoid mutating originals
         annotated = [msg.copy() for msg in messages]
 
-        # Track open tasks: task_name -> (start_idx, last_assistant_idx, tools_seen)
-        open_tasks: Dict[str, Tuple[int, int, set]] = {}
+        # Track open tasks: task_name -> (start_idx, last_assistant_idx, tools_seen, display_label)
+        open_tasks: Dict[str, Tuple[int, int, set, Optional[str]]] = {}
 
         # Current active task name (for closure detection)
         current_task: Optional[str] = None
@@ -130,11 +136,20 @@ class TaskTagger:
                 if task_name:
                     current_task = task_name
                     if task_name not in open_tasks:
-                        open_tasks[task_name] = (i, i, set())
+                        # Extract label from marker if present
+                        raw_match = _TASK_START_RE.search(content)
+                        label = None
+                        if raw_match:
+                            raw_fields = raw_match.group(1).strip()
+                            parts = [p.strip() for p in raw_fields.split("|")]
+                            for part in parts[1:]:  # Skip task name portion
+                                if part.lower().startswith("label:"):
+                                    label = part[len("label:"):].strip()
+                        open_tasks[task_name] = (i, i, set(), label)
                     else:
                         # Update last assistant index for this task
-                        start_idx, _, tools_seen = open_tasks[task_name]
-                        open_tasks[task_name] = (start_idx, i, tools_seen)
+                        start_idx, _, tools_seen, label = open_tasks[task_name]
+                        open_tasks[task_name] = (start_idx, i, tools_seen, label)
                 continue
 
             # Detect new task start — be conservative about what counts as a shift.
@@ -143,22 +158,25 @@ class TaskTagger:
 
             # Start a new task if we have none, or there's an explicit topic shift
             if not current_task or is_shift:
-                task_name = cls._detect_task_name(annotated, end_idx=i)
-                if task_name and task_name not in open_tasks:
-                    content = f"{MARKER_START_PREFIX} {task_name}]\n\n{content}"
+                name, label = cls._detect_task_name(annotated, end_idx=i)
+                if name and name not in open_tasks:
+                    if label:
+                        content = f"{MARKER_START_PREFIX} {name} | label: {label}]\n\n{content}"
+                    else:
+                        content = f"{MARKER_START_PREFIX} {name}]\n\n{content}"
                     annotated[i]["content"] = content
-                    current_task = task_name
-                    open_tasks[task_name] = (i, i, set())
+                    current_task = name
+                    open_tasks[name] = (i, i, set(), label)
 
             # If we have a current task, update its last-assistant index
             if current_task and current_task in open_tasks:
-                start_idx, _, tools_seen = open_tasks[current_task]
-                open_tasks[current_task] = (start_idx, i, tools_seen)
+                start_idx, _, tools_seen, label = open_tasks[current_task]
+                open_tasks[current_task] = (start_idx, i, tools_seen, label)
 
             # Detect closure — check only this assistant message's language.
             # No peeking at future messages that may not exist yet.
             if current_task and cls._is_closure(msg):
-                start_idx, last_asst_idx, tools_seen = open_tasks.get(current_task, (i, i, set()))
+                start_idx, last_asst_idx, tools_seen, _ = open_tasks.get(current_task, (i, i, set(), None))
                 phase = cls._detect_phase(annotated, tools_seen, start_idx=start_idx, end_idx=i)
                 duration = cls._calculate_duration(start_idx, i, messages)
 
@@ -169,6 +187,39 @@ class TaskTagger:
                 annotated[i]["content"] = content + end_marker
                 open_tasks.pop(current_task, None)
                 current_task = None
+
+            # Soft-close: if next user message doesn't reference any open task keywords
+            # and is not an acknowledgment/continuation, close the old task.
+            elif open_tasks:
+                next_user_idx = cls._find_next_user_index(annotated, i + 1)
+                if next_user_idx is not None:
+                    next_user_content = (annotated[next_user_idx].get("content", "") or "").lower()
+                    words_in_next = set(next_user_content.split())
+
+                    # Check keyword overlap with ALL open tasks using their display labels
+                    any_overlap = False
+                    for task_name, (_, _, _, label) in list(open_tasks.items()):
+                        keywords = cls._extract_keywords_from_label(label) if label else set()
+                        if not keywords:
+                            continue
+                        if words_in_next & keywords:
+                            any_overlap = True
+                            break
+
+                    # No keyword overlap and message is substantive (>= 4 words) → soft-close all open tasks
+                    if not any_overlap and len(words_in_next) >= 4:
+                        for task_name, (start_idx, last_asst_idx, tools_seen, _) in list(open_tasks.items()):
+                            phase = cls._detect_phase(annotated, tools_seen, start_idx=start_idx, end_idx=i)
+                            duration = cls._calculate_duration(start_idx, i, messages)
+
+                            end_marker = (
+                                f"\n\n{MARKER_END_PREFIX} {task_name} "
+                                f"| status=soft_closed | phase={phase} | duration={duration}]"
+                            )
+                            annotated[i]["content"] = content + end_marker
+
+                        open_tasks.clear()
+                        current_task = None
 
         return annotated
 
@@ -184,9 +235,17 @@ class TaskTagger:
 
     @classmethod
     def _extract_task_name_from_start(cls, content: str) -> Optional[str]:
-        """Extract task name from start marker."""
+        """Extract task name from start marker.
+
+        Handles both new format (with pipe-separated label) and legacy format.
+        Returns just the date-task-N portion (e.g., '2026-04-30-task-1').
+        """
         match = _TASK_START_RE.search(content)
-        return match.group(1).strip() if match else None
+        if not match:
+            return None
+        raw = match.group(1).strip()
+        # Split on pipe to get just the task name portion (before any label)
+        return raw.split("|")[0].strip()
 
     @classmethod
     def _is_topic_shift(
@@ -194,9 +253,9 @@ class TaskTagger:
     ) -> bool:
         """Detect if new assistant message represents a genuine topic shift.
 
-        Conservative — only explicit "new topic" phrases trigger shifts.
-        Action verbs like "fix X" are normal mid-task and should NOT count as shifts.
-        Multiple concurrent tasks are allowed; casual chat during tasks is fine.
+        Uses keyword overlap between the current task's display label and the last user message.
+        If zero overlap AND the user message has >= 4 words → topic shift detected.
+        Short messages (< 4 words) are treated as acknowledgments, not shifts.
         """
         # Look at recent user messages before current position (no slicing)
         recent_users = [
@@ -208,32 +267,60 @@ class TaskTagger:
         if not recent_users:
             return False
 
-        last_user = recent_users[-1].get("content", "") or ""
+        last_user = (recent_users[-1].get("content", "") or "").lower()
 
         # Short user messages (acknowledgments, questions) don't indicate topic shift
         if len(last_user.split()) < 4:
             return False
 
-        # Only explicit "new topic" language — NOT action verbs.
-        # Action verbs are normal mid-task work and should not trigger shifts.
-        return any(p.search(last_user) for p in _TOPIC_SHIFT_PATTERNS)
+        # Find current task name and label from the most recent start marker
+        current_task_name = None
+        current_label = None
+        for j in range(current_idx - 1, -1, -1):
+            m = all_messages[j]
+            if m.get("role") == "assistant":
+                mc = (m.get("content", "") or "")
+                if MARKER_START_PREFIX in mc:
+                    current_task_name = cls._extract_task_name_from_start(mc)
+                    # Try to extract label from marker
+                    raw_match = _TASK_START_RE.search(mc)
+                    if raw_match:
+                        raw_fields = raw_match.group(1).strip()
+                        parts = [p.strip() for p in raw_fields.split("|")]
+                        for part in parts[1:]:
+                            if part.lower().startswith("label:"):
+                                current_label = part[len("label:"):].strip()
+                    break
+
+        if not current_task_name:
+            return False
+
+        # Prefer label keywords (semantic) over task name keywords (date-based)
+        if current_label:
+            task_keywords = cls._extract_keywords_from_label(current_label)
+        else:
+            task_keywords = cls._extract_keywords_from_task_name(current_task_name)
+
+        if not task_keywords:
+            return False
+
+        user_words = set(last_user.split())
+
+        # Zero overlap → topic shift detected
+        return len(task_keywords & user_words) == 0
 
     @classmethod
-    def _detect_task_name(cls, prior_messages: List[Dict[str, Any]], end_idx: Optional[int] = None) -> Optional[str]:
-        """Detect task name from recent conversation context.
+    def _detect_task_name(cls, prior_messages: List[Dict[str, Any]], end_idx: Optional[int] = None) -> Tuple[Optional[str], Optional[str]]:
+        """Detect task name and display label from recent conversation context.
 
-        Strategy: Extract key phrase from last user message that describes the task.
-        Stops at sentence boundaries or conjunctions to avoid greedy capture.
-        Searches up to 10 prior messages (not just 5) for better recall on longer threads.
-        Falls back to topic clustering if available.
+        Returns a tuple of (task_name, display_label):
+          - task_name: sequential daily format like '2026-04-30-task-1'
+          - display_label: human-readable phrase extracted from user message (max 5 words)
 
-        Args:
-            prior_messages: Full message list (no slicing needed by caller).
-            end_idx: Exclusive upper bound — only consider messages before this index.
-                If None, considers all messages in the list.
+        Uses module-level _daily_counter keyed by date string for sequential numbering.
+        Falls back to None, None if no suitable label can be extracted.
         """
         # Search wider window — tasks can start several turns ago.
-        # Use index range instead of slicing to avoid O(n²) memory allocation.
         if end_idx is not None:
             search_start = max(0, end_idx - 10)
             search_end = end_idx
@@ -241,6 +328,8 @@ class TaskTagger:
             search_start = max(0, len(prior_messages) - 10)
             search_end = len(prior_messages)
 
+        # Extract display label from last user message
+        display_label = None
         for idx in range(search_end - 1, search_start - 1, -1):
             msg = prior_messages[idx]
             if msg.get("role") == "user":
@@ -261,17 +350,12 @@ class TaskTagger:
                     # Split to words, drop trailing prepositions
                     words = raw.split()
                     while words and words[-1] in (
-                        "in",
-                        "on",
-                        "at",
-                        "to",
-                        "for",
-                        "with",
-                        "of",
+                        "in", "on", "at", "to", "for", "with", "of",
                     ):
                         words.pop()
-                    if 2 <= len(words) <= 4:
-                        return "-".join(words)
+                    if 2 <= len(words) <= 5:
+                        display_label = "-".join(words)
+                        break
 
                 # Fallback: use first meaningful phrase (up to 5 words), skip stop-word leads
                 words = content.split()[:6]
@@ -284,8 +368,53 @@ class TaskTagger:
                 ):
                     meaningful.pop()
                 if len(meaningful) >= 3:
-                    return "-".join(meaningful[:4])
+                    display_label = "-".join(meaningful[:5])
+                    break
 
+        # Generate sequential daily task name
+        today = datetime.date.today().isoformat()  # YYYY-MM-DD
+        _daily_counter[today] = _daily_counter.get(today, 0) + 1
+        task_name = f"{today}-task-{_daily_counter[today]}"
+
+        return task_name, display_label
+
+    @classmethod
+    def _extract_keywords_from_task_name(cls, task_name: str) -> Set[str]:
+        """Extract meaningful keywords from a task name for overlap detection.
+
+        Handles both new format ('2026-04-30-task-1') and legacy format ('fix-schema-versioning').
+        For new format, returns empty set (date-based names don't carry semantic keywords).
+        For legacy format, splits on hyphens and filters out date-like tokens.
+        """
+        parts = task_name.lower().split("-")
+
+        # Filter out purely numeric/date parts for keyword comparison
+        keywords = set()
+        for part in parts:
+            if not part.isdigit():
+                keywords.add(part)
+
+        return keywords
+
+    @classmethod
+    def _extract_keywords_from_label(cls, label: str) -> Set[str]:
+        """Extract meaningful keywords from a display label for overlap detection.
+
+        Labels are hyphen-separated phrases like 'fix-schema-versioning' or 'database-connection'.
+        Splits on hyphens and filters out common stop words.
+        """
+        if not label:
+            return set()
+
+        stop_words = {"the", "a", "an", "to", "for", "with", "in", "on", "at", "of"}
+        return {w.lower().strip(".,!?\"'") for w in label.split("-") if w.lower() not in stop_words}
+
+    @classmethod
+    def _find_next_user_index(cls, messages: List[Dict[str, Any]], start_from: int) -> Optional[int]:
+        """Find the index of the next user message starting from a given position."""
+        for i in range(start_from, len(messages)):
+            if messages[i].get("role") == "user":
+                return i
         return None
 
     @classmethod
@@ -385,9 +514,9 @@ class TaskTagger:
 
 # -- Convenience functions for use from context engine ----------------------
 
-def annotate_tasks(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def annotate_tasks(messages: List[Dict[str, Any]], pm_context: str = None) -> List[Dict[str, Any]]:
     """Top-level function for hooking into run_agent.py."""
-    return TaskTagger.annotate(messages)
+    return TaskTagger.annotate(messages, pm_context=pm_context)
 
 
 def categorize_tasks(
@@ -416,7 +545,7 @@ def categorize_tasks(
         if MARKER_START_PREFIX in content:
             current_start = i
 
-        if MARKER_END_PREFIX in content and "status=closed" in content:
+        if MARKER_END_PREFIX in content and ("status=closed" in content or "status=soft_closed" in content):
             if current_start is not None:
                 closed_ranges.append((current_start, i))
             current_start = None

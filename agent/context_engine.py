@@ -26,8 +26,23 @@ Lifecycle:
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Set, Optional
+from dataclasses import dataclass, field
+import torch
 
+try:
+    from sentence_transformers import SentenceTransformer, util
+    HAS_EMBEDDER = True
+except ImportError:
+    HAS_EMBEDDER = False
+
+@dataclass
+class ConversationVector:
+    id: str
+    status: str  # "Active", "Dormant", "Resolved"
+    last_seen_turn: int = 0
+    embedding: Optional[torch.Tensor] = None
+    turns: List[int] = field(default_factory=list)
 
 class ContextEngine(ABC):
     """Base class all context engines must implement."""
@@ -194,3 +209,131 @@ class ContextEngine(ABC):
         """
         self.context_length = context_length
         self.threshold_tokens = int(context_length * self.threshold_percent)
+
+class SemanticVectorEngine(ContextEngine):
+    """A+ Production Context Engine using Semantic Vector Tracking.
+    
+    Instead of lossy compression, this engine tracks conversation 'vectors' 
+    using a local embedding model and maintains a Consolidated State Map header.
+    """
+    @property
+    def name(self) -> str:
+        return "semantic_vector"
+
+    def __init__(self, model_path='~/.hermes/models/embeddings/all-MiniLM-L6-v2'):
+        super().__init__()
+        self.vectors: Dict[str, ConversationVector] = {}
+        self.current_vector_id: Optional[str] = None
+        self.model_path = model_path
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        # Eagerly load the model from local path to ensure total sovereignty and zero network latency
+        self.model = self._get_model()
+
+    def _get_model(self):
+        if self.model is None and HAS_EMBEDDER:
+            # Load directly from the sovereign local path; no network checks allowed
+            self.model = SentenceTransformer(self.model_path, device=self.device, local_files_only=True)
+        return self.model
+
+    def update_from_response(self, usage: Dict[str, Any]) -> None:
+        self.last_prompt_tokens = usage.get("prompt_tokens", 0)
+        self.last_completion_tokens = usage.get("completion_tokens", 0)
+        self.last_total_tokens = usage.get("total_tokens", 0)
+
+    def should_archive(self, prompt_tokens: int = None) -> bool:
+        # Semantic Vector Engine archives based on token threshold or explicit trigger
+        tokens = prompt_tokens or self.last_prompt_tokens
+        return tokens > self.threshold_tokens
+
+    def archive(
+        self,
+        messages: List[Dict[str, Any]],
+        current_tokens: int = None,
+        focus_topic: str = None,
+    ) -> List[Dict[str, Any]]:
+        # 1. Update Vector State for ALL messages to build the map before pruning
+        if messages:
+            for i in range(len(messages)):
+                msg = messages[i]
+                self._update_vector_state(i, msg.get("content", ""))
+
+        pruned_messages = []
+        active_vector = self.current_vector_id
+        
+        # 2. Protect System Prompt
+        if messages:
+            pruned_messages.append(messages[0])
+
+        # 3. Generate Consolidated State Map Header
+        state_header = "[Conversation State | "
+        vector_summaries = []
+        for vid, vec in self.vectors.items():
+            vector_summaries.append(f"{vid}:{vec.status}(turns:{','.join(map(str, vec.turns))})")
+        state_header += " | ".join(vector_summaries) + "]"
+        pruned_messages.append({"role": "system", "content": state_header})
+
+        # 4. Filter Messages based on Vector Relevance and Recency
+        for i in range(1, len(messages)):
+            msg = messages[i]
+            
+            # Absolute recency protection (last 3 turns)
+            if (len(messages) - i) <= 3:
+                pruned_messages.append(msg)
+                continue
+
+            # Vector Relevance Check
+            is_active = False
+            for vid, vec in self.vectors.items():
+                if i in vec.turns and vid == active_vector:
+                    is_active = True
+                    break
+            
+            if is_active:
+                pruned_messages.append(msg)
+
+        self.archive_count += (len(messages) - len(pruned_messages))
+        return pruned_messages
+
+    def _update_vector_state(self, turn_index: int, text: str):
+        model = self._get_model()
+        if not model: return
+
+        turn_embedding = model.encode(text, convert_to_tensor=True).to(self.device)
+        best_vector = None
+        highest_sim = -1.0
+        
+        for vid, vec in self.vectors.items():
+            if vec.embedding is not None:
+                vec_tensor = vec.embedding.to(self.device)
+                sim = util.cos_sim(turn_embedding, vec_tensor).item()
+                # Use a more robust similarity threshold for production
+                if sim > 0.45 and sim > highest_sim: 
+                    highest_sim = sim
+                    best_vector = vid
+
+        if best_vector is None:
+            best_vector = f"vec_{turn_index}"
+            self.vectors[best_vector] = ConversationVector(
+                id=best_vector, 
+                status="Active", 
+                last_seen_turn=turn_index,
+                embedding=turn_embedding,
+                turns=[turn_index]
+            )
+        else:
+            vec = self.vectors[best_vector]
+            vec.last_seen_turn = turn_index
+            vec.status = "Active"
+            vec.turns.append(turn_index)
+
+        self.current_vector_id = best_vector
+
+        # Decay other vectors to Dormant if not seen for 5 turns
+        for vid, vec in self.vectors.items():
+            if vid != self.current_vector_id and (turn_index - vec.last_seen_turn) > 5:
+                vec.status = "Dormant"
+
+    def on_session_reset(self) -> None:
+        super().on_session_reset()
+        self.vectors = {}
+        self.current_vector_id = None

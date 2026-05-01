@@ -8735,6 +8735,54 @@ class AIAgent:
         """
         return self.api_mode != "codex_responses"
 
+    def _annotate_tasks_if_enabled(self, messages: list) -> list:
+        """Annotate tasks in conversation history (per-turn).
+
+        Also queries Perpetual Memory for context on open tasks before annotating,
+        so the tagger has ground truth about whether tasks were completed in prior sessions.
+
+        Called inline — annotate_tasks returns a new list; caller must reassign.
+        Safe to call multiple times — TaskTagger.annotate() is idempotent.
+        Non-fatal — silently skips if the context engine doesn't support it.
+        """
+        # Step 1: Query PM for open task context (before annotation)
+        pm_context = ""
+        if hasattr(self.context_archiver, 'get_recent_context'):
+            try:
+                def _pm_callback(task_names):
+                    """Callback that queries session DB for recent task activity."""
+                    if not self._session_db or not hasattr(self._session_db, 'search_messages'):
+                        return ""
+                    parts = []
+                    for tn in task_names[:5]:  # Limit to avoid excessive queries
+                        try:
+                            # search_messages signature: query, source_filter, exclude_sources, role_filter, limit, offset
+                            recent = self._session_db.search_messages(
+                                query=tn, limit=3
+                            )
+                            if recent:
+                                summaries = [f"{r.get('role', '?')}: {r.get('content', '')[:100]}"
+                                             for r in recent]
+                                parts.append(f"[{tn}] → {'; '.join(summaries)}")
+                        except Exception:
+                            pass
+                    return "\n".join(parts) if parts else ""
+
+                pm_context = self.context_archiver.get_recent_context(messages, pm_callback=_pm_callback) or ""
+            except Exception as _pm_err:
+                logger.debug("PM context query failed (non-fatal): %s", _pm_err)
+
+        # Step 2: Run task annotation (pass PM context separately, don't pollute messages)
+        if hasattr(self.context_archiver, 'annotate_tasks'):
+            try:
+                annotated = self.context_archiver.annotate_tasks(messages, pm_context=pm_context or None)
+                # annotate_tasks returns a new list — return it to caller for reassignment
+                return annotated
+            except Exception as _tag_err:
+                logger.debug("Per-turn task annotation failed (non-fatal): %s", _tag_err)
+
+        return messages
+
     def _archive_context(self, messages: list, system_message: str, *, approx_tokens: int = None, task_id: str = "default", focus_topic: str = None) -> tuple:
         """Archive conversation context and split the session in SQLite.
 
@@ -12778,6 +12826,8 @@ class AIAgent:
                     self._post_tool_empty_retried = False
 
                     messages.append(assistant_msg)
+                    # Per-turn task annotation — tag this response before tool results arrive
+                    messages = self._annotate_tasks_if_enabled(messages)
                     self._emit_interim_assistant_message(assistant_msg)
 
                     # Close any open streaming display (response box, reasoning
@@ -13144,6 +13194,8 @@ class AIAgent:
                         messages.pop()
 
                     messages.append(final_msg)
+                    # Per-turn task annotation — tag the final response before session ends
+                    messages = self._annotate_tasks_if_enabled(messages)
                     
                     _turn_exit_reason = f"text_response(finish_reason={finish_reason})"
                     if not self.quiet_mode:

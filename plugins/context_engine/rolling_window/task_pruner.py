@@ -37,6 +37,10 @@ def _estimate_tokens(messages: List[Dict[str, Any]]) -> int:
         return (total_chars + 3) // 4
 
 
+# Public alias — used by __init__.py _log_archive_stats()
+count_tokens = _estimate_tokens
+
+
 def _strip_and_truncate(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Strip raw assistant tool calls and truncate role:'tool' results.
 

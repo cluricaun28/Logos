@@ -16,7 +16,10 @@ Full plugin suite providing perpetual memory tools to the agent:
 - **Hybrid search** — `perpetual_search` (FTS5 + semantic), `query_messages` (SQL-style filtering), `get_messages` (exact pattern matching)
 - **Smart retrieval** — auto-routes queries to optimal strategy (recent, topic-specific, decision trace, file history)
 - **Context bridge builder** — extracts active tasks, errors, and decisions for injection at archival boundaries
-- **Deep research engine** — web research client (SearXNG/Firecrawl), source credibility scrutiny gate, multi-pass synthesis
+- **Logos Engine (Deep Research & Continuity)** — Sovereign knowledge acquisition pipeline:
+    - **Three-Tier Web Stack:** SearXNG (Discovery) $ightarrow$ Firecrawl (Extraction) $ightarrow$ Camofox (Anti-detection Browser).
+    - **Epistemic Filtering:** Integrated scrutiny gate that filters raw web data through a user-defined worldview baseline before RL ingestion.
+    - **Adaptive Retrieval Cascade:** A reasoning-driven flow (Immediate Context $ightarrow$ PM Recall $ightarrow$ RL Authority $ightarrow$ Deep Research) to ensure the most accurate source is used for every query.
 
 ### 3. Rolling Window Context Archiving (`plugins/context_engine/rolling_window/`)
 Replaces passive context retention with active archiving: compress completed conversation turns to permanent storage while keeping the working window lean for deep present-moment reasoning. State continuity through retrieval, not retention.
@@ -32,7 +35,7 @@ These are the upstream Hermes Agent files we changed. The diffs are committed in
 
 | File | What Changed | Why It Matters |
 |------|-------------|----------------|
-| `run_agent.py` | Renamed "compression" → "archiving", added Context Bridge injection at archival boundary, selective tool loading | Enables rolling window + perpetual memory integration. Config key is now `archiving:` instead of `compression:` |
+| `run_agent.py` | Renamed "compression" $ightarrow$ "archiving", added Context Bridge injection at archival boundary, selective tool loading | Enables rolling window + perpetual memory integration. Config key is now `archiving:` instead of `compression:` |
 | `agent/prompt_builder.py` | Skills section changed from mandatory to on-demand loading with validation | Prevents context bloat — only loads skills actually relevant to the task |
 | `agent/context_engine.py` | Integrated rolling window engine, context bridge injection at archival boundary | Core archiving logic that preserves active tasks across compression boundaries |
 | `plugins/context_engine/__init__.py` | Added rolling window engine loader with config passthrough | Pluggable context archiving strategy |
@@ -50,6 +53,13 @@ archiving:
   protect_last_n: 20
 ```
 (Old `compression:` key still works for backward compatibility.)
+
+---
+
+## 🧠 Research Priority Matrix (Epistemic Routing)
+The agent uses a tiered priority system to determine where to find truth:
+- **Bedrock Topics (Worldview, Theology, Core Logic):** RL $ightarrow$ PM $ightarrow$ Web. The Reference Library is the ultimate authority; web search is only for filling gaps.
+- **Volatile Topics (News, Tech Specs, Pricing):** Web $ightarrow$ RL. Fresh data is prioritized over archived knowledge.
 
 ---
 
@@ -168,7 +178,7 @@ For web search with source extraction (SearXNG + Firecrawl), see [`extras/deep-r
 │  │  Perpetual Context Plugin    │           │
 │  │  - Hybrid search (FTS5+vec)  │           │
 │  │  - Smart retrieval routing   │           │
-│  │  - Deep research engine      │           │
+│  │  - Logos Engine              │           │
 │  └──────────────┬───────────────┘           │
 │                 ▼                            │
 │  ┌──────────────────────────────┐           │
