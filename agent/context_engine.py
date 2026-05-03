@@ -27,6 +27,7 @@ Lifecycle:
 
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Set, Optional
+import os
 from dataclasses import dataclass, field
 import torch
 
@@ -224,15 +225,23 @@ class SemanticVectorEngine(ContextEngine):
         super().__init__()
         self.vectors: Dict[str, ConversationVector] = {}
         self.current_vector_id: Optional[str] = None
-        self.model_path = model_path
+        self.model_path = os.path.expanduser(model_path)
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.model = None  # Initialize before _get_model() checks it
         # Eagerly load the model from local path to ensure total sovereignty and zero network latency
         self.model = self._get_model()
 
     def _get_model(self):
         if self.model is None and HAS_EMBEDDER:
-            # Load directly from the sovereign local path; no network checks allowed
-            self.model = SentenceTransformer(self.model_path, device=self.device, local_files_only=True)
+            try:
+                # Load directly from the sovereign local path; no network checks allowed
+                self.model = SentenceTransformer(self.model_path, device=self.device, local_files_only=True)
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "SemanticVectorEngine embedder not found at %s (%s). Falling back to recency-only pruning.",
+                    self.model_path, e
+                )
         return self.model
 
     def update_from_response(self, usage: Dict[str, Any]) -> None:
@@ -257,27 +266,59 @@ class SemanticVectorEngine(ContextEngine):
                 msg = messages[i]
                 self._update_vector_state(i, msg.get("content", ""))
 
-        pruned_messages = []
         active_vector = self.current_vector_id
         
-        # 2. Protect System Prompt
+        # 2. Determine aggressiveness based on context pressure
+        tokens = current_tokens or self.last_prompt_tokens
+        usage_ratio = tokens / self.context_length if self.context_length else 0.75
+        
+        # Adaptive thresholds: closer to limit → more aggressive pruning
+        recency_buffer = 3 if usage_ratio < 0.80 else (1 if usage_ratio < 0.92 else 2)
+        include_dormant_turns = usage_ratio < 0.85
+        max_active_turns = 60 if usage_ratio < 0.90 else 25
+
+        pruned_messages = []
+        
+        # 3. Protect System Prompt (always first)
         if messages:
             pruned_messages.append(messages[0])
 
-        # 3. Generate Consolidated State Map Header
+        # 4. Generate Compact Consolidated State Map Header
+        # NOTE: Only include turn COUNT, not indices. Full index lists bloat the header to thousands of tokens.
         state_header = "[Conversation State | "
         vector_summaries = []
         for vid, vec in self.vectors.items():
-            vector_summaries.append(f"{vid}:{vec.status}(turns:{','.join(map(str, vec.turns))})")
+            vector_summaries.append(f"{vid}:{vec.status}(count:{len(vec.turns)})")
         state_header += " | ".join(vector_summaries) + "]"
         pruned_messages.append({"role": "system", "content": state_header})
 
-        # 4. Filter Messages based on Vector Relevance and Recency
+        # 2b. SignalRegistry integration — protect pinned high-signal turns
+        pinned_indices: Set[int] = set()
+        try:
+            from agent.signal_registry import SignalRegistry
+            registry = SignalRegistry()
+            pm_ids = [msg.get("id") for msg in messages if msg.get("id")]
+            if pm_ids:
+                pinned_pms = registry.get_pinned_turns(pm_ids)
+                # Map PM IDs back to message indices
+                for idx, msg in enumerate(messages):
+                    if msg.get("id") in pinned_pms:
+                        pinned_indices.add(idx)
+        except Exception as e:
+            logger.debug(f"SignalRegistry unavailable during archive: {e}")
+
+        # 5. Filter Messages based on Vector Relevance and Recency
+        active_turn_count = 0
         for i in range(1, len(messages)):
             msg = messages[i]
+
+            # Signal-pinned protection (high-signal turns survive pruning)
+            if i in pinned_indices:
+                pruned_messages.append(msg)
+                continue
             
-            # Absolute recency protection (last 3 turns)
-            if (len(messages) - i) <= 3:
+            # Absolute recency protection (adaptive buffer)
+            if (len(messages) - i) <= recency_buffer:
                 pruned_messages.append(msg)
                 continue
 
@@ -288,15 +329,45 @@ class SemanticVectorEngine(ContextEngine):
                     is_active = True
                     break
             
-            if is_active:
+            # Include active turns (capped to prevent runaway context)
+            if is_active and active_turn_count < max_active_turns:
                 pruned_messages.append(msg)
+                active_turn_count += 1
+                continue
+                
+            # Include dormant turns only if we have breathing room
+            if include_dormant_turns:
+                for vid, vec in self.vectors.items():
+                    if i in vec.turns and vec.status == "Dormant":
+                        pruned_messages.append(msg)
+                        break
 
-        self.archive_count += (len(messages) - len(pruned_messages))
+        # 6. HARD SAFETY NET: If still over budget, aggressively trim oldest non-protected
+        target_tokens = int(self.context_length * 0.82)
+        while len(pruned_messages) > 2 and self._estimate_tokens(pruned_messages) > target_tokens:
+            pruned_messages.pop(1)  # Drop oldest message after system prompt
+
+        self.archive_count += max(0, len(messages) - len(pruned_messages))
         return pruned_messages
+
+    def _estimate_tokens(self, messages: List[Dict[str, Any]]) -> int:
+        """Rough token estimator to prevent context overflow crashes.
+        
+        Uses ~3.5 chars/token as a safe upper bound for English/code mix.
+        Guarantees we never exceed hard limits even if semantic pruning fails."""
+        total_chars = sum(len(str(m.get("content", ""))) for m in messages)
+        return max(total_chars // 3.5, len(messages) * 10)
 
     def _update_vector_state(self, turn_index: int, text: str):
         model = self._get_model()
-        if not model: return
+        if not model:
+            # Fallback: treat every turn as its own vector (recency-only pruning)
+            vid = f"vec_{turn_index}"
+            self.vectors[vid] = ConversationVector(
+                id=vid, status="Active", last_seen_turn=turn_index, turns=[turn_index]
+            )
+            self.current_vector_id = vid
+            return
 
         turn_embedding = model.encode(text, convert_to_tensor=True).to(self.device)
         best_vector = None

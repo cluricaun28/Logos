@@ -124,6 +124,7 @@ class EmbeddingEngine:
         if self._model is not None:
             return self._model
         try:
+            import torch
             from sentence_transformers import SentenceTransformer
             local_path = os.path.expanduser("~/.hermes/models/embeddings/all-MiniLM-L6-v2")
             logger.info(

@@ -4158,6 +4158,9 @@ class GatewayRunner:
         if canonical == "personality":
             return await self._handle_personality_command(event)
 
+        if canonical in ("distill", "logos"):
+            return await self._handle_distill_command(event)
+
         if canonical == "retry":
             return await self._handle_retry_command(event)
         
@@ -6503,6 +6506,97 @@ class GatewayRunner:
             lines.append("_(session only -- add `--global` to persist)_")
 
         return "\n".join(lines)
+
+    async def _handle_distill_command(self, event: MessageEvent) -> str:
+        """Handle /distill command — distill high-signal PM clusters into RL entries.
+
+        Supports:
+          /distill              — distill top hotspots automatically
+          /distill <cluster_id> — distill a specific cluster
+          /distill list         — show undistilled clusters with scores
+        """
+        import asyncio
+        from pathlib import Path
+
+        raw_args = event.get_command_args().strip()
+
+        # "list" subcommand: show undistilled clusters
+        if raw_args.lower() == "list":
+            try:
+                from agent.signal_registry import SignalRegistry
+                registry = SignalRegistry()
+                hotspots = registry.get_hotspots(min_score=0.1, limit=20)
+
+                if not hotspots:
+                    return "No undistilled clusters found in Perpetual Memory."
+
+                lines = [f"📊 **Undistilled Clusters** ({len(hotspots)} total)", ""]
+                for hs in hotspots:
+                    cid = hs["cluster_id"]
+                    topic = (hs.get("topic_summary") or f"Cluster {cid}")[:60]
+                    score = hs.get("avg_score", 0)
+                    count = hs.get("turn_count", "?")
+                    lines.append(f"`{cid}` — *{score:.3f}* ({count} turns)")
+                    lines.append(f"   {topic}")
+                    lines.append("")
+
+                return "\n".join(lines[:25]) + ("\n... more. Use `/distill <id>` to distill." if len(hotspots) > 10 else "")
+            except Exception as e:
+                return f"SignalRegistry error: {e}"
+
+        # Specific cluster ID or default hotspots
+        try:
+            from agent.logos_orchestrator import LogosOrchestrator
+            orchestrator = LogosOrchestrator()
+
+            if raw_args and raw_args.isdigit():
+                cluster_id = int(raw_args)
+                # Fetch turn IDs for this cluster
+                from agent.signal_registry import SignalRegistry
+                registry = SignalRegistry()
+                hotspot = registry.get_hotspots(min_score=0.0, limit=50)
+                target = next((h for h in hotspot if h["cluster_id"] == cluster_id), None)
+
+                if not target:
+                    return f"Cluster {cluster_id} not found or already distilled."
+
+                turn_ids = target.get("turn_ids", [])
+                result = orchestrator.distill_cluster(cluster_id=cluster_id, turn_ids=turn_ids)
+
+                if result["success"]:
+                    return (f"✅ **Distillation complete**\n\n"
+                            f"Cluster `{cluster_id}` → RL page committed.\n"
+                            f"Path: `{result.get('rl_path', 'unknown')}`")
+                else:
+                    stage = result.get("stage", "unknown")
+                    error = result.get("error", "pipeline failed")
+                    return (f"❌ **Distillation stopped at {stage}**\n\n"
+                            f"{error}")
+
+            # Default: distill top hotspots
+            results = orchestrator.distill_hotspots(min_size=3, max_clusters=5)
+
+            if not results:
+                return "No undistilled hotspots found. SignalRegistry may need seeding."
+
+            success_count = sum(1 for r in results if r["success"])
+            lines = [f"📊 **Distillation batch complete** — {success_count}/{len(results)} committed", ""]
+
+            for r in results:
+                cid = r.get("cluster_id", "?")
+                if r["success"]:
+                    lines.append(f"✅ Cluster `{cid}` → committed")
+                else:
+                    stage = r.get("stage", "init")
+                    error = (r.get("error") or "")[:80]
+                    lines.append(f"❌ Cluster `{cid}` — stopped at {stage}: {error}")
+
+            return "\n".join(lines)
+
+        except Exception as e:
+            import traceback
+            tb = traceback.format_exc()[-500:]
+            return f"Distillation error: {e}\n\n\`{tb}\`"
 
     async def _handle_personality_command(self, event: MessageEvent) -> str:
         """Handle /personality command - list or set a personality."""

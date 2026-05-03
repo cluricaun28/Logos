@@ -97,6 +97,8 @@ COMMAND_REGISTRY: list[CommandDef] = [
                gateway_only=True, aliases=("set-home",)),
     CommandDef("resume", "Resume a previously-named session", "Session",
                args_hint="[name]"),
+    CommandDef("distill", "Distill high-signal PM clusters into Reference Library entries", "Info",
+               aliases=("logos",), args_hint="[cluster_id|hotspots]"),
 
     # Configuration
     CommandDef("config", "Show current configuration", "Configuration",
