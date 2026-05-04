@@ -117,8 +117,8 @@ class SynthesisService:
             call_kwargs = {
                 "task": "archiving",  # Reuse archiving task config for synthesis
                 "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": 2048,  # Smaller output for faster local inference
-                "timeout": 180.0,  # Local inference on big prompts needs time
+                "max_tokens": 8192,   # Quality over speed — overnight runs don't need to be fast
+                "timeout": 600.0,     # 10 min timeout for thorough synthesis on big prompts
             }
             if main_runtime:
                 call_kwargs["main_runtime"] = main_runtime

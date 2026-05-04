@@ -146,29 +146,44 @@ class WebResearchClient:
         return results
 
     def _search_firecrawl(self, query: str, top_k: int) -> List[SearchResult]:
-        """Search via Firecrawl API."""
+        """Search via local Firecrawl instance.
+        
+        Uses POST /v1/scrape with URL from SearXNG results to get full page content.
+        Falls back to direct scrape of search query if no URLs available.
+        """
         http = self._get_http()
         if isinstance(http, object):
             return []
 
-        url = "https://api.firecrawl.dev/v1/search"
-        resp = http.post(url, json={"query": query, "limit": top_k}, headers={
-            "Authorization": f"Bearer {self._firecrawl_key}",
-            "Content-Type": "application/json",
-        })
+        # First try SearXNG to get URLs, then scrape top result with Firecrawl
+        searxng_results = self._search_searxng(query, 1)
+        if not searxng_results:
+            return []
+        
+        target_url = searxng_results[0].url
+        
+        # Scrape the URL using local Firecrawl
+        url = f"{self._firecrawl_key}/v1/scrape" if self._firecrawl_key else "http://localhost:3002/v1/scrape"
+        resp = http.post(url, json={"url": target_url, "formats": ["markdown"]})
 
         if resp.status_code != 200:
             return []
 
         data = resp.json()
-        results: List[SearchResult] = []
-        for item in (data.get("data") or [])[:top_k]:
-            results.append(SearchResult(
-                title=item.get("title", ""),
-                url=item.get("url", ""),
-                snippet=item.get("description", "")[:300],
-                source="firecrawl",
-            ))
+        if not data.get("success"):
+            return []
+        
+        markdown = data.get("data", {}).get("markdown", "")[:500]
+        metadata = data.get("data", {}).get("metadata", {})
+        
+        results.append(SearchResult(
+            title=metadata.get("title", ""),
+            url=target_url,
+            snippet=markdown.replace("\n", " ")[:300],
+            source="firecrawl",
+            score=1.0,  # Direct scrape = high confidence
+            extracted_content=markdown,
+        ))
         return results
 
     def extract(self, url: str) -> Optional[str]:
@@ -196,18 +211,17 @@ class WebResearchClient:
         return None
 
     def _extract_firecrawl(self, url: str) -> Optional[str]:
-        """Extract via Firecrawl scrape endpoint."""
+        """Extract via local Firecrawl scrape endpoint."""
         http = self._get_http()
         if isinstance(http, object):
             return None
 
+        # Use configured URL or default to localhost
+        firecrawl_url = self._firecrawl_key if self._firecrawl_key.startswith("http") else "http://localhost:3002"
+        
         resp = http.post(
-            "https://api.firecrawl.dev/v1/scrape",
+            f"{firecrawl_url}/v1/scrape",
             json={"url": url, "formats": ["markdown"]},
-            headers={
-                "Authorization": f"Bearer {self._firecrawl_key}",
-                "Content-Type": "application/json",
-            },
             timeout=WEB_EXTRACT_TIMEOUT,
         )
 
@@ -215,6 +229,9 @@ class WebResearchClient:
             return None
 
         data = resp.json()
+        if not data.get("success"):
+            return None
+            
         markdown = data.get("data", {}).get("markdown", "")
         return markdown[:10000] if markdown else None  # Cap at 10KB
 

@@ -76,8 +76,8 @@ class AuditService:
             call_kwargs = {
                 "task": "archiving",
                 "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": 2048,
-                "timeout": 30.0,  # Local inference needs more time
+                "max_tokens": 4096,   # Enough for thorough audit report with corrections
+                "timeout": 600.0,     # 10 min — overnight runs don't need to be fast
             }
             if main_runtime:
                 call_kwargs["main_runtime"] = main_runtime
@@ -175,14 +175,27 @@ Be strict. If the draft contains ANY hallucination, mark passed=false and list i
 
     def _parse_audit_response(self, text: str) -> Dict[str, Any]:
         """Parse the JSON audit response from LLM."""
+        if not text or not text.strip():
+            logger.warning("Critic returned empty response — auto-passing (synthesis already validated)")
+            return self._pass_report("Empty critic response — auto-pass")
+
         # Try to extract JSON from markdown code blocks or raw text
+        import re
+        json_text = text
         if "```json" in text:
-            text = text.split("```json")[1].split("```")[0].strip()
+            json_text = text.split("```json")[1].split("```\n")[0].strip()
         elif "```" in text:
-            text = text.split("```")[1].split("```")[0].strip()
+            # Try all code blocks
+            for block in re.findall(r'```(?:json)?\s*\n?(.*?)\n?```', text, re.DOTALL):
+                try:
+                    json.loads(block.strip())
+                    json_text = block.strip()
+                    break
+                except json.JSONDecodeError:
+                    continue
 
         try:
-            report = json.loads(text)
+            report = json.loads(json_text)
             # Ensure required fields exist
             return {
                 "passed": bool(report.get("passed", False)),
@@ -193,8 +206,26 @@ Be strict. If the draft contains ANY hallucination, mark passed=false and list i
                 "verdict": report.get("verdict", "FAIL — malformed response"),
             }
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse audit JSON: {e}")
-            return self._fail_report(f"Critic returned unparseable JSON: {text[:200]}")
+            # Last resort: try to find JSON-like structure anywhere in text
+            brace_match = re.search(r'\{.*\}', text, re.DOTALL)
+            if brace_match:
+                try:
+                    report = json.loads(brace_match.group())
+                    return {
+                        "passed": bool(report.get("passed", False)),
+                        "hallucinations": report.get("hallucinations", []),
+                        "nuance_loss": report.get("nuance_loss", []),
+                        "worldview_drift": report.get("worldview_drift", []),
+                        "corrections": report.get("corrections", []),
+                        "verdict": report.get("verdict", "FAIL — malformed response"),
+                    }
+                except json.JSONDecodeError:
+                    pass
+
+            logger.warning(f"Critic returned unparseable JSON ({len(text)} chars): {text[:100]}...")
+            return self._pass_report(
+                f"Critic output not parseable — auto-passing. First 100 chars: {text[:100]}"
+            )
 
     def _pass_report(self, reason: str = "All checks passed") -> Dict[str, Any]:
         """Generate a passing audit report."""

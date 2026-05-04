@@ -205,8 +205,11 @@ class LogosOrchestrator:
         title = metadata.get("draft_title", f"cluster_{metadata['cluster_id']}")
         safe_filename = self._slugify(title) + ".md"
 
-        # Determine subdirectory (topics/ for general, system/ for technical)
-        if "system" in draft_content.lower() or "config" in draft_content.lower():
+        # Determine subdirectory — default to topics/ for all distilled content.
+        # Determine subdirectory (topics/ for general, system/ for internal configs)
+        # Default to topics/ — only use system/ for actual Hermes internals
+        draft_lower = draft_content.lower()
+        if any(kw in draft_lower for kw in ["hermes agent", "perpetual context provider", "memory provider"]):
             subdir = self.rl_dir / "system"
         else:
             subdir = self.rl_dir / "topics"

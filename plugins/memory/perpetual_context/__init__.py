@@ -31,10 +31,21 @@ import logging
 import os
 import re as _re  # renamed to avoid conflict with topic extraction regex
 import sqlite3
+import sys
 import threading
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+# Add scripts directory for query classifier
+_scripts_dir = str(Path.home() / ".hermes" / "scripts")
+if _scripts_dir not in sys.path:
+    sys.path.insert(0, _scripts_dir)
+
+try:
+    from query_classifier import QueryClassifier as _QueryClassifierClass
+except ImportError:
+    _QueryClassifierClass = None  # Graceful fallback if classifier unavailable
 
 from agent.memory_provider import MemoryProvider
 from agent.perpetual_context_db import RECALL_OUTPUT_MAX_CHARS
@@ -62,6 +73,38 @@ RL_SEARCH_TOP_K = 5                  # Results from reference library search
 PM_SEARCH_TOP_K = 5                  # Results from perpetual memory hybrid search
 GAP_DETECTION_MIN_SCORE = 0.3        # Below this, results considered low-confidence
 GAP_DETECTION_MIN_RESULTS = 2        # Fewer than this triggers gap flag for Phase 2 web fallback
+
+# Phase 2: Auto Web Search + Unified Relevance Scoring
+WEB_SEARCH_ENABLED = True            # Master toggle for automatic web search triggering
+SEARXNG_URL = "http://localhost:8080"  # SearXNG instance URL
+WEB_SEARCH_TIMEOUT = 10              # Seconds before timeout
+WEB_PRIORITY_THRESHOLD = 0.5         # Trigger web search when priority exceeds this
+WEB_SEARCH_TOP_K = 5                 # Max results from SearXNG
+UNIFIED_SCORE_WEIGHTS = {            # Source reliability weights for cross-source merge
+    "pm": 0.35,   # Perpetual Memory — personal context, episodic memory
+    "rl": 0.40,   # Reference Library — curated, worldview-aligned knowledge (highest)
+    "web": 0.25,  # Web search — needs verification, time-sensitive (lowest)
+}
+
+# Worldview filter: domains to block or flag on web results
+WORLDVIEW_BLOCKED_DOMAINS = {
+    "reddit.com",   # Low-signal echo chamber
+    "quora.com",    # Unverified opinions presented as facts
+    "medium.com",   # Paywalled opinion pieces
+}
+
+WORLDVIEW_FLAGGED_DOMAINS = {
+    "bbc.com": "State-aligned framing",
+    "cnn.com": "Progressive institutional capture",
+    "nytimes.com": "Elite establishment narrative",
+    "reuters.com": "Corporate wire service bias",
+    "apnews.com": "Associated Press — establishment framing",
+}
+
+# Phase 3: PM → RL Distillation Pipeline
+DISTILLATION_ENABLED = True          # Master toggle for auto-distillation triggers
+DISTILLATION_SCORE_THRESHOLD = 0.5   # Minimum cluster score to consider for distillation
+DISTILLATION_QUEUE_PATH = str(Path.home() / ".hermes" / "staging" / "distillation_queue.json")
 
 # Auto-routing constants moved to retrieval_engine.py — imported below.
 # Kept here for backward compatibility with existing code that references them directly.
@@ -314,22 +357,22 @@ SMART_RETRIEVE_SCHEMA = {
 REFERENCE_LIBRARY_SEARCH_SCHEMA = {
     "name": "reference_library_search",
     "description": (
-        "MANDATORY FIRST STEP for all factual, historical, political, economic,\n"
-        "media, and worldview questions. Contains curated, worldview-aligned reference\n"
-        "material built from first principles.\n\n"
-        "USE THIS BEFORE ANY OTHER SEARCH TOOL when answering:\n"
-        "• Questions about history, politics, economics, media bias, or worldview\n"
-        "• Any factual claim that needs verification against curated knowledge\n"
-        "• Research involving people, organizations, or institutions\n\n"
-        "This is NOT optional. Always check reference_library_search before generating answers\n"
-        "from training data or session memory alone.\n\n"
-        "PARAMETERS:\n"
-        "• query: Search text (required)\n"
-        "• top_k: Number of results (default 5, max 20)\n\n"
-        "EXAMPLES:\n"
-        "• 'Elon Musk political influence' — Find entity page with reaction tracking\n"
-        "• 'media bias patterns' — Find curated analysis of source credibility\n"
-        "• 'American economic policy post-1964' — Find historical reference material"
+        "MANDATORY FIRST STEP for all factual, historical, political, economic,\\n"
+        "media, and worldview questions. Contains curated, worldview-aligned reference\\n"
+        "material built from first principles.\\n\\n"
+        "USE THIS BEFORE ANY OTHER SEARCH TOOL when answering:\\n"
+        "• Questions about history, politics, economics, media bias, or worldview\\n"
+        "• Any factual claim that needs verification against curated knowledge\\n"
+        "• Research involving people, organizations, or institutions\\n\\n"
+        "This is NOT optional. Always check reference_library_search before generating answers\\n"
+        "from training data or session memory alone.\\n\\n"
+        "PARAMETERS:\\n"
+        "• query: Search text (required)\\n"
+        "• top_k: Number of results (default 5, max 20)\\n\\n"
+        "EXAMPLES:\\n"
+        "• 'Elon Musk political influence' — Find entity page with reaction tracking\\n"
+        "• 'media bias patterns' — Curated analysis of source credibility\\n"
+        "• 'American economic policy post-1964' — Historical reference material"
     ),
     "parameters": {
         "type": "object",
@@ -338,6 +381,63 @@ REFERENCE_LIBRARY_SEARCH_SCHEMA = {
             "top_k": {"type": "integer", "description": "Number of results (default 5)", "default": 5},
         },
         "required": ["query"],
+    },
+}
+
+CLASSIFIER_CORRECTION_SCHEMA = {
+    "name": "classifier_correction",
+    "description": (
+        "Log a correction when the query classifier routes to the wrong source.\\n"
+        "This trains the system to route similar queries correctly in the future.\\n\\n"
+        "USE THIS WHEN:\\n"
+        "• The prefetch injected web results for a personal question ('what dogs do I have')\\n"
+        "• A contextual query ('any gaps?', 'continue') was treated as general knowledge\\n"
+        "• You notice the classifier chose the wrong primary source (PM/RL/Web)\\n\\n"
+        "PARAMETERS:\\n"
+        "• query: The original misclassified query text\\n"
+        "• correct_source: The correct source ('pm', 'rl', or 'web')\\n\\n"
+        "EXAMPLES:\\n"
+        "• query='What kind of dogs do I have?', correct_source='pm'\\n"
+        "• query='Any gaps?', correct_source='pm'"
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "query": {"type": "string", "description": "The misclassified query text"},
+            "correct_source": {
+                "type": "string",
+                "enum": ["pm", "rl", "web"],
+                "description": "The correct source: pm=Perpetual Memory, rl=Reference Library, web=Web Search"
+            },
+        },
+        "required": ["query", "correct_source"],
+    },
+}
+
+RETRIEVAL_QUALITY_SCHEMA = {
+    "name": "retrieval_quality",
+    "description": (
+        "Evaluate prefetch retrieval quality. Shows trend analysis, per-metric averages, "
+        "and recent low-quality events.\n\n"
+        "USE THIS WHEN:\n"
+        "• Checking whether prefetch is returning useful context or noise\n"
+        "• Diagnosing why certain queries aren't getting relevant results\n"
+        "• Reviewing retrieval quality trends over time\n\n"
+        "PARAMETERS:\n"
+        "• action: 'trend' (default) for overall analysis, 'failures' for recent misses\n"
+        "• window: Number of events to analyze (default 20)\n"
+        "• threshold: Quality score threshold for failures (default 0.3)\n\n"
+        "EXAMPLES:\n"
+        "• action='trend' — Show overall retrieval quality trend\n"
+        "• action='failures', threshold=0.4 — Show recent low-quality prefetches"
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "action": {"type": "string", "description": "Action: 'trend' or 'failures'", "default": "trend"},
+            "window": {"type": "integer", "description": "Number of events to analyze (default 20)", "default": 20},
+            "threshold": {"type": "number", "description": "Quality score threshold for failures (default 0.3)", "default": 0.3},
+        },
     },
 }
 
@@ -390,6 +490,13 @@ class PerpetualContextProvider(MemoryProvider):
         # Negative feedback loop components
         self._scorer: Optional[Any] = None  # BridgeQualityScorer (lazy import)
         self._feedback: Optional[Any] = None  # FeedbackState (lazy init)
+        # Retrieval quality evaluation
+        self._retrieval_scorer: Optional[Any] = None  # RetrievalQualityScorer (lazy init)
+        # RL Memory Provider components — hybrid semantic + keyword search over Reference Library
+        self._rl_embeddings_loaded: bool = False
+        self._rl_model = None
+        self._rl_conn = None
+        self._classifier = _QueryClassifierClass() if _QueryClassifierClass else None
 
     def _ensure_subcomponents(self) -> None:
         """Lazy-init sub-components after DB is available."""
@@ -417,6 +524,423 @@ class PerpetualContextProvider(MemoryProvider):
         if self._feedback is None:
             from .feedback_state import FeedbackState
             self._feedback = FeedbackState()
+
+    def _ensure_retrieval_scorer(self) -> None:
+        """Lazy-init retrieval quality scorer."""
+        if self._retrieval_scorer is None:
+            try:
+                from .retrieval_quality import RetrievalQualityScorer
+                self._retrieval_scorer = RetrievalQualityScorer()
+            except ImportError as e:
+                logger.debug("RetrievalQualityScorer unavailable: %s", e)
+
+    def _score_retrieval_quality(
+        self,
+        query: str,
+        priorities: Dict[str, float],
+        scored_results: List[Dict[str, Any]],
+        formatted_text: str = "",
+    ) -> None:
+        """Score a prefetch retrieval event for quality tracking.
+
+        Non-blocking — logs results to sliding window for trend analysis.
+        Called after each successful prefetch with results.
+        """
+        self._ensure_retrieval_scorer()
+        if self._retrieval_scorer is None:
+            return
+
+        try:
+            self._retrieval_scorer.score(
+                query=query,
+                priorities=priorities,
+                scored_results=scored_results,
+                formatted_text=formatted_text,
+                top_k_requested=self._get_depth_limit(),
+            )
+        except Exception as e:
+            logger.debug("Retrieval quality scoring failed: %s", e)
+
+    def _ensure_rl_embeddings(self) -> bool:
+        """Lazy-load RL embedding index on first use. Returns True if successful."""
+        if self._rl_embeddings_loaded:
+            return True
+        try:
+            from sentence_transformers import SentenceTransformer
+            model_path = str(Path.home() / ".hermes" / "models" / "embeddings" / "all-MiniLM-L6-v2")
+
+            # Use GPU if available (Crenshaw server), otherwise CPU (current system)
+            try:
+                import torch
+                device = "cuda" if torch.cuda.is_available() else "cpu"
+            except ImportError:
+                device = "cpu"
+
+            self._rl_model = SentenceTransformer(model_path, device=device)
+            self._rl_conn = sqlite3.connect(str(Path.home() / ".hermes" / "perpetual_context.db"))
+            self._rl_embeddings_loaded = True
+            logger.info(f"RLMemoryProvider: Embedding model loaded on {device}")
+            return True
+        except Exception as e:
+            logger.warning(f"RLMemoryProvider: Failed to load embedder: {e}. Keyword-only mode.")
+            return False
+
+    def _hybrid_rl_search(self, query: str, top_k: int = 3) -> list:
+        """Hybrid semantic + keyword search over RL corpus. Returns snippets with file pointers."""
+        if not self._rl_model or not self._rl_conn:
+            return []
+
+        try:
+            import numpy as np
+
+            # Semantic search — encode query and compare against all RL embeddings
+            query_emb = self._rl_model.encode([query])[0]
+            rows = self._rl_conn.execute(
+                "SELECT id, file_path, embedding FROM rl_embeddings WHERE word_count > 50"
+            ).fetchall()
+
+            semantic_scores = {}
+            for row_id, file_path, emb_bytes in rows:
+                emb = np.frombuffer(emb_bytes, dtype=np.float32)
+                sim = float(np.dot(query_emb, emb) / (
+                    np.linalg.norm(query_emb) * np.linalg.norm(emb) + 1e-8))
+                semantic_scores[file_path] = sim
+
+            # Keyword search (FTS5) — fast exact matching
+            fts_rows = self._rl_conn.execute(
+                "SELECT file_path, rank FROM rl_fts WHERE rl_fts MATCH ? ORDER BY rank LIMIT 20",
+                (query,)
+            ).fetchall()
+            keyword_scores = {row[0]: row[1] for row in fts_rows}
+
+            # Hybrid scoring: 60% semantic + 40% keyword (normalized)
+            max_semantic = max(semantic_scores.values()) if semantic_scores else 1.0
+            max_keyword = max(keyword_scores.values()) if keyword_scores else 1.0
+
+            all_files = set(list(semantic_scores.keys()) + list(keyword_scores.keys()))
+            final_scores = []
+
+            for file_path in all_files:
+                sem = semantic_scores.get(file_path, 0) / max_semantic if max_semantic > 0 else 0
+                kw = keyword_scores.get(file_path, 0) / max_keyword if max_keyword > 0 else 0
+                hybrid = (sem * 0.6) + (kw * 0.4)
+                final_scores.append((hybrid, file_path))
+
+            final_scores.sort(key=lambda x: x[0], reverse=True)
+
+            # Extract snippets for top results — skip YAML frontmatter, find query terms in body text
+            rl_dir = Path.home() / ".hermes" / "reference-library"
+            results = []
+            query_terms = set(query.lower().split())
+
+            for score, file_path in final_scores[:top_k]:
+                if score < 0.15:  # Threshold to avoid noise
+                    continue
+
+                full_path = rl_dir / file_path
+                content = full_path.read_text(encoding='utf-8')
+                lines = content.split('\n')
+
+                # Skip YAML frontmatter if present
+                content_start = 0
+                if lines and lines[0].strip() == '---':
+                    for i, line in enumerate(lines[1:], 1):
+                        if line.strip() == '---':
+                            content_start = i + 1
+                            break
+
+                body_lines = lines[content_start:]
+                best_score = 0
+                best_start = 0
+
+                for i, line in enumerate(body_lines):
+                    if line.startswith('#') or not line.strip():
+                        continue
+                    term_matches = len(query_terms & set(line.lower().split()))
+                    if term_matches > best_score:
+                        best_score = term_matches
+                        best_start = max(0, i - 1)
+
+                snippet_lines = body_lines[best_start:min(best_start + 4, len(body_lines))]
+                snippet = ' '.join(l.strip() for l in snippet_lines if l.strip())
+                snippet = snippet[:200] + "..." if len(snippet) > 200 else snippet
+
+                results.append({
+                    "score": round(score, 3),
+                    "file_path": file_path,
+                    "snippet": snippet
+                })
+
+            return results
+
+        except Exception as e:
+            logger.debug(f"RL hybrid search failed: {e}")
+            return []
+
+    # -- Phase 2: Auto Web Search + Unified Relevance Scoring ---------------
+
+    def _auto_web_search(self, query: str, top_k: int = WEB_SEARCH_TOP_K) -> list:
+        """Call SearXNG for web search results with worldview filtering.
+
+        Returns list of result dicts with url, title, content, score fields.
+        Gracefully degrades if SearXNG is unavailable or times out.
+        Applies SovereignSieve worldview filtering on all results before return.
+        """
+        if not WEB_SEARCH_ENABLED:
+            return []
+
+        try:
+            import requests as _requests
+
+            start = time.perf_counter()
+            response = _requests.get(
+                f"{SEARXNG_URL}/search",
+                params={"q": query, "format": "json", "engines": "google,brave,wikipedia"},
+                timeout=WEB_SEARCH_TIMEOUT,
+            )
+            latency_ms = (time.perf_counter() - start) * 1000
+
+            if response.status_code != 200:
+                logger.warning(f"SearXNG returned status {response.status_code}")
+                return []
+
+            data = response.json()
+            results = data.get("results", [])[:top_k]
+
+            # Normalize and apply worldview filtering
+            filtered = []
+            for r in results:
+                domain = self._extract_domain(r.get("url", ""))
+
+                # Block known low-signal sources
+                if domain in WORLDVIEW_BLOCKED_DOMAINS:
+                    logger.debug(f"Blocked web result from {domain}")
+                    continue
+
+                entry = {
+                    "url": r.get("url", ""),
+                    "title": r.get("title", ""),
+                    "content": (r.get("content") or "")[:300],
+                    "score": r.get("score", 0),
+                    "engine": r.get("engine", ""),
+                    "_latency_ms": round(latency_ms, 1),
+                }
+
+                # Flag sources with known institutional framing
+                if domain in WORLDVIEW_FLAGGED_DOMAINS:
+                    entry["worldview_flag"] = "review_recommended"
+                    entry["flag_reason"] = f"Source {domain}: {WORLDVIEW_FLAGGED_DOMAINS[domain]}"
+
+                filtered.append(entry)
+
+            logger.info(f"Web search: {len(filtered)} results in {latency_ms:.0f}ms for \"{query[:40]}...\"")
+            return filtered
+
+        except _requests.exceptions.Timeout:
+            logger.warning("SearXNG request timed out — web search skipped")
+            return []
+        except Exception as e:
+            logger.debug(f"Web search failed: {e}")
+            return []
+
+    @staticmethod
+    def _extract_domain(url: str) -> str:
+        """Extract domain from URL for worldview filtering."""
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(url)
+            return parsed.netloc.lower().replace("www.", "")
+        except Exception:
+            return url.split("//")[0].split("/")[0].lower() if "//" in url else ""
+
+    def _distill_check(self, query: str, pm_results: list = None) -> Optional[str]:
+        """Phase 3: Check for undistilled high-signal clusters matching current context.
+
+        Non-blocking check that identifies PM clusters ready for RL distillation.
+        Returns a pointer string if distillation is recommended, or None otherwise.
+
+        Args:
+            query: Current user query text.
+            pm_results: Results from Perpetual Memory search (optional).
+
+        Returns:
+            Pointer string with distillation recommendation, or None.
+        """
+        if not DISTILLATION_ENABLED:
+            return None
+
+        try:
+            # Load distillation queue
+            queue_path = Path(DISTILLATION_QUEUE_PATH)
+            if not queue_path.exists():
+                return None
+
+            import json as _json
+            with open(queue_path, 'r') as f:
+                queue = _json.load(f)
+
+            if not isinstance(queue, list):
+                return None
+
+            # Check for undistilled signals matching current query topics
+            query_lower = query.lower()
+            matched_signals = []
+
+            for signal in queue:
+                topic = signal.get("topic", "").lower()
+                score = signal.get("score", 0)
+                distilled = signal.get("distilled", False)
+
+                # Skip already-distilled signals
+                if distilled:
+                    continue
+
+                # Check if query matches this topic (simple substring/keyword match)
+                if topic.replace("_", " ") in query_lower or topic in query_lower:
+                    if score >= DISTILLATION_SCORE_THRESHOLD:
+                        matched_signals.append(signal)
+
+            if not matched_signals:
+                return None
+
+            # Build recommendation pointer
+            top_signal = max(matched_signals, key=lambda s: s.get("score", 0))
+            topic_name = top_signal["topic"].replace("_", " ")
+            turn_count = top_signal.get("size", len(top_signal.get("turn_ids", [])))
+
+            return (
+                f"\n\n[💡 Distillation recommended: '{topic_name}' cluster has {turn_count} turns "
+                f"(score: {top_signal['score']:.3f}). Consider running the Logos Engine pipeline "
+                f"to distill this into Reference Library. Queue at {queue_path}]"
+            )
+
+        except Exception as e:
+            logger.debug(f"Distillation check failed: {e}")
+            return None
+
+    def _unified_score_results(
+        self,
+        pm_results: list = None,
+        rl_results: list = None,
+        web_results: list = None,
+    ) -> list:
+        """Merge results from all sources with unified relevance scoring.
+
+        Each result gets a normalized score (0-1) weighted by source reliability:
+        - RL: 0.40 weight (curated, worldview-aligned knowledge — highest)
+        - PM: 0.35 weight (personal context, episodic memory)
+        - Web: 0.25 weight (needs verification, time-sensitive — lowest)
+
+        Returns merged list sorted by unified_score descending.
+        """
+        pm = pm_results or []
+        rl = rl_results or []
+        web = web_results or []
+
+        scored = []
+
+        # Score RL results
+        max_rl = max((r.get("score", 1) for r in rl), default=1)
+        for r in rl:
+            normalized = min(r.get("score", 0) / max_rl, 1.0) if max_rl > 0 else 0
+            unified = normalized * UNIFIED_SCORE_WEIGHTS["rl"]
+            scored.append({
+                "source": "RL",
+                "unified_score": round(unified, 3),
+                "raw_score": r.get("score", 0),
+                **r,
+            })
+
+        # Score PM results
+        max_pm = max((r.get("_score", r.get("score", 1)) for r in pm), default=1)
+        for r in pm:
+            raw = r.get("_score", r.get("score", 0))
+            normalized = min(raw / max_pm, 1.0) if max_pm > 0 else 0
+            unified = normalized * UNIFIED_SCORE_WEIGHTS["pm"]
+            scored.append({
+                "source": "PM",
+                "unified_score": round(unified, 3),
+                "raw_score": raw,
+                **r,
+            })
+
+        # Score Web results (already filtered through worldview filter)
+        max_web = max((r.get("score", 1) for r in web), default=1)
+        for r in web:
+            normalized = min(r.get("score", 0) / max_web, 1.0) if max_web > 0 else 0
+            unified = normalized * UNIFIED_SCORE_WEIGHTS["web"]
+            scored.append({
+                "source": "Web",
+                "unified_score": round(unified, 3),
+                "raw_score": r.get("score", 0),
+                **r,
+            })
+
+        # Sort by unified score descending
+        scored.sort(key=lambda x: x["unified_score"], reverse=True)
+        return scored
+
+    def _format_unified_injection(self, scored_results: list, max_chars: int = 2000) -> str:
+        """Format unified results for injection into agent context.
+
+        Groups by source type with clear attribution and file pointers.
+        """
+        if not scored_results:
+            return ""
+
+        parts = []
+        current_source = None
+        char_count = 0
+
+        for r in scored_results:
+            source = r.get("source", "Unknown")
+            score = r.get("unified_score", 0)
+
+            # Source header when switching sources
+            if source != current_source:
+                if current_source is not None:
+                    parts.append("")  # Blank line between sources
+                source_labels = {
+                    "RL": "[From Reference Library]",
+                    "PM": "[From Perpetual Memory]",
+                    "Web": "[From Web Search]",
+                }
+                parts.append(f"\n---\n{source_labels.get(source, f'[From {source}]')}")
+                current_source = source
+
+            # Format based on source type
+            if source == "RL":
+                file_path = r.get("file_path", r.get("name", "Unknown"))
+                snippet = (r.get("snippet") or "")[:200]
+                line = f"[{file_path} (score: {score:.3f})]\n{snippet}"
+
+            elif source == "PM":
+                role = r.get("role", "assistant").upper()
+                session = r.get("session_id", "")[:12]
+                content = (r.get("content") or "")[:200]
+                line = f"[{role} | Session {session} (score: {score:.3f})]\n{content}"
+
+            elif source == "Web":
+                title = r.get("title", "Untitled")
+                url = r.get("url", "")
+                content = (r.get("content") or "")[:200]
+                flag = ""
+                if r.get("worldview_flag"):
+                    flag = f" [FLAG: {r.get('flag_reason', 'review')}] "
+                line = f"[{title} ({url}) (score: {score:.3f})]{flag}\n{content}"
+
+            else:
+                line = str(r)[:200]
+
+            # Check character budget
+            if char_count + len(line) > max_chars:
+                parts.append(f"\n... [truncated — more results available]")
+                break
+
+            parts.append(line)
+            char_count += len(line)
+
+        return "\n\n".join(parts)
 
     @property
     def name(self) -> str:
@@ -522,120 +1046,132 @@ class PerpetualContextProvider(MemoryProvider):
         )
 
     def prefetch(self, query: str, *, session_id: str = "") -> str:
-        """Recall relevant context for the upcoming turn.
+        """Recall relevant context with intelligent source routing + unified scoring.
 
-        Phase 1 of Deep Research & Continuity Engine — Local Recall auto-hook.
-        Searches both Reference Library (curated knowledge) and Perpetual Memory
-        (historical conversation data), then detects gaps that may need web fallback.
+        Phase 1+2 of Deep Research & Continuity Engine:
+        - Classifies query intent (PM vs RL vs Web priority)
+        - Conditionally searches each source based on classification
+        - Auto-triggers web search when time-sensitive or gaps detected
+        - Merges all results with unified relevance scoring
+        - Applies worldview filtering on web results
 
-        Returns formatted text to inject as context, with source attribution
-        and gap flags for Phase 2 when local recall is insufficient.
+        Returns formatted text to inject as context, grouped by source type.
         """
-        # Respect prefetch_enabled config — return empty if disabled
+        # Phase 3: Distillation check runs independently of PM/RL search.
+        # It's a file-based queue check that doesn't need DB initialization.
+        distill_ptr = self._distill_check(query) if DISTILLATION_ENABLED else None
+
         if not self._prefetch_enabled:
-            return ""
+            return distill_ptr or ""
         if not self._db or not self._db._initialized:
-            return ""
+            return distill_ptr or ""
 
         try:
             effective_session = session_id or self._session_id or ""
-            parts = []
-            rl_results_count = 0
-            pm_results_count = 0
-            gaps_detected = False
 
-            # --- Phase 1a: Reference Library Search (curated knowledge) ---
-            if DEEP_RESEARCH_ENABLED:
+            # --- Step 1: Query Classification (intelligent source routing) ---
+            priorities = {"pm_priority": 0.5, "rl_priority": 0.5, "web_priority": 0.0}
+            if self._classifier:
                 try:
-                    self._ensure_subcomponents()
-                    if self._tools:
-                        rl_json = self._tools.handle_reference_library_search({
-                            "query": query,
-                            "top_k": RL_SEARCH_TOP_K,
-                        })
-                        rl_data = json.loads(rl_json)
-                        rl_results = rl_data.get("results", [])
+                    priorities = self._classifier.classify(query)
+                except Exception as e:
+                    logger.debug(f"Query classification failed: {e}")
 
-                        if rl_results:
-                            rl_parts = []
-                            for r in rl_results[:RL_SEARCH_TOP_K]:
-                                name = r.get("name", "Unknown")
-                                snippet = r.get("snippet", "")[:300]
-                                score = r.get("score", 0)
-                                rl_parts.append(
-                                    f"[RL: {name} (score: {score})]\n{snippet}"
-                                )
-                            parts.append("\n\n---\n\n".join(rl_parts))
-                            rl_results_count = len(rl_results)
+            # --- Step 2: Collect results from each source (defer formatting) ---
+            pm_results = []
+            rl_results = []
+            web_results = []
 
+            # Conditional PM Search (if personal context likely)
+            if priorities["pm_priority"] > 0.3:
+                try:
+                    pm_results = self._db.hybrid_search(
+                        query=query,
+                        session_id=effective_session if effective_session else None,
+                        top_k=self._get_depth_limit(),
+                    ) or []
+                except Exception as e:
+                    logger.debug("Perpetual memory search failed in prefetch: %s", e)
+
+            # Conditional RL Search (if established knowledge likely)
+            if priorities["rl_priority"] > 0.3:
+                try:
+                    if self._ensure_rl_embeddings():
+                        rl_results = self._hybrid_rl_search(query, top_k=RL_SEARCH_TOP_K) or []
+                    elif DEEP_RESEARCH_ENABLED:
+                        # Fallback to legacy reference_library_search tool
+                        self._ensure_subcomponents()
+                        if self._tools:
+                            rl_json = self._tools.handle_reference_library_search({
+                                "query": query,
+                                "top_k": RL_SEARCH_TOP_K,
+                            })
+                            rl_data = json.loads(rl_json)
+                            legacy_rl_results = rl_data.get("results", [])
+                            # Normalize legacy format to match hybrid search output
+                            rl_results = [
+                                {
+                                    "file_path": r.get("name", "Unknown"),
+                                    "snippet": (r.get("snippet") or "")[:300],
+                                    "score": r.get("score", 0),
+                                }
+                                for r in legacy_rl_results[:RL_SEARCH_TOP_K]
+                            ]
                 except Exception as e:
                     logger.debug("Reference library search failed in prefetch: %s", e)
 
-            # --- Phase 1b: Perpetual Memory Hybrid Search (historical context) ---
-            try:
-                pm_results = self._db.hybrid_search(
-                    query=query,
-                    session_id=effective_session if effective_session else None,
-                    top_k=self._get_depth_limit(),
-                )
+            # --- Step 3: Auto Web Search (Phase 2) ---
+            # Trigger when web_priority is high OR local recall has gaps
+            total_local = len(pm_results) + len(rl_results)
+            needs_web = (
+                priorities["web_priority"] > WEB_PRIORITY_THRESHOLD or
+                (total_local < GAP_DETECTION_MIN_RESULTS and DEEP_RESEARCH_ENABLED)
+            )
 
-                if pm_results:
-                    pm_formatted = []
-                    for msg in pm_results[:self._get_depth_limit()]:
-                        role_label = msg["role"].upper()
-                        content = msg.get("content", "")[:PREFETCH_TRUNCATION_CHARS]
-                        score = msg.get("_score", 0)
-                        pm_formatted.append(
-                            f"[PM: {role_label} (relevance: {score:.2f})]\n{content}"
-                        )
-                    parts.append("\n\n---\n\n".join(pm_formatted))
-                    pm_results_count = len(pm_results)
+            if needs_web:
+                web_results = self._auto_web_search(query, top_k=WEB_SEARCH_TOP_K)
 
-            except Exception as e:
-                logger.debug("Perpetual memory search failed in prefetch: %s", e)
+            # --- Step 4: Unified Relevance Scoring (Phase 2) ---
+            all_scored = self._unified_score_results(
+                pm_results=pm_results,
+                rl_results=rl_results,
+                web_results=web_results,
+            )
 
-            # --- Phase 1c: Gap Detection (triggers Phase 2 web fallback flag) ---
-            if DEEP_RESEARCH_ENABLED and parts:
-                total_results = rl_results_count + pm_results_count
-
-                # Check for gaps: low result count or low confidence scores
-                if total_results < GAP_DETECTION_MIN_RESULTS:
-                    gaps_detected = True
-                else:
-                    # Check average score across all results
-                    try:
-                        all_scores = []
-                        if rl_results_count > 0:
-                            for r in rl_data.get("results", [])[:RL_SEARCH_TOP_K]:
-                                all_scores.append(r.get("score", 0))
-                        if pm_results_count > 0:
-                            for msg in pm_results[:self._get_depth_limit()]:
-                                all_scores.append(msg.get("_score", 0))
-                        if all_scores and (sum(all_scores) / len(all_scores)) < GAP_DETECTION_MIN_SCORE:
-                            gaps_detected = True
-                    except Exception:
-                        pass
-
-            # --- Combine and format results ---
-            if not parts:
+            if not all_scored:
                 return ""
 
-            result_text = "\n\n---\n\n".join(parts)
+            # --- Step 5: Format unified injection ---
+            result_text = self._format_unified_injection(all_scored)
 
-            # Add source summary and gap flag
-            footer_parts = []
-            if DEEP_RESEARCH_ENABLED:
+            # --- Step 6: Score retrieval quality (evaluation harness) ---
+            self._score_retrieval_quality(
+                query=query,
+                priorities=priorities,
+                scored_results=all_scored,
+                formatted_text=result_text,
+            )
+
+            # Add source summary footer
+            footer_parts = [
+                f"[Local Recall: {len(rl_results)} RL, {len(pm_results)} PM, "
+                f"{len(web_results)} Web | "
+                f"Priorities: PM={priorities['pm_priority']:.2f}, "
+                f"RL={priorities['rl_priority']:.2f}, Web={priorities['web_priority']:.2f}]"
+            ]
+
+            # Gap detection flag
+            if total_local < GAP_DETECTION_MIN_RESULTS and not web_results:
                 footer_parts.append(
-                    f"[Local Recall: {rl_results_count} RL results, "
-                    f"{pm_results_count} PM results]"
+                    "[⚠ Gap detected — local recall insufficient, web search unavailable. "
+                    "Consider manual research for current/external data.]"
                 )
-                if gaps_detected:
-                    footer_parts.append(
-                        "[⚠ Gap detected — local recall insufficient. "
-                        "Consider web research for current/external data.]"
-                    )
 
             result_text += "\n\n" + " ".join(footer_parts)
+
+            # Append distillation pointer if one was found at the top of prefetch()
+            if distill_ptr:
+                result_text += distill_ptr
 
             return result_text
 
@@ -723,6 +1259,8 @@ class PerpetualContextProvider(MemoryProvider):
             QUERY_MESSAGES_SCHEMA,
             SMART_RETRIEVE_SCHEMA,
             REFERENCE_LIBRARY_SEARCH_SCHEMA,
+            CLASSIFIER_CORRECTION_SCHEMA,
+            RETRIEVAL_QUALITY_SCHEMA,
         ]
 
     def handle_tool_call(self, tool_name: str, args: Dict[str, Any], **kwargs) -> str:
@@ -755,10 +1293,81 @@ class PerpetualContextProvider(MemoryProvider):
                     args, smart_retrieve_fn=self.smart_retrieve
                 )
 
+            # classifier_correction — log feedback to improve routing
+            if tool_name == "classifier_correction":
+                return self._handle_classifier_correction(args)
+
+            # retrieval_quality — evaluate prefetch quality
+            if tool_name == "retrieval_quality":
+                return self._handle_retrieval_quality(args)
+
             raise NotImplementedError(f"Unknown tool: {tool_name}")
 
         except Exception as e:
             logger.exception("Perpetual context tool error (%s)", tool_name)
+            return json.dumps({"error": str(e)})
+
+    def _handle_retrieval_quality(self, args: Dict[str, Any]) -> str:
+        """Handle retrieval_quality tool call — evaluate prefetch quality."""
+        action = args.get("action", "trend")
+        window = min(args.get("window", 20), 100)
+        threshold = args.get("threshold", 0.3)
+
+        self._ensure_retrieval_scorer()
+        if self._retrieval_scorer is None:
+            return json.dumps({"error": "Retrieval quality scorer not available"})
+
+        try:
+            if action == "trend":
+                trend = self._retrieval_scorer.get_trend(window=window)
+                return json.dumps({
+                    "action": "trend",
+                    **trend,
+                })
+
+            elif action == "failures":
+                failures = self._retrieval_scorer.get_recent_failures(threshold=threshold)
+                trend = self._retrieval_scorer.get_trend(window=window)
+                return json.dumps({
+                    "action": "failures",
+                    "trend_summary": {
+                        "avg_score": trend["avg_score"],
+                        "events_analyzed": trend["events_analyzed"],
+                        "trend_direction": trend["trend"],
+                    },
+                    "recent_failures": failures,
+                    "total_failures_found": len(failures),
+                })
+
+            else:
+                return json.dumps({"error": f"Unknown action '{action}'. Use 'trend' or 'failures'"})
+
+        except Exception as e:
+            logger.exception("Retrieval quality evaluation failed")
+            return json.dumps({"error": str(e)})
+
+    def _handle_classifier_correction(self, args: Dict[str, Any]) -> str:
+        """Handle classifier_correction tool call — log feedback to improve routing."""
+        query = args.get("query", "")
+        correct_source = args.get("correct_source", "")
+
+        if not query or not correct_source:
+            return json.dumps({"error": "Both 'query' and 'correct_source' are required"})
+
+        try:
+            from classifier_feedback import FeedbackLoop
+            fb = FeedbackLoop()
+            fb.log_correction(query, correct_source)
+            stats = fb.get_stats()
+            return json.dumps({
+                "status": "logged",
+                "message": f"Correction logged: '{query}' → {correct_source}",
+                "total_corrections": stats["total_corrections"],
+            })
+        except ImportError:
+            return json.dumps({"error": "Feedback loop not available"})
+        except Exception as e:
+            logger.exception("Classifier correction failed")
             return json.dumps({"error": str(e)})
 
     def shutdown(self) -> None:
@@ -991,7 +1600,7 @@ class PerpetualContextProvider(MemoryProvider):
                 
         except Exception as e:
             logger.exception("Smart retrieve failed for type '%s'", query_type)
-            raise RuntimeError(f"Smart retrieve unavailable ({query_type}): {e}") from e
+            return []
     
     def on_memory_write(self, action: str, target: str, content: str, metadata=None) -> None:
         """Mirror built-in memory writes to perpetual storage."""
