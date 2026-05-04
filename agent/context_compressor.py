@@ -574,6 +574,9 @@ class ContextCompressor(ContextEngine):
             # Skip multimodal content (list of content blocks)
             if isinstance(content, list):
                 continue
+            # Guard: skip non-string tool content to prevent AttributeError
+            if not isinstance(content, str):
+                continue
             if len(content) < 200:
                 continue
             h = hashlib.md5(content.encode("utf-8", errors="replace")).hexdigest()[:12]
@@ -592,6 +595,9 @@ class ContextCompressor(ContextEngine):
             content = msg.get("content", "")
             # Skip multimodal content (list of content blocks)
             if isinstance(content, list):
+                continue
+            # Guard: skip non-string tool content to prevent AttributeError
+            if not isinstance(content, str):
                 continue
             if not content or content == _PRUNED_TOOL_PLACEHOLDER:
                 continue
