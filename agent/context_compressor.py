@@ -344,6 +344,7 @@ class ContextCompressor(ContextEngine):
         self._last_aux_model_failure_model = None
         self._last_compression_savings_pct = 100.0
         self._ineffective_compression_count = 0
+        self._summary_failure_cooldown_until = 0.0  # transient errors must not block a fresh session
 
     def update_model(
         self,
@@ -459,12 +460,7 @@ class ContextCompressor(ContextEngine):
 
     def update_from_response(self, usage: Dict[str, Any]):
         """Update tracked token usage from API response."""
-        
-        # Include system prompt and tool schema overhead in the estimate to prevent overflow
-        raw_tokens = usage.get("prompt_tokens", 0)
-        system_overhead = getattr(self, "system_prompt_tokens", 0) + getattr(self, "tool_schema_tokens", 0)
-        self.last_prompt_tokens = raw_tokens + system_overhead
-
+        self.last_prompt_tokens = usage.get("prompt_tokens", 0)
         self.last_completion_tokens = usage.get("completion_tokens", 0)
 
     def should_compress(self, prompt_tokens: int = None) -> bool:
@@ -474,9 +470,7 @@ class ContextCompressor(ContextEngine):
         each saved less than 10%, skip compression to avoid infinite loops
         where each pass removes only 1-2 messages.
         """
-        # Ensure overhead is added even when using an external prompt_tokens estimate
-        overhead = getattr(self, "system_prompt_tokens", 0) + getattr(self, "tool_schema_tokens", 0)
-        tokens = (prompt_tokens if prompt_tokens is not None else self.last_prompt_tokens) + overhead
+        tokens = prompt_tokens if prompt_tokens is not None else self.last_prompt_tokens
         if tokens < self.threshold_tokens:
             return False
         # Anti-thrashing: back off if recent compressions were ineffective
@@ -484,17 +478,12 @@ class ContextCompressor(ContextEngine):
             if not self.quiet_mode:
                 logger.warning(
                     "Compression skipped — last %d compressions saved <10%% each. "
-                    "Consider /new to start a fresh session, or /archive <topic> "
-                    "for focused archiving.",
+                    "Consider /new to start a fresh session, or /compress <topic> "
+                    "for focused compression.",
                     self._ineffective_compression_count,
                 )
             return False
         return True
-
-    # ContextEngine ABC compatibility — alias for should_compress()
-    def should_archive(self, prompt_tokens: int = None) -> bool:
-        """Alias for should_compress() — satisfies ContextEngine ABC."""
-        return self.should_compress(prompt_tokens=prompt_tokens)
 
     # ------------------------------------------------------------------
     # Tool output pruning (cheap pre-pass, no LLM call)
@@ -550,7 +539,7 @@ class ContextCompressor(ContextEngine):
             # Token-budget approach: walk backward accumulating tokens
             accumulated = 0
             boundary = len(result)
-            min_protect = min(protect_tail_count, len(result) - 1)
+            min_protect = min(protect_tail_count, len(result))
             for i in range(len(result) - 1, -1, -1):
                 msg = result[i]
                 raw_content = msg.get("content") or ""
@@ -565,7 +554,16 @@ class ContextCompressor(ContextEngine):
                     break
                 accumulated += msg_tokens
                 boundary = i
-            prune_boundary = max(boundary, len(result) - min_protect)
+            # Translate the budget walk into a "protected count", apply the
+            # floor in count-space (where `max` reads naturally: protect at
+            # least `min_protect` messages or whatever the budget reserved,
+            # whichever is more), then convert back to a prune boundary.
+            # Doing this in index-space with `max` would invert the direction
+            # (smaller index = MORE protected), so a generous budget would
+            # silently get truncated back down to `min_protect`.
+            budget_protect_count = len(result) - boundary
+            protected_count = max(budget_protect_count, min_protect)
+            prune_boundary = len(result) - protected_count
         else:
             prune_boundary = len(result) - protect_tail_count
 
@@ -581,7 +579,6 @@ class ContextCompressor(ContextEngine):
             # Skip multimodal content (list of content blocks)
             if isinstance(content, list):
                 continue
-            # Guard: skip non-string tool content to prevent AttributeError
             if not isinstance(content, str):
                 continue
             if len(content) < 200:
@@ -603,7 +600,6 @@ class ContextCompressor(ContextEngine):
             # Skip multimodal content (list of content blocks)
             if isinstance(content, list):
                 continue
-            # Guard: skip non-string tool content to prevent AttributeError
             if not isinstance(content, str):
                 continue
             if not content or content == _PRUNED_TOOL_PLACEHOLDER:
@@ -871,7 +867,7 @@ The user has requested that this compaction PRIORITISE preserving all informatio
 
         try:
             call_kwargs = {
-                "task": "archiving",
+                "task": "compression",
                 "main_runtime": {
                     "model": self.model,
                     "provider": self.provider,
@@ -921,15 +917,19 @@ The user has requested that this compaction PRIORITISE preserving all informatio
                 or "does not exist" in _err_str
                 or "no available channel" in _err_str
             )
+            _is_timeout = (
+                _status in (408, 429, 502, 504)
+                or "timeout" in _err_str
+            )
             if (
-                _is_model_not_found
+                (_is_model_not_found or _is_timeout)
                 and self.summary_model
                 and self.summary_model != self.model
                 and not getattr(self, "_summary_model_fallen_back", False)
             ):
                 self._summary_model_fallen_back = True
                 logging.warning(
-                    "Summary model '%s' not available (%s). "
+                    "Summary model '%s' unavailable (%s). "
                     "Falling back to main model '%s' for compression.",
                     self.summary_model, e, self.model,
                 )
@@ -1010,8 +1010,8 @@ The user has requested that this compaction PRIORITISE preserving all informatio
     def _get_tool_call_id(tc) -> str:
         """Extract the call ID from a tool_call entry (dict or SimpleNamespace)."""
         if isinstance(tc, dict):
-            return tc.get("id", "")
-        return getattr(tc, "id", "") or ""
+            return tc.get("call_id", "") or tc.get("id", "") or ""
+        return getattr(tc, "call_id", "") or getattr(tc, "id", "") or ""
 
     def _sanitize_tool_pairs(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Fix orphaned tool_call / tool_result pairs after compression.
@@ -1235,10 +1235,10 @@ The user has requested that this compaction PRIORITISE preserving all informatio
     # ContextEngine: manual /compress preflight
     # ------------------------------------------------------------------
 
-    def has_content_to_archive(self, messages: List[Dict[str, Any]]) -> bool:
+    def has_content_to_compress(self, messages: List[Dict[str, Any]]) -> bool:
         """Return True if there is a non-empty middle region to compact.
 
-        Overrides the ABC default so the gateway ``/archive`` guard can
+        Overrides the ABC default so the gateway ``/compress`` guard can
         skip the LLM call when the transcript is still entirely inside
         the protected head/tail.
         """
@@ -1246,29 +1246,25 @@ The user has requested that this compaction PRIORITISE preserving all informatio
         compress_end = self._find_tail_cut_by_tokens(messages, compress_start)
         return compress_start < compress_end
 
-    # Backward compat alias
-    has_content_to_compress = has_content_to_archive
-
     # ------------------------------------------------------------------
-    # Main compression entry point (renamed archive for user-facing consistency)
+    # Main compression entry point
     # ------------------------------------------------------------------
 
-    def archive(self, messages: List[Dict[str, Any]], current_tokens: int = None, focus_topic: str = None) -> List[Dict[str, Any]]:
-        """Archive conversation messages by summarizing middle turns.
+    def compress(self, messages: List[Dict[str, Any]], current_tokens: int = None, focus_topic: str = None) -> List[Dict[str, Any]]:
+        """Compress conversation messages by summarizing middle turns.
 
         Algorithm:
-          1. Signal Pinning: Query SignalRegistry to protect high-value turns from compression.
-          2. Prune old tool results (cheap pre-pass, no LLM call)
-          3. Protect head messages (system prompt + first exchange)
-          4. Find tail boundary by token budget (~20K tokens of recent context)
-          5. Summarize middle turns with structured LLM prompt
-          6. On re-archiving, iteratively update the previous summary
+          1. Prune old tool results (cheap pre-pass, no LLM call)
+          2. Protect head messages (system prompt + first exchange)
+          3. Find tail boundary by token budget (~20K tokens of recent context)
+          4. Summarize middle turns with structured LLM prompt
+          5. On re-compression, iteratively update the previous summary
 
-        After archiving, orphaned tool_call / tool_result pairs are cleaned
+        After compression, orphaned tool_call / tool_result pairs are cleaned
         up so the API never receives mismatched IDs.
 
         Args:
-            focus_topic: Optional focus string for guided archiving.  When
+            focus_topic: Optional focus string for guided compression.  When
                 provided, the summariser will prioritise preserving information
                 related to this topic and be more aggressive about compressing
                 everything else.  Inspired by Claude Code's ``/compact``.
@@ -1281,32 +1277,6 @@ The user has requested that this compaction PRIORITISE preserving all informatio
         self._last_aux_model_failure_error = None
         self._last_aux_model_failure_model = None
         n_messages = len(messages)
-
-        # --- SIGNAL-AWARE PINNING LAYER ---
-        # Instead of blocking I/O, we query the SignalRegistry singleton.
-        # This allows us to 'pin' specific turns that are part of a high-signal cluster,
-        # ensuring they survive the compression process regardless of their position.
-        pinned_turns: Set[int] = set()
-        try:
-            from agent.signal_registry import registry
-            for i in range(n_messages):
-                if registry.is_high_signal(i):
-                    pinned_turns.add(i)
-            if pinned_turns:
-                logger.info(f"SovereignWindow: Pinning {len(pinned_turns)} high-signal turns for preservation.")
-        except Exception as e:
-            logger.debug(f"SignalRegistry query failed (non-critical): {e}")
-
-        # Only need head + 3 tail messages minimum (token budget decides the real tail size)
-        _min_for_compress = self.protect_first_n + 3 + 1
-        if n_messages <= _min_for_compress:
-            if not self.quiet_mode:
-                logger.warning(
-                    "Cannot compress: only %d messages (need > %d)",
-                    n_messages, _min_for_compress,
-                )
-            return messages
-        
         # Only need head + 3 tail messages minimum (token budget decides the real tail size)
         _min_for_compress = self.protect_first_n + 3 + 1
         if n_messages <= _min_for_compress:
@@ -1451,24 +1421,12 @@ The user has requested that this compaction PRIORITISE preserving all informatio
 
         if not self.quiet_mode:
             logger.info(
-                "Archived: %d -> %d messages (~%d tokens saved, %.0f%%)",
+                "Compressed: %d -> %d messages (~%d tokens saved, %.0f%%)",
                 n_messages,
                 len(compressed),
                 saved_estimate,
                 savings_pct,
             )
-            logger.info("Archive #%d complete", self.compression_count)
+            logger.info("Compression #%d complete", self.compression_count)
 
         return compressed
-
-    # Backward compatibility alias — external code may still call .compress()
-    compress = archive
-
-    @property
-    def archive_count(self):
-        """Backward compat: maps to compression_count."""
-        return self.compression_count
-
-    @archive_count.setter
-    def archive_count(self, value):
-        self.compression_count = value
