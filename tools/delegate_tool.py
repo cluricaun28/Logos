@@ -483,8 +483,8 @@ _HEARTBEAT_INTERVAL = 30  # seconds between parent activity heartbeats during de
 # The idle ceiling stays tight so genuinely stuck children don't mask the gateway
 # timeout. The in-tool ceiling is much higher so legit long-running tools get
 # time to finish; child_timeout_seconds (default 600s) is still the hard cap.
-_HEARTBEAT_STALE_CYCLES_IDLE = 5  # 5 * 30s = 150s idle between turns → stale
-_HEARTBEAT_STALE_CYCLES_IN_TOOL = 20  # 20 * 30s = 600s stuck on same tool → stale
+_HEARTBEAT_STALE_CYCLES_IDLE = 15  # 15 * 30s = 450s idle between turns → stale
+_HEARTBEAT_STALE_CYCLES_IN_TOOL = 40  # 40 * 30s = 1200s stuck on same tool → stale
 DEFAULT_TOOLSETS = ["terminal", "file", "web"]
 
 
@@ -835,8 +835,7 @@ def _build_child_agent(
     task_index: int,
     goal: str,
     context: Optional[str],
-    profile: Optional[str] = None,
-    toolsets: Optional[List[str]] = None,
+    toolsets: Optional[List[str]],
     model: Optional[str],
     max_iterations: int,
     task_count: int,
@@ -1049,8 +1048,8 @@ def _build_child_agent(
         child_providers_ignored = None
         child_providers_order = None
         child_provider_sort = None
+
     child = AIAgent(
-        profile=profile,
         base_url=effective_base_url,
         api_key=effective_api_key,
         model=effective_model,
@@ -1062,6 +1061,7 @@ def _build_child_agent(
         max_tokens=getattr(parent_agent, "max_tokens", None),
         reasoning_config=child_reasoning,
         prefill_messages=getattr(parent_agent, "prefill_messages", None),
+        fallback_model=parent_fallback,
         enabled_toolsets=child_toolsets,
         quiet_mode=True,
         ephemeral_system_prompt=child_prompt,
@@ -1836,7 +1836,6 @@ def _run_single_child(
 def delegate_task(
     goal: Optional[str] = None,
     context: Optional[str] = None,
-    profile: Optional[str] = None,
     toolsets: Optional[List[str]] = None,
     tasks: Optional[List[Dict[str, Any]]] = None,
     max_iterations: Optional[int] = None,
@@ -1971,7 +1970,6 @@ def delegate_task(
                 task_index=i,
                 goal=t["goal"],
                 context=t.get("context"),
-                profile=t.get("profile") or profile,
                 toolsets=t.get("toolsets") or toolsets,
                 model=creds["model"],
                 max_iterations=effective_max_iter,
@@ -2256,11 +2254,17 @@ def _resolve_delegation_credentials(cfg: dict, parent_agent) -> dict:
     """Resolve credentials for subagent delegation.
 
     If ``delegation.base_url`` is configured, subagents use that direct
-    OpenAI-compatible endpoint. Otherwise, if ``delegation.provider`` is
-    configured, the full credential bundle (base_url, api_key, api_mode,
-    provider) is resolved via the runtime provider system — the same path used
-    by CLI/gateway startup. This lets subagents run on a completely different
-    provider:model pair.
+    OpenAI-compatible endpoint. ``delegation.api_key`` overrides the key; when
+    omitted, ``api_key`` is returned as ``None`` so ``_build_child_agent``
+    inherits the parent agent's key (``effective_api_key = override_api_key or
+    parent_api_key``). This lets providers that store their key outside
+    ``OPENAI_API_KEY`` (e.g. ``MINIMAX_API_KEY``, ``DASHSCOPE_API_KEY``) work
+    without a duplicate config entry.
+
+    Otherwise, if ``delegation.provider`` is configured, the full credential
+    bundle (base_url, api_key, api_mode, provider) is resolved via the runtime
+    provider system — the same path used by CLI/gateway startup. This lets
+    subagents run on a completely different provider:model pair.
 
     If neither base_url nor provider is configured, returns None values so the
     child inherits everything from the parent agent.
@@ -2273,12 +2277,13 @@ def _resolve_delegation_credentials(cfg: dict, parent_agent) -> dict:
     configured_api_key = str(cfg.get("api_key") or "").strip() or None
 
     if configured_base_url:
-        api_key = configured_api_key or os.getenv("OPENAI_API_KEY", "").strip()
-        if not api_key:
-            raise ValueError(
-                "Delegation base_url is configured but no API key was found. "
-                "Set delegation.api_key or OPENAI_API_KEY."
-            )
+        # When delegation.api_key is not set, return None so _build_child_agent
+        # falls back to the parent agent's API key via the credential inheritance
+        # path (effective_api_key = override_api_key or parent_api_key). This
+        # lets providers that store their key in a non-OPENAI_API_KEY env var
+        # (e.g. MINIMAX_API_KEY, DASHSCOPE_API_KEY) work without requiring
+        # callers to duplicate the key under delegation.api_key.
+        api_key = configured_api_key  # None → inherited from parent in _build_child_agent
 
         base_lower = configured_base_url.lower()
         provider = "custom"
@@ -2318,7 +2323,7 @@ def _resolve_delegation_credentials(cfg: dict, parent_agent) -> dict:
     try:
         from hermes_cli.runtime_provider import resolve_runtime_provider
 
-        runtime = resolve_runtime_provider(requested=configured_provider)
+        runtime = resolve_runtime_provider(requested=configured_provider, target_model=configured_model)
     except Exception as exc:
         raise ValueError(
             f"Cannot resolve delegation provider '{configured_provider}': {exc}. "
@@ -2335,7 +2340,7 @@ def _resolve_delegation_credentials(cfg: dict, parent_agent) -> dict:
         )
 
     return {
-        "model": configured_model,
+        "model": configured_model or runtime.get("model") or None,
         "provider": runtime.get("provider"),
         "base_url": runtime.get("base_url"),
         "api_key": api_key,
@@ -2498,10 +2503,6 @@ DELEGATE_TASK_SCHEMA = {
                     "When provided, top-level goal/context/toolsets are ignored."
                 ),
             },
-            "profile": {
-                "type": "string",
-                "description": "The agent profile name from config.yaml (e.g., 'web-researcher'). If provided, it overrides explicit toolsets.",
-            },
             "role": {
                 "type": "string",
                 "enum": ["leaf", "orchestrator"],
@@ -2548,7 +2549,6 @@ registry.register(
     handler=lambda args, **kw: delegate_task(
         goal=args.get("goal"),
         context=args.get("context"),
-        profile=args.get("profile"),
         toolsets=args.get("toolsets"),
         tasks=args.get("tasks"),
         max_iterations=args.get("max_iterations"),
