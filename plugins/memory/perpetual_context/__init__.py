@@ -1112,55 +1112,81 @@ class PerpetualContextProvider(MemoryProvider):
                     logger.debug(f"Query classification failed: {e}")
 
             # --- Step 1.5: Ambiguity resolution via recent context ---
-            # When classifier confidence is low, check last 3-5 PM turns for context.
-            # If found, inject it. If not, inject a clarification prompt.
-            RECENT_AMBIGUITY_TURNS = 5
+            # Tiered lookup: check 5 recent turns first, then 15 if nothing found,
+            # then ask for clarification if still unresolved.
+            AMBIGUITY_TIER_1 = 5
+            AMBIGUITY_TIER_2 = 15
             if (priorities.get("primary_source") == "clarification_needed"
                     or priorities.get("confidence") == "low"):
                 try:
-                    recent_msgs = self._db.get_recent_messages(
-                        n=RECENT_AMBIGUITY_TURNS,
-                        session_id=effective_session if effective_session else None,
-                    )
-                    if recent_msgs:
-                        # Check if any recent message has meaningful relevance to the query
-                        query_words = set(query.lower().split())
-                        # Filter stop words for comparison
-                        _STOP = {'a', 'an', 'the', 'is', 'are', 'was', 'were', 'be', 'been',
-                                 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
-                                 'could', 'should', 'may', 'might', 'to', 'of', 'in', 'on',
-                                 'at', 'for', 'with', 'by', 'from', 'as', 'it', 'its'}
-                        query_kw = {w for w in query_words if w not in _STOP and len(w) > 1}
+                    _STOP = {'a', 'an', 'the', 'is', 'are', 'was', 'were', 'be', 'been',
+                             'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+                             'could', 'should', 'may', 'might', 'to', 'of', 'in', 'on',
+                             'at', 'for', 'with', 'by', 'from', 'as', 'it', 'its'}
+                    query_kw = {w for w in query.lower().split() if w not in _STOP and len(w) > 1}
 
-                        # Check if any recent user message shares keywords with the query
-                        has_relevant_recent = False
-                        relevant_context = []
-                        for msg in recent_msgs:
+                    def _check_recent(n):
+                        msgs = self._db.get_recent_messages(
+                            n=n,
+                            session_id=effective_session if effective_session else None,
+                        )
+                        if not msgs:
+                            return False, []
+                        relevant = []
+                        for msg in msgs:
                             if msg.get("role") == "user":
-                                msg_text = msg.get("content", "")
-                                msg_kw = set(msg_text.lower().split()) - _STOP
+                                msg_kw = set(msg.get("content", "").lower().split()) - _STOP
                                 if query_kw & msg_kw:
-                                    has_relevant_recent = True
-                                    relevant_context.append(msg_text[:PREFETCH_TRUNCATION_CHARS])
+                                    relevant.append(msg.get("content", "")[:PREFETCH_TRUNCATION_CHARS])
+                        return len(relevant) > 0, relevant
 
-                        if has_relevant_recent:
-                            # Inject resolved recent context as prompt guidance
-                            context_text = "[Recent Context — used to resolve ambiguity]\n"
-                            for ctx in relevant_context[:3]:
-                                context_text += f"• {ctx}\n"
-                            if distill_ptr:
-                                return context_text + distill_ptr
-                            return context_text
-                        else:
-                            # No relevant context found — prompt the agent to ask for clarification
-                            clar_text = (
-                                "[Query Ambiguity — ask for clarification]\n"
-                                "Your query is ambiguous and I couldn't find relevant context in recent "
-                                "conversation. Before answering, ask the user what they mean."
-                            )
-                            if distill_ptr:
-                                return clar_text + distill_ptr
-                            return clar_text
+                    # Query has no content keywords (e.g., "Good?") — it's a response to
+                    # what I just said. Grab the most recent assistant message as context.
+                    if not query_kw:
+                        msgs = self._db.get_recent_messages(
+                            n=AMBIGUITY_TIER_2,
+                            session_id=effective_session if effective_session else None,
+                        )
+                        for msg in reversed(msgs):
+                            if msg.get("role") == "assistant":
+                                content = msg.get("content", "")[:PREFETCH_TRUNCATION_CHARS]
+                                relevant = [content]
+                                found = True
+                                break
+
+                    # If still not found, check user messages in tiered fashion
+                    if not found and query_kw:
+                        # Tier 1: check 5 recent user turns
+                        found, relevant = _check_recent(AMBIGUITY_TIER_1)
+                        # Tier 2: if nothing in 5, widen to 15
+                        if not found:
+                            found, relevant = _check_recent(AMBIGUITY_TIER_2)
+
+                    if found:
+                        # Inject resolved recent context as prompt guidance
+                        context_text = "[Recent Context — used to resolve ambiguity]\n"
+                        for ctx in relevant[:3]:
+                            context_text += f"• {ctx}\n"
+
+                        # If recent context mentions restart/reload, add gateway status hint.
+                        # Any ambiguous prompt after a restart likely means "did the changes take effect?"
+                        combined_ctx = " ".join(relevant[:3]).lower()
+                        if any(word in combined_ctx for word in ("restart", "restarted", "reboot", "reload", "start up", "start the gateway", "start the server")):
+                            context_text += "• [Note: Recent conversation mentions a restart. The user is likely asking if the restart was successful and the changes took effect. Check gateway status and confirm.]\n"
+
+                        if distill_ptr:
+                            return context_text + distill_ptr
+                        return context_text
+                    else:
+                        # No relevant context found — prompt the agent to ask for clarification
+                        clar_text = (
+                            "[Query Ambiguity — ask for clarification]\n"
+                            "Your query is ambiguous and I couldn't find relevant context in recent "
+                            "conversation. Before answering, ask the user what they mean."
+                        )
+                        if distill_ptr:
+                            return clar_text + distill_ptr
+                        return clar_text
                 except Exception as e:
                     logger.debug(f"Ambiguity resolution failed: {e}")
                 # If ambiguity resolution fails entirely, fall through to normal search
