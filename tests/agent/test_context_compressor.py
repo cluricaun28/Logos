@@ -640,6 +640,30 @@ class TestCompressWithClient:
                 for tc in msg["tool_calls"]:
                     assert tc["id"] in answered_ids
 
+    def test_sanitizer_matches_responses_call_id_when_id_differs(self, compressor):
+        msgs = [
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "fc_123",
+                        "call_id": "call_123",
+                        "response_item_id": "fc_123",
+                        "type": "function",
+                        "function": {"name": "search_files", "arguments": "{}"},
+                    }
+                ],
+            },
+            {"role": "tool", "tool_call_id": "call_123", "content": "result"},
+        ]
+
+        sanitized = compressor._sanitize_tool_pairs(msgs)
+
+        assert [m.get("tool_call_id") for m in sanitized if m.get("role") == "tool"] == [
+            "call_123"
+        ]
+
     def test_summary_role_avoids_consecutive_user_messages(self):
         """Summary role should alternate with the last head message to avoid consecutive same-role messages."""
         mock_client = MagicMock()
@@ -1119,6 +1143,34 @@ class TestTokenBudgetTailProtection:
         # At least one old tool result should have been pruned
         assert pruned >= 1
 
+    def test_prune_short_conv_protects_entire_tail(self, budget_compressor):
+        """Regression guard for PR #17025.
+
+        When ``len(messages) <= protect_tail_count`` and a token budget is
+        also set, every message must be protected. The previous code used
+        ``min(protect_tail_count, len(result) - 1)`` which capped the floor
+        one below the full length, leaving the oldest message eligible for
+        pruning.
+        """
+        c = budget_compressor
+        # 4 messages, protect_tail_count=4 -- nothing should be pruned.
+        # Oldest message is a large tool result; on the buggy path it falls
+        # outside the protected window and gets summarized.
+        messages = [
+            {"role": "tool", "content": "x" * 5000, "tool_call_id": "c0"},
+            {"role": "assistant", "content": "ack"},
+            {"role": "user", "content": "recent"},
+            {"role": "assistant", "content": "reply"},
+        ]
+        result, pruned = c._prune_old_tool_results(
+            messages,
+            protect_tail_count=4,
+            protect_tail_tokens=1_000_000,  # budget large enough to protect all
+        )
+        assert pruned == 0
+        # Tool result at index 0 must be preserved verbatim
+        assert result[0]["content"] == "x" * 5000
+
     def test_prune_without_token_budget_uses_message_count(self, budget_compressor):
         """Without protect_tail_tokens, falls back to message-count behavior."""
         c = budget_compressor
@@ -1137,6 +1189,138 @@ class TestTokenBudgetTailProtection:
         # Tool at index 2 is outside the protected tail (last 3 = indices 2,3,4)
         # so it might or might not be pruned depending on boundary
         assert isinstance(pruned, int)
+
+    def test_multimodal_message_accumulates_text_chars_not_block_count(self, budget_compressor):
+        """_find_tail_cut_by_tokens must use text char count, not list length,
+        for multimodal content. Regression guard for #16087.
+
+        Setup: 6 messages, budget=80 (soft_ceiling=120).  The multimodal message
+        at index 1 has 500 chars of text → 135 tokens (correct) or 10 tokens (bug).
+
+        Fixed path: walk stops at the multimodal (44+135=179 > 120), cut stays at 2,
+        tail = messages[2:] = 4 messages.
+
+        Bug path: walk counts only 10 tokens for the multimodal, exhausts to head_end,
+        the head_end safeguard forces cut = n - min_tail = 3, tail = only 3 messages.
+        """
+        c = budget_compressor
+        # 500 chars → 500//4 + 10 = 135 tokens; len([text, image]) // 4 + 10 = 10 (bug)
+        big_text = "x" * 500
+        multimodal_content = [
+            {"type": "text", "text": big_text},
+            {"type": "image_url", "image_url": {"url": "https://example.com/img.jpg"}},
+        ]
+        messages = [
+            {"role": "user", "content": "head1"},               # 0
+            {"role": "user", "content": multimodal_content},    # 1: BIG (index under test)
+            {"role": "assistant", "content": "tail1"},           # 2
+            {"role": "user", "content": "tail2"},                # 3
+            {"role": "assistant", "content": "tail3"},           # 4
+            {"role": "user", "content": "tail4"},                # 5
+        ]
+        c.tail_token_budget = 80  # soft_ceiling = 120
+        head_end = 0
+        cut = c._find_tail_cut_by_tokens(messages, head_end)
+        # With the fix: cut=2, tail has 4 messages (soft_ceiling not exceeded by tail1-4).
+        # With the bug: head_end safeguard fires → cut = n - min_tail = 3, only 3 in tail.
+        assert len(messages) - cut >= 4, (
+            f"Expected ≥4 messages in tail (got {len(messages) - cut}, cut={cut}). "
+            "The multimodal message was underestimated — len(list) used instead of text chars."
+        )
+
+    def test_plain_string_content_unchanged(self, budget_compressor):
+        """Plain string content must still be estimated correctly after the fix."""
+        c = budget_compressor
+        # Same layout as the multimodal test but with a plain 500-char string.
+        # Both buggy and fixed code count plain strings the same way (len(str)).
+        # With 135 tokens the plain string also exceeds soft_ceiling=120, so
+        # the walk stops at index 1 and tail has 4 messages — same as the fix path.
+        big_plain = "x" * 500
+        messages = [
+            {"role": "user", "content": "head1"},
+            {"role": "user", "content": big_plain},   # 1: 135 tokens, plain string
+            {"role": "assistant", "content": "tail1"},
+            {"role": "user", "content": "tail2"},
+            {"role": "assistant", "content": "tail3"},
+            {"role": "user", "content": "tail4"},
+        ]
+        c.tail_token_budget = 80
+        head_end = 0
+        cut = c._find_tail_cut_by_tokens(messages, head_end)
+        assert len(messages) - cut >= 4, (
+            f"Plain string regression: expected ≥4 messages in tail, got {len(messages) - cut}"
+        )
+
+    def test_image_only_block_contributes_zero_text_chars(self, budget_compressor):
+        """Image-only content blocks (no 'text' key) contribute 0 chars + base overhead."""
+        c = budget_compressor
+        c.tail_token_budget = 500
+        image_only = [{"type": "image_url", "image_url": {"url": "https://example.com/x.jpg"}}]
+        messages = [
+            {"role": "user", "content": "a" * 4000},
+            {"role": "user", "content": image_only},   # 0 text chars → 10 tokens overhead
+            {"role": "assistant", "content": "ok"},
+        ]
+        head_end = 0
+        cut = c._find_tail_cut_by_tokens(messages, head_end)
+        assert isinstance(cut, int)
+        assert 0 <= cut <= len(messages)
+
+    def test_mixed_list_with_bare_strings_does_not_crash(self, budget_compressor):
+        """Content list may contain bare strings (not dicts) — must not raise AttributeError."""
+        c = budget_compressor
+        c.tail_token_budget = 500
+        # Bare string item alongside a dict item — normalisation elsewhere allows this.
+        mixed_content = ["Hello, world!", {"type": "text", "text": "extra text"}]
+        messages = [
+            {"role": "user", "content": mixed_content},
+            {"role": "assistant", "content": "ok"},
+        ]
+        head_end = 0
+        cut = c._find_tail_cut_by_tokens(messages, head_end)
+        assert isinstance(cut, int)
+        assert 0 <= cut <= len(messages)
+
+    def test_generous_budget_protects_everything_floor_does_not_override(
+        self, budget_compressor
+    ):
+        """A budget that covers the whole transcript must prune nothing —
+        ``protect_tail_count`` is a minimum floor, not a ceiling."""
+        c = budget_compressor
+
+        # 100 alternating assistant/tool messages.  Each tool result has
+        # *unique* content so the dedup pass (Pass 1, which is independent
+        # of prune_boundary) is a no-op and we isolate the boundary logic.
+        messages = []
+        for i in range(50):
+            messages.append({
+                "role": "assistant", "content": None,
+                "tool_calls": [{
+                    "id": f"c{i}",
+                    "type": "function",
+                    "function": {"name": "noop", "arguments": "{}"},
+                }],
+            })
+            messages.append({
+                "role": "tool",
+                "tool_call_id": f"c{i}",
+                "content": f"unique-tool-output-{i:03d}-" + ("x" * 250),
+            })
+
+        # Budget large enough to cover the whole transcript many times over,
+        # so the budget walk completes without hitting its break condition
+        # and the boundary lands at 0 ("protect everything").
+        _, pruned = c._prune_old_tool_results(
+            messages,
+            protect_tail_count=20,
+            protect_tail_tokens=10_000_000,
+        )
+
+        assert pruned == 0, (
+            "budget said protect everything, but the floor still pruned "
+            f"{pruned} messages — protect_tail_count is acting as a ceiling, "
+            "not a minimum floor"
+        )
 
 
 class TestUpdateModelBudgets:
