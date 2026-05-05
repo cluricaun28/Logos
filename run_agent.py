@@ -1168,11 +1168,7 @@ class AIAgent:
         self.provider_data_collection = provider_data_collection
 
         # Store toolset filtering options
-        if profile:
-            from model_tools import resolve_profile
-            resolved = resolve_profile(profile)
-            if resolved and enabled_toolsets is None:
-                enabled_toolsets = resolved
+        # (profile parameter was removed from __init__ — this block is dead code)
         self.enabled_toolsets = enabled_toolsets
         self.disabled_toolsets = disabled_toolsets
         
@@ -4849,6 +4845,36 @@ class AIAgent:
                 continue
             filtered.append(msg)
         messages = filtered
+
+        # --- Remove duplicate system messages that aren't at index 0 ---
+        # Some APIs (OpenAI, OpenRouter) require the system message to be the
+        # very first message. When the gateway resumes a session whose DB
+        # already contains a stored system message, the code path in
+        # run_conversation prepends a fresh system prompt but the old one
+        # remains in the conversation history.  Drop any system message that
+        # is not the first element (index 0) of the array.
+        if len(messages) > 1 and messages[0].get("role") == "system":
+            cleaned = [messages[0]]
+            for msg in messages[1:]:
+                if msg.get("role") == "system":
+                    logger.debug(
+                        "Pre-call sanitizer: dropping duplicate system message after index 0"
+                    )
+                    continue
+                cleaned.append(msg)
+            messages = cleaned
+        elif len(messages) > 0 and messages[0].get("role") != "system":
+            # No system message at index 0 — remove ALL system messages
+            # from the middle of the array (they're strays from session history)
+            cleaned = []
+            for msg in messages:
+                if msg.get("role") == "system":
+                    logger.debug(
+                        "Pre-call sanitizer: dropping stray system message (none at index 0)"
+                    )
+                    continue
+                cleaned.append(msg)
+            messages = cleaned
 
         surviving_call_ids: set = set()
         for msg in messages:
