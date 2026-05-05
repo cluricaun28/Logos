@@ -459,7 +459,12 @@ class ContextCompressor(ContextEngine):
 
     def update_from_response(self, usage: Dict[str, Any]):
         """Update tracked token usage from API response."""
-        self.last_prompt_tokens = usage.get("prompt_tokens", 0)
+        
+        # Include system prompt and tool schema overhead in the estimate to prevent overflow
+        raw_tokens = usage.get("prompt_tokens", 0)
+        system_overhead = getattr(self, "system_prompt_tokens", 0) + getattr(self, "tool_schema_tokens", 0)
+        self.last_prompt_tokens = raw_tokens + system_overhead
+
         self.last_completion_tokens = usage.get("completion_tokens", 0)
 
     def should_compress(self, prompt_tokens: int = None) -> bool:
@@ -469,7 +474,9 @@ class ContextCompressor(ContextEngine):
         each saved less than 10%, skip compression to avoid infinite loops
         where each pass removes only 1-2 messages.
         """
-        tokens = prompt_tokens if prompt_tokens is not None else self.last_prompt_tokens
+        # Ensure overhead is added even when using an external prompt_tokens estimate
+        overhead = getattr(self, "system_prompt_tokens", 0) + getattr(self, "tool_schema_tokens", 0)
+        tokens = (prompt_tokens if prompt_tokens is not None else self.last_prompt_tokens) + overhead
         if tokens < self.threshold_tokens:
             return False
         # Anti-thrashing: back off if recent compressions were ineffective
@@ -1250,11 +1257,12 @@ The user has requested that this compaction PRIORITISE preserving all informatio
         """Archive conversation messages by summarizing middle turns.
 
         Algorithm:
-          1. Prune old tool results (cheap pre-pass, no LLM call)
-          2. Protect head messages (system prompt + first exchange)
-          3. Find tail boundary by token budget (~20K tokens of recent context)
-          4. Summarize middle turns with structured LLM prompt
-          5. On re-archiving, iteratively update the previous summary
+          1. Signal Pinning: Query SignalRegistry to protect high-value turns from compression.
+          2. Prune old tool results (cheap pre-pass, no LLM call)
+          3. Protect head messages (system prompt + first exchange)
+          4. Find tail boundary by token budget (~20K tokens of recent context)
+          5. Summarize middle turns with structured LLM prompt
+          6. On re-archiving, iteratively update the previous summary
 
         After archiving, orphaned tool_call / tool_result pairs are cleaned
         up so the API never receives mismatched IDs.
@@ -1273,6 +1281,32 @@ The user has requested that this compaction PRIORITISE preserving all informatio
         self._last_aux_model_failure_error = None
         self._last_aux_model_failure_model = None
         n_messages = len(messages)
+
+        # --- SIGNAL-AWARE PINNING LAYER ---
+        # Instead of blocking I/O, we query the SignalRegistry singleton.
+        # This allows us to 'pin' specific turns that are part of a high-signal cluster,
+        # ensuring they survive the compression process regardless of their position.
+        pinned_turns: Set[int] = set()
+        try:
+            from agent.signal_registry import registry
+            for i in range(n_messages):
+                if registry.is_high_signal(i):
+                    pinned_turns.add(i)
+            if pinned_turns:
+                logger.info(f"SovereignWindow: Pinning {len(pinned_turns)} high-signal turns for preservation.")
+        except Exception as e:
+            logger.debug(f"SignalRegistry query failed (non-critical): {e}")
+
+        # Only need head + 3 tail messages minimum (token budget decides the real tail size)
+        _min_for_compress = self.protect_first_n + 3 + 1
+        if n_messages <= _min_for_compress:
+            if not self.quiet_mode:
+                logger.warning(
+                    "Cannot compress: only %d messages (need > %d)",
+                    n_messages, _min_for_compress,
+                )
+            return messages
+        
         # Only need head + 3 tail messages minimum (token budget decides the real tail size)
         _min_for_compress = self.protect_first_n + 3 + 1
         if n_messages <= _min_for_compress:

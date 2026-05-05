@@ -1168,6 +1168,11 @@ class AIAgent:
         self.provider_data_collection = provider_data_collection
 
         # Store toolset filtering options
+        if profile:
+            from model_tools import resolve_profile
+            resolved = resolve_profile(profile)
+            if resolved and enabled_toolsets is None:
+                enabled_toolsets = resolved
         self.enabled_toolsets = enabled_toolsets
         self.disabled_toolsets = disabled_toolsets
         
@@ -1520,6 +1525,7 @@ class AIAgent:
             enabled_toolsets=enabled_toolsets,
             disabled_toolsets=disabled_toolsets,
             quiet_mode=self.quiet_mode,
+            force_essential=enabled_toolsets,
         )
         
         # Show tool configuration and store valid tool names for validation
@@ -4696,6 +4702,8 @@ class AIAgent:
                 model_lower = (self.model or "").lower()
                 _inject = any(p in model_lower for p in TOOL_USE_ENFORCEMENT_MODELS)
             if _inject:
+                from agent.prompt_builder import DIRECT_ACTION_MANDATE
+                prompt_parts.append(DIRECT_ACTION_MANDATE)
                 prompt_parts.append(TOOL_USE_ENFORCEMENT_GUIDANCE)
                 _model_lower = (self.model or "").lower()
                 # Google model operational guidance (conciseness, absolute

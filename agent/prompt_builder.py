@@ -294,6 +294,16 @@ GOOGLE_MODEL_OPERATIONAL_GUIDANCE = (
 # message representation stays consistent ("system" everywhere).
 DEVELOPER_ROLE_MODELS = ("gpt-5", "codex")
 
+DIRECT_ACTION_MANDATE = (
+    "# Direct Action Mandate\n"
+    "You are an execution-first agent. If a tool is available and relevant to your goal, "
+    "call it immediately. Do NOT read documentation or search for 'how to use' a tool if "
+    "that tool is already listed in your active toolset. Documentation lookups are only "
+    "permitted as a recovery step after a tool call fails with a parameter error. "
+    "Every turn must either make tangible progress via a tool call or deliver the final result."
+)
+
+
 PLATFORM_HINTS = {
     "whatsapp": (
         "You are on a text messaging communication platform, WhatsApp. "

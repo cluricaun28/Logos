@@ -40,6 +40,7 @@ import sqlite3
 import struct
 import threading
 import time
+import torch
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -1244,6 +1245,8 @@ class PerpetualContextDB:
         session_id: str = None,
         top_k: int = 5,
         exclude_session_id: str = None,
+        semantic_weight: float = SEMANTIC_WEIGHT,
+        fts5_weight: float = FTS5_WEIGHT,
     ) -> List[Dict[str, Any]]:
         """Hybrid search combining FTS5 keyword matching + semantic embeddings.
 
@@ -1255,6 +1258,8 @@ class PerpetualContextDB:
             session_id: Optional session filter.
             top_k: Maximum results to return.
             exclude_session_id: Optional session ID to skip (for cross-session recall).
+            semantic_weight: Weight for cosine similarity (default: SEMANTIC_WEIGHT).
+            fts5_weight: Weight for BM25 rank (default: FTS5_WEIGHT).
 
         Returns:
             List of matching message dicts with '_score' field (weighted hybrid score).

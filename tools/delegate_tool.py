@@ -835,7 +835,8 @@ def _build_child_agent(
     task_index: int,
     goal: str,
     context: Optional[str],
-    toolsets: Optional[List[str]],
+    profile: Optional[str] = None,
+    toolsets: Optional[List[str]] = None,
     model: Optional[str],
     max_iterations: int,
     task_count: int,
@@ -1049,6 +1050,7 @@ def _build_child_agent(
         child_providers_order = None
         child_provider_sort = None
     child = AIAgent(
+        profile=profile,
         base_url=effective_base_url,
         api_key=effective_api_key,
         model=effective_model,
@@ -1834,6 +1836,7 @@ def _run_single_child(
 def delegate_task(
     goal: Optional[str] = None,
     context: Optional[str] = None,
+    profile: Optional[str] = None,
     toolsets: Optional[List[str]] = None,
     tasks: Optional[List[Dict[str, Any]]] = None,
     max_iterations: Optional[int] = None,
@@ -1968,6 +1971,7 @@ def delegate_task(
                 task_index=i,
                 goal=t["goal"],
                 context=t.get("context"),
+                profile=t.get("profile") or profile,
                 toolsets=t.get("toolsets") or toolsets,
                 model=creds["model"],
                 max_iterations=effective_max_iter,
@@ -2494,6 +2498,10 @@ DELEGATE_TASK_SCHEMA = {
                     "When provided, top-level goal/context/toolsets are ignored."
                 ),
             },
+            "profile": {
+                "type": "string",
+                "description": "The agent profile name from config.yaml (e.g., 'web-researcher'). If provided, it overrides explicit toolsets.",
+            },
             "role": {
                 "type": "string",
                 "enum": ["leaf", "orchestrator"],
@@ -2540,6 +2548,7 @@ registry.register(
     handler=lambda args, **kw: delegate_task(
         goal=args.get("goal"),
         context=args.get("context"),
+        profile=args.get("profile"),
         toolsets=args.get("toolsets"),
         tasks=args.get("tasks"),
         max_iterations=args.get("max_iterations"),

@@ -49,10 +49,16 @@ class ToolHandler:
         session_id = args.get("session_id") or None
         top_k = min(args.get("top_k", 5), 20)
 
+        # Adaptive Weighting: Allow the agent to specify weights based on query intent
+        semantic_weight = args.get("semantic_weight", SEMANTIC_WEIGHT)
+        fts5_weight = args.get("fts5_weight", FTS5_WEIGHT)
+
         results = self._db.hybrid_search(
             query=query,
             session_id=session_id,
             top_k=top_k,
+            semantic_weight=semantic_weight,
+            fts5_weight=fts5_weight,
         )
 
         if not results:

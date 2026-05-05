@@ -25,6 +25,17 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
+def _win_path_to_wsl(path: str) -> str | None:
+    """Convert a Windows path to its WSL equivalent if possible."""
+    if not path or not path.startswith(('C:', 'D:', 'E:', 'F:')):
+        return None
+    # Basic translation for common drives; in production this would use wslpath
+    drive = path[0].lower()
+    rest = path[2:].replace('\', '/')
+    if rest.startswith('/'):
+        rest = rest[1:]
+    return f"/mnt/{drive}/{rest}"
+
 
 def _normalize_cwd_for_compare(cwd: str | None) -> str:
     raw = str(cwd or ".").strip()

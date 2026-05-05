@@ -251,7 +251,8 @@ class SemanticVectorEngine(ContextEngine):
 
     def should_archive(self, prompt_tokens: int = None) -> bool:
         # Semantic Vector Engine archives based on token threshold or explicit trigger
-        tokens = prompt_tokens or self.last_prompt_tokens
+        overhead = getattr(self, "system_prompt_tokens", 0) + getattr(self, "tool_schema_tokens", 0)
+        tokens = (prompt_tokens or self.last_prompt_tokens) + overhead
         return tokens > self.threshold_tokens
 
     def archive(

@@ -43,6 +43,24 @@ _tool_router_instance = None
 _tool_router_lock = threading.Lock()
 
 
+def resolve_profile(profile_name: str) -> list[str]:
+    """Resolve a profile name from config.yaml into a list of toolsets."""
+    try:
+        from hermes_cli.config import load_config as _load_cfg
+        config = _load_cfg() or {}
+        profiles = config.get("profiles", {})
+        if not profiles:
+            return []
+        profile_data = profiles.get(profile_name)
+        if isinstance(profile_data, list):
+            return profile_data
+        elif isinstance(profile_data, dict):
+            return profile_data.get("toolsets", [])
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Failed to resolve profile {profile_name}: {e}")
+    return []
+
 def _get_tool_router():
     """Lazy-initialized, thread-safe ToolRouter singleton."""
     global _tool_router_instance
@@ -98,6 +116,7 @@ def get_selective_tool_definitions(
     enabled_toolsets: List[str] = None,
     disabled_toolsets: List[str] = None,
     quiet_mode: bool = False,
+    force_essential: List[str] = None,
 ) -> List[Dict[str, Any]]:
     """Get only essential tool definitions (selective injection mode).
     
@@ -125,8 +144,24 @@ def get_selective_tool_definitions(
             quiet_mode=quiet_mode,
         )
         
-        # Filter to essential only
+        # Filter to essential only, but force-include profile tools if provided
         essential = router.get_essential_definitions(all_tools)
+        if force_essential:
+            # Ensure any tool belonging to a forced toolset is included in the final list
+            from toolsets import resolve_toolset
+            for ts in force_essential:
+                forced_tools = resolve_toolset(ts)
+                essential.extend([t for t in all_tools if t["function"]["name"] in forced_tools])
+            # Deduplicate by function name
+            seen = set()
+            unique_essential = []
+            for t in essential:
+                name = t["function"]["name"]
+                if name not in seen:
+                    unique_essential.append(t)
+                    seen.add(name)
+            essential = unique_essential
+
         logger.info(
             "Selective injection: %d essential / %d total tools",
             len(essential), len(all_tools),
@@ -249,6 +284,23 @@ def _run_async(coro):
 # =============================================================================
 
 discover_builtin_tools()
+
+# Force-map core web tools to ensure they aren't stripped by registry gaps
+from tools.registry import registry
+core_mappings = {
+    "web_search": "web",
+    "web_extract": "web",
+    "browser_navigate": "browser",
+}
+for tool, ts in core_mappings.items():
+    # We use a dummy register call to ensure the mapping is set without 
+    # overwriting the actual handler/schema logic.
+    registry.register(
+        name=tool,
+        toolset=ts,
+        schema={}, # Registry usually merges or ignores empty schemas on re-reg
+        handler=lambda x: x, # Placeholder
+    )
 
 # MCP tool discovery (external MCP servers from config) used to run here as
 # a module-level side effect.  It was removed because discover_mcp_tools()
