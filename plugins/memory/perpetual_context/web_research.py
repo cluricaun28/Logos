@@ -87,6 +87,32 @@ class WebResearchClient:
                 self._http_client = object()  # Sentinel to prevent retry
         return self._http_client
 
+    def _check_firecrawl_local(self) -> bool:
+        """Check if a local Firecrawl instance is available."""
+        try:
+            import httpx as _httpx
+            resp = _httpx.get("http://localhost:3002/health", timeout=5.0)
+            return resp.status_code == 200
+        except Exception:
+            return False
+
+    def _get_firecrawl_url(self) -> str:
+        """Get the Firecrawl base URL — API key endpoint or local instance."""
+        if self._firecrawl_key and not self._firecrawl_key.startswith("http"):
+            # API key format — use official endpoint with auth header
+            return "https://api.firecrawl.dev"
+        elif self._firecrawl_key.startswith("http"):
+            return self._firecrawl_key
+        else:
+            # No API key — try local instance
+            return "http://localhost:3002"
+
+    def _get_firecrawl_headers(self) -> Dict[str, str]:
+        """Get Firecrawl request headers."""
+        if self._firecrawl_key and not self._firecrawl_key.startswith("http"):
+            return {"Authorization": f"Bearer {self._firecrawl_key}"}
+        return {}
+
     def search(self, query: str, top_k: int = MAX_WEB_RESULTS) -> List[SearchResult]:
         """Search the web for relevant information.
 
@@ -109,8 +135,9 @@ class WebResearchClient:
             except Exception as e:
                 logger.warning("SearXNG search failed: %s", e)
 
-        # Try Firecrawl API
-        if self._firecrawl_key:
+        # Try Firecrawl — use API key if set, otherwise try local instance
+        firecrawl_available = bool(self._firecrawl_key) or self._check_firecrawl_local()
+        if firecrawl_available:
             try:
                 results = self._search_firecrawl(query, top_k)
                 if results:
@@ -162,9 +189,14 @@ class WebResearchClient:
         
         target_url = searxng_results[0].url
         
-        # Scrape the URL using local Firecrawl
-        url = f"{self._firecrawl_key}/v1/scrape" if self._firecrawl_key else "http://localhost:3002/v1/scrape"
-        resp = http.post(url, json={"url": target_url, "formats": ["markdown"]})
+        # Scrape the URL using local Firecrawl or API
+        firecrawl_base = self._get_firecrawl_url()
+        headers = self._get_firecrawl_headers()
+        resp = http.post(
+            f"{firecrawl_base}/v1/scrape",
+            json={"url": target_url, "formats": ["markdown"]},
+            headers=headers,
+        )
 
         if resp.status_code != 200:
             return []
@@ -191,8 +223,9 @@ class WebResearchClient:
         if not url:
             return None
 
-        # Try Firecrawl first (better structured extraction)
-        if self._firecrawl_key:
+        # Try Firecrawl first (better structured extraction) — check local availability too
+        firecrawl_available = bool(self._firecrawl_key) or self._check_firecrawl_local()
+        if firecrawl_available:
             try:
                 content = self._extract_firecrawl(url)
                 if content:
@@ -217,11 +250,13 @@ class WebResearchClient:
             return None
 
         # Use configured URL or default to localhost
-        firecrawl_url = self._firecrawl_key if self._firecrawl_key.startswith("http") else "http://localhost:3002"
+        firecrawl_base = self._get_firecrawl_url()
+        headers = self._get_firecrawl_headers()
         
         resp = http.post(
-            f"{firecrawl_url}/v1/scrape",
+            f"{firecrawl_base}/v1/scrape",
             json={"url": url, "formats": ["markdown"]},
+            headers=headers,
             timeout=WEB_EXTRACT_TIMEOUT,
         )
 

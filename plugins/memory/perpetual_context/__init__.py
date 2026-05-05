@@ -78,7 +78,7 @@ GAP_DETECTION_MIN_RESULTS = 2        # Fewer than this triggers gap flag for Pha
 WEB_SEARCH_ENABLED = True            # Master toggle for automatic web search triggering
 SEARXNG_URL = "http://localhost:8080"  # SearXNG instance URL
 WEB_SEARCH_TIMEOUT = 10              # Seconds before timeout
-WEB_PRIORITY_THRESHOLD = 0.5         # Trigger web search when priority exceeds this
+WEB_PRIORITY_THRESHOLD = 0.3         # Trigger web search when priority exceeds this (low bar — validate against unknown)
 WEB_SEARCH_TOP_K = 5                 # Max results from SearXNG
 UNIFIED_SCORE_WEIGHTS = {            # Source reliability weights for cross-source merge
     "pm": 0.35,   # Perpetual Memory — personal context, episodic memory
@@ -685,6 +685,7 @@ class PerpetualContextProvider(MemoryProvider):
         Returns list of result dicts with url, title, content, score fields.
         Gracefully degrades if SearXNG is unavailable or times out.
         Applies SovereignSieve worldview filtering on all results before return.
+        Falls back to Firecrawl scraping when SearXNG returns thin results.
         """
         if not WEB_SEARCH_ENABLED:
             return []
@@ -733,6 +734,13 @@ class PerpetualContextProvider(MemoryProvider):
 
                 filtered.append(entry)
 
+            # Fallback: if SearXNG returned thin results, try Firecrawl to scrape top URL
+            if filtered and len(filtered[0].get("content", "")) < 50:
+                scraped = self._firecrawl_fallback(filtered[0]["url"])
+                if scraped:
+                    filtered[0]["content"] = scraped[:500]
+                    filtered[0]["source"] = "firecrawl"
+
             logger.info(f"Web search: {len(filtered)} results in {latency_ms:.0f}ms for \"{query[:40]}...\"")
             return filtered
 
@@ -742,6 +750,27 @@ class PerpetualContextProvider(MemoryProvider):
         except Exception as e:
             logger.debug(f"Web search failed: {e}")
             return []
+
+    def _firecrawl_fallback(self, url: str) -> Optional[str]:
+        """Scrape a URL using local Firecrawl when SearXNG snippets are too thin.
+
+        Returns extracted markdown content or None on failure.
+        """
+        try:
+            import requests as _requests
+            resp = _requests.post(
+                "http://localhost:3002/v1/scrape",
+                json={"url": url, "formats": ["markdown"]},
+                timeout=30,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get("success"):
+                    markdown = data.get("data", {}).get("markdown", "")
+                    return markdown[:1000] if markdown else None
+        except Exception as e:
+            logger.debug(f"Firecrawl fallback failed for {url}: {e}")
+        return None
 
     @staticmethod
     def _extract_domain(url: str) -> str:
@@ -1066,6 +1095,11 @@ class PerpetualContextProvider(MemoryProvider):
         if not self._db or not self._db._initialized:
             return distill_ptr or ""
 
+        # Skip non-knowledge queries — conversational flow, system noise, bare acknowledgments.
+        # These waste retrieval budget and produce source_alignment=0.0 failures.
+        if self._classifier and self._classifier.should_skip(query):
+            return distill_ptr or ""
+
         try:
             effective_session = session_id or self._session_id or ""
 
@@ -1076,6 +1110,60 @@ class PerpetualContextProvider(MemoryProvider):
                     priorities = self._classifier.classify(query)
                 except Exception as e:
                     logger.debug(f"Query classification failed: {e}")
+
+            # --- Step 1.5: Ambiguity resolution via recent context ---
+            # When classifier confidence is low, check last 3-5 PM turns for context.
+            # If found, inject it. If not, inject a clarification prompt.
+            RECENT_AMBIGUITY_TURNS = 5
+            if (priorities.get("primary_source") == "clarification_needed"
+                    or priorities.get("confidence") == "low"):
+                try:
+                    recent_msgs = self._db.get_recent_messages(
+                        n=RECENT_AMBIGUITY_TURNS,
+                        session_id=effective_session if effective_session else None,
+                    )
+                    if recent_msgs:
+                        # Check if any recent message has meaningful relevance to the query
+                        query_words = set(query.lower().split())
+                        # Filter stop words for comparison
+                        _STOP = {'a', 'an', 'the', 'is', 'are', 'was', 'were', 'be', 'been',
+                                 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+                                 'could', 'should', 'may', 'might', 'to', 'of', 'in', 'on',
+                                 'at', 'for', 'with', 'by', 'from', 'as', 'it', 'its'}
+                        query_kw = {w for w in query_words if w not in _STOP and len(w) > 1}
+
+                        # Check if any recent user message shares keywords with the query
+                        has_relevant_recent = False
+                        relevant_context = []
+                        for msg in recent_msgs:
+                            if msg.get("role") == "user":
+                                msg_text = msg.get("content", "")
+                                msg_kw = set(msg_text.lower().split()) - _STOP
+                                if query_kw & msg_kw:
+                                    has_relevant_recent = True
+                                    relevant_context.append(msg_text[:PREFETCH_TRUNCATION_CHARS])
+
+                        if has_relevant_recent:
+                            # Inject resolved recent context as prompt guidance
+                            context_text = "[Recent Context — used to resolve ambiguity]\n"
+                            for ctx in relevant_context[:3]:
+                                context_text += f"• {ctx}\n"
+                            if distill_ptr:
+                                return context_text + distill_ptr
+                            return context_text
+                        else:
+                            # No relevant context found — prompt the agent to ask for clarification
+                            clar_text = (
+                                "[Query Ambiguity — ask for clarification]\n"
+                                "Your query is ambiguous and I couldn't find relevant context in recent "
+                                "conversation. Before answering, ask the user what they mean."
+                            )
+                            if distill_ptr:
+                                return clar_text + distill_ptr
+                            return clar_text
+                except Exception as e:
+                    logger.debug(f"Ambiguity resolution failed: {e}")
+                # If ambiguity resolution fails entirely, fall through to normal search
 
             # --- Step 2: Collect results from each source (defer formatting) ---
             pm_results = []
@@ -1121,11 +1209,23 @@ class PerpetualContextProvider(MemoryProvider):
                     logger.debug("Reference library search failed in prefetch: %s", e)
 
             # --- Step 3: Auto Web Search (Phase 2) ---
-            # Trigger when web_priority is high OR local recall has gaps
+            # PM and RL are known datasets — the web is unknown territory.
+            # Only search web when: classifier indicates web priority, OR local results are thin.
             total_local = len(pm_results) + len(rl_results)
+
+            # Skip web only for bare continuation commands that refer to recent conversation
+            import re as _re
+            is_continuation = bool(_re.match(r'^(continue|go\s*on|keep\s*going|next|more|proceed|carry\s*on|\?\s*$)', query.strip(), _re.IGNORECASE))
+
+            # Web search triggers:
+            # 1. Classifier explicitly indicates web priority > 0.3 (external research needed)
+            # 2. Local results are thin (< GAP_DETECTION_MIN_RESULTS) AND not a continuation command
             needs_web = (
-                priorities["web_priority"] > WEB_PRIORITY_THRESHOLD or
-                (total_local < GAP_DETECTION_MIN_RESULTS and DEEP_RESEARCH_ENABLED)
+                WEB_SEARCH_ENABLED and
+                not is_continuation and (
+                    priorities.get("web_priority", 0) > 0.3 or
+                    total_local < GAP_DETECTION_MIN_RESULTS
+                )
             )
 
             if needs_web:
