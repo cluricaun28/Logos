@@ -15,16 +15,15 @@ import sys
 import os
 from pathlib import Path
 
-# Add hermes-agent root to path for proper package imports
-sys.path.insert(0, os.path.expanduser("~/.hermes/hermes-agent"))
+# Add plugin dir to path for imports
+sys.path.insert(0, str(Path(__file__).parent))
 
-from plugins.memory.perpetual_context.web_research import WebResearchClient, SearchResult
-from plugins.memory.perpetual_context.scrutiny_gate import (
+from web_research import WebResearchClient, SearchResult
+from scrutiny_gate import (
     TopicSensitivityClassifier, ScrutinyGate, RLIngestionGate,
     KNOWN_SOURCE_STANCES, BIAS_CONFIDENCE_THRESHOLD,
-    _extract_domain, _get_source_stance,
 )
-from plugins.memory.perpetual_context.synthesis_engine import (
+from synthesis_engine import (
     SynthesisEngine, ContextBlockFormatter, RLUpdateDetector,
     CONTEXT_BUDGET_KB_DEFAULT, MAX_SYNTHESIS_PASSES,
 )
@@ -157,10 +156,11 @@ def test_scrutiny_detect_bias():
 
 def test_scrutiny_source_stance():
     """Source stance detection works for known outlets."""
-    # _get_source_stance is a module-level function, not a ScrutinyGate method
-    assert_true(_get_source_stance(_extract_domain("https://www.nytimes.com/article")) == "center-left", "NYT → center-left")
-    assert_true(_get_source_stance(_extract_domain("https://reuters.com/news")) == "centrist", "Reuters → centrist")
-    assert_true(_get_source_stance(_extract_domain("https://unknown-site.example.com")) == "unknown", "Unknown → unknown")
+    gate = ScrutinyGate()
+
+    assert_true(gate._get_source_stance("https://www.nytimes.com/article") == "center-left", "NYT → center-left")
+    assert_true(gate._get_source_stance("https://reuters.com/news") == "center", "Reuters → center")
+    assert_true(gate._get_source_stance("https://unknown-site.example.com") is None, "Unknown → None")
 
 
 def test_rl_ingestion_gate():
@@ -182,10 +182,10 @@ def test_rl_ingestion_gate():
 # ============================================================================
 
 def test_synthesis_init():
-    """SynthesisEngine initializes without errors (even with inference unavailable)."""
+    """SynthesisEngine initializes without errors (even with inference provider unavailable)."""
     print("\n=== Phase 4: Synthesis Engine ===")
     engine = SynthesisEngine()
-    assert_true(engine._inference_url == "http://127.0.0.1:1234/v1", "Default inference URL correct")
+    assert_true(engine._inference_url == "http://localhost:8000/v1", "Default inference URL correct")
     assert_true(engine._max_passes <= MAX_SYNTHESIS_PASSES, f"Pass count within limit ({engine._max_passes})")
 
 
@@ -239,8 +239,8 @@ def test_rl_update_detector():
     assert_true(len(results) == 0, "Empty results for missing directory (graceful)")
 
 
-def test_synthesis_lm_studio_fallback():
-    """Synthesis falls back to draft when LM Studio unavailable."""
+def test_synthesis_inference_fallback():
+    """Synthesis falls back to draft when inference provider unavailable."""
     # Use single pass config to avoid waiting on inference during tests
     engine = SynthesisEngine(config={"synthesis_passes": 1})
     facts = [
@@ -317,7 +317,7 @@ if __name__ == "__main__":
     test_synthesis_draft_compilation()
     test_context_block_budget()
     test_rl_update_detector()
-    test_synthesis_lm_studio_fallback()
+    test_synthesis_inference_fallback()
 
     # Cross-module integration
     test_full_pipeline()

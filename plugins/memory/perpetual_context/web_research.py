@@ -28,14 +28,18 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
+# Sentinel: returned by _get_http() when httpx is unavailable, so subsequent
+# calls don'''t waste time re-importing.
+_HTTP_UNAVAILABLE = object()
+
 # ---------------------------------------------------------------------------
 # Configuration constants
 # ---------------------------------------------------------------------------
 WEB_SEARCH_TIMEOUT = 30           # Seconds per search request
 WEB_EXTRACT_TIMEOUT = 60          # Seconds per extraction request
 MAX_WEB_RESULTS = 10              # Max results returned per search
-FIRECRAWL_API_KEY_ENV = "FIRECRAWL_API_KEY"
 SEARXNG_URL_ENV = "SEARXNG_URL"
+FIRECRAWL_API_KEY_ENV = "FIRECRAWL_API_KEY"
 CAMOFOX_URL_DEFAULT = "http://localhost:9377"
 
 # Pre-compiled regex for URL extraction from text
@@ -70,48 +74,22 @@ class WebResearchClient:
     def __init__(self, config: Optional[Dict[str, Any]] = None) -> None:
         cfg = config or {}
         self._searxng_url: str = cfg.get("searxng_url", os.environ.get(SEARXNG_URL_ENV, ""))
-        self._firecrawl_key: str = os.environ.get(FIRECRAWL_API_KEY_ENV, "")
+        self._firecrawl_key: str = cfg.get("firecrawl_api_key_env", os.environ.get("FIRECRAWL_API_KEY", ""))
         self._camofox_url: str = CAMOFOX_URL_DEFAULT
 
         # Lazy-init HTTP client on first use
         self._http_client: Optional[Any] = None
 
     def _get_http(self) -> Any:
-        """Lazy-init httpx client."""
+        """Lazy-init httpx client. Returns _HTTP_UNAVAILABLE sentinel on failure."""
         if self._http_client is None:
             try:
                 import httpx as _httpx  # noqa: F811
                 self._http_client = _httpx.Client(timeout=WEB_SEARCH_TIMEOUT, follow_redirects=True)
             except ImportError:
                 logger.debug("httpx not available — web research will use fallback methods")
-                self._http_client = object()  # Sentinel to prevent retry
+                self._http_client = _HTTP_UNAVAILABLE  # Sentinel to prevent retry
         return self._http_client
-
-    def _check_firecrawl_local(self) -> bool:
-        """Check if a local Firecrawl instance is available."""
-        try:
-            import httpx as _httpx
-            resp = _httpx.get("http://localhost:3002/health", timeout=5.0)
-            return resp.status_code == 200
-        except Exception:
-            return False
-
-    def _get_firecrawl_url(self) -> str:
-        """Get the Firecrawl base URL — API key endpoint or local instance."""
-        if self._firecrawl_key and not self._firecrawl_key.startswith("http"):
-            # API key format — use official endpoint with auth header
-            return "https://api.firecrawl.dev"
-        elif self._firecrawl_key.startswith("http"):
-            return self._firecrawl_key
-        else:
-            # No API key — try local instance
-            return "http://localhost:3002"
-
-    def _get_firecrawl_headers(self) -> Dict[str, str]:
-        """Get Firecrawl request headers."""
-        if self._firecrawl_key and not self._firecrawl_key.startswith("http"):
-            return {"Authorization": f"Bearer {self._firecrawl_key}"}
-        return {}
 
     def search(self, query: str, top_k: int = MAX_WEB_RESULTS) -> List[SearchResult]:
         """Search the web for relevant information.
@@ -135,9 +113,7 @@ class WebResearchClient:
             except Exception as e:
                 logger.warning("SearXNG search failed: %s", e)
 
-        # Try Firecrawl — use API key if set, otherwise try local instance
-        firecrawl_available = bool(self._firecrawl_key) or self._check_firecrawl_local()
-        if firecrawl_available:
+        # Try Firecrawl API
             try:
                 results = self._search_firecrawl(query, top_k)
                 if results:
@@ -153,7 +129,7 @@ class WebResearchClient:
     def _search_searxng(self, query: str, top_k: int) -> List[SearchResult]:
         """Search via SearXNG instance."""
         http = self._get_http()
-        if isinstance(http, object):  # Sentinel check
+        if http is _HTTP_UNAVAILABLE:  # httpx unavailable
             return []
 
         url = f"{self._searxng_url.rstrip('/')}/search"
@@ -173,64 +149,44 @@ class WebResearchClient:
         return results
 
     def _search_firecrawl(self, query: str, top_k: int) -> List[SearchResult]:
-        """Search via local Firecrawl instance.
-        
-        Uses POST /v1/scrape with URL from SearXNG results to get full page content.
-        Falls back to direct scrape of search query if no URLs available.
-        """
+        """Search via Firecrawl API."""
         http = self._get_http()
-        if isinstance(http, object):
+        if http is _HTTP_UNAVAILABLE:
             return []
 
-        # First try SearXNG to get URLs, then scrape top result with Firecrawl
-        searxng_results = self._search_searxng(query, 1)
-        if not searxng_results:
-            return []
-        
-        target_url = searxng_results[0].url
-        
-        # Scrape the URL using local Firecrawl or API
-        firecrawl_base = self._get_firecrawl_url()
-        headers = self._get_firecrawl_headers()
-        resp = http.post(
-            f"{firecrawl_base}/v1/scrape",
-            json={"url": target_url, "formats": ["markdown"]},
-            headers=headers,
-        )
+        url = "https://api.firecrawl.dev/v1/search"
+        resp = http.post(url, json={"query": query, "limit": top_k}, headers={
+            "Content-Type": "application/json",
+        })
 
         if resp.status_code != 200:
             return []
 
         data = resp.json()
-        if not data.get("success"):
-            return []
-        
-        markdown = data.get("data", {}).get("markdown", "")[:500]
-        metadata = data.get("data", {}).get("metadata", {})
-        
-        results.append(SearchResult(
-            title=metadata.get("title", ""),
-            url=target_url,
-            snippet=markdown.replace("\n", " ")[:300],
-            source="firecrawl",
-            score=1.0,  # Direct scrape = high confidence
-            extracted_content=markdown,
-        ))
+        results: List[SearchResult] = []
+        for item in (data.get("data") or [])[:top_k]:
+            results.append(SearchResult(
+                title=item.get("title", ""),
+                url=item.get("url", ""),
+                snippet=item.get("description", "")[:300],
+                source="firecrawl",
+            ))
         return results
 
     def extract(self, url: str) -> Optional[str]:
         """Extract content from a URL using Firecrawl or Camofox fallback."""
         if not url:
             return None
+        # Quick validation — don't try to scrape non-URLs
+        if not isinstance(url, str) or not url.startswith(("http://", "https://")):
+            return None
 
-        # Try Firecrawl first (better structured extraction) — check local availability too
-        firecrawl_available = bool(self._firecrawl_key) or self._check_firecrawl_local()
-        if firecrawl_available:
-            try:
-                content = self._extract_firecrawl(url)
-                if content:
-                    return content
-            except Exception as e:
+        # Try Firecrawl first (better structured extraction)
+        try:
+            content = self._extract_firecrawl(url)
+            if content:
+                return content
+        except Exception as e:
                 logger.warning("Firecrawl extraction failed for %s: %s", url[:80], e)
 
         # Fallback to Camofox browser scraping
@@ -244,19 +200,17 @@ class WebResearchClient:
         return None
 
     def _extract_firecrawl(self, url: str) -> Optional[str]:
-        """Extract via local Firecrawl scrape endpoint."""
+        """Extract via Firecrawl scrape endpoint."""
         http = self._get_http()
-        if isinstance(http, object):
+        if http is _HTTP_UNAVAILABLE:
             return None
 
-        # Use configured URL or default to localhost
-        firecrawl_base = self._get_firecrawl_url()
-        headers = self._get_firecrawl_headers()
-        
         resp = http.post(
-            f"{firecrawl_base}/v1/scrape",
+            "https://api.firecrawl.dev/v1/scrape",
             json={"url": url, "formats": ["markdown"]},
-            headers=headers,
+            headers={
+                "Content-Type": "application/json",
+            },
             timeout=WEB_EXTRACT_TIMEOUT,
         )
 
@@ -264,23 +218,20 @@ class WebResearchClient:
             return None
 
         data = resp.json()
-        if not data.get("success"):
-            return None
-            
         markdown = data.get("data", {}).get("markdown", "")
         return markdown[:10000] if markdown else None  # Cap at 10KB
 
     def _extract_camofox(self, url: str) -> Optional[str]:
         """Extract via Camofox browser automation."""
         http = self._get_http()
-        if isinstance(http, object):
+        if http is _HTTP_UNAVAILABLE:
             return None
 
         try:
             resp = http.post(
                 f"{self._camofox_url}/scrape",
                 json={"url": url},
-                timeout=WEB_EXTRACT_TIMEOUT,
+                timeout=10,  # Short timeout for connection check; full extraction uses WEB_EXTRACT_TIMEOUT
             )
             data = resp.json()
             content = data.get("content") or data.get("text", "")

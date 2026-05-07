@@ -40,9 +40,12 @@ import sqlite3
 import struct
 import threading
 import time
-import torch
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+# Lazy-import torch — only loaded when embeddings are actually needed.
+# Avoids ~400MB memory / ~10s delay on every import of this module.
+torch = None
 
 logger = logging.getLogger(__name__)
 
@@ -251,24 +254,30 @@ class PerpetualContextDB:
 
     @property
     def time_column(self) -> str:
-        """Return the active timestamp column name, cached after first detection."""
-        if not self._conn or self._initialized is False:
-            return "created_at"
-        if self._time_column is None:
-            try:
-                cursor = self._conn.execute("PRAGMA table_info(messages)")
-                columns = {row[1] for row in cursor.fetchall()}
-                self._time_column = "created_at" if "created_at" in columns else "timestamp"
-            except Exception:
+        """Return the active timestamp column name, cached after first detection.
+
+        Thread-safe: acquires lock before reading self._conn and self._time_column.
+        The cached value (self._time_column) is a plain string — safe to read
+        outside the lock once assigned, since strings are immutable in Python.
+        """
+        with self._lock:
+            if not self._conn or self._initialized is False:
+                return "created_at"
+            if self._time_column is None:
+                try:
+                    cursor = self._conn.execute("PRAGMA table_info(messages)")
+                    columns = {row[1] for row in cursor.fetchall()}
+                    self._time_column = "created_at" if "created_at" in columns else "timestamp"
+                except Exception:
+                    self._time_column = "created_at"
+            # Safety check — never interpolate unvalidated column names into SQL
+            if self._time_column not in VALID_TIME_COLUMNS:
+                logger.warning(
+                    "Invalid time_column '%s', falling back to 'created_at'",
+                    self._time_column,
+                )
                 self._time_column = "created_at"
-        # Safety check — never interpolate unvalidated column names into SQL
-        if self._time_column not in VALID_TIME_COLUMNS:
-            logger.warning(
-                "Invalid time_column '%s', falling back to 'created_at'",
-                self._time_column,
-            )
-            self._time_column = "created_at"
-        return self._time_column
+            return self._time_column
 
     # -- Lifecycle ---------------------------------------------------------
 
@@ -602,13 +611,12 @@ class PerpetualContextDB:
                 return
             
             # Copy timestamp values to created_at where created_at is missing/zero
-            self._conn.execute("""
+            cursor = self._conn.execute("""
                 UPDATE messages 
                 SET created_at = timestamp 
                 WHERE (created_at IS NULL OR created_at = 0) AND timestamp IS NOT NULL
             """)
-            
-            migrated = self._conn.total_changes
+            migrated = cursor.rowcount
             logger.info("Migrated %d/%d rows: copied timestamp → created_at", migrated, needs_migration)
             
         except Exception as e:
@@ -960,6 +968,27 @@ class PerpetualContextDB:
             logger.error("Recent messages query failed: %s", e)
             return []
 
+    def get_message_session(self, message_id: int) -> Optional[str]:
+        """Return the session_id for a given message ID.
+
+        Args:
+            message_id: The primary key of the message.
+
+        Returns:
+            The session_id string, or None if the message doesn't exist.
+        """
+        if not self._initialized or not self._conn:
+            return None
+        try:
+            with self._lock:
+                row = self._conn.execute(
+                    "SELECT session_id FROM messages WHERE id = ?", (message_id,)
+                ).fetchone()
+            return row[0] if row else None
+        except Exception as e:
+            logger.debug("get_message_session(%d) failed: %s", message_id, e)
+            return None
+
     def get_messages(
         self,
         session_id: str = None,
@@ -1075,44 +1104,29 @@ class PerpetualContextDB:
             # FTS5 uses special syntax for matching — need to escape operators
             search_query = query.strip()
             
-            # Check if query contains FTS5 operators that can't be safely escaped
-            # If so, fall back to LIKE-based search which is more forgiving
-            fts_operators = ['[', ']', '+', '-', '(', ')', '.', ',', '?']
-            has_fts_ops = any(op in search_query for op in fts_operators)
-            
-            if has_fts_ops:
-                # Fallback to LIKE search for queries with special operators.
-                # Add a simple BM25-like relevance score based on word overlap.
-                like_pattern = f"%{search_query}%"
-                
-                # Tokenize the query for relevance scoring (simple word count)
-                query_words = set(search_query.lower().split())
-                
-                base_sql = f"""
-                    SELECT m.id, m.session_id, m.role, m.content, 
-                           COALESCE(m.metadata, '{{{{}}}}') as metadata,
-                           m.{time_col},
-                           -- Simple relevance: count of query words found in content (higher = more relevant).
-                           -- Negated so ORDER BY rank works the same way as FTS5 (lower = better).
-                           -({'+ '.join([f"CASE WHEN LOWER(m.content) LIKE '%{w}%' THEN 1 ELSE 0 END" for w in list(query_words)[:5]])}) as rank
-                    FROM messages m
-                    WHERE m.content LIKE ?
-                """
-                params: list = [like_pattern]
-            else:
-                # Normal FTS5 phrase matching for clean queries
-                escaped_query = search_query.replace("'", "''")
-                fts_query = f'"{escaped_query}"'
-                
-                base_sql = f"""
-                    SELECT m.id, m.session_id, m.role, m.content, 
-                           COALESCE(m.metadata, '{{}}') as metadata,
-                           m.{time_col}, rank
-                    FROM messages_fts f
-                    JOIN messages m ON m.id = f.rowid
-                    WHERE messages_fts MATCH {fts_query}
-                """
-                params: list = []
+            # Always use LIKE-based search to avoid FTS5 expression injection.
+            # FTS5 MATCH cannot be safely parameterized in SQLite (the query
+            # expression is part of the SQL, not a bound parameter), so we
+            # use a parameterized LIKE search with a simple relevance score.
+            like_pattern = f"%{search_query}%"
+
+            # Tokenize the query for relevance scoring (simple word count)
+            query_words = set(search_query.lower().split())
+
+            # Escape single quotes in each word to prevent SQL injection
+            escaped_words = [w.replace("'", "''") for w in list(query_words)[:5]]
+
+            base_sql = f"""
+                SELECT m.id, m.session_id, m.role, m.content, 
+                       COALESCE(m.metadata, '{{{{}}}}') as metadata,
+                       m.{time_col},
+                       -- Simple relevance: count of query words found in content (higher = more relevant).
+                       -- Negated so ORDER BY rank works the same way as FTS5 (lower = better).
+                       -({'+ '.join([f"CASE WHEN LOWER(m.content) LIKE '%{w}%' THEN 1 ELSE 0 END" for w in escaped_words])}) as rank
+                FROM messages m
+                WHERE m.content LIKE ?
+            """
+            params: list = [like_pattern]
 
             # FTS5 join uses m.created_at — time_column property handles fallback at init
 

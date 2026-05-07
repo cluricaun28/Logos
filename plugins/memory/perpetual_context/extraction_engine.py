@@ -17,11 +17,17 @@ import os
 import re as _re
 from typing import Any, Dict, List, Tuple
 
-# Common English stopwords for topic filtering (used by __init__.py auto-tagging)
+
+# Common English stopwords to filter from topic extraction
 _STOPWORDS = frozenset({
     'the', 'and', 'this', 'that', 'with', 'from', 'have', 'been', 'were', 'are',
-    'was', 'for', 'not', 'but', 'what', 'all', 'their', 'which', 'would',
-    'it', 'its', 'in', 'to', 'of', 'a', 'an', 'is', 'on', 'at', 'by',
+    'was', 'for', 'not', 'but', 'what', 'all', 'their', 'which', 'would', 'could',
+    'should', 'about', 'into', 'through', 'during', 'before', 'after', 'above',
+    'below', 'between', 'another', 'same', 'other', 'some', 'such', 'no', 'nor',
+    'too', 'very', 'just', 'because', 'as', 'until', 'while', 'of', 'at', 'by',
+    'an', 'or', 'if', 'on', 'in', 'to', 'is', 'it', 'its', 'i', 'me', 'my',
+    'we', 'our', 'you', 'your', 'he', 'him', 'his', 'she', 'her', 'they', 'them',
+    'then', 'there', 'here', 'when', 'where', 'why', 'how', 'can', 'may',
 })
 
 
@@ -33,39 +39,60 @@ class ExtractionEngine:
     """
 
     # -----------------------------------------------------------------------
-    # Pre-compiled regex patterns (class-level constants — compiled once)
+    # Class-level constants (compiled once, reused per-call)
     # -----------------------------------------------------------------------
 
-    # Decision patterns in assistant messages (substantive decisions, not just statements)
-    _DECISION_PATTERNS = _re.compile(
+    _TASK_KEYWORDS = frozenset({
+        'fix', 'implement', 'create', 'build', 'add', 'refactor', 'debug',
+        'write', 'update', 'migrate', 'deploy', 'configure', 'set up',
+        'resolve', 'address', 'handle', 'support', 'enable', 'disable',
+    })
+
+    _DECISION_REGEX = _re.compile(
         r'(?:decided|will use|architecture is|plan outlines|confirmed|agreed)'
         r'|(?:key design principle|must never|always check|mandatory)'
-        r'|(?:instead of|rather than|chose to|opted for)',  # Decision trade-offs
+        r'|(?:instead of|rather than|chose to|opted for)',
         _re.IGNORECASE,
     )
 
-    # Exception type patterns to catch
-    _EXCEPTION_PATTERNS = _re.compile(
-        r'(TypeError|ValueError|AttributeError|KeyError|ImportError|'\
-        r'ModuleNotFoundError|FileNotFoundError|PermissionError|'\
-        r'SyntaxError|IndexError|RuntimeError|OSError|IOError|'\
+    _FILE_OPS = frozenset({"write_file", "patch", "read_file"})
+
+    _EXCEPTION_REGEX = _re.compile(
+        r'(TypeError|ValueError|AttributeError|KeyError|ImportError|'
+        r'ModuleNotFoundError|FileNotFoundError|PermissionError|'
+        r'SyntaxError|IndexError|RuntimeError|OSError|IOError|'
         r'JSONDecodeError|UnicodeDecodeError)',
     )
 
-    # Fix-location patterns (case-insensitive)
-    _FIX_PATTERNS = [
-        _re.compile(r'(?:fix(?:ed)?\s+(?:in\s+)?[\'\"]?(/[^\'\"\n]+))', _re.IGNORECASE),
-        _re.compile(r'(?:applied\s+to\s+[\'\"]?(/[^\'\"\n]+))', _re.IGNORECASE),
-        _re.compile(r'(?:resolved\s+at\s+line\s+(\d+))', _re.IGNORECASE),
+    _FIX_REGEXES = [
+        _re.compile(r"(?:fix(?:ed)?\s+(?:in\s+)?['\"]?(/[^'\"\n]+))", _re.IGNORECASE),
+        _re.compile(r"(?:applied\s+to\s+['\"]?(/[^'\"\n]+))", _re.IGNORECASE),
+        _re.compile(r"(?:resolved\s+at\s+line\s+(\d+))", _re.IGNORECASE),
     ]
 
-    # Consolidated file ops text patterns (single pass instead of three)
-    _FILE_OPS_TEXT_PATTERN = _re.compile(
-        r'(?:wrote|saved|created)\s+(?:to\s+)?[\'\"]?(/[^\'\\"\n]+)'  # wrote to /path
-        r'|(?:patched|modified|updated)\s+[\'\"]?(/[^\'\\"\n]+)'       # patched /path
-        r'|(?:reading|read)\s+[\'\"]?(/[^\'\\"\n]+)',                   # reading /path
-        _re.IGNORECASE,
-    )
+    # File operation text patterns
+    _FILE_EDIT_PATTERNS = [
+        _re.compile(r"(?:wrote|saved|created)\s+(?:to\s+)?['\"]?(/[^'\"\n]+)"),
+        _re.compile(r"(?:patched|modified|updated)\s+['\"]?(/[^'\"\n]+)"),
+        _re.compile(r"(?:reading|read)\s+['\"]?(/[^'\"\n]+)"),
+    ]
+
+    # Knowledge gap patterns
+    _EXPLICIT_GAP_PATTERNS = [
+        _re.compile(r"knowledge\s+gap(?:\s*:\s*(.*?))?(?:\n|$)", _re.IGNORECASE),
+        _re.compile(r"(?:RL|reference library)\s+(?:entry|page|topic)\s+(?:needed|required|missing)(?:\s*:\s*(.*?))?(?:\n|$)", _re.IGNORECASE),
+        _re.compile(r"\[gap\]\s*(.*?)(?:\n|$)", _re.IGNORECASE),
+    ]
+
+    _CONFIDENCE_PATTERN = _re.compile(r"confidence:\s*([\d.]+)\s*(?:—|-|:)?\s*(.*?)(?:\n|$)")
+
+    _PENDING_GAP_PATTERNS = [
+        _re.compile(r"\[(?:pending|needs research|TODO)\]\s*(.*?)(?:\n|$)", _re.IGNORECASE),
+    ]
+
+    # Error message cleanup patterns
+    _ERROR_CLEANUP_LEADING = _re.compile(r'^[:\s]+')
+    _ERROR_CLEANUP_TRACEBACK = _re.compile(r'^(in\s+\w+|File\s+"[^"]+",\s+line\s+\d+)')
 
     # -----------------------------------------------------------------------
     # Public extraction methods
@@ -83,13 +110,6 @@ class ExtractionEngine:
         if not messages:
             return []
 
-        # Task action keywords that signal a pending/active task
-        _TASK_KEYWORDS = frozenset({
-            'fix', 'implement', 'create', 'build', 'add', 'refactor', 'debug',
-            'write', 'update', 'migrate', 'deploy', 'configure', 'set up',
-            'resolve', 'address', 'handle', 'support', 'enable', 'disable',
-        })
-
         # Dedup key -> first occurrence data (case-insensitive, whitespace-normalized)
         seen: Dict[str, Dict[str, Any]] = {}
 
@@ -103,7 +123,7 @@ class ExtractionEngine:
                 continue
 
             content_lower = content.lower()
-            if not any(kw in content_lower for kw in _TASK_KEYWORDS):
+            if not any(kw in content_lower for kw in self._TASK_KEYWORDS):
                 continue
 
             # Use first line as dedup key (normalized)
@@ -131,7 +151,7 @@ class ExtractionEngine:
                         if len(line) < 20 or len(line) > 300:
                             continue
 
-                        if self._DECISION_PATTERNS.search(line):
+                        if self._DECISION_REGEX.search(line):
                             # Avoid duplicates and skip examples/pseudocode
                             if (line not in [d['text'] for d in task_data['decisions']] and
                                 not any(kw in line.lower() for kw in ["example", "pseudocode", "todo"])):
@@ -161,7 +181,6 @@ class ExtractionEngine:
         if not messages:
             return []
 
-        _FILE_OPS = frozenset({"write_file", "patch", "read_file"})
         # path key -> data (normalized to lowercase for dedup)
         seen: Dict[str, Dict[str, Any]] = {}
 
@@ -177,7 +196,7 @@ class ExtractionEngine:
                 name = fn.get("name", "")
                 args_str = fn.get("arguments", "{}")
 
-                if name not in _FILE_OPS:
+                if name not in self._FILE_OPS:
                     continue
 
                 try:
@@ -213,30 +232,27 @@ class ExtractionEngine:
                             f"{existing_desc}, {op_label}"
                         )
 
-            # --- Text patterns for file operations (single consolidated pass) ---
-            for m in self._FILE_OPS_TEXT_PATTERN.finditer(content):
-                # Get the matched path from whichever group captured
-                path = next((g for g in m.groups() if g), None)
-                if not path:
-                    continue
-                path = path.strip().rstrip(".,;")
-                norm_key = path.lower().split("?")[0]
-                if norm_key not in seen:
-                    # Find related discussion turns
-                    related_turns, related_desc = self.find_related_discussions(
-                        messages, idx, path, window=10
-                    )
+            # --- Text patterns for file operations ---
+            for pat in self._FILE_EDIT_PATTERNS:
+                for m in pat.finditer(content):
+                    path = m.group(1).strip().rstrip(".,;")
+                    norm_key = path.lower().split("?")[0]
+                    if norm_key not in seen:
+                        # Find related discussion turns
+                        related_turns, related_desc = self.find_related_discussions(
+                            messages, idx, path, window=10
+                        )
 
-                    seen[norm_key] = {
-                        "path": path,
-                        "last_edit_turn": idx,
-                        "description": f"Text pattern match",
-                        "related_turns": related_turns[:5],
-                        "related_description": related_desc or "related discussion",
-                    }
+                        seen[norm_key] = {
+                            "path": path,
+                            "last_edit_turn": idx,
+                            "description": f"Text pattern match",
+                            "related_turns": related_turns[:5],
+                            "related_description": related_desc or "related discussion",
+                        }
 
-        # Return most recently edited first (backwards iteration = most recent inserted first into dict)
-        return list(seen.values())[:10]
+        # Return most recently edited first (reverse insertion order)
+        return list(reversed(seen.values()))[:10]
 
     def find_related_discussions(self, messages: List[Dict[str, Any]],
                                  edit_turn: int, file_path: str,
@@ -308,55 +324,48 @@ class ExtractionEngine:
         if not messages:
             return []
 
-        # Exception type patterns to catch (now at class level)
-        _EXCEPTION_PATTERNS = [self._EXCEPTION_PATTERNS]
-
-        # Fix-location patterns (now at class level)
-        _FIX_COMPILED = self._FIX_PATTERNS
-
         seen: Dict[str, Dict[str, Any]] = {}
 
         for idx in range(len(messages) - 1, -1, -1):  # Include index 0
             msg = messages[idx]
             content = (msg.get("content") or "") + "\n"
 
-            # Search for exception patterns
-            for pat in _EXCEPTION_PATTERNS:
-                for m in _re.finditer(pat, content):
-                    exc_type = m.group(1)
-                    # Extract surrounding context as summary (error message after the type)
-                    start = m.end()
-                    end = min(start + 200, len(content))
-                    error_msg = content[start:end].strip().split("\n")[0]
+            # Search for exception patterns using class-level regex
+            for m in self._EXCEPTION_REGEX.finditer(content):
+                exc_type = m.group(1)
+                # Extract surrounding context as summary (error message after the type)
+                start = m.end()
+                end = min(start + 200, len(content))
+                error_msg = content[start:end].strip().split("\n")[0]
 
-                    if not error_msg:
-                        continue
+                if not error_msg:
+                    continue
 
-                    # Clean up error message: remove leading colons/spaces/traceback prefixes
-                    error_msg = _re.sub(r'^[:\s]+', '', error_msg).strip()
-                    # Remove common traceback artifacts
-                    error_msg = _re.sub(r'^(in\s+\w+|File\s+"[^"]+",\s+line\s+\d+)', '', error_msg).strip()
-                    if not error_msg:
-                        continue
+                # Clean up error message: remove leading colons/spaces/traceback prefixes
+                error_msg = self._ERROR_CLEANUP_LEADING.sub('', error_msg).strip()
+                # Remove common traceback artifacts
+                error_msg = self._ERROR_CLEANUP_TRACEBACK.sub('', error_msg).strip()
+                if not error_msg:
+                    continue
 
-                    # Build normalized dedup key from exception type + first 80 chars of message
-                    norm_key = f"{exc_type}:{error_msg[:80].lower()}"
+                # Build normalized dedup key from exception type + first 80 chars of message
+                norm_key = f"{exc_type}:{error_msg[:80].lower()}"
 
-                    if norm_key in seen:
-                        continue
+                if norm_key in seen:
+                    continue
 
-                    # Look for fix location in the same message or nearby messages
-                    fix_location = "N/A"
-                    context_window = content[max(0, start - 300):min(len(content), end + 500)]
-                    for fix_pat in _FIX_COMPILED:
-                        fm = fix_pat.search(context_window)
-                        if fm:
-                            fix_location = fm.group(1)
-                            break
+                # Look for fix location in the same message or nearby messages
+                fix_location = "N/A"
+                context_window = content[max(0, start - 300):min(len(content), end + 500)]
+                for fix_pat in self._FIX_REGEXES:
+                    fm = fix_pat.search(context_window)
+                    if fm:
+                        fix_location = fm.group(1)
+                        break
 
-                    seen[norm_key] = {
-                        "summary": f"{exc_type}: {error_msg}",
-                        "turn_id": idx,
+                seen[norm_key] = {
+                    "summary": f"{exc_type}: {error_msg}",
+                    "turn_id": idx,
                         "fix_location": fix_location,
                     }
 
@@ -376,21 +385,6 @@ class ExtractionEngine:
         if not messages:
             return []
 
-        # Pattern 1: Explicit knowledge gap markers
-        _EXPLICIT_PATTERNS = [
-            r'knowledge\s+gap(?:\s*:\s*(.*?))?(?:\n|$)',
-            r'(?:RL|reference library)\s+(?:entry|page|topic)\s+(?:needed|required|missing)(?:\s*:\s*(.*?))?(?:\n|$)',
-            r'\[gap\]\s*(.*?)(?:\n|$)',
-        ]
-
-        # Pattern 2: Confidence score + topic (e.g., "confidence: 0.3 — first principles of nuclear ethics")
-        _CONFIDENCE_PATTERN = r'confidence:\s*([\d.]+)\s*(?:—|-|:)?\s*(.*?)(?:\n|$)'
-
-        # Pattern 3: Bracketed pending tags
-        _PENDING_PATTERNS = [
-            r'\[(?:pending|needs research|TODO)\]\s*(.*?)(?:\n|$)',
-        ]
-
         seen: Dict[str, Dict[str, Any]] = {}
 
         for idx in range(len(messages) - 1, -1, -1):  # Include index 0
@@ -398,8 +392,8 @@ class ExtractionEngine:
             content = (msg.get("content") or "") + "\n"
 
             # Pattern 1: Explicit markers
-            for pat in _EXPLICIT_PATTERNS:
-                for m in _re.finditer(pat, content, _re.IGNORECASE):
+            for pat in self._EXPLICIT_GAP_PATTERNS:
+                for m in pat.finditer(content):
                     summary = (m.group(1) or "").strip()
                     if not summary:
                         continue
@@ -413,7 +407,7 @@ class ExtractionEngine:
                         }
 
             # Pattern 2: Confidence score + topic
-            for m in _re.finditer(_CONFIDENCE_PATTERN, content):
+            for m in self._CONFIDENCE_PATTERN.finditer(content):
                 try:
                     confidence = float(m.group(1))
                 except (ValueError, TypeError):
@@ -435,8 +429,8 @@ class ExtractionEngine:
                     }
 
             # Pattern 3: Pending tags
-            for pat in _PENDING_PATTERNS:
-                for m in _re.finditer(pat, content):
+            for pat in self._PENDING_GAP_PATTERNS:
+                for m in pat.finditer(content):
                     summary = (m.group(1) or "").strip()
                     if not summary:
                         continue
@@ -449,5 +443,6 @@ class ExtractionEngine:
                             "turn_ids": [idx],
                         }
 
-        # Return most recent gaps first (backwards iteration = most recent inserted first into dict)
-        return list(seen.values())[:5]
+        # Return most recent gaps first
+        return list(reversed(seen.values()))[:5]
+

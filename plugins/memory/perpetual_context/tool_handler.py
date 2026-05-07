@@ -49,16 +49,10 @@ class ToolHandler:
         session_id = args.get("session_id") or None
         top_k = min(args.get("top_k", 5), 20)
 
-        # Adaptive Weighting: Allow the agent to specify weights based on query intent
-        semantic_weight = args.get("semantic_weight", SEMANTIC_WEIGHT)
-        fts5_weight = args.get("fts5_weight", FTS5_WEIGHT)
-
         results = self._db.hybrid_search(
             query=query,
             session_id=session_id,
             top_k=top_k,
-            semantic_weight=semantic_weight,
-            fts5_weight=fts5_weight,
         )
 
         if not results:
@@ -299,7 +293,7 @@ class ToolHandler:
         if not query_type or not query_text:
             return json.dumps({"error": "Both 'query_type' and 'query_text' are required"})
 
-        valid_types = ("recent", "topic", "decision_trace", "file_history")
+        valid_types = ("auto", "recent", "topic", "decision_trace", "file_history")
         if query_type not in valid_types:
             return json.dumps({
                 "error": f"Invalid query_type '{query_type}'. Must be one of: {', '.join(valid_types)}"
@@ -405,3 +399,148 @@ class ToolHandler:
         results = results[:top_k]
 
         return json.dumps({"results": results, "count": len(results)})
+
+    def handle_session_search(self, args: Dict[str, Any]) -> str:
+        """Handle session_search tool call — browse recent sessions or search by query.
+
+        Two modes:
+        1. No query: list recent sessions with titles, previews, timestamps
+        2. With query: FTS search across sessions, return summaries
+        """
+        query = args.get("query")
+        limit = min(args.get("limit", 3), 5)
+
+        # Mode 1: No query — list recent sessions
+        if not query:
+            try:
+                # Get distinct recent sessions from messages table
+                cursor = self._db._conn.execute(
+                    "SELECT session_id, COUNT(*) as msg_count, MAX(timestamp) as last_ts, "
+                    "MIN(timestamp) as first_ts "
+                    "FROM messages GROUP BY session_id "
+                    "ORDER BY last_ts DESC LIMIT ?",
+                    (limit * 2,),  # Fetch extra for filtering
+                )
+                rows = cursor.fetchall()
+
+                sessions = []
+                for row in rows[:limit]:
+                    sid = row[0]
+                    msg_count = row[1]
+                    last_ts = row[2] or 0
+                    first_ts = row[3] or 0
+
+                    # Get a preview from the first user message in this session
+                    preview = ""
+                    try:
+                        preview_cursor = self._db._conn.execute(
+                            "SELECT content FROM messages WHERE session_id = ? AND role = 'user' "
+                            "ORDER BY timestamp ASC LIMIT 1",
+                            (sid,),
+                        )
+                        preview_row = preview_cursor.fetchone()
+                        if preview_row:
+                            preview = preview_row[0][:200]
+                    except Exception as e:
+                        logger.debug("Session preview query failed: %s", e)
+
+                    # Get topic count
+                    topic_count = 0
+                    try:
+                        tc = self._db._conn.execute(
+                            "SELECT COUNT(DISTINCT topic_name) FROM topics WHERE session_id = ?",
+                            (sid,),
+                        ).fetchone()
+                        topic_count = tc[0] if tc else 0
+                    except Exception as e:
+                        logger.debug("Topic count query failed: %s", e)
+
+                    sessions.append({
+                        "session_id": sid,
+                        "message_count": msg_count,
+                        "topic_count": topic_count,
+                        "created_at": first_ts,
+                        "last_updated": last_ts,
+                        "preview": preview,
+                    })
+
+                return json.dumps({
+                    "mode": "recent",
+                    "sessions": sessions,
+                    "total_returned": len(sessions),
+                })
+
+            except Exception as e:
+                logger.error("Session search (recent) failed: %s", e)
+                return json.dumps({"error": str(e), "sessions": []})
+
+        # Mode 2: With query — FTS search, group by session
+        try:
+            results = self._db.fts_search(
+                query=query,
+                top_k=min(limit * 5, 30),  # Fetch more to allow grouping
+            )
+
+            if not results:
+                return json.dumps({
+                    "mode": "search",
+                    "query": query,
+                    "sessions": [],
+                    "message": f"No sessions found matching '{query}'",
+                })
+
+            # Group results by session_id
+            session_map = {}
+            for msg in results:
+                sid = msg.get("session_id")
+                if sid not in session_map:
+                    session_map[sid] = {
+                        "session_id": sid,
+                        "messages": [],
+                        "max_score": 0,
+                    }
+                score = msg.get("_score", 0)
+                session_map[sid]["messages"].append(msg)
+                session_map[sid]["max_score"] = max(session_map[sid]["max_score"], score)
+
+            # Build session summaries
+            sessions = []
+            for sid, data in sorted(session_map.items(), key=lambda x: -x[1]["max_score"]):
+                msgs = data["messages"]
+
+                # Get session metadata
+                info = self._db.get_session_info(sid)
+                msg_count = info["message_count"] if info else len(msgs)
+                last_updated = info["last_updated"] if info else msgs[0].get("timestamp", 0)
+
+                # Build preview from top matching messages
+                previews = []
+                for m in msgs[:3]:
+                    content = m.get("content", "")[:150]
+                    if content:
+                        previews.append(content)
+
+                preview = "\n".join(previews) if previews else "No preview available"
+
+                sessions.append({
+                    "session_id": sid,
+                    "message_count": msg_count,
+                    "matching_messages": len(msgs),
+                    "score": data["max_score"],
+                    "last_updated": last_updated,
+                    "preview": preview,
+                })
+
+                if len(sessions) >= limit:
+                    break
+
+            return json.dumps({
+                "mode": "search",
+                "query": query,
+                "sessions": sessions,
+                "total_returned": len(sessions),
+            })
+
+        except Exception as e:
+            logger.error("Session search (query) failed: %s", e)
+            return json.dumps({"error": str(e), "sessions": []})

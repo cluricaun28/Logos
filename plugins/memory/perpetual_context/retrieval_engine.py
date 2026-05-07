@@ -44,69 +44,6 @@ AUTO_ROUTING_PHRASES = {
 AUTO_ROUTING_FILE_EXTENSIONS = {".py", ".md", ".yaml", ".json", ".txt", ".sh"}
 
 
-def _expand_query(db: PerpetualContextDB, query_text: str) -> str:
-    """Expand query with related topics from co-occurrence graph.
-
-    Extracts key terms from the query, looks up each term in the relationships table,
-    and returns an expanded query string that includes high-strength related entities.
-
-    Graceful degradation — if DB is unavailable or no relationships found, returns
-    the original query unchanged.
-
-    Args:
-        db: PerpetualContextDB instance (may be None)
-        query_text: Original search query text
-
-    Returns:
-        Expanded query string with related terms appended, or original query if expansion fails
-    """
-    if not db or not query_text:
-        return query_text
-
-    try:
-        # Extract key terms from query — words longer than 3 chars, CamelCase identifiers, file refs
-        terms = _re.findall(
-            r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})\b'  # Capitalized phrases
-            r'|\b([a-zA-Z]{4,})\b'  # Words >= 4 chars
-            r'|([a-zA-Z_]+\.(?:py|md|yaml|json|txt|sh))',  # File references
-            query_text,
-        )
-        # Flatten tuple results from alternation groups
-        flat_terms = []
-        for t in terms:
-            term = next((g for g in t if g), "")
-            if term and len(term) > 3:
-                flat_terms.append(term.lower())
-
-        unique_terms = list(set(flat_terms))[:5]  # Limit to top 5 terms to avoid noise
-
-        # For each term, get related entities with strength >= 0.2
-        related_terms = set()
-        for term in unique_terms:
-            relationships = db.get_relationships(entity=term)
-            for rel in relationships:
-                if rel.get("strength", 0) >= 0.2:  # Only use reasonably strong connections
-                    # Get the other entity (not the one we searched for)
-                    source = rel.get("source_entity", "").lower()
-                    target = rel.get("target_entity", "").lower()
-                    if source == term.lower():
-                        related_terms.add(target)
-                    elif target == term.lower():
-                        related_terms.add(source)
-
-        # Build expanded query — original + top related terms (limit to avoid noise)
-        if related_terms:
-            # Sort by relevance and take top 3 additional terms
-            top_related = sorted(related_terms)[:3]
-            return f"{query_text} {' '.join(top_related)}"
-
-    except Exception as e:
-        logger.debug("Query expansion failed for '%s': %s", query_text[:50], e)
-
-    # Graceful degradation — return original query if anything fails
-    return query_text
-
-
 def classify_query_intent(query_text: str) -> str:
     """Classify query intent for SmartRetriever auto-routing.
 
@@ -220,8 +157,7 @@ class SmartRetriever:
             logger.debug("Auto-routed '%s' → %s", query_text[:50], query_type)
 
         # Check cache first to avoid redundant DB hits
-        # Hash the query text to keep cache keys short and bounded
-        cache_key = f"{query_type}:{hashlib.md5(query_text.encode()).hexdigest()[:16]}"
+        cache_key = hashlib.md5(f"{query_type}:{query_text}".encode()).hexdigest()
         cached_result = self.cache.get(cache_key)
         if cached_result is not None:
             return cached_result
@@ -245,7 +181,7 @@ class SmartRetriever:
             return result
         except Exception as e:
             logger.exception("Retrieval failed for type '%s'", query_type)
-            raise RuntimeError(f"Retrieval unavailable ({query_type}): {e}") from e
+            return []
 
     def _retrieve_recent(self, query_text: str) -> List[Dict[str, Any]]:
         """Retrieve context from the last 20 turns using indexed lookups.
@@ -258,28 +194,21 @@ class SmartRetriever:
             return self.db.get_recent_messages(n=20)
         except Exception as e:
             logger.exception("Failed to retrieve recent messages")
-            raise RuntimeError(f"Recent retrieval unavailable: {e}") from e
+            return []
 
     def _retrieve_topic(self, query_text: str) -> List[Dict[str, Any]]:
         """Retrieve topic-specific context across all sessions using FTS5.
-
+        
         Uses hybrid_search (FTS5 + reciprocal rank fusion) for better relevance
         than raw keyword matching. Limits top_k to reduce I/O load on local hardware.
-
-        Query expansion via cross-session co-occurrence graph — if the query contains
-        known topics, related entities are appended to improve recall across sessions.
         """
         try:
-            # Expand query with related topics from co-occurrence graph
-            expanded = _expand_query(self.db, query_text)
-
-            # Use hybrid_search which combines FTS5 BM25 ranking with SQL filtering
             return self.db.hybrid_search(
-                query=expanded, session_id=None, top_k=10
+                query=query_text, session_id=None, top_k=10
             )
         except Exception as e:
             logger.exception("Failed to retrieve topic '%s'", query_text)
-            raise RuntimeError(f"Topic retrieval unavailable: {e}") from e
+            return []
 
     def _retrieve_decision_trace(self, query_text: str) -> List[Dict[str, Any]]:
         """Find where a decision was made and surrounding context.
@@ -301,7 +230,7 @@ class SmartRetriever:
             return context
         except Exception as e:
             logger.exception("Failed to retrieve decision trace for '%s'", query_text)
-            raise RuntimeError(f"Decision trace unavailable: {e}") from e
+            return []
 
     def _retrieve_file_history(self, query_text: str) -> List[Dict[str, Any]]:
         """Retrieve all edits to a specific file using pattern matching.
@@ -315,4 +244,4 @@ class SmartRetriever:
             return tracker.get_file_history(query_text)
         except Exception as e:
             logger.exception("Failed to retrieve file history for '%s'", query_text)
-            raise RuntimeError(f"File history unavailable: {e}") from e
+            return []

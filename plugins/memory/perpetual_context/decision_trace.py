@@ -10,6 +10,8 @@ Optimized for local hardware by using indexed turn ID lookups and limiting
 the scope of searches to recent sessions where decisions are most relevant.
 """
 
+from __future__ import annotations
+
 import logging
 from typing import Optional, List, Dict, Any
 from agent.perpetual_context_db import PerpetualContextDB
@@ -83,9 +85,10 @@ class DecisionTraceEngine:
 
             session_id = row[0]
 
-            # Get only messages from this session, ordered by ID — no global fetch
+            # Get only messages from this session, ordered by ID
             results = self.db.query_messages(
                 pattern="%",
+                session_id=session_id,
                 role=None,
                 limit=200,
             )

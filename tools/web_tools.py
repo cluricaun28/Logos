@@ -152,7 +152,7 @@ def _is_backend_available(backend: str) -> bool:
     if backend == "parallel":
         return _has_env("PARALLEL_API_KEY")
     if backend == "firecrawl":
-        return check_firecrawl_api_key()
+        return check_firecrawl_api_key() or _has_env("FIRECRAWL_URL")
     if backend == "tavily":
         return _has_env("TAVILY_API_KEY")
     return False
@@ -166,7 +166,10 @@ _firecrawl_client_config = None
 def _get_direct_firecrawl_config() -> Optional[tuple[Dict[str, str], tuple[str, Optional[str], Optional[str]]]]:
     """Return explicit direct Firecrawl kwargs + cache key, or None when unset."""
     api_key = os.getenv("FIRECRAWL_API_KEY", "").strip()
+    # Support both FIRECRAWL_API_URL (official) and FIRECRAWL_URL (legacy/self-hosted convention)
     api_url = os.getenv("FIRECRAWL_API_URL", "").strip().rstrip("/")
+    if not api_url:
+        api_url = os.getenv("FIRECRAWL_URL", "").strip().rstrip("/")
 
     if not api_key and not api_url:
         return None
@@ -1961,11 +1964,11 @@ def check_firecrawl_api_key() -> bool:
     Returns:
         bool: True if direct Firecrawl or the tool-gateway can be used.
     """
-    return _has_direct_firecrawl_config() or _is_tool_gateway_ready()
+    return _has_direct_firecrawl_config() or _is_tool_gateway_ready() or _has_env("FIRECRAWL_URL")
 
 
 def check_web_api_key() -> bool:
-    return True for backend in ("exa", "parallel", "firecrawl", "tavily"))
+    return any(_is_backend_available(b) for b in ("exa", "parallel", "firecrawl", "tavily"))
 
 
 def check_auxiliary_model() -> bool:

@@ -21,6 +21,8 @@ import re as _re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
+from .extraction_engine import _STOPWORDS
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -475,11 +477,6 @@ class RLIngestionGate:
                         return f"Topic '{word}' covered differently in existing page"
 
             # Strategy 2: General topic overlap — significant shared vocabulary suggests same topic
-            _STOPWORDS = frozenset({
-                'the', 'and', 'this', 'that', 'with', 'from', 'have', 'been', 'were', 'are',
-                'was', 'for', 'not', 'but', 'what', 'all', 'their', 'which', 'would',
-                'it', 'its', 'in', 'to', 'of', 'a', 'an', 'is', 'on', 'at', 'by',
-            })
             existing_words = set(existing_lower.split())
             content_words_new = new_words - _STOPWORDS
             content_words_existing = existing_words - _STOPWORDS

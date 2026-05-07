@@ -9,6 +9,8 @@ richer feedback accelerating learning.
 Optimized for local hardware by using indexed lookups and limiting search scope.
 """
 
+from __future__ import annotations
+
 import logging
 from typing import Optional, List, Dict, Any
 from agent.perpetual_context_db import PerpetualContextDB
@@ -64,35 +66,5 @@ class FileHistoryTracker:
             logger.exception("Failed to retrieve file history for '%s'", file_path)
             return []
 
-    def get_recent_edits(self, n: int = 10) -> List[Dict[str, Any]]:
-        """
-        Retrieves the N most recent file edits across all sessions.
-        
-        Gets recent tool calls and filters for file operation types.
-        
-        Args:
-            n: Number of recent edits to retrieve.
-            
-        Returns:
-            List of dicts containing edit details and turn IDs.
-        """
-        try:
-            # Get recent tool calls related to file operations
-            results = self.db.get_recent_messages(n=n * 2, role="tool")
-            
-            edits = []
-            for result in results:
-                content = result.get('content', '')
-                if any(op in content for op in ['write_file', 'patch', 'read_file']):
-                    edits.append({
-                        'turn_id': result.get('id'),
-                        'session_id': result.get('session_id'),
-                        'content': content[:200],  # Limit content size
-                    })
-                if len(edits) >= n:
-                    break
-            
-            return edits
-        except Exception as e:
-            logger.exception("Failed to retrieve recent edits")
-            return []
+    # NOTE: get_recent_edits() was removed as dead code — never called outside
+    # its test file. The retrieval_engine.py only uses get_file_history().

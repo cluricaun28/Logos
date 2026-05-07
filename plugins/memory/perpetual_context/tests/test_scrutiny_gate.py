@@ -5,7 +5,6 @@ Verifies:
 2. ScrutinyGate.vet_results() returns structured results with warnings
 3. detect_bias() identifies loaded language patterns
 4. RLIngestionGate.evaluate() flags contradictions for manual review
-5. Graceful degradation on None/non-string inputs
 """
 
 from __future__ import annotations
@@ -147,10 +146,11 @@ class TestScrutinyGate(unittest.TestCase):
         self.assertEqual(output["vetted_results"], [])
         self.assertIn("No results to vet", output["warnings"])
 
-    def test_vet_results_rejects_missing_url_or_content(self):
-        results = [{"title": "No URL here"}]  # No url or snippet
+    def test_vet_results_rejects_empty_result(self):
+        results = [{}]  # Empty dict — no title, url, or snippet
         output = self.gate.vet_results(results, query="test")
         self.assertEqual(len(output["rejected_results"]), 1)
+        self.assertIn("Empty result", output["rejected_results"][0]["rejection_reason"])
 
     def test_vet_results_high_sensitivity_includes_bias_analysis(self):
         results = [
@@ -164,9 +164,9 @@ class TestScrutinyGate(unittest.TestCase):
 
         self.assertEqual(output["sensitivity_level"], "high")
         vetted = output["vetted_results"][0]
-        # High sensitivity results get bias notes and source stance annotations
-        self.assertIn("_bias_notes", vetted)
-        self.assertIn("_source_stance", vetted)
+        metadata = vetted.get("scrutiny_metadata", {})
+        self.assertIn("bias_analysis", metadata)
+        self.assertIn("source_stance", metadata)
 
     def test_vet_results_low_sensitivity_basic_validation(self):
         results = [
@@ -179,6 +179,10 @@ class TestScrutinyGate(unittest.TestCase):
         output = self.gate.vet_results(results, query="docker container setup")
 
         self.assertEqual(output["sensitivity_level"], "low")
+        vetted = output["vetted_results"][0]
+        metadata = vetted.get("scrutiny_metadata", {})
+        # Low sensitivity should have minimal bias analysis
+        self.assertFalse(metadata["bias_analysis"].get("detected", False))
 
     def test_vet_results_preserves_original_fields(self):
         original = {
@@ -202,82 +206,91 @@ class TestScrutinyGate(unittest.TestCase):
         )
         report = self.gate.detect_bias(text)
 
-        self.assertGreater(report["bias_score"], 0)
-        # Should find loaded words in notes
-        self.assertTrue(any("Loaded language" in n for n in report["notes"]))
+        self.assertTrue(report["detected"])
+        self.assertGreater(len(report["loaded_language"]), 0)
+        # Should find multiple loaded words
+        self.assertIn("so-called", report["loaded_language"])
+        self.assertIn("allegedly", report["loaded_language"])
+        self.assertIn("toxic", report["loaded_language"])
 
     def test_detect_bias_identifies_passive_voice(self):
         text = "Mistakes were made and errors were found in the report."
         report = self.gate.detect_bias(text)
 
-        # Should detect passive voice framing
-        self.assertTrue(any("Passive" in n for n in report["notes"]))
+        self.assertGreater(report["passive_voice_count"], 0)
 
-    def test_detect_bias_neutral_text_returns_low_score(self):
+    def test_detect_bias_identifies_vague_attribution(self):
+        text = "Experts say the policy is harmful. Studies show it fails."
+        report = self.gate.detect_bias(text)
+
+        self.assertGreater(report["vague_attribution_count"], 0)
+
+    def test_detect_bias_neutral_text_returns_low_confidence(self):
         text = (
             "The Python programming language was released in 1991 by Guido van Rossum. "
             "It supports multiple programming paradigms including procedural and object-oriented."
         )
         report = self.gate.detect_bias(text)
 
-        # Neutral technical content should have low bias score
-        self.assertEqual(report["bias_score"], 0.0)
-        self.assertFalse(report["confidence_above_threshold"])
+        # Neutral technical content should have low or no bias detection
+        self.assertFalse(report["detected"])
+        self.assertEqual(len(report["loaded_language"]), 0)
 
     def test_detect_bias_source_stance_mapping(self):
         report_left = self.gate.detect_bias("Some text", "https://www.nytimes.com/article")
-        # nytimes is center-left, so stance != "center" → adds note
-        self.assertTrue(any("editorial stance" in n.lower() for n in report_left["notes"]))
+        self.assertEqual(report_left["source_stance"], "center-left")
+
+        report_right = self.gate.detect_bias("Some text", "https://www.wsj.com/article")
+        self.assertEqual(report_right["source_stance"], "center-right")
 
         report_centrist = self.gate.detect_bias("Some text", "https://www.reuters.com/article")
-        # reuters is centrist (mapped as "centrist"), no editorial stance note added
-        self.assertFalse(any("editorial stance" in n.lower() for n in report_centrist["notes"]))
+        self.assertEqual(report_centrist["source_stance"], "centrist")
 
     def test_detect_bias_empty_text_returns_neutral(self):
         report = self.gate.detect_bias("")
-        self.assertEqual(report["bias_score"], 0.0)
-        self.assertEqual(len(report["notes"]), 0)
+        self.assertFalse(report["detected"])
+        self.assertEqual(report["max_confidence"], 0.0)
 
     def test_detect_bias_none_text_returns_neutral(self):
         report = self.gate.detect_bias(None)  # type: ignore[arg-type]
-        self.assertEqual(report["bias_score"], 0.0)
+        self.assertFalse(report["detected"])
 
     def test_detect_bias_non_string_returns_neutral(self):
         report = self.gate.detect_bias(12345)  # type: ignore[arg-type]
-        self.assertEqual(report["bias_score"], 0.0)
+        self.assertFalse(report["detected"])
 
     # --- apply_worldview_filter tests ---
 
     def test_worldview_filter_annotates_facts(self):
         facts = [
-            {"content": "Python is a programming language.", "_source_stance": "unknown", "_bias_notes": []},
+            {"content": "Python is a programming language.", "source": "https://python.org"},
         ]
         result = self.gate.apply_worldview_filter(facts, query="python basics")
 
         self.assertEqual(len(result), 1)
         fact = result[0]
-        self.assertIn("_worldview_note", fact)
-        self.assertIn("_scrutiny_complete", fact)
+        self.assertIn("scrutiny_level", fact)
+        self.assertIn("source_bias_note", fact)
+        self.assertIn("worldview_alignment", fact)
+        self.assertIn("confidence", fact)
 
-    def test_worldview_filter_high_sensitivity_adds_notes(self):
+    def test_worldview_filter_high_sensitivity_deep_vetting(self):
         facts = [
-            {"content": "The policy was beneficial.", "_source_stance": "center-left", "_bias_notes": []},
+            {"content": "The policy was beneficial for all citizens.", "source": "https://www.nytimes.com"},
         ]
         result = self.gate.apply_worldview_filter(facts, query="US politics election")
 
         fact = result[0]
-        # High sensitivity + non-center stance → worldview note added
-        self.assertTrue(len(fact["_worldview_note"]) > 0)
+        self.assertEqual(fact["scrutiny_level"], "deep")
 
-    def test_worldview_filter_low_sensitivity_basic(self):
+    def test_worldview_filter_low_sensitivity_basic_vetting(self):
         facts = [
-            {"content": "Docker containers are lightweight.", "_source_stance": "unknown", "_bias_notes": []},
+            {"content": "Docker containers are lightweight.", "source": "https://docs.docker.com"},
         ]
         result = self.gate.apply_worldview_filter(facts, query="docker containers")
 
         fact = result[0]
-        # Low sensitivity → no worldview note even with unknown stance
-        self.assertEqual(fact["_worldview_note"], "")
+        self.assertEqual(fact["scrutiny_level"], "basic")
 
     def test_worldview_filter_empty_facts_returns_empty(self):
         result = self.gate.apply_worldview_filter([], query="anything")
@@ -298,15 +311,14 @@ class TestRLIngestionGate(unittest.TestCase):
 
     # --- Basic evaluation tests ---
 
-    def test_evaluate_empty_content_rejected_or_noted(self):
+    def test_evaluate_empty_content_rejected(self):
         result = self.gate.evaluate({"content": ""})
-        self.assertIn("status", result)
-        # Empty content should not be cleanly approved
-        self.assertNotEqual(result["status"], "approved")
+        self.assertEqual(result["status"], "rejected")
+        self.assertIn("Empty content", result["reason"])
 
-    def test_evaluate_missing_content_rejected_or_noted(self):
+    def test_evaluate_missing_content_rejected(self):
         result = self.gate.evaluate({})
-        self.assertIn("status", result)
+        self.assertEqual(result["status"], "rejected")
 
     def test_evaluate_returns_structured_output(self):
         result = self.gate.evaluate({
@@ -327,17 +339,22 @@ class TestRLIngestionGate(unittest.TestCase):
             "content": "Docker uses Linux namespaces and cgroups for isolation.",
             "url": "https://docs.docker.com/engine/",
             "query": "docker architecture",
-            "_scrutiny_complete": True,
         })
-        # Should be approved — low sensitivity, neutral source, scrutiny complete
+        # Should be approved — low sensitivity, neutral source
         self.assertEqual(result["status"], "approved")
 
-    def test_evaluate_manual_review_for_high_issues(self):
-        """Content with multiple issues should go to manual review."""
+    def test_evaluate_manual_review_for_high_bias(self):
+        """High-sensitivity content with strong bias should go to manual review."""
         result = self.gate.evaluate({
-            "content": "Some content",
-            # Missing _scrutiny_complete + unknown source = 2 issues → manual_review
+            "content": (
+                "The so-called expert allegedly made toxic and scandalous claims. "
+                "Experts say the policy is disgraceful. Reports indicate it was "
+                "shockingly harmful. Studies show mistakes were made everywhere."
+            ),
+            "url": "https://www.breitbart.com/politics/",
+            "query": "US politics election",
         })
+        # High sensitivity + high bias = manual review
         self.assertEqual(result["status"], "manual_review")
 
     def test_evaluate_source_assessment_populated(self):
@@ -348,6 +365,7 @@ class TestRLIngestionGate(unittest.TestCase):
         })
         assessment = result["source_assessment"]
         self.assertEqual(assessment["domain"], "reuters.com")
+        self.assertEqual(assessment["stance"], "centrist")
 
     # --- Contradiction detection tests ---
 
@@ -378,13 +396,13 @@ class TestRLIngestionGate(unittest.TestCase):
                 "query": "vaccine safety",
             }, existing_rl_path=rl_path)
 
-            # Should flag for manual review due to contradiction + missing scrutiny
             self.assertEqual(result["status"], "manual_review")
+            self.assertGreater(len(result["contradictions"]), 0)
         finally:
             os.unlink(rl_path)
 
     def test_evaluate_no_contradiction_approves(self):
-        """Non-contradictory content with scrutiny complete should be approved."""
+        """Non-contradictory content should be approved."""
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump({
                 "entries": [
@@ -402,13 +420,14 @@ class TestRLIngestionGate(unittest.TestCase):
         try:
             result = self.gate.evaluate({
                 "content": (
-                    "Python 3.12 introduced the typing module improvements and faster interpreter."
+                    "Python 3.12 introduced the typing module improvements and faster interpreter. "
+                    "The release includes performance optimizations."
                 ),
                 "url": "https://python.org",
                 "query": "python 3.12 features",
-                "_scrutiny_complete": True,
             }, existing_rl_path=rl_path)
 
+            # Should be approved — no contradiction, low sensitivity
             self.assertEqual(result["status"], "approved")
         finally:
             os.unlink(rl_path)
@@ -419,11 +438,11 @@ class TestRLIngestionGate(unittest.TestCase):
             "content": "Some content.",
             "url": "https://example.com",
             "query": "test",
-            "_scrutiny_complete": True,
         }, existing_rl_path="/nonexistent/path.json")
 
         # Should still return a valid result (not crash)
         self.assertIn("status", result)
+        self.assertEqual(result["status"], "approved")
 
     def test_evaluate_existing_rl_as_list(self):
         """RL file as a list of entries should work."""
@@ -438,7 +457,6 @@ class TestRLIngestionGate(unittest.TestCase):
                 "content": "Python is a programming language.",
                 "url": "https://example.com",
                 "query": "python basics",
-                "_scrutiny_complete": True,
             }, existing_rl_path=rl_path)
 
             self.assertIn("status", result)
@@ -480,50 +498,53 @@ class TestConstants(unittest.TestCase):
 
     def test_bias_confidence_threshold(self):
         self.assertIsInstance(BIAS_CONFIDENCE_THRESHOLD, float)
+        self.assertAlmostEqual(BIAS_CONFIDENCE_THRESHOLD, 0.5)
 
     def test_rl_contradiction_threshold(self):
         self.assertIsInstance(RL_CONTRADICTION_THRESHOLD, int)
+        self.assertEqual(RL_CONTRADICTION_THRESHOLD, 3)
 
 
 class TestGracefulDegradation(unittest.TestCase):
-    """Verify all entry points handle bad inputs gracefully."""
+    """Verify graceful degradation — no unhandled exceptions."""
 
     def test_classifier_never_raises(self):
         classifier = TopicSensitivityClassifier()
-        for bad_input in [None, 12345, [], {}, True]:
+        # Should not raise on any input type
+        for bad_input in [None, "", 0, [], {}, object(), b"bytes"]:
             try:
                 result = classifier.classify(bad_input)  # type: ignore[arg-type]
-                self.assertIsInstance(result, str)
+                self.assertIn(result, ["low", "high"])
             except Exception as e:
                 self.fail(f"classify({bad_input!r}) raised {type(e).__name__}: {e}")
 
     def test_detect_bias_never_raises(self):
         gate = ScrutinyGate()
-        for bad_input in [None, 12345, [], {}, True]:
+        for bad_input in [None, "", 0, [], {}, object(), b"bytes"]:
             try:
                 result = gate.detect_bias(bad_input)  # type: ignore[arg-type]
-                self.assertIsInstance(result, dict)
+                self.assertIn("detected", result)
             except Exception as e:
                 self.fail(f"detect_bias({bad_input!r}) raised {type(e).__name__}: {e}")
 
     def test_vet_results_never_raises(self):
         gate = ScrutinyGate()
-        for bad_results in [None, "not a list", 123]:
+        for bad_results in [None, "", 0]:
             try:
                 result = gate.vet_results(bad_results, query="test")  # type: ignore[arg-type]
-                self.assertIsInstance(result, dict)
+                self.assertIn("vetted_results", result)
             except Exception as e:
                 self.fail(f"vet_results({bad_results!r}) raised {type(e).__name__}: {e}")
 
     def test_rl_gate_never_raises(self):
         gate = RLIngestionGate()
-        for bad_data in [None, "not a dict", 123]:
+        for bad_data in [None, "", 0, [], {}]:
             try:
                 result = gate.evaluate(bad_data)  # type: ignore[arg-type]
-                self.assertIsInstance(result, dict)
+                self.assertIn("status", result)
             except Exception as e:
                 self.fail(f"evaluate({bad_data!r}) raised {type(e).__name__}: {e}")
 
 
 if __name__ == "__main__":
-    unittest.main()
+    unittest.main(verbosity=2)

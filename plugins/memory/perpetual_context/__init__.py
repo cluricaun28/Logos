@@ -31,21 +31,10 @@ import logging
 import os
 import re as _re  # renamed to avoid conflict with topic extraction regex
 import sqlite3
-import sys
 import threading
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-
-# Add scripts directory for query classifier
-_scripts_dir = str(Path.home() / ".hermes" / "scripts")
-if _scripts_dir not in sys.path:
-    sys.path.insert(0, _scripts_dir)
-
-try:
-    from query_classifier import QueryClassifier as _QueryClassifierClass
-except ImportError:
-    _QueryClassifierClass = None  # Graceful fallback if classifier unavailable
 
 from agent.memory_provider import MemoryProvider
 from agent.perpetual_context_db import RECALL_OUTPUT_MAX_CHARS
@@ -78,7 +67,7 @@ GAP_DETECTION_MIN_RESULTS = 2        # Fewer than this triggers gap flag for Pha
 WEB_SEARCH_ENABLED = True            # Master toggle for automatic web search triggering
 SEARXNG_URL = "http://localhost:8080"  # SearXNG instance URL
 WEB_SEARCH_TIMEOUT = 10              # Seconds before timeout
-WEB_PRIORITY_THRESHOLD = 0.3         # Trigger web search when priority exceeds this (low bar — validate against unknown)
+WEB_PRIORITY_THRESHOLD = 0.3         # Trigger web search when priority exceeds this
 WEB_SEARCH_TOP_K = 5                 # Max results from SearXNG
 UNIFIED_SCORE_WEIGHTS = {            # Source reliability weights for cross-source merge
     "pm": 0.35,   # Perpetual Memory — personal context, episodic memory
@@ -98,13 +87,7 @@ WORLDVIEW_FLAGGED_DOMAINS = {
     "cnn.com": "Progressive institutional capture",
     "nytimes.com": "Elite establishment narrative",
     "reuters.com": "Corporate wire service bias",
-    "apnews.com": "Associated Press — establishment framing",
 }
-
-# Phase 3: PM → RL Distillation Pipeline
-DISTILLATION_ENABLED = True          # Master toggle for auto-distillation triggers
-DISTILLATION_SCORE_THRESHOLD = 0.5   # Minimum cluster score to consider for distillation
-DISTILLATION_QUEUE_PATH = str(Path.home() / ".hermes" / "staging" / "distillation_queue.json")
 
 # Auto-routing constants moved to retrieval_engine.py — imported below.
 # Kept here for backward compatibility with existing code that references them directly.
@@ -114,6 +97,123 @@ AUTO_ROUTING_KEYWORDS = {
     "file_history": {"file", "edit", "changed"},
     "recent": {"recently", "continue", "pick up"},
 }  # Deprecated — use retrieval_engine.AUTO_ROUTING_KEYWORDS instead
+
+# Topic stability classification — extensible keyword lists.
+# Add or remove keywords as needed. Each topic gets a stability level and a
+# half-life in days: how long before local data is considered suspect.
+
+# STATIC — timeless knowledge. RL is authoritative; no web search needed.
+STATIC_TOPIC_KEYWORDS: frozenset = frozenset([
+    # Biology / nature
+    "dog", "cat", "bird", "fish", "plant", "tree", "animal", "species",
+    "photosynthesis", "evolution", "DNA", "cell", "ecosystem",
+    # Mathematics / science fundamentals
+    "calculus", "algebra", "geometry", "theorem", "proof", "prime number",
+    "gravity", "thermodynamics", "quantum", "atom", "molecule",
+    # Scripture / theology
+    "genesis", "exodus", "psalms", "gospel", "epistle", "revelation",
+    "bible", "scripture", "covenant", "redemption", "sanctification",
+    "justification", "election", "predestination", "trinity",
+    # Established history
+    "world war", "american revolution", "french revolution",
+    "roman empire", "byzantine", "reformation", "dark ages",
+    # General definitions
+    "what is", "define", "definition of", "meaning of",
+    "how does", "how does a",
+])
+
+# SLOW — evolves over months. Software docs, frameworks, legal, established tech.
+# Half-life: 90 days. Web search fires if local data is older than that with low score.
+SLOW_TOPIC_KEYWORDS: frozenset = frozenset([
+    # Software / frameworks (well-established)
+    "python", "sql", "docker", "linux", "git", "github", "api",
+    "postgresql", "sqlite", "nginx", "redis", "kubernetes",
+    "flask", "django", "fastapi", "react", "typescript",
+    # AI / ML (established concepts)
+    "transformer", "attention", "backpropagation", "gradient",
+    "neural network", "convolution", "gan", "vae",
+    # Legal / regulation
+    "regulation", "compliance", "tax", "irs", "llc", "corporation",
+    "contract", "liability", "warranty", "indemnification",
+    # Hardware (established)
+    "nvidia", "amd", "intel", "gpu", "cpu", "ram", "ssd",
+    "cuda", "opencl", "vulkan",
+    # Business / finance (stable concepts)
+    "accounting", "bookkeeping", "invoice", "receivable", "payable",
+    "p&l", "balance sheet", "cash flow", "depreciation",
+    "retail", "wholesale", "margin", "overhead",
+])
+
+# VOLATILE — changes weekly or daily. Current events, active development, pricing.
+# Half-life: 7 days. Web search fires aggressively.
+VOLATILE_TOPIC_KEYWORDS: frozenset = frozenset([
+    # AI / ML (active development)
+    "vllm", "llama", "qwen", "gpt", "claude", "gemini",
+    "model release", "new model", "model update", "fine-tuning",
+    "dpo", "sft", "rlhf", "training", "inference",
+    "unsloth", "axolotl", "trl", "peft", "qlora",
+    "xai", "grok", "openai", "anthropic", "google ai", "deepmind",
+    "llm", "large language model", "llm benchmark", "llm leader",
+    # Pricing / availability
+    "price", "pricing", "cost", "how much", "pricing change",
+    "sale", "discount", "deal", "buy", "purchase",
+    "available", "unavailable", "out of stock", "released",
+    # Current events / time-sensitive
+    "latest", "new", "recent", "current", "today", "this week",
+    "this month", "breaking", "news", "announcement", "update",
+    "what's happening", "what is going on", "status", "latest version",
+    "latest news", "recent development",
+    # Software versions / releases
+    "version", "release", "changelog", "roadmap", "beta", "alpha",
+    "stable release", "nightly", "latest release",
+    # Active projects / ongoing development
+    "progress", "development", "work in progress", "under construction",
+    "upcoming", "planned", "scheduled",
+])
+
+# Half-life in days per stability level
+STATIC_HALF_LIFE_DAYS = 3650      # ~10 years — essentially permanent
+SLOW_HALF_LIFE_DAYS = 90          # ~3 months
+VOLATILE_HALF_LIFE_DAYS = 7       # ~1 week
+
+# Score thresholds per stability level — web search fires if best local score is below this
+STATIC_WEB_THRESHOLD = 0.05       # Almost never fire web for static topics
+SLOW_WEB_THRESHOLD = 0.35         # Moderate — fire if local results are weak
+VOLATILE_WEB_THRESHOLD = 0.60     # Aggressive — fire unless local results are strong
+
+
+def _classify_topic_stability(query: str) -> tuple:
+    """Classify a query's topic stability.
+
+    Returns (stability: str, half_life_days: int, web_threshold: float).
+
+    Stability levels:
+      - 'static': timeless knowledge (what is a dog, math, scripture)
+      - 'slow': evolves over months (software docs, legal, established tech)
+      - 'volatile': changes weekly (current events, active dev, pricing)
+
+    When no keywords match, defaults to 'slow' — conservative fallback.
+
+    Extend the keyword frozensets above to add or remove topics.
+    """
+    q = query.lower()
+    q_words = set(q.split())
+
+    # Check volatile first (most specific, highest priority)
+    if q_words & VOLATILE_TOPIC_KEYWORDS:
+        return ("volatile", VOLATILE_HALF_LIFE_DAYS, VOLATILE_WEB_THRESHOLD)
+
+    # Check static
+    if q_words & STATIC_TOPIC_KEYWORDS:
+        return ("static", STATIC_HALF_LIFE_DAYS, STATIC_WEB_THRESHOLD)
+
+    # Check slow
+    if q_words & SLOW_TOPIC_KEYWORDS:
+        return ("slow", SLOW_HALF_LIFE_DAYS, SLOW_WEB_THRESHOLD)
+
+    # Default: treat as slow — better to slightly over-search than serve stale data
+    return ("slow", SLOW_HALF_LIFE_DAYS, SLOW_WEB_THRESHOLD)
+
 
 # ---------------------------------------------------------------------------
 # Tool schemas
@@ -357,22 +457,22 @@ SMART_RETRIEVE_SCHEMA = {
 REFERENCE_LIBRARY_SEARCH_SCHEMA = {
     "name": "reference_library_search",
     "description": (
-        "MANDATORY FIRST STEP for all factual, historical, political, economic,\\n"
-        "media, and worldview questions. Contains curated, worldview-aligned reference\\n"
-        "material built from first principles.\\n\\n"
-        "USE THIS BEFORE ANY OTHER SEARCH TOOL when answering:\\n"
-        "• Questions about history, politics, economics, media bias, or worldview\\n"
-        "• Any factual claim that needs verification against curated knowledge\\n"
-        "• Research involving people, organizations, or institutions\\n\\n"
-        "This is NOT optional. Always check reference_library_search before generating answers\\n"
-        "from training data or session memory alone.\\n\\n"
-        "PARAMETERS:\\n"
-        "• query: Search text (required)\\n"
-        "• top_k: Number of results (default 5, max 20)\\n\\n"
-        "EXAMPLES:\\n"
-        "• 'Elon Musk political influence' — Find entity page with reaction tracking\\n"
-        "• 'media bias patterns' — Curated analysis of source credibility\\n"
-        "• 'American economic policy post-1964' — Historical reference material"
+        "MANDATORY FIRST STEP for all factual, historical, political, economic,\n"
+        "media, and worldview questions. Contains curated, worldview-aligned reference\n"
+        "material built from first principles.\n\n"
+        "USE THIS BEFORE ANY OTHER SEARCH TOOL when answering:\n"
+        "• Questions about history, politics, economics, media bias, or worldview\n"
+        "• Any factual claim that needs verification against curated knowledge\n"
+        "• Research involving people, organizations, or institutions\n\n"
+        "This is NOT optional. Always check reference_library_search before generating answers\n"
+        "from training data or session memory alone.\n\n"
+        "PARAMETERS:\n"
+        "• query: Search text (required)\n"
+        "• top_k: Number of results (default 5, max 20)\n\n"
+        "EXAMPLES:\n"
+        "• 'Elon Musk political influence' — Find entity page with reaction tracking\n"
+        "• 'media bias patterns' — Find curated analysis of source credibility\n"
+        "• 'American economic policy post-1964' — Find historical reference material"
     ),
     "parameters": {
         "type": "object",
@@ -384,67 +484,10 @@ REFERENCE_LIBRARY_SEARCH_SCHEMA = {
     },
 }
 
-CLASSIFIER_CORRECTION_SCHEMA = {
-    "name": "classifier_correction",
-    "description": (
-        "Log a correction when the query classifier routes to the wrong source.\\n"
-        "This trains the system to route similar queries correctly in the future.\\n\\n"
-        "USE THIS WHEN:\\n"
-        "• The prefetch injected web results for a personal question ('what dogs do I have')\\n"
-        "• A contextual query ('any gaps?', 'continue') was treated as general knowledge\\n"
-        "• You notice the classifier chose the wrong primary source (PM/RL/Web)\\n\\n"
-        "PARAMETERS:\\n"
-        "• query: The original misclassified query text\\n"
-        "• correct_source: The correct source ('pm', 'rl', or 'web')\\n\\n"
-        "EXAMPLES:\\n"
-        "• query='What kind of dogs do I have?', correct_source='pm'\\n"
-        "• query='Any gaps?', correct_source='pm'"
-    ),
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "query": {"type": "string", "description": "The misclassified query text"},
-            "correct_source": {
-                "type": "string",
-                "enum": ["pm", "rl", "web"],
-                "description": "The correct source: pm=Perpetual Memory, rl=Reference Library, web=Web Search"
-            },
-        },
-        "required": ["query", "correct_source"],
-    },
-}
-
-RETRIEVAL_QUALITY_SCHEMA = {
-    "name": "retrieval_quality",
-    "description": (
-        "Evaluate prefetch retrieval quality. Shows trend analysis, per-metric averages, "
-        "and recent low-quality events.\n\n"
-        "USE THIS WHEN:\n"
-        "• Checking whether prefetch is returning useful context or noise\n"
-        "• Diagnosing why certain queries aren't getting relevant results\n"
-        "• Reviewing retrieval quality trends over time\n\n"
-        "PARAMETERS:\n"
-        "• action: 'trend' (default) for overall analysis, 'failures' for recent misses\n"
-        "• window: Number of events to analyze (default 20)\n"
-        "• threshold: Quality score threshold for failures (default 0.3)\n\n"
-        "EXAMPLES:\n"
-        "• action='trend' — Show overall retrieval quality trend\n"
-        "• action='failures', threshold=0.4 — Show recent low-quality prefetches"
-    ),
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "action": {"type": "string", "description": "Action: 'trend' or 'failures'", "default": "trend"},
-            "window": {"type": "integer", "description": "Number of events to analyze (default 20)", "default": 20},
-            "threshold": {"type": "number", "description": "Quality score threshold for failures (default 0.3)", "default": 0.3},
-        },
-    },
-}
-
 SESSION_SEARCH_SCHEMA = {
     "name": "session_search",
     "description": (
-        "Use ONLY for recent conversation context — what the user said/did in the last\n"
+        "Use ONLY for recent conversation context — what Patrick said/did in the last\n"
         "few turns. NEVER use this tool for facts, history, or analysis.\n\n"
         "STRICT BOUNDARY:\n"
         "• session_search = recent conversation memory only\n"
@@ -478,11 +521,7 @@ class PerpetualContextProvider(MemoryProvider):
         self._session_id: Optional[str] = None
         self._current_depth: str = "moderate"
         self._prefetch_queue: List[Dict[str, Any]] = []
-        self._lock = threading.Lock()
-        # Prefetch injection toggle — disabled by default to avoid injecting
-        # irrelevant noise into every turn. The agent has tools (perpetual_search,
-        # reference_library_search) and knows when to use them from the system prompt.
-        self._prefetch_enabled: bool = False
+        self._lock = threading.RLock()  # RLock for reentrant acquisition in nested calls
         # SRP-compliant sub-components — instantiated in initialize() once DB is ready
         self._extraction: Optional[ExtractionEngine] = None
         self._tools: Optional[ToolHandler] = None
@@ -490,486 +529,67 @@ class PerpetualContextProvider(MemoryProvider):
         # Negative feedback loop components
         self._scorer: Optional[Any] = None  # BridgeQualityScorer (lazy import)
         self._feedback: Optional[Any] = None  # FeedbackState (lazy init)
-        # Retrieval quality evaluation
-        self._retrieval_scorer: Optional[Any] = None  # RetrievalQualityScorer (lazy init)
-        # RL Memory Provider components — hybrid semantic + keyword search over Reference Library
-        self._rl_embeddings_loaded: bool = False
-        self._rl_model = None
-        self._rl_conn = None
-        self._classifier = _QueryClassifierClass() if _QueryClassifierClass else None
+        # Deep Research phases 2-4 (lazy init)
+        self._web_research: Optional[Any] = None
+        self._scrutiny_gate: Optional[Any] = None
+        self._synthesis_engine: Optional[Any] = None
 
     def _ensure_subcomponents(self) -> None:
-        """Lazy-init sub-components after DB is available."""
-        if self._extraction is None and self._db is not None:
-            self._extraction = ExtractionEngine()
-            # Bridge builder depends on extraction engine + feedback components
-            self._bridge_builder = ContextBridgeBuilder(
-                extraction_engine=self._extraction,
-                scorer=self._scorer,
-                feedback_state=self._feedback,
-            )
-        if self._tools is None and self._db is not None:
-            self._tools = ToolHandler(
-                db=self._db,
-                session_id=self._session_id or "",
-                current_depth=self._current_depth,
-                prefetch_queue=self._prefetch_queue,
-            )
+        """Lazy-init sub-components after DB is available.
+        Thread-safe: acquires self._lock to guard shared mutable state."""
+        with self._lock:
+            if self._extraction is None and self._db is not None:
+                self._extraction = ExtractionEngine()
+                # Bridge builder depends on extraction engine + feedback components
+                self._bridge_builder = ContextBridgeBuilder(
+                    extraction_engine=self._extraction,
+                    scorer=self._scorer,
+                    feedback_state=self._feedback,
+                )
+            if self._tools is None and self._db is not None:
+                self._tools = ToolHandler(
+                    db=self._db,
+                    session_id=self._session_id or "",
+                    current_depth=self._current_depth,
+                    prefetch_queue=self._prefetch_queue,
+                )
+            # Wire Deep Research phases if enabled
+            self._ensure_deep_research()
+
+    def _ensure_deep_research(self) -> None:
+        """Lazy-init Deep Research phase components (2-4).
+
+        Only instantiates when DEEP_RESEARCH_ENABLED is True. Each component
+        is imported lazily to avoid startup cost when the feature is off.
+        Caller must hold self._lock.
+        """
+        if not DEEP_RESEARCH_ENABLED:
+            return
+        if self._web_research is None:
+            from .web_research import WebResearchClient
+            self._web_research = WebResearchClient({
+                "searxng_url": SEARXNG_URL,
+            })
+        elif not self._web_research._searxng_url:
+            # Client exists but SearXNG wasn't configured — inject it now
+            self._web_research._searxng_url = SEARXNG_URL
+        if self._scrutiny_gate is None:
+            from .scrutiny_gate import ScrutinyGate
+            self._scrutiny_gate = ScrutinyGate()
+        if self._synthesis_engine is None:
+            from .synthesis_engine import SynthesisEngine
+            self._synthesis_engine = SynthesisEngine()
 
     def _ensure_feedback_loop(self) -> None:
-        """Lazy-init negative feedback loop components."""
-        if self._scorer is None:
-            from .quality_scorer import BridgeQualityScorer
-            self._scorer = BridgeQualityScorer()
-        if self._feedback is None:
-            from .feedback_state import FeedbackState
-            self._feedback = FeedbackState()
-
-    def _ensure_retrieval_scorer(self) -> None:
-        """Lazy-init retrieval quality scorer."""
-        if self._retrieval_scorer is None:
-            try:
-                from .retrieval_quality import RetrievalQualityScorer
-                self._retrieval_scorer = RetrievalQualityScorer()
-            except ImportError as e:
-                logger.debug("RetrievalQualityScorer unavailable: %s", e)
-
-    def _score_retrieval_quality(
-        self,
-        query: str,
-        priorities: Dict[str, float],
-        scored_results: List[Dict[str, Any]],
-        formatted_text: str = "",
-    ) -> None:
-        """Score a prefetch retrieval event for quality tracking.
-
-        Non-blocking — logs results to sliding window for trend analysis.
-        Called after each successful prefetch with results.
-        """
-        self._ensure_retrieval_scorer()
-        if self._retrieval_scorer is None:
-            return
-
-        try:
-            self._retrieval_scorer.score(
-                query=query,
-                priorities=priorities,
-                scored_results=scored_results,
-                formatted_text=formatted_text,
-                top_k_requested=self._get_depth_limit(),
-            )
-        except Exception as e:
-            logger.debug("Retrieval quality scoring failed: %s", e)
-
-    def _ensure_rl_embeddings(self) -> bool:
-        """Lazy-load RL embedding index on first use. Returns True if successful."""
-        if self._rl_embeddings_loaded:
-            return True
-        try:
-            from sentence_transformers import SentenceTransformer
-            model_path = str(Path.home() / ".hermes" / "models" / "embeddings" / "all-MiniLM-L6-v2")
-
-            # Use GPU if available (Crenshaw server), otherwise CPU (current system)
-            try:
-                import torch
-                device = "cuda" if torch.cuda.is_available() else "cpu"
-            except ImportError:
-                device = "cpu"
-
-            self._rl_model = SentenceTransformer(model_path, device=device)
-            self._rl_conn = sqlite3.connect(str(Path.home() / ".hermes" / "perpetual_context.db"))
-            self._rl_embeddings_loaded = True
-            logger.info(f"RLMemoryProvider: Embedding model loaded on {device}")
-            return True
-        except Exception as e:
-            logger.warning(f"RLMemoryProvider: Failed to load embedder: {e}. Keyword-only mode.")
-            return False
-
-    def _hybrid_rl_search(self, query: str, top_k: int = 3) -> list:
-        """Hybrid semantic + keyword search over RL corpus. Returns snippets with file pointers."""
-        if not self._rl_model or not self._rl_conn:
-            return []
-
-        try:
-            import numpy as np
-
-            # Semantic search — encode query and compare against all RL embeddings
-            query_emb = self._rl_model.encode([query])[0]
-            rows = self._rl_conn.execute(
-                "SELECT id, file_path, embedding FROM rl_embeddings WHERE word_count > 50"
-            ).fetchall()
-
-            semantic_scores = {}
-            for row_id, file_path, emb_bytes in rows:
-                emb = np.frombuffer(emb_bytes, dtype=np.float32)
-                sim = float(np.dot(query_emb, emb) / (
-                    np.linalg.norm(query_emb) * np.linalg.norm(emb) + 1e-8))
-                semantic_scores[file_path] = sim
-
-            # Keyword search (FTS5) — fast exact matching
-            fts_rows = self._rl_conn.execute(
-                "SELECT file_path, rank FROM rl_fts WHERE rl_fts MATCH ? ORDER BY rank LIMIT 20",
-                (query,)
-            ).fetchall()
-            keyword_scores = {row[0]: row[1] for row in fts_rows}
-
-            # Hybrid scoring: 60% semantic + 40% keyword (normalized)
-            max_semantic = max(semantic_scores.values()) if semantic_scores else 1.0
-            max_keyword = max(keyword_scores.values()) if keyword_scores else 1.0
-
-            all_files = set(list(semantic_scores.keys()) + list(keyword_scores.keys()))
-            final_scores = []
-
-            for file_path in all_files:
-                sem = semantic_scores.get(file_path, 0) / max_semantic if max_semantic > 0 else 0
-                kw = keyword_scores.get(file_path, 0) / max_keyword if max_keyword > 0 else 0
-                hybrid = (sem * 0.6) + (kw * 0.4)
-                final_scores.append((hybrid, file_path))
-
-            final_scores.sort(key=lambda x: x[0], reverse=True)
-
-            # Extract snippets for top results — skip YAML frontmatter, find query terms in body text
-            rl_dir = Path.home() / ".hermes" / "reference-library"
-            results = []
-            query_terms = set(query.lower().split())
-
-            for score, file_path in final_scores[:top_k]:
-                if score < 0.15:  # Threshold to avoid noise
-                    continue
-
-                full_path = rl_dir / file_path
-                content = full_path.read_text(encoding='utf-8')
-                lines = content.split('\n')
-
-                # Skip YAML frontmatter if present
-                content_start = 0
-                if lines and lines[0].strip() == '---':
-                    for i, line in enumerate(lines[1:], 1):
-                        if line.strip() == '---':
-                            content_start = i + 1
-                            break
-
-                body_lines = lines[content_start:]
-                best_score = 0
-                best_start = 0
-
-                for i, line in enumerate(body_lines):
-                    if line.startswith('#') or not line.strip():
-                        continue
-                    term_matches = len(query_terms & set(line.lower().split()))
-                    if term_matches > best_score:
-                        best_score = term_matches
-                        best_start = max(0, i - 1)
-
-                snippet_lines = body_lines[best_start:min(best_start + 4, len(body_lines))]
-                snippet = ' '.join(l.strip() for l in snippet_lines if l.strip())
-                snippet = snippet[:200] + "..." if len(snippet) > 200 else snippet
-
-                results.append({
-                    "score": round(score, 3),
-                    "file_path": file_path,
-                    "snippet": snippet
-                })
-
-            return results
-
-        except Exception as e:
-            logger.debug(f"RL hybrid search failed: {e}")
-            return []
-
-    # -- Phase 2: Auto Web Search + Unified Relevance Scoring ---------------
-
-    def _auto_web_search(self, query: str, top_k: int = WEB_SEARCH_TOP_K) -> list:
-        """Call SearXNG for web search results with worldview filtering.
-
-        Returns list of result dicts with url, title, content, score fields.
-        Gracefully degrades if SearXNG is unavailable or times out.
-        Applies SovereignSieve worldview filtering on all results before return.
-        Falls back to Firecrawl scraping when SearXNG returns thin results.
-        """
-        if not WEB_SEARCH_ENABLED:
-            return []
-
-        try:
-            import requests as _requests
-
-            start = time.perf_counter()
-            response = _requests.get(
-                f"{SEARXNG_URL}/search",
-                params={"q": query, "format": "json", "engines": "google,brave,wikipedia"},
-                timeout=WEB_SEARCH_TIMEOUT,
-            )
-            latency_ms = (time.perf_counter() - start) * 1000
-
-            if response.status_code != 200:
-                logger.warning(f"SearXNG returned status {response.status_code}")
-                return []
-
-            data = response.json()
-            results = data.get("results", [])[:top_k]
-
-            # Normalize and apply worldview filtering
-            filtered = []
-            for r in results:
-                domain = self._extract_domain(r.get("url", ""))
-
-                # Block known low-signal sources
-                if domain in WORLDVIEW_BLOCKED_DOMAINS:
-                    logger.debug(f"Blocked web result from {domain}")
-                    continue
-
-                entry = {
-                    "url": r.get("url", ""),
-                    "title": r.get("title", ""),
-                    "content": (r.get("content") or "")[:300],
-                    "score": r.get("score", 0),
-                    "engine": r.get("engine", ""),
-                    "_latency_ms": round(latency_ms, 1),
-                }
-
-                # Flag sources with known institutional framing
-                if domain in WORLDVIEW_FLAGGED_DOMAINS:
-                    entry["worldview_flag"] = "review_recommended"
-                    entry["flag_reason"] = f"Source {domain}: {WORLDVIEW_FLAGGED_DOMAINS[domain]}"
-
-                filtered.append(entry)
-
-            # Fallback: if SearXNG returned thin results, try Firecrawl to scrape top URL
-            if filtered and len(filtered[0].get("content", "")) < 50:
-                scraped = self._firecrawl_fallback(filtered[0]["url"])
-                if scraped:
-                    filtered[0]["content"] = scraped[:500]
-                    filtered[0]["source"] = "firecrawl"
-
-            logger.info(f"Web search: {len(filtered)} results in {latency_ms:.0f}ms for \"{query[:40]}...\"")
-            return filtered
-
-        except _requests.exceptions.Timeout:
-            logger.warning("SearXNG request timed out — web search skipped")
-            return []
-        except Exception as e:
-            logger.debug(f"Web search failed: {e}")
-            return []
-
-    def _firecrawl_fallback(self, url: str) -> Optional[str]:
-        """Scrape a URL using local Firecrawl when SearXNG snippets are too thin.
-
-        Returns extracted markdown content or None on failure.
-        """
-        try:
-            import requests as _requests
-            resp = _requests.post(
-                "http://localhost:3002/v1/scrape",
-                json={"url": url, "formats": ["markdown"]},
-                timeout=30,
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                if data.get("success"):
-                    markdown = data.get("data", {}).get("markdown", "")
-                    return markdown[:1000] if markdown else None
-        except Exception as e:
-            logger.debug(f"Firecrawl fallback failed for {url}: {e}")
-        return None
-
-    @staticmethod
-    def _extract_domain(url: str) -> str:
-        """Extract domain from URL for worldview filtering."""
-        try:
-            from urllib.parse import urlparse
-            parsed = urlparse(url)
-            return parsed.netloc.lower().replace("www.", "")
-        except Exception:
-            return url.split("//")[0].split("/")[0].lower() if "//" in url else ""
-
-    def _distill_check(self, query: str, pm_results: list = None) -> Optional[str]:
-        """Phase 3: Check for undistilled high-signal clusters matching current context.
-
-        Non-blocking check that identifies PM clusters ready for RL distillation.
-        Returns a pointer string if distillation is recommended, or None otherwise.
-
-        Args:
-            query: Current user query text.
-            pm_results: Results from Perpetual Memory search (optional).
-
-        Returns:
-            Pointer string with distillation recommendation, or None.
-        """
-        if not DISTILLATION_ENABLED:
-            return None
-
-        try:
-            # Load distillation queue
-            queue_path = Path(DISTILLATION_QUEUE_PATH)
-            if not queue_path.exists():
-                return None
-
-            import json as _json
-            with open(queue_path, 'r') as f:
-                queue = _json.load(f)
-
-            if not isinstance(queue, list):
-                return None
-
-            # Check for undistilled signals matching current query topics
-            query_lower = query.lower()
-            matched_signals = []
-
-            for signal in queue:
-                topic = signal.get("topic", "").lower()
-                score = signal.get("score", 0)
-                distilled = signal.get("distilled", False)
-
-                # Skip already-distilled signals
-                if distilled:
-                    continue
-
-                # Check if query matches this topic (simple substring/keyword match)
-                if topic.replace("_", " ") in query_lower or topic in query_lower:
-                    if score >= DISTILLATION_SCORE_THRESHOLD:
-                        matched_signals.append(signal)
-
-            if not matched_signals:
-                return None
-
-            # Build recommendation pointer
-            top_signal = max(matched_signals, key=lambda s: s.get("score", 0))
-            topic_name = top_signal["topic"].replace("_", " ")
-            turn_count = top_signal.get("size", len(top_signal.get("turn_ids", [])))
-
-            return (
-                f"\n\n[💡 Distillation recommended: '{topic_name}' cluster has {turn_count} turns "
-                f"(score: {top_signal['score']:.3f}). Consider running the Logos Engine pipeline "
-                f"to distill this into Reference Library. Queue at {queue_path}]"
-            )
-
-        except Exception as e:
-            logger.debug(f"Distillation check failed: {e}")
-            return None
-
-    def _unified_score_results(
-        self,
-        pm_results: list = None,
-        rl_results: list = None,
-        web_results: list = None,
-    ) -> list:
-        """Merge results from all sources with unified relevance scoring.
-
-        Each result gets a normalized score (0-1) weighted by source reliability:
-        - RL: 0.40 weight (curated, worldview-aligned knowledge — highest)
-        - PM: 0.35 weight (personal context, episodic memory)
-        - Web: 0.25 weight (needs verification, time-sensitive — lowest)
-
-        Returns merged list sorted by unified_score descending.
-        """
-        pm = pm_results or []
-        rl = rl_results or []
-        web = web_results or []
-
-        scored = []
-
-        # Score RL results
-        max_rl = max((r.get("score", 1) for r in rl), default=1)
-        for r in rl:
-            normalized = min(r.get("score", 0) / max_rl, 1.0) if max_rl > 0 else 0
-            unified = normalized * UNIFIED_SCORE_WEIGHTS["rl"]
-            scored.append({
-                "source": "RL",
-                "unified_score": round(unified, 3),
-                "raw_score": r.get("score", 0),
-                **r,
-            })
-
-        # Score PM results
-        max_pm = max((r.get("_score", r.get("score", 1)) for r in pm), default=1)
-        for r in pm:
-            raw = r.get("_score", r.get("score", 0))
-            normalized = min(raw / max_pm, 1.0) if max_pm > 0 else 0
-            unified = normalized * UNIFIED_SCORE_WEIGHTS["pm"]
-            scored.append({
-                "source": "PM",
-                "unified_score": round(unified, 3),
-                "raw_score": raw,
-                **r,
-            })
-
-        # Score Web results (already filtered through worldview filter)
-        max_web = max((r.get("score", 1) for r in web), default=1)
-        for r in web:
-            normalized = min(r.get("score", 0) / max_web, 1.0) if max_web > 0 else 0
-            unified = normalized * UNIFIED_SCORE_WEIGHTS["web"]
-            scored.append({
-                "source": "Web",
-                "unified_score": round(unified, 3),
-                "raw_score": r.get("score", 0),
-                **r,
-            })
-
-        # Sort by unified score descending
-        scored.sort(key=lambda x: x["unified_score"], reverse=True)
-        return scored
-
-    def _format_unified_injection(self, scored_results: list, max_chars: int = 2000) -> str:
-        """Format unified results for injection into agent context.
-
-        Groups by source type with clear attribution and file pointers.
-        """
-        if not scored_results:
-            return ""
-
-        parts = []
-        current_source = None
-        char_count = 0
-
-        for r in scored_results:
-            source = r.get("source", "Unknown")
-            score = r.get("unified_score", 0)
-
-            # Source header when switching sources
-            if source != current_source:
-                if current_source is not None:
-                    parts.append("")  # Blank line between sources
-                source_labels = {
-                    "RL": "[From Reference Library]",
-                    "PM": "[From Perpetual Memory]",
-                    "Web": "[From Web Search]",
-                }
-                parts.append(f"\n---\n{source_labels.get(source, f'[From {source}]')}")
-                current_source = source
-
-            # Format based on source type
-            if source == "RL":
-                file_path = r.get("file_path", r.get("name", "Unknown"))
-                snippet = (r.get("snippet") or "")[:200]
-                line = f"[{file_path} (score: {score:.3f})]\n{snippet}"
-
-            elif source == "PM":
-                role = r.get("role", "assistant").upper()
-                session = r.get("session_id", "")[:12]
-                content = (r.get("content") or "")[:200]
-                line = f"[{role} | Session {session} (score: {score:.3f})]\n{content}"
-
-            elif source == "Web":
-                title = r.get("title", "Untitled")
-                url = r.get("url", "")
-                content = (r.get("content") or "")[:200]
-                flag = ""
-                if r.get("worldview_flag"):
-                    flag = f" [FLAG: {r.get('flag_reason', 'review')}] "
-                line = f"[{title} ({url}) (score: {score:.3f})]{flag}\n{content}"
-
-            else:
-                line = str(r)[:200]
-
-            # Check character budget
-            if char_count + len(line) > max_chars:
-                parts.append(f"\n... [truncated — more results available]")
-                break
-
-            parts.append(line)
-            char_count += len(line)
-
-        return "\n\n".join(parts)
+        """Lazy-init negative feedback loop components.
+        Thread-safe: acquires self._lock to guard shared mutable state."""
+        with self._lock:
+            if self._scorer is None:
+                from .quality_scorer import BridgeQualityScorer
+                self._scorer = BridgeQualityScorer()
+            if self._feedback is None:
+                from .feedback_state import FeedbackState
+                self._feedback = FeedbackState()
 
     @property
     def name(self) -> str:
@@ -1001,26 +621,9 @@ class PerpetualContextProvider(MemoryProvider):
         """
         self._session_id = session_id
 
-        # Get config — try kwargs first, fall back to reading config.yaml directly
-        pc_config = {}
-        _cfg_from_kwargs = kwargs.get("config", {})
-        if isinstance(_cfg_from_kwargs, dict):
-            pc_config = _cfg_from_kwargs.get("perpetual_context", {}) or {}
-
-        # Fallback: read config.yaml directly if not passed via kwargs
-        if not pc_config and "hermes_home" in kwargs:
-            try:
-                import yaml as _yaml
-                cfg_path = os.path.join(kwargs["hermes_home"], "config.yaml")
-                if os.path.exists(cfg_path):
-                    with open(cfg_path) as _f:
-                        _full_cfg = _yaml.safe_load(_f) or {}
-                    pc_config = (_full_cfg.get("memory", {}) or {}).get("perpetual_context", {}) or {}
-            except Exception:
-                pass
-
-        # Prefetch injection toggle — disable to stop auto-injecting context into every turn
-        self._prefetch_enabled = pc_config.get("prefetch_enabled", True)
+        # Get config
+        config = kwargs.get("config", {})
+        pc_config = config.get("perpetual_context", {}) if isinstance(config, dict) else {}
 
         # Determine DB path — always resolve through ~/.hermes/ first,
         # falling back to hermes_home from kwargs (which may be the project dir).
@@ -1054,12 +657,15 @@ class PerpetualContextProvider(MemoryProvider):
         self._ensure_subcomponents()
 
     def system_prompt_block(self) -> str:
-        """Return text to include in the system prompt."""
-        if not self._db or not self._db._initialized:
-            return ""
-
+        """Return text to include in the system prompt.
+        Thread-safe: acquires lock before reading shared state."""
+        with self._lock:
+            if not self._db or not self._db._initialized:
+                return ""
+            db = self._db
+            depth = self._current_depth
         from datetime import datetime
-        stats = self._db.get_stats()
+        stats = db.get_stats()
         msg_count = stats.get('message_count', 0)
         session_count = stats.get('session_count', 0)
         current_time = datetime.now().astimezone().strftime('%A, %B %d, %Y %-I:%M %p (%Z)')
@@ -1067,7 +673,7 @@ class PerpetualContextProvider(MemoryProvider):
         return (
             f"[Current Time: {current_time}]\n"
             f"[Perpetual Context Memory: {msg_count} messages across "
-            f"{session_count} sessions, depth={self._current_depth}]\n"
+            f"{session_count} sessions, depth={depth}]\n"
             f"Infinite recall via Perpetual Memory — every turn stored in local SQLite with FTS5. "
             f"Use `perpetual_search` for past conversations, `reference_library_search` for curated knowledge. "
             f"Reference library at `~/.hermes/reference-library/` — read with `read_file`. "
@@ -1075,229 +681,264 @@ class PerpetualContextProvider(MemoryProvider):
         )
 
     def prefetch(self, query: str, *, session_id: str = "") -> str:
-        """Recall relevant context with intelligent source routing + unified scoring.
+        """Recall relevant context for the upcoming turn.
 
-        Phase 1+2 of Deep Research & Continuity Engine:
-        - Classifies query intent (PM vs RL vs Web priority)
-        - Conditionally searches each source based on classification
-        - Auto-triggers web search when time-sensitive or gaps detected
-        - Merges all results with unified relevance scoring
-        - Applies worldview filtering on web results
+        Phase 1 of Deep Research & Continuity Engine — Local Recall auto-hook.
+        Searches both Reference Library (curated knowledge) and Perpetual Memory
+        (historical conversation data), then detects gaps that may need web fallback.
 
-        Returns formatted text to inject as context, grouped by source type.
+        Returns formatted text to inject as context, with source attribution
+        and gap flags for Phase 2 when local recall is insufficient.
         """
-        # Phase 3: Distillation check runs independently of PM/RL search.
-        # It's a file-based queue check that doesn't need DB initialization.
-        distill_ptr = self._distill_check(query) if DISTILLATION_ENABLED else None
-
-        if not self._prefetch_enabled:
-            return distill_ptr or ""
-        if not self._db or not self._db._initialized:
-            return distill_ptr or ""
-
-        # Skip non-knowledge queries — conversational flow, system noise, bare acknowledgments.
-        # These waste retrieval budget and produce source_alignment=0.0 failures.
-        if self._classifier and self._classifier.should_skip(query):
-            return distill_ptr or ""
+        # Acquire lock, snapshot shared state into locals, then release for I/O
+        with self._lock:
+            if not self._db or not self._db._initialized:
+                return ""
+            effective_session = session_id or self._session_id or ""
+            self._ensure_subcomponents()
+            db = self._db
+            tools = self._tools
+            web_research = self._web_research
+            scrutiny_gate = self._scrutiny_gate
+            synthesis_engine = self._synthesis_engine
 
         try:
-            effective_session = session_id or self._session_id or ""
+            effective_session = session_id or effective_session or ""
+            # Recompute after lock release — ensure_subcomponents may have populated _session_id
+            parts = []
+            rl_results_count = 0
+            pm_results_count = 0
+            gaps_detected = False
 
-            # --- Step 1: Query Classification (intelligent source routing) ---
-            priorities = {"pm_priority": 0.5, "rl_priority": 0.5, "web_priority": 0.0}
-            if self._classifier:
+            # --- Phase 1a: Reference Library Search (curated knowledge) ---
+            rl_data = {}
+            if DEEP_RESEARCH_ENABLED:
                 try:
-                    priorities = self._classifier.classify(query)
-                except Exception as e:
-                    logger.debug(f"Query classification failed: {e}")
+                    if tools:
+                        rl_json = tools.handle_reference_library_search({
+                            "query": query,
+                            "top_k": RL_SEARCH_TOP_K,
+                        })
+                        rl_data = json.loads(rl_json)
+                        rl_results = rl_data.get("results", [])
 
-            # --- Step 1.5: Ambiguity resolution via recent context ---
-            # Tiered lookup: check 5 recent turns first, then 15 if nothing found,
-            # then ask for clarification if still unresolved.
-            AMBIGUITY_TIER_1 = 5
-            AMBIGUITY_TIER_2 = 15
-            if (priorities.get("primary_source") == "clarification_needed"
-                    or priorities.get("confidence") == "low"):
-                try:
-                    _STOP = {'a', 'an', 'the', 'is', 'are', 'was', 'were', 'be', 'been',
-                             'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
-                             'could', 'should', 'may', 'might', 'to', 'of', 'in', 'on',
-                             'at', 'for', 'with', 'by', 'from', 'as', 'it', 'its'}
-                    query_kw = {w for w in query.lower().split() if w not in _STOP and len(w) > 1}
+                        if rl_results:
+                            rl_parts = []
+                            for r in rl_results[:RL_SEARCH_TOP_K]:
+                                name = r.get("name", "Unknown")
+                                snippet = r.get("snippet", "")[:300]
+                                score = r.get("score", 0)
+                                rl_parts.append(
+                                    f"[RL: {name} (score: {score})]\n{snippet}"
+                                )
+                            parts.append("\n\n---\n\n".join(rl_parts))
+                            rl_results_count = len(rl_results)
 
-                    def _check_recent(n):
-                        msgs = self._db.get_recent_messages(
-                            n=n,
-                            session_id=effective_session if effective_session else None,
-                        )
-                        if not msgs:
-                            return False, []
-                        relevant = []
-                        for msg in msgs:
-                            if msg.get("role") == "user":
-                                msg_kw = set(msg.get("content", "").lower().split()) - _STOP
-                                if query_kw & msg_kw:
-                                    relevant.append(msg.get("content", "")[:PREFETCH_TRUNCATION_CHARS])
-                        return len(relevant) > 0, relevant
-
-                    # Query has no content keywords (e.g., "Good?") — it's a response to
-                    # what I just said. Grab the most recent assistant message as context.
-                    if not query_kw:
-                        msgs = self._db.get_recent_messages(
-                            n=AMBIGUITY_TIER_2,
-                            session_id=effective_session if effective_session else None,
-                        )
-                        for msg in reversed(msgs):
-                            if msg.get("role") == "assistant":
-                                content = msg.get("content", "")[:PREFETCH_TRUNCATION_CHARS]
-                                relevant = [content]
-                                found = True
-                                break
-
-                    # If still not found, check user messages in tiered fashion
-                    if not found and query_kw:
-                        # Tier 1: check 5 recent user turns
-                        found, relevant = _check_recent(AMBIGUITY_TIER_1)
-                        # Tier 2: if nothing in 5, widen to 15
-                        if not found:
-                            found, relevant = _check_recent(AMBIGUITY_TIER_2)
-
-                    if found:
-                        # Inject resolved recent context as prompt guidance
-                        context_text = "[Recent Context — used to resolve ambiguity]\n"
-                        for ctx in relevant[:3]:
-                            context_text += f"• {ctx}\n"
-
-                        # If recent context mentions restart/reload, add gateway status hint.
-                        # Any ambiguous prompt after a restart likely means "did the changes take effect?"
-                        combined_ctx = " ".join(relevant[:3]).lower()
-                        if any(word in combined_ctx for word in ("restart", "restarted", "reboot", "reload", "start up", "start the gateway", "start the server")):
-                            context_text += "• [Note: Recent conversation mentions a restart. The user is likely asking if the restart was successful and the changes took effect. Check gateway status and confirm.]\n"
-
-                        if distill_ptr:
-                            return context_text + distill_ptr
-                        return context_text
-                    else:
-                        # No relevant context found — prompt the agent to ask for clarification
-                        clar_text = (
-                            "[Query Ambiguity — ask for clarification]\n"
-                            "Your query is ambiguous and I couldn't find relevant context in recent "
-                            "conversation. Before answering, ask the user what they mean."
-                        )
-                        if distill_ptr:
-                            return clar_text + distill_ptr
-                        return clar_text
-                except Exception as e:
-                    logger.debug(f"Ambiguity resolution failed: {e}")
-                # If ambiguity resolution fails entirely, fall through to normal search
-
-            # --- Step 2: Collect results from each source (defer formatting) ---
-            pm_results = []
-            rl_results = []
-            web_results = []
-
-            # Conditional PM Search (if personal context likely)
-            if priorities["pm_priority"] > 0.3:
-                try:
-                    pm_results = self._db.hybrid_search(
-                        query=query,
-                        session_id=effective_session if effective_session else None,
-                        top_k=self._get_depth_limit(),
-                    ) or []
-                except Exception as e:
-                    logger.debug("Perpetual memory search failed in prefetch: %s", e)
-
-            # Conditional RL Search (if established knowledge likely)
-            if priorities["rl_priority"] > 0.3:
-                try:
-                    if self._ensure_rl_embeddings():
-                        rl_results = self._hybrid_rl_search(query, top_k=RL_SEARCH_TOP_K) or []
-                    elif DEEP_RESEARCH_ENABLED:
-                        # Fallback to legacy reference_library_search tool
-                        self._ensure_subcomponents()
-                        if self._tools:
-                            rl_json = self._tools.handle_reference_library_search({
-                                "query": query,
-                                "top_k": RL_SEARCH_TOP_K,
-                            })
-                            rl_data = json.loads(rl_json)
-                            legacy_rl_results = rl_data.get("results", [])
-                            # Normalize legacy format to match hybrid search output
-                            rl_results = [
-                                {
-                                    "file_path": r.get("name", "Unknown"),
-                                    "snippet": (r.get("snippet") or "")[:300],
-                                    "score": r.get("score", 0),
-                                }
-                                for r in legacy_rl_results[:RL_SEARCH_TOP_K]
-                            ]
                 except Exception as e:
                     logger.debug("Reference library search failed in prefetch: %s", e)
 
-            # --- Step 3: Auto Web Search (Phase 2) ---
-            # PM and RL are known datasets — the web is unknown territory.
-            # Only search web when: classifier indicates web priority, OR local results are thin.
-            total_local = len(pm_results) + len(rl_results)
-
-            # Skip web only for bare continuation commands that refer to recent conversation
-            import re as _re
-            is_continuation = bool(_re.match(r'^(continue|go\s*on|keep\s*going|next|more|proceed|carry\s*on|\?\s*$)', query.strip(), _re.IGNORECASE))
-
-            # Web search triggers:
-            # 1. Classifier explicitly indicates web priority > 0.3 (external research needed)
-            # 2. Local results are thin (< GAP_DETECTION_MIN_RESULTS) AND not a continuation command
-            needs_web = (
-                WEB_SEARCH_ENABLED and
-                not is_continuation and (
-                    priorities.get("web_priority", 0) > 0.3 or
-                    total_local < GAP_DETECTION_MIN_RESULTS
+            # --- Phase 1b: Perpetual Memory Hybrid Search (historical context) ---
+            try:
+                pm_results = db.hybrid_search(
+                    query=query,
+                    session_id=effective_session if effective_session else None,
+                    top_k=self._get_depth_limit(),
                 )
-            )
 
-            if needs_web:
-                web_results = self._auto_web_search(query, top_k=WEB_SEARCH_TOP_K)
+                if pm_results:
+                    pm_formatted = []
+                    for msg in pm_results[:self._get_depth_limit()]:
+                        role_label = msg["role"].upper()
+                        content = msg.get("content", "")[:PREFETCH_TRUNCATION_CHARS]
+                        score = msg.get("_score", 0)
+                        pm_formatted.append(
+                            f"[PM: {role_label} (relevance: {score:.2f})]\n{content}"
+                        )
+                    parts.append("\n\n---\n\n".join(pm_formatted))
+                    pm_results_count = len(pm_results)
 
-            # --- Step 4: Unified Relevance Scoring (Phase 2) ---
-            all_scored = self._unified_score_results(
-                pm_results=pm_results,
-                rl_results=rl_results,
-                web_results=web_results,
-            )
+            except Exception as e:
+                logger.debug("Perpetual memory search failed in prefetch: %s", e)
 
-            if not all_scored:
+            # --- Phase 1c: Stability-Aware Gap Detection ---
+            # Classify the query's topic stability, then decide whether to
+            # fire web research based on how stale/uncertain the local data is.
+            stability, half_life, web_threshold = _classify_topic_stability(query)
+
+            if DEEP_RESEARCH_ENABLED and parts:
+                total_results = rl_results_count + pm_results_count
+
+                # Hard gap: too few results — always worth checking the web
+                if total_results < GAP_DETECTION_MIN_RESULTS:
+                    gaps_detected = True
+                    logger.debug("Gap: too few local results (%d)", total_results)
+
+                # Soft gap: we have results but confidence is low relative to topic stability
+                else:
+                    # RL scores are raw term counts (not normalized). To assess whether
+                    # the RL match is *specific* to this query (good) or just hitting
+                    # common words across many pages (bad), we compare the best RL score
+                    # against the *second-best* RL score. A large gap means the top result
+                    # is genuinely relevant. A small gap means all results matched similarly —
+                    # the query is too broad for RL to discriminate.
+                    #
+                    # PM scores are already 0-1 (cosine + keyword fusion).
+
+                    # RL: use ratio of best-to-second-best. 1.0 = tie (bad), >2.0 = specific (good).
+                    all_rl_scores = sorted(
+                        [r.get("score", 0) for r in rl_data.get("results", [])[:RL_SEARCH_TOP_K]],
+                        reverse=True,
+                    )
+                    if len(all_rl_scores) >= 2 and all_rl_scores[1] > 0:
+                        best_rl_ratio = all_rl_scores[0] / all_rl_scores[1]
+                    elif len(all_rl_scores) == 1:
+                        best_rl_ratio = 2.0  # Single result = fairly specific
+                    else:
+                        best_rl_ratio = 0  # No RL results
+
+                    # PM: already 0-1
+                    all_pm_scores = [msg.get("_score", 0) for msg in pm_results[:self._get_depth_limit()]]
+                    best_pm_norm = max(all_pm_scores, default=0)
+
+                    # Combine: a query is "well-answered locally" if EITHER source shows
+                    # strong, specific results. The rl_ratio threshold is conservative:
+                    # ratio < 3 means the top RL result isn't much better than #2.
+                    rl_confident = best_rl_ratio >= 3.0
+                    pm_confident = best_pm_norm >= 0.3
+
+                    if rl_confident or pm_confident:
+                        # Local sources have a confident answer — no web needed
+                        pass
+                    else:
+                        # No confident local match — fire web for this topic
+                        gaps_detected = True
+                        logger.debug(
+                            "Gap: topic='%s' stability=%s, rl_ratio=%.1f pm=%.2f",
+                            query[:50], stability, best_rl_ratio, best_pm_norm,
+                        )
+
+            # --- Phase 2: Web Research (when local recall is insufficient) ---
+            web_results: List[Dict[str, Any]] = []
+            if DEEP_RESEARCH_ENABLED and gaps_detected and web_research is not None:
+                try:
+                    import time as _time
+                    _t0 = _time.monotonic()
+                    raw = web_research.search(query, top_k=WEB_SEARCH_TOP_K)
+                    _elapsed = _time.monotonic() - _t0
+                    logger.debug("Web search for '%s' returned %d results in %.1fs",
+                                 query[:50], len(raw), _elapsed)
+                    for sr in raw:
+                        web_results.append({
+                            "title": sr.title,
+                            "url": sr.url,
+                            "snippet": sr.snippet,
+                            "source": sr.source,
+                            "score": sr.score,
+                            "extracted_content": sr.extracted_content,
+                        })
+                except Exception as e:
+                    logger.debug("Phase 2 web research failed: %s", e)
+
+            # --- Phase 3: Scrutiny Gate (vet web results before injection) ---
+            vetted_results: List[Dict[str, Any]] = []
+            if web_results and scrutiny_gate is not None:
+                try:
+                    # Filter blocked domains
+                    filtered = [
+                        r for r in web_results
+                        if not any(
+                            blocked in r.get("url", "")
+                            for blocked in WORLDVIEW_BLOCKED_DOMAINS
+                        )
+                    ]
+                    scrutiny = scrutiny_gate.vet_results(filtered, query)
+                    vetted_results = scrutiny.get("vetted_results", [])
+                    flagged = scrutiny.get("rejected_results", [])
+                    if flagged:
+                        logger.debug("Scrutiny flagged %d results: %s",
+                                     len(flagged), [f.get("reason", "") for f in flagged[:3]])
+                except Exception as e:
+                    logger.debug("Phase 3 scrutiny failed: %s", e)
+                    vetted_results = web_results  # Fallback: use unvetted
+
+            # --- Phase 4: Synthesis (compact context block from vetted facts) ---
+            footer_parts = []  # Initialize before Phase 4 uses it
+            if vetted_results and synthesis_engine is not None:
+                try:
+                    import time as _time2
+                    _t2 = _time2.monotonic()
+                    sensitivity = "high" if stability == "volatile" else "low"
+                    synthesis = synthesis_engine.synthesize(
+                        facts=vetted_results,
+                        query=query,
+                        sensitivity=sensitivity,
+                    )
+                    _e2 = _time2.monotonic() - _t2
+                    context_block = synthesis.get("context_block", "")
+                    if context_block:
+                        sources = ", ".join(r.get("source", "web") for r in vetted_results[:3])
+                        web_section = (
+                            f"[Web Research Results (from {sources})]\n"
+                            f"{context_block}"
+                        )
+                        parts.append(web_section)
+                        logger.debug("Phase 4 synthesis produced %d bytes in %.1fs",
+                                     len(context_block), _e2)
+
+                    # RLUpdateDetector: check if new facts suggest stale RL pages
+                    rl_update_flags = synthesis.get("rl_update_flags", [])
+                    if rl_update_flags:
+                        # Only surface the most relevant flags — skip mass false positives
+                        # from scanning huge directories (e.g. Britannica with 32K entries)
+                        relevant_flags = [
+                            f for f in rl_update_flags[:10]
+                            if "britannica" not in f.get("page", "").lower()
+                        ][:2]
+                        if relevant_flags:
+                            logger.info(
+                                "RLUpdateDetector flagged %d relevant page(s) for review",
+                                len(relevant_flags),
+                            )
+                            for flag in relevant_flags:
+                                footer_parts.append(
+                                    f"[RL Update: {flag.get('page', '').split('/')[-1]} — "
+                                    f"{flag.get('reason', '')[:120]}]"
+                                )
+                except Exception as e:
+                    logger.debug("Phase 4 synthesis failed: %s", e)
+                    # Fallback: inject raw vetted snippets
+                    if vetted_results:
+                        snippets = []
+                        for r in vetted_results[:3]:
+                            snippets.append(
+                                f"[Web: {r.get('title', 'Unknown')} ({r.get('source', '')})]\n"
+                                f"{r.get('snippet', '')[:200]}"
+                            )
+                        if snippets:
+                            parts.append("\n\n".join(snippets))
+
+            # --- Combine and format results ---
+            if not parts:
                 return ""
 
-            # --- Step 5: Format unified injection ---
-            result_text = self._format_unified_injection(all_scored)
+            result_text = "\n\n---\n\n".join(parts)
 
-            # --- Step 6: Score retrieval quality (evaluation harness) ---
-            self._score_retrieval_quality(
-                query=query,
-                priorities=priorities,
-                scored_results=all_scored,
-                formatted_text=result_text,
-            )
-
-            # Add source summary footer
-            footer_parts = [
-                f"[Local Recall: {len(rl_results)} RL, {len(pm_results)} PM, "
-                f"{len(web_results)} Web | "
-                f"Priorities: PM={priorities['pm_priority']:.2f}, "
-                f"RL={priorities['rl_priority']:.2f}, Web={priorities['web_priority']:.2f}]"
-            ]
-
-            # Gap detection flag
-            if total_local < GAP_DETECTION_MIN_RESULTS and not web_results:
+            # Add source summary and gap flag
+            # (footer_parts already initialized before Phase 4)
+            if DEEP_RESEARCH_ENABLED:
+                web_results_count = len(vetted_results)
                 footer_parts.append(
-                    "[⚠ Gap detected — local recall insufficient, web search unavailable. "
-                    "Consider manual research for current/external data.]"
+                    f"[Recall: {rl_results_count} RL, {pm_results_count} PM"
+                    f"{', ' + str(web_results_count) + ' web' if web_results_count else ''}]"
                 )
+                footer_parts.append(f"[Topic: {stability}]")
+                if gaps_detected and not web_results_count:
+                    footer_parts.append(
+                        "[Gap detected — local recall insufficient. "
+                        "Consider web research for current/external data.]"
+                    )
 
             result_text += "\n\n" + " ".join(footer_parts)
-
-            # Append distillation pointer if one was found at the top of prefetch()
-            if distill_ptr:
-                result_text += distill_ptr
 
             return result_text
 
@@ -1330,10 +971,12 @@ class PerpetualContextProvider(MemoryProvider):
         Returns:
             Formatted pointer string, or empty string if nothing relevant found.
         """
-        if not self._db or not self._db._initialized:
-            return ""
+        with self._lock:
+            if not self._db or not self._db._initialized:
+                return ""
+            db = self._db
         try:
-            return self._db.recall_past_discussions(
+            return db.recall_past_discussions(
                 query=query,
                 exclude_session_id=exclude_session_id,
                 max_chars=max_chars,
@@ -1343,11 +986,13 @@ class PerpetualContextProvider(MemoryProvider):
             return ""
 
     def sync_turn(self, user_content: str, assistant_content: str, *, session_id: str = "") -> None:
-        """Persist a completed turn to the backend."""
-        if not self._db or not self._db._initialized:
-            return
-
-        effective_session = session_id or self._session_id or ""
+        """Persist a completed turn to the backend.
+        Thread-safe: acquires lock before reading shared state."""
+        with self._lock:
+            if not self._db or not self._db._initialized:
+                return
+            effective_session = session_id or self._session_id or ""
+            db = self._db
 
         # Skip non-primary contexts (cron system prompts would corrupt data)
         agent_context = getattr(self, "_agent_context", "primary")
@@ -1356,7 +1001,7 @@ class PerpetualContextProvider(MemoryProvider):
 
         try:
             # Store user message
-            self._db.add_message(
+            db.add_message(
                 session_id=effective_session,
                 role="user",
                 content=user_content,
@@ -1364,7 +1009,7 @@ class PerpetualContextProvider(MemoryProvider):
             )
 
             # Store assistant message
-            self._db.add_message(
+            db.add_message(
                 session_id=effective_session,
                 role="assistant",
                 content=assistant_content,
@@ -1385,28 +1030,30 @@ class PerpetualContextProvider(MemoryProvider):
             QUERY_MESSAGES_SCHEMA,
             SMART_RETRIEVE_SCHEMA,
             REFERENCE_LIBRARY_SEARCH_SCHEMA,
-            CLASSIFIER_CORRECTION_SCHEMA,
-            RETRIEVAL_QUALITY_SCHEMA,
+            SESSION_SEARCH_SCHEMA,
         ]
 
     def handle_tool_call(self, tool_name: str, args: Dict[str, Any], **kwargs) -> str:
-        """Handle a tool call — delegate directly to ToolHandler."""
-        if not self._db or not self._db._initialized:
-            return json.dumps({"error": "Perpetual context database not initialized"})
-
-        self._ensure_subcomponents()
-        if not self._tools:
-            return json.dumps({"error": "ToolHandler not initialized"})
+        """Handle a tool call — delegate directly to ToolHandler.
+        Thread-safe: acquires lock before reading shared state."""
+        with self._lock:
+            if not self._db or not self._db._initialized:
+                return json.dumps({"error": "Perpetual context database not initialized"})
+            self._ensure_subcomponents()
+            if not self._tools:
+                return json.dumps({"error": "ToolHandler not initialized"})
+            tools = self._tools
 
         try:
             handler_map = {
-                "perpetual_search": self._tools.handle_search,
-                "topic_flow": self._tools.handle_topic_flow,
-                "context_depth": self._tools.handle_context_depth,
-                "get_messages": self._tools.handle_get_messages,
-                "recent_messages": self._tools.handle_recent_messages,
-                "query_messages": self._tools.handle_query_messages,
-                "reference_library_search": self._tools.handle_reference_library_search,
+                "perpetual_search": tools.handle_search,
+                "topic_flow": tools.handle_topic_flow,
+                "context_depth": tools.handle_context_depth,
+                "get_messages": tools.handle_get_messages,
+                "recent_messages": tools.handle_recent_messages,
+                "query_messages": tools.handle_query_messages,
+                "reference_library_search": tools.handle_reference_library_search,
+                "session_search": tools.handle_session_search,
             }
 
             handler = handler_map.get(tool_name)
@@ -1419,105 +1066,39 @@ class PerpetualContextProvider(MemoryProvider):
                     args, smart_retrieve_fn=self.smart_retrieve
                 )
 
-            # classifier_correction — log feedback to improve routing
-            if tool_name == "classifier_correction":
-                return self._handle_classifier_correction(args)
-
-            # retrieval_quality — evaluate prefetch quality
-            if tool_name == "retrieval_quality":
-                return self._handle_retrieval_quality(args)
-
             raise NotImplementedError(f"Unknown tool: {tool_name}")
 
         except Exception as e:
             logger.exception("Perpetual context tool error (%s)", tool_name)
             return json.dumps({"error": str(e)})
 
-    def _handle_retrieval_quality(self, args: Dict[str, Any]) -> str:
-        """Handle retrieval_quality tool call — evaluate prefetch quality."""
-        action = args.get("action", "trend")
-        window = min(args.get("window", 20), 100)
-        threshold = args.get("threshold", 0.3)
-
-        self._ensure_retrieval_scorer()
-        if self._retrieval_scorer is None:
-            return json.dumps({"error": "Retrieval quality scorer not available"})
-
-        try:
-            if action == "trend":
-                trend = self._retrieval_scorer.get_trend(window=window)
-                return json.dumps({
-                    "action": "trend",
-                    **trend,
-                })
-
-            elif action == "failures":
-                failures = self._retrieval_scorer.get_recent_failures(threshold=threshold)
-                trend = self._retrieval_scorer.get_trend(window=window)
-                return json.dumps({
-                    "action": "failures",
-                    "trend_summary": {
-                        "avg_score": trend["avg_score"],
-                        "events_analyzed": trend["events_analyzed"],
-                        "trend_direction": trend["trend"],
-                    },
-                    "recent_failures": failures,
-                    "total_failures_found": len(failures),
-                })
-
-            else:
-                return json.dumps({"error": f"Unknown action '{action}'. Use 'trend' or 'failures'"})
-
-        except Exception as e:
-            logger.exception("Retrieval quality evaluation failed")
-            return json.dumps({"error": str(e)})
-
-    def _handle_classifier_correction(self, args: Dict[str, Any]) -> str:
-        """Handle classifier_correction tool call — log feedback to improve routing."""
-        query = args.get("query", "")
-        correct_source = args.get("correct_source", "")
-
-        if not query or not correct_source:
-            return json.dumps({"error": "Both 'query' and 'correct_source' are required"})
-
-        try:
-            from classifier_feedback import FeedbackLoop
-            fb = FeedbackLoop()
-            fb.log_correction(query, correct_source)
-            stats = fb.get_stats()
-            return json.dumps({
-                "status": "logged",
-                "message": f"Correction logged: '{query}' → {correct_source}",
-                "total_corrections": stats["total_corrections"],
-            })
-        except ImportError:
-            return json.dumps({"error": "Feedback loop not available"})
-        except Exception as e:
-            logger.exception("Classifier correction failed")
-            return json.dumps({"error": str(e)})
-
     def shutdown(self) -> None:
-        """Clean shutdown — flush queues, close connections."""
-        if self._db and self._db._initialized:
-            try:
-                self._db.optimize()
-            except Exception:
-                pass
-            self._db.shutdown()
+        """Clean shutdown — flush queues, close connections.
+        Thread-safe: acquires lock before accessing shared state."""
+        with self._lock:
+            if self._db and self._db._initialized:
+                try:
+                    self._db.optimize()
+                except Exception as e:
+                    logger.debug("optimize() failed during shutdown: %s", e)
+                self._db.shutdown()
 
     # -- Optional hooks ----------------------------------------------------
 
     def on_turn_start(self, turn_number: int, message: str, **kwargs) -> None:
-        """Called at the start of each turn with the user message."""
-        if not self._db or not self._db._initialized:
-            return
+        """Called at the start of each turn with the user message.
+        Thread-safe: acquires lock before reading/writing shared state."""
+        with self._lock:
+            if not self._db or not self._db._initialized:
+                return
+            db = self._db
 
         # Periodic maintenance every 100 turns (VACUUM is expensive — avoid frequent calls)
         if turn_number % 100 == 0:
             try:
-                self._db.optimize()
-            except Exception:
-                pass
+                db.optimize()
+            except Exception as e:
+                logger.debug("optimize() failed during on_turn_start: %s", e)
 
         # Cache latest message for periodic injection lookup later.
         # on_turn_start fires early; actual injection happens in run_agent.py's pre-response hook.
@@ -1525,14 +1106,16 @@ class PerpetualContextProvider(MemoryProvider):
         self._last_user_message = message
 
     def on_session_end(self, messages: List[Dict[str, Any]]) -> None:
-        """Called at end of session — extract topics and build co-occurrence edges."""
-        if not self._db or not self._db._initialized:
-            return
+        """Called at end of session — extract topics and relationships.
+        Thread-safe: acquires lock before reading shared state."""
+        with self._lock:
+            if not self._db or not self._db._initialized:
+                return
+            db = self._db
+            sid = self._session_id or ""
 
         try:
-            # Collect all unique topics across the last 10 messages
-            all_session_topics = set()
-
+            # Extract topics from recent conversation
             for msg in messages[-10:]:  # Last 10 messages
                 content = msg.get("content", "").lower()
                 # Topic extraction: capture meaningful technical phrases only.
@@ -1552,26 +1135,11 @@ class PerpetualContextProvider(MemoryProvider):
                         t = next((g for g in t if g), "")
                     flat_topics.append(t)
                 filtered_topics = [t for t in flat_topics if len(t) > 3 and t.lower() not in _STOPWORDS]
-
-                # Add topics to DB and collect unique set for co-occurrence
                 for topic in filtered_topics[:3]:  # Max 3 topics per message (after filtering)
-                    topic_stripped = topic.strip()
-                    self._db.add_topic(
-                        session_id=self._session_id or "",
-                        topic_name=topic_stripped,
+                    db.add_topic(
+                        session_id=sid,
+                        topic_name=topic.strip(),
                         confidence=0.6,
-                    )
-                    all_session_topics.add(topic_stripped.lower())
-
-            # Build co-occurrence edges between all unique topic pairs in this session
-            unique_topics = sorted(all_session_topics)  # Sort for deterministic ordering
-            for i, t1 in enumerate(unique_topics):
-                for t2 in unique_topics[i + 1:]:
-                    self._db.increment_relationship(
-                        session_id=self._session_id or "",
-                        source_entity=t1,
-                        target_entity=t2,
-                        delta=0.1,  # Small increment — grows over repeated co-occurrence
                     )
 
         except Exception as e:
@@ -1585,25 +1153,29 @@ class PerpetualContextProvider(MemoryProvider):
         applies corrections if degradation detected.
 
         Graceful degradation — never breaks compression if something goes wrong.
+        Thread-safe: acquires lock before accessing shared mutable state.
         """
+        # _ensure_subcomponents() and _ensure_feedback_loop() each acquire
+        # self._lock internally (RLock allows reentrant calls).
         self._ensure_subcomponents()
         self._ensure_feedback_loop()
 
-        # Update bridge builder with latest feedback components (may have just initialized)
-        if self._bridge_builder:
-            self._bridge_builder._scorer = self._scorer
-            self._bridge_builder._feedback = self._feedback
-
-        if not self._bridge_builder:
+        # Snapshot shared references after init (all already locked above via RLock)
+        bridge = self._bridge_builder
+        if not bridge:
             return ""
 
         try:
+            # Update bridge builder with latest feedback components (may have just initialized)
+            bridge._scorer = self._scorer
+            bridge._feedback = self._feedback
+
             # Get correction params from feedback state
             correction_params = None
             if self._feedback and self._feedback.needs_correction():
                 correction_params = self._feedback.get_correction_params()
 
-            return self._bridge_builder.build_bridge(messages, correction_params)
+            return bridge.build_bridge(messages, correction_params)
         except Exception as e:
             # Robust error handling: never break archival due to bridge generation failure
             logger.warning("Context Bridge generation failed: %s", e)
@@ -1694,31 +1266,33 @@ class PerpetualContextProvider(MemoryProvider):
 
         Returns:
             A list of relevant messages or metadata from Perpetual Memory.
-        """
-        if not self._db or not self._db._initialized:
-            return []
-
-        try:
-            # Initialize retrieval modules on first use
+        Thread-safe: acquires lock before reading shared state."""
+        with self._lock:
+            if not self._db or not self._db._initialized:
+                return []
+            # Initialize retrieval modules on first use (under lock)
             if not hasattr(self, '_retriever'):
                 from .retrieval_engine import SmartRetriever
                 self._retriever = SmartRetriever(self._db)
+            retriever = self._retriever
+
+        try:
 
             if query_type == "recent":
                 # Context from last 20 turns — use recent_messages for speed
-                return self._retriever.retrieve("recent", query_text)
+                return retriever.retrieve("recent", query_text)
             
             elif query_type == "topic":
                 # Context about a specific topic across all sessions
-                return self._retriever.retrieve("topic", query_text)
+                return retriever.retrieve("topic", query_text)
             
             elif query_type == "decision_trace":
                 # Delegate to SmartRetriever (single source of truth for decision trace)
-                return self._retriever.retrieve("decision_trace", query_text)
+                return retriever.retrieve("decision_trace", query_text)
             
             elif query_type == "file_history":
                 # All edits to a specific file
-                return self._retriever.retrieve("file_history", query_text)
+                return retriever.retrieve("file_history", query_text)
             
             else:
                 logger.warning(f"Unknown retrieval type: {query_type}")
@@ -1729,12 +1303,15 @@ class PerpetualContextProvider(MemoryProvider):
             return []
     
     def on_memory_write(self, action: str, target: str, content: str, metadata=None) -> None:
-        """Mirror built-in memory writes to perpetual storage."""
-        if not self._db or not self._db._initialized:
-            return
+        """Mirror built-in memory writes to perpetual storage.
+        Thread-safe: acquires lock before reading shared state."""
+        with self._lock:
+            if not self._db or not self._db._initialized:
+                return
+            db = self._db
 
         try:
-            self._db.add_message(
+            db.add_message(
                 session_id="memory_mirror",
                 role="system",
                 content=f"[{action}] {target}: {content[:500]}",
@@ -1746,14 +1323,17 @@ class PerpetualContextProvider(MemoryProvider):
     # -- Internal helpers --------------------------------------------------
 
     def _get_depth_limit(self) -> int:
-        """Get result limit based on current depth level."""
-        self._ensure_subcomponents()
-        if not self._tools:
-            return 5
-        try:
-            return self._tools.get_depth_limit()
-        except Exception:
-            return 5
+        """Get result limit based on current depth level.
+        Thread-safe: acquires lock before reading shared state."""
+        with self._lock:
+            self._ensure_subcomponents()
+            if not self._tools:
+                return 5
+            try:
+                return self._tools.get_depth_limit()
+            except Exception as e:
+                logger.debug("_get_depth_limit failed: %s", e)
+                return 5
 
 # -- Plugin registration ---------------------------------------------------
 

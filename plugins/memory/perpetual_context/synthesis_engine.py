@@ -1,17 +1,17 @@
 """Multi-Pass Synthesis Engine — Phase 4 of Deep Research & Continuity Engine.
 
-Takes vetted facts from Phases 1-3 and performs multi-pass synthesis via local
-LM Studio inference, producing a compact hidden context block (~4-8KB) injected
-during reasoning. Also detects when Reference Library pages need updating based
-on new research findings.
+Takes vetted facts from Phases 1-3 and performs multi-pass synthesis via the
+active local inference provider (vLLM at localhost:8000), producing a compact
+hidden context block (~4-8KB) injected during reasoning. Also detects when
+Reference Library pages need updating based on new research findings.
 
 Architecture:
-  - SynthesisEngine: Multi-pass refinement orchestrator (local LM Studio only)
+  - SynthesisEngine: Multi-pass refinement orchestrator (uses configured provider)
   - ContextBlockFormatter: Formats synthesis into injection-ready blocks with budget caps
   - RLUpdateDetector: Detects stale/contradictory RL pages needing updates
 
-All operations degrade gracefully — returns original draft if LM Studio unavailable.
-NO data leaves the local system. All inference runs on your machine via LM Studio.
+All operations degrade gracefully — returns original draft if provider unavailable.
+NO data leaves the local system. All inference runs on Patrick's machine.
 """
 
 from __future__ import annotations
@@ -23,25 +23,23 @@ import re as _re
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Configuration constants — LOCAL INFERENCE ONLY
+# Reads active provider from Hermes config; defaults to vLLM on localhost:8000
 # ---------------------------------------------------------------------------
-SYNTHESIS_PASS_TIMEOUT = 30        # Seconds per LM Studio inference pass
+SYNTHESIS_PASS_TIMEOUT = 30        # Seconds per inference pass
 CONTEXT_BUDGET_KB_DEFAULT = 6      # Default KB budget for context block (4-8 recommended)
 MAX_SYNTHESIS_PASSES = 4           # Hard cap on refinement passes
-LM_STUDIO_URL_DEFAULT = "http://127.0.0.1:1234/v1"
-SYNTHESIS_MODEL_DEFAULT = "qwen3.6-27b"
-
-# Pre-compiled regex for budget enforcement
-_SECTION_PATTERN = _re.compile(r'^##\s+(.+)$', _re.MULTILINE)
-
+INFERENCE_URL_DEFAULT = "http://localhost:8000/v1"  # vLLM (not LM Studio)
+SYNTHESIS_MODEL_DEFAULT = ""  # Empty = use whatever model the provider has loaded
+RL_CONTRADICTION_THRESHOLD = 3      # Min term overlap to flag potential contradiction
 
 class SynthesisEngine:
-    """Multi-pass synthesis engine using local LM Studio inference.
+    """Multi-pass synthesis engine using local inference (vLLM).
 
     Passes:
     1. Draft compilation — assemble raw facts into structured draft
@@ -49,13 +47,14 @@ class SynthesisEngine:
     3. Polish/worldview filter — apply final formatting and worldview alignment notes
     (Optional) 4. Review pass — for high-sensitivity topics
 
-    All inference runs locally via LM Studio. No data leaves the machine.
-    Falls back to draft-only mode if LM Studio is unavailable.
+    All inference runs locally. No data leaves the machine.
+    Falls back to draft-only mode if the provider is unavailable.
     """
 
     def __init__(self, config: Optional[Dict[str, Any]] = None) -> None:
         cfg = config or {}
-        self._lm_studio_url: str = cfg.get("lm_studio_url", LM_STUDIO_URL_DEFAULT)
+        # Support both old key (lm_studio_url) and new key for backward compat
+        self._inference_url: str = cfg.get("lm_studio_url", cfg.get("inference_url", INFERENCE_URL_DEFAULT))
         self._model: str = cfg.get("synthesis_model", SYNTHESIS_MODEL_DEFAULT)
         self._max_passes: int = min(cfg.get("synthesis_passes", 3), MAX_SYNTHESIS_PASSES)
         self._context_budget_kb: int = cfg.get("context_budget_kb", CONTEXT_BUDGET_KB_DEFAULT)
@@ -70,6 +69,8 @@ class SynthesisEngine:
         - 'pass_count': Number of passes performed
         - 'sources_used': List of source attributions
         - 'warnings': Any concerns from synthesis process
+        - 'elapsed_seconds': Time taken
+        - 'rl_update_flags': List of RL pages flagged for potential updates
         """
         if not facts:
             return {
@@ -77,6 +78,8 @@ class SynthesisEngine:
                 "pass_count": 0,
                 "sources_used": [],
                 "warnings": ["No facts provided for synthesis"],
+                "elapsed_seconds": 0,
+                "rl_update_flags": [],
             }
 
         start_time = time.time()
@@ -91,7 +94,7 @@ class SynthesisEngine:
             if source_id not in sources_used:
                 sources_used.append(source_id)
 
-        # Pass 1: Compile draft (always runs, no LM Studio needed)
+        # Pass 1: Compile draft (always runs, no inference needed)
         draft = self._compile_draft(facts, query)
         current_text = draft
 
@@ -99,29 +102,31 @@ class SynthesisEngine:
             progress_callback(pass_num=1, total_passes=self._max_passes, status="Draft compiled")
 
         # Determine pass count based on sensitivity
-        passes_to_run = 3 if sensitivity == "high" else self._max_passes
+        passes_to_run = self._max_passes if sensitivity == "high" else 1
+        actual_passes = 1  # Always includes the draft pass
 
-        # Passes 2+: Refinement via LM Studio (with graceful fallback)
+        # Passes 2+: Refinement via local inference (with graceful fallback)
         for pass_num in range(2, min(passes_to_run + 1, MAX_SYNTHESIS_PASSES + 1)):
             try:
-                refined = self._refine_via_lm_studio(current_text, query, pass_num)
+                refined = self._refine_via_inference(current_text, query, pass_num)
                 if refined and len(refined.strip()) > 0:
                     current_text = refined
+                    actual_passes = pass_num
                     logger.debug("Pass %d refinement complete (%d chars)", pass_num, len(current_text))
                 else:
-                    warnings.append(f"LM Studio returned empty response on pass {pass_num} — using previous draft")
+                    warnings.append(f"Provider returned empty response on pass {pass_num} — using previous draft")
             except Exception as e:
-                warnings.append(f"LM Studio unavailable for pass {pass_num}: {e}")
+                warnings.append(f"Provider unavailable for pass {pass_num}: {e}")
                 logger.warning("Synthesis pass %d failed, falling back to current draft: %s", pass_num, e)
 
             if progress_callback:
-                progress_callback(pass_num=pass_num, total_passes=self._max_passes, status=f"Pass {pass_num} complete")
+                progress_callback(pass_num=pass_num, total_passes=passes_to_run, status=f"Pass {pass_num} complete")
 
         # Format final context block with budget enforcement
         formatter = ContextBlockFormatter(budget_kb=self._context_budget_kb)
         metadata = {
             "sensitivity": sensitivity,
-            "pass_count": self._max_passes if sensitivity == "high" else 1,
+            "pass_count": actual_passes,
             "query": query[:100],
             "timestamp": datetime.now().isoformat(),
         }
@@ -129,12 +134,26 @@ class SynthesisEngine:
         context_block = formatter.format(current_text, facts, metadata)
         elapsed = time.time() - start_time
 
+        # Run RLUpdateDetector to flag stale RL pages — read-only, no auto-writes
+        rl_update_flags: List[Dict[str, Any]] = []
+        try:
+            detector = RLUpdateDetector()
+            rl_update_flags = detector.check_for_updates(facts)
+            if rl_update_flags:
+                logger.info(
+                    "RLUpdateDetector flagged %d page(s) for potential update",
+                    len(rl_update_flags),
+                )
+        except Exception as e:
+            logger.debug("RLUpdateDetector failed (non-fatal): %s", e)
+
         return {
             "context_block": context_block,
-            "pass_count": self._max_passes if sensitivity == "high" else 1,
+            "pass_count": actual_passes,
             "sources_used": sources_used,
             "warnings": warnings,
             "elapsed_seconds": round(elapsed, 2),
+            "rl_update_flags": rl_update_flags,
         }
 
     def _compile_draft(self, facts: List[Dict[str, Any]], query: str) -> str:
@@ -184,17 +203,17 @@ class SynthesisEngine:
 
         return "\n".join(lines)
 
-    def _refine_via_lm_studio(self, draft: str, query: str, pass_number: int) -> Optional[str]:
-        """Send draft to LM Studio for refinement via local inference.
+    def _refine_via_inference(self, draft: str, query: str, pass_number: int) -> Optional[str]:
+        """Send draft to active provider for refinement.
 
         Constructs a system prompt tailored to the current pass's objective.
-        Returns refined text or None if LM Studio unavailable.
+        Returns refined text or None if provider unavailable.
         Falls back to returning original draft on failure — never breaks synthesis.
         """
         try:
             import httpx as _httpx  # noqa: F811
         except ImportError:
-            logger.debug("httpx not available for LM Studio inference")
+            logger.debug("httpx not available for inference")
             return None
 
         # Build system prompt based on pass number
@@ -205,7 +224,7 @@ class SynthesisEngine:
         try:
             with _httpx.Client(timeout=SYNTHESIS_PASS_TIMEOUT) as client:
                 resp = client.post(
-                    f"{self._lm_studio_url}/chat/completions",
+                    f"{self._inference_url}/chat/completions",
                     json={
                         "model": self._model,
                         "messages": [
@@ -218,20 +237,20 @@ class SynthesisEngine:
                 )
 
             if resp.status_code != 200:
-                logger.warning("LM Studio returned status %d during pass %d", resp.status_code, pass_number)
+                logger.warning("Provider returned status %d during pass %d", resp.status_code, pass_number)
                 return None
 
             data = resp.json()
             content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
 
             if not content or len(content.strip()) == 0:
-                logger.debug("LM Studio returned empty response on pass %d", pass_number)
+                logger.debug("Provider returned empty response on pass %d", pass_number)
                 return None
 
             return content.strip()
 
         except Exception as e:
-            logger.warning("LM Studio inference failed on pass %d: %s — using current draft", pass_number, e)
+            logger.warning("Provider inference failed on pass %d: %s — using current draft", pass_number, e)
             return None  # Caller will use original draft
 
     def _build_system_prompt(self, pass_number: int) -> str:
@@ -335,25 +354,6 @@ class RLUpdateDetector:
 
     def __init__(self, rl_dir: str = "~/.hermes/reference-library/") -> None:
         self._rl_dir = Path(os.path.expanduser(rl_dir))
-        # Cache file contents to avoid re-reading on every comparison
-        self._file_cache: Dict[str, Tuple[str, float]] = {}  # path -> (content, mtime)
-        self._cache_ttl = 60  # Seconds to cache file contents
-
-    def _read_file_cached(self, md_file: Path, max_bytes: int = 5000) -> Optional[str]:
-        """Read RL file with caching based on modification time."""
-        try:
-            mtime = md_file.stat().st_mtime
-            if md_file in self._file_cache:
-                cached_content, cached_mtime = self._file_cache[md_file]
-                if abs(mtime - cached_mtime) < self._cache_ttl:
-                    return cached_content[:max_bytes]
-
-            content = md_file.read_text(encoding="utf-8")[:max_bytes]
-            self._file_cache[md_file] = (content, mtime)
-            return content
-        except Exception as e:
-            logger.debug("Failed to read RL page %s: %s", md_file.name, e)
-            return None
 
     def check_for_updates(self, new_facts: List[Dict[str, Any]],
                           rl_dir: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -361,6 +361,9 @@ class RLUpdateDetector:
 
         For each fact, checks if any RL page covers the same topic with outdated info.
         Returns list of update recommendations.
+
+        Scans only topics/ and entities/ directories — skips bulk data like
+        Britannica entries (32K+ files would make this O(n) unworkable).
         """
         target_dir = Path(os.path.expanduser(rl_dir)) if rl_dir else self._rl_dir
         recommendations: List[Dict[str, Any]] = []
@@ -369,8 +372,21 @@ class RLUpdateDetector:
             logger.debug("RL directory not found: %s", target_dir)
             return recommendations
 
-        # Get all markdown files in RL
-        md_files = list(target_dir.rglob("*.md"))
+        # Only scan topics/ and entities/ — skip bulk data directories
+        # that would make this prohibitively expensive (e.g. Britannica 32K entries)
+        scan_dirs = [target_dir / "topics", target_dir / "entities"]
+        md_files = []
+        for scan_dir in scan_dirs:
+            if scan_dir.exists():
+                md_files.extend(scan_dir.glob("*.md"))
+
+        # Cache: read each file ONCE before comparing against all facts
+        file_cache: Dict[Path, str] = {}
+        for md_file in md_files:
+            try:
+                file_cache[md_file] = md_file.read_text(encoding="utf-8")[:5000]
+            except Exception as e:
+                logger.debug("Failed to read RL page %s: %s", md_file.name, e)
 
         for fact in new_facts:
             try:
@@ -384,12 +400,8 @@ class RLUpdateDetector:
                 # Extract key terms from the fact
                 fact_terms = set(title.split()) | set(snippet[:200].split())
 
-                for md_file in md_files:
+                for md_file, content in file_cache.items():
                     try:
-                        content = self._read_file_cached(md_file)
-                        if not content:
-                            continue
-
                         content_lower = content.lower()
 
                         # Check for topic overlap
@@ -398,7 +410,7 @@ class RLUpdateDetector:
 
                         if len(overlap) >= RL_CONTRADICTION_THRESHOLD:
                             # Potential match — check for contradictions or outdated info
-                            reason = self._determine_update_reason(fact, content, md_file)
+                            reason = self._determine_update_reason(fact, content_lower, md_file)
                             if reason:
                                 recommendations.append({
                                     "page": str(md_file),
@@ -431,7 +443,7 @@ class RLUpdateDetector:
 
         # Check for temporal indicators that suggest outdated info
         time_indicators = ["2024", "2025", "last year", "previous version"]
-        rl_lower = rl_content.lower()
+        rl_lower = rl_content  # Already lowercased by caller
 
         for indicator in time_indicators:
             if indicator in snippet and indicator not in rl_lower:
@@ -469,5 +481,3 @@ def synthesize_research(facts: List[Dict[str, Any]], query: str,
     return engine.synthesize(facts, query, sensitivity=sensitivity)
 
 
-# Import guard for constants used by other modules
-RL_CONTRADICTION_THRESHOLD = 3

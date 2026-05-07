@@ -15,8 +15,9 @@ Overall score is a weighted average (tasks: 40%, files: 30%, errors: 20%, gaps: 
 from __future__ import annotations
 
 import logging
-import re as _re
 from typing import Any, Dict, List
+
+from .extraction_engine import ExtractionEngine
 
 logger = logging.getLogger(__name__)
 
@@ -31,12 +32,12 @@ _GAP_WEIGHT = 0.10
 class BridgeQualityScorer:
     """Scores context bridge quality against extraction results.
 
-    Takes the same messages and independently extracts critical items,
-    then checks how many survived in the bridge text via substring matching.
+    Delegates extraction to ExtractionEngine (single source of truth),
+    then checks how many critical items survived in the bridge text via substring matching.
     """
 
     def __init__(self):
-        pass
+        self._extractor = ExtractionEngine()
 
     def score(self, messages: List[Dict[str, Any]], bridge_text: str) -> Dict[str, Any]:
         """Score the bridge on multiple preservation dimensions.
@@ -59,11 +60,11 @@ class BridgeQualityScorer:
         if not messages or not bridge_text:
             return self._empty_score(bridge_text)
 
-        # Extract critical items from messages independently
-        tasks = self._extract_task_summaries(messages)
-        file_paths = self._extract_file_paths(messages)
-        errors = self._extract_error_summaries(messages)
-        gaps = self._extract_gap_summaries(messages)
+        # Delegate extraction to ExtractionEngine (single source of truth)
+        tasks = [t.get("summary", "") for t in self._extractor.extract_active_tasks(messages)]
+        file_paths = [f.get("path", "") for f in self._extractor.extract_file_edits(messages)]
+        errors = [e.get("summary", "") for e in self._extractor.extract_known_errors(messages)]
+        gaps = [g.get("summary", "") for g in self._extractor.extract_knowledge_gaps(messages)]
 
         # Score each dimension
         task_score = self._score_preservation(tasks, bridge_text)
@@ -113,103 +114,6 @@ class BridgeQualityScorer:
             "sections_present": sections_present,
             "lost_items": [],
         }
-
-    # -----------------------------------------------------------------------
-    # Extraction helpers — delegate to ExtractionEngine to avoid duplication
-    # -----------------------------------------------------------------------
-
-    def _extract_task_summaries(self, messages: List[Dict[str, Any]]) -> List[str]:
-        """Extract task summary strings from user messages via ExtractionEngine."""
-        try:
-            from .extraction_engine import ExtractionEngine
-            engine = ExtractionEngine()
-            tasks = engine.extract_active_tasks(messages)
-            return [t['summary'] for t in tasks if 'summary' in t]
-        except Exception:
-            # Fallback: simple keyword-based extraction if import fails
-            _TASK_KEYWORDS = frozenset({
-                'fix', 'implement', 'create', 'build', 'add', 'refactor', 'debug',
-                'write', 'update', 'migrate', 'deploy', 'configure', 'set up',
-                'resolve', 'address', 'handle', 'support', 'enable', 'disable',
-            })
-            summaries = []
-            for msg in messages:
-                if msg.get("role") != "user":
-                    continue
-                content = (msg.get("content") or "").strip()
-                if not content:
-                    continue
-                if any(kw in content.lower() for kw in _TASK_KEYWORDS):
-                    first_line = content.split("\n")[0].strip()
-                    if len(first_line) > 10:
-                        summaries.append(first_line[:120])
-            return summaries[-5:]
-
-    def _extract_file_paths(self, messages: List[Dict[str, Any]]) -> List[str]:
-        """Extract file paths from tool calls and text patterns via ExtractionEngine."""
-        try:
-            from .extraction_engine import ExtractionEngine
-            engine = ExtractionEngine()
-            edits = engine.extract_file_edits(messages)
-            return [e['path'] for e in edits if 'path' in e]
-        except Exception:
-            # Fallback: simple regex extraction if import fails
-            paths = set()
-            for msg in messages:
-                content = (msg.get("content") or "") + "\n"
-                for m in _re.finditer(r'(/[^\s\'"`\n]+?\.(?:py|md|yaml|json|txt|sh|cfg|ini))', content):
-                    p = m.group(1).rstrip(".,;:)")
-                    if len(p) > 5:
-                        paths.add(p)
-            return list(paths)[-10:]
-
-    def _extract_error_summaries(self, messages: List[Dict[str, Any]]) -> List[str]:
-        """Extract error type strings from messages via ExtractionEngine."""
-        try:
-            from .extraction_engine import ExtractionEngine
-            engine = ExtractionEngine()
-            errors = engine.extract_known_errors(messages)
-            return [e['summary'] for e in errors if 'summary' in e]
-        except Exception:
-            # Fallback: simple regex extraction if import fails
-            errors = []
-            for msg in messages:
-                content = (msg.get("content") or "") + "\n"
-                for m in _re.finditer(
-                    r'(TypeError|ValueError|AttributeError|KeyError|ImportError|'
-                    r'ModuleNotFoundError|FileNotFoundError|PermissionError|'
-                    r'SyntaxError|IndexError|RuntimeError|OSError)',
-                    content,
-                ):
-                    exc_type = m.group(1)
-                    start = m.end()
-                    end = min(start + 80, len(content))
-                    error_msg = content[start:end].strip().split("\n")[0]
-                    if error_msg:
-                        errors.append(f"{exc_type}: {error_msg[:60]}")
-            return list(dict.fromkeys(errors))[-5:]
-
-    def _extract_gap_summaries(self, messages: List[Dict[str, Any]]) -> List[str]:
-        """Extract knowledge gap markers from messages via ExtractionEngine."""
-        try:
-            from .extraction_engine import ExtractionEngine
-            engine = ExtractionEngine()
-            gaps = engine.extract_knowledge_gaps(messages)
-            return [g['summary'] for g in gaps if 'summary' in g]
-        except Exception:
-            # Fallback: simple regex extraction if import fails
-            gaps = []
-            for msg in messages:
-                content = (msg.get("content") or "") + "\n"
-                for m in _re.finditer(
-                    r'(?:knowledge\s+gap|RL\s+(?:entry|page)|\[gap\]|'
-                    r'\[(?:pending|needs research)\])\s*[:—\-]?\s*(.*?)(?:\n|$)',
-                    content, _re.IGNORECASE,
-                ):
-                    summary = (m.group(1) or "").strip()
-                    if len(summary) > 3:
-                        gaps.append(summary[:80])
-            return list(dict.fromkeys(gaps))[-5:]
 
     # -----------------------------------------------------------------------
     # Scoring helpers
@@ -284,3 +188,23 @@ class BridgeQualityScorer:
             if any(m.upper() in bridge_upper for m in markers):
                 sections.append(section_name)
         return sections
+
+    # -----------------------------------------------------------------------
+    # Thin delegation wrappers for backward compatibility (tests call these)
+    # -----------------------------------------------------------------------
+
+    def _extract_task_summaries(self, messages: List[Dict[str, Any]]) -> List[str]:
+        """Extract task summaries from user messages (delegates to ExtractionEngine)."""
+        return [t.get("summary", "") for t in self._extractor.extract_active_tasks(messages)]
+
+    def _extract_file_paths(self, messages: List[Dict[str, Any]]) -> List[str]:
+        """Extract file paths from messages (delegates to ExtractionEngine)."""
+        return [f.get("path", "") for f in self._extractor.extract_file_edits(messages)]
+
+    def _extract_error_summaries(self, messages: List[Dict[str, Any]]) -> List[str]:
+        """Extract error summaries from tool messages (delegates to ExtractionEngine)."""
+        return [e.get("summary", "") for e in self._extractor.extract_known_errors(messages)]
+
+    def _extract_gap_summaries(self, messages: List[Dict[str, Any]]) -> List[str]:
+        """Extract knowledge gap summaries (delegates to ExtractionEngine)."""
+        return [g.get("summary", "") for g in self._extractor.extract_knowledge_gaps(messages)]

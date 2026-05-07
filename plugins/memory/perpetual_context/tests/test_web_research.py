@@ -30,6 +30,8 @@ from plugins.memory.perpetual_context.web_research import (
     WEB_SEARCH_TIMEOUT,
     SearchResult,
     WebResearchClient,
+    _generate_search_query,
+    _parse_searxng_results,
 )
 
 
@@ -73,7 +75,7 @@ class TestSearchResult(unittest.TestCase):
         self.assertAlmostEqual(sr.score, 0.95)
         self.assertIsNone(sr.extracted_content)
 
-    def test_asdict(self):
+    def test_to_dict(self):
         sr = SearchResult(
             title="Page",
             url="https://example.com",
@@ -82,7 +84,7 @@ class TestSearchResult(unittest.TestCase):
             score=1.0,
             extracted_content="<p>Full content</p>",
         )
-        d = asdict(sr)
+        d = sr.to_dict()
         self.assertIsInstance(d, dict)
         self.assertEqual(d["title"], "Page")
         self.assertEqual(d["url"], "https://example.com")
@@ -99,57 +101,68 @@ class TestSearchResult(unittest.TestCase):
         self.assertIsNone(sr.extracted_content)
 
 
-class TestGenerateGapQueries(unittest.TestCase):
-    """Verify WebResearchClient.generate_gap_queries() adds temporal context."""
-
-    def setUp(self):
-        self.client = WebResearchClient()
+class TestGenerateSearchQuery(unittest.TestCase):
+    """Verify pure function _generate_search_query."""
 
     def test_empty_input(self):
-        self.assertEqual(self.client.generate_gap_queries([]), [])
+        self.assertEqual(_generate_search_query(""), "")
+        self.assertEqual(_generate_search_query("   "), "")
+        self.assertEqual(_generate_search_query(None), "")  # type: ignore[arg-type]
+
+    def test_already_has_date(self):
+        result = _generate_search_query("RTX 5090 price April 2026")
+        self.assertIn("RTX 5090", result)
+        # Should NOT append extra date since one already exists
+        self.assertEqual(result.count("2026"), 1)
 
     def test_appends_recency(self):
-        result = self.client.generate_gap_queries(["best GPU for ML"])
-        self.assertEqual(len(result), 1)
+        result = _generate_search_query("best GPU for ML")
+        self.assertIn("best GPU for ML", result)
+        # Should have appended current year/month context
         import datetime
         expected_suffix = datetime.datetime.now().strftime("%B %Y")
-        self.assertIn(expected_suffix, result[0])
-
-    def test_already_has_date_not_duplicated(self):
-        result = self.client.generate_gap_queries(["RTX 5090 price April 2026"])
-        self.assertEqual(len(result), 1)
-        # Should NOT append extra date since one already exists
-        self.assertEqual(result[0].count("2026"), 1)
+        self.assertIn(expected_suffix, result)
 
     def test_strips_whitespace(self):
-        result = self.client.generate_gap_queries(["  hello world  "])
-        self.assertTrue(result[0].strip().startswith("hello"))
+        result = _generate_search_query("  hello world  ")
+        self.assertTrue(result.startswith("hello"))
 
 
-class TestSearchResultDefaults(unittest.TestCase):
-    """Verify SearchResult dataclass handles missing fields gracefully."""
+class TestParseSearxngResults(unittest.TestCase):
+    """Verify pure function _parse_searxng_results."""
 
-    def test_minimal_result(self):
-        sr = SearchResult(title="", url="", snippet="", source="")
-        self.assertEqual(sr.title, "")
-        self.assertEqual(sr.url, "")
-        self.assertEqual(sr.score, 0.0)
-        self.assertIsNone(sr.extracted_content)
+    def test_empty_response(self):
+        self.assertEqual(_parse_searxng_results({}), [])
+        self.assertEqual(_parse_searxng_results({"results": []}), [])
 
-    def test_full_result(self):
-        sr = SearchResult(
-            title="Example",
-            url="https://example.com",
-            snippet="Some content here.",
-            source="searxng",
-            score=0.8,
-        )
-        self.assertEqual(sr.title, "Example")
-        self.assertEqual(sr.source, "searxng")
-        self.assertAlmostEqual(sr.score, 0.8)
+    def test_single_result(self):
+        data = {
+            "results": [
+                {
+                    "title": "Example",
+                    "url": "https://example.com",
+                    "content": "Some content here.",
+                    "score": 0.8,
+                }
+            ]
+        }
+        results = _parse_searxng_results(data)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].title, "Example")
+        self.assertEqual(results[0].source, "searxng")
+        self.assertAlmostEqual(results[0].score, 0.8)
 
-    def test_max_results_constant(self):
-        self.assertLessEqual(MAX_WEB_RESULTS, 20)
+    def test_max_results_cap(self):
+        data = {"results": [{"title": f"R{i}", "url": f"https://r{i}.com", "content": ""} for i in range(20)]}
+        results = _parse_searxng_results(data)
+        self.assertLessEqual(len(results), MAX_WEB_RESULTS)
+
+    def test_missing_fields_defaults(self):
+        data = {"results": [{}]}
+        results = _parse_searxng_results(data)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].title, "")
+        self.assertEqual(results[0].url, "")
 
 
 class TestWebResearchClientInit(unittest.TestCase):
@@ -181,13 +194,8 @@ class TestWebResearchClientInit(unittest.TestCase):
         self.assertEqual(client._searxng_url, "http://test:8080")
 
     def test_init_with_firecrawl(self):
-        # Firecrawl key comes from env var, not config dict
-        os.environ[FIRECRAWL_API_KEY_ENV] = "sk-test123"
-        try:
-            client = WebResearchClient()
-            self.assertEqual(client._firecrawl_key, "sk-test123")
-        finally:
-            del os.environ[FIRECRAWL_API_KEY_ENV]
+        client = WebResearchClient(config={"firecrawl_api_key": "sk-test123"})
+        self.assertEqual(client._firecrawl_key, "sk-test123")
 
     def test_init_env_vars(self):
         os.environ[SEARXNG_URL_ENV] = "http://env-searxng:8080"
@@ -201,13 +209,11 @@ class TestWebResearchClientInit(unittest.TestCase):
 
     def test_lazy_http_not_initialized(self):
         client = WebResearchClient()
-        self.assertIsNone(client._http_client)
+        self.assertIsNone(client._http_session)
 
-    def test_lazy_firecrawl_key_from_env(self):
-        """Firecrawl key is read from env, not a separate client object."""
-        client = WebResearchClient()
-        # No _firecrawl_client attribute — firecrawl uses shared http client + API key
-        self.assertFalse(hasattr(client, "_firecrawl_client"))
+    def test_lazy_firecrawl_not_initialized(self):
+        client = WebResearchClient(config={"firecrawl_api_key": "test"})
+        self.assertIsNone(client._firecrawl_client)
 
 
 class TestWebResearchClientSearch(unittest.TestCase):
@@ -301,6 +307,53 @@ class TestWebResearchClientBatchExtract(unittest.TestCase):
                 self.assertIn(url, results)
 
 
+class TestWebResearchClientSearchAndExtract(unittest.TestCase):
+    """Verify search_and_extract() convenience method."""
+
+    def setUp(self):
+        self._saved_searxng = os.environ.pop(SEARXNG_URL_ENV, None)
+        self._saved_firecrawl = os.environ.pop(FIRECRAWL_API_KEY_ENV, None)
+
+    def tearDown(self):
+        if self._saved_searxng is not None:
+            os.environ[SEARXNG_URL_ENV] = self._saved_searxng
+        if self._saved_firecrawl is not None:
+            os.environ[FIRECRAWL_API_KEY_ENV] = self._saved_firecrawl
+
+    def test_no_backends_returns_empty(self):
+        client = WebResearchClient()
+        results = client.search_and_extract("test query")
+        self.assertEqual(results, [])
+
+
+class TestWebResearchClientResolveGaps(unittest.TestCase):
+    """Verify resolve_gaps() maps gaps to search results."""
+
+    def setUp(self):
+        self._saved_searxng = os.environ.pop(SEARXNG_URL_ENV, None)
+        self._saved_firecrawl = os.environ.pop(FIRECRAWL_API_KEY_ENV, None)
+
+    def tearDown(self):
+        if self._saved_searxng is not None:
+            os.environ[SEARXNG_URL_ENV] = self._saved_searxng
+        if self._saved_firecrawl is not None:
+            os.environ[FIRECRAWL_API_KEY_ENV] = self._saved_firecrawl
+
+    def test_empty_gaps(self):
+        client = WebResearchClient()
+        results = client.resolve_gaps([])
+        self.assertEqual(results, {})
+
+    def test_gaps_mapped_to_results(self):
+        client = WebResearchClient()
+        gaps = ["RTX 5090 pricing", "best LLM API 2026"]
+        resolved = client.resolve_gaps(gaps)
+
+        # Each gap should have an entry (even if empty list)
+        self.assertEqual(len(resolved), len(gaps))
+        for gap in gaps:
+            self.assertIn(gap, resolved)
+            self.assertIsInstance(resolved[gap], list)
 
 
 class TestNoUnhandledExceptions(unittest.TestCase):

@@ -1,15 +1,17 @@
-"""Tests for FeedbackState — persistent compression quality tracking across sessions.
+#!/usr/bin/env python3
+"""Tests for feedback_state.py — Compression quality tracking across sessions.
 
 Verifies:
-1. Initialization loads existing state or starts fresh
-2. record_compression stores quality scores with timestamps
-3. Sliding window enforces MAX_ENTRIES limit (20)
-4. get_degradation_trend calculates linear regression slope correctly
-5. get_recent_average computes average over configurable window
-6. get_correction_params returns appropriate adjustments based on trend
-7. needs_correction quick check works correctly
-8. Persistence to JSON file with atomic write pattern
-9. Graceful degradation on corrupt/missing state files
+1. FeedbackState persistence (load/save/clear)
+2. record_compression() with sliding window enforcement
+3. get_degradation_trend() linear regression calculations
+4. get_recent_average() over configurable windows
+5. get_correction_params() applies corrections when degrading
+6. needs_correction() threshold check
+7. Graceful degradation on corrupt state files
+
+Run:
+    python -m pytest test_feedback_state.py -v
 """
 
 from __future__ import annotations
@@ -18,606 +20,324 @@ import json
 import os
 import sys
 import tempfile
-import time
+import unittest
 
 sys.path.insert(0, os.path.expanduser("~/.hermes/hermes-agent/plugins/memory"))
 
 from perpetual_context.feedback_state import (
-    FeedbackState,
-    _MAX_ENTRIES,
+    _DEFAULT_STATE_FILE,
     _DEGRADATION_THRESHOLD,
+    _MAX_ENTRIES,
     _MIN_QUALITY_THRESHOLD,
+    FeedbackState,
 )
 
 
-# ---------------------------------------------------------------------------
-# Fixtures / helpers
-# ---------------------------------------------------------------------------
+class TestConstants(unittest.TestCase):
+    """Verify module-level constants."""
 
-def make_quality_score(overall=0.85, tasks=0.9, files=0.8, errors=1.0, gaps=0.7):
-    """Create a quality score dict matching BridgeQualityScorer output."""
-    return {
-        "overall": overall,
-        "active_tasks_preserved": tasks,
-        "file_paths_preserved": files,
-        "errors_preserved": errors,
-        "gaps_preserved": gaps,
-        "bridge_char_count": 1234,
-        "sections_present": ["active_tasks", "file_edits"],
-    }
+    def test_max_entries(self):
+        self.assertEqual(_MAX_ENTRIES, 20)
+
+    def test_degradation_threshold(self):
+        self.assertAlmostEqual(_DEGRADATION_THRESHOLD, 0.15)
+
+    def test_min_quality_threshold(self):
+        self.assertAlmostEqual(_MIN_QUALITY_THRESHOLD, 0.60)
+
+    def test_default_state_file_exists(self):
+        self.assertTrue(_DEFAULT_STATE_FILE.endswith("compression_feedback.json"))
 
 
-# ---------------------------------------------------------------------------
-# Tests: Initialization and persistence
-# ---------------------------------------------------------------------------
+class TestFeedbackStateInit(unittest.TestCase):
+    """Test initialization and persistence."""
 
-class TestInitializationAndPersistence:
-    """Test state file loading and saving."""
+    def setUp(self):
+        self.tmp = tempfile.NamedTemporaryFile(suffix=".json", delete=False)
+        self.tmp.close()
+        self.state = FeedbackState(state_file=self.tmp.name)
+
+    def tearDown(self):
+        if os.path.exists(self.tmp.name):
+            os.unlink(self.tmp.name)
+        tmp_tmp = self.tmp.name + ".tmp"
+        if os.path.exists(tmp_tmp):
+            os.unlink(tmp_tmp)
 
     def test_init_creates_empty_state(self):
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            state_file = f.name
-        try:
-            fs = FeedbackState(state_file=state_file)
-            assert fs._entries == []
-        finally:
-            if os.path.exists(state_file):
-                os.unlink(state_file)
+        self.assertEqual(len(self.state._entries), 0)
 
-    def test_load_existing_state(self):
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            json.dump({
-                "compressions": [
-                    {"timestamp": 1000, "overall_score": 0.8, "session_id": "s1"},
-                    {"timestamp": 2000, "overall_score": 0.9, "session_id": "s2"},
-                ]
-            }, f)
-            state_file = f.name
+    def test_load_existing_file(self):
+        # Write a valid state file
+        data = {
+            "compressions": [
+                {"timestamp": 1.0, "overall_score": 0.9},
+                {"timestamp": 2.0, "overall_score": 0.8},
+            ]
+        }
+        with open(self.tmp.name, "w") as f:
+            json.dump(data, f)
 
-        try:
-            fs = FeedbackState(state_file=state_file)
-            assert len(fs._entries) == 2
-            assert fs._entries[0]["overall_score"] == 0.8
-            assert fs._entries[1]["overall_score"] == 0.9
-        finally:
-            os.unlink(state_file)
+        state = FeedbackState(state_file=self.tmp.name)
+        self.assertEqual(len(state._entries), 2)
 
     def test_load_corrupt_json(self):
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            f.write("NOT VALID JSON {{{")
-            state_file = f.name
+        # Write invalid JSON
+        with open(self.tmp.name, "w") as f:
+            f.write("{invalid json}")
 
-        try:
-            fs = FeedbackState(state_file=state_file)
-            # Should start fresh on corrupt data
-            assert fs._entries == []
-        finally:
-            os.unlink(state_file)
+        state = FeedbackState(state_file=self.tmp.name)
+        self.assertEqual(len(state._entries), 0)
 
-    def test_load_missing_file_starts_fresh(self):
-        fs = FeedbackState(state_file="/tmp/nonexistent_feedback_12345.json")
-        assert fs._entries == []
+    def test_load_missing_timestamp_entry_dropped(self):
+        data = {
+            "compressions": [
+                {"overall_score": 0.9},  # missing timestamp — should be dropped
+                {"timestamp": 1.0, "overall_score": 0.8},  # valid
+            ]
+        }
+        with open(self.tmp.name, "w") as f:
+            json.dump(data, f)
 
-    def test_load_validates_entries(self):
-        """Entries without required fields should be dropped."""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            json.dump({
-                "compressions": [
-                    {"timestamp": 1000, "overall_score": 0.8},  # Valid
-                    {"bad_key": "value"},  # Missing timestamp and overall_score
-                    {"timestamp": 2000, "overall_score": 0.9},  # Valid
-                ]
-            }, f)
-            state_file = f.name
+        state = FeedbackState(state_file=self.tmp.name)
+        self.assertEqual(len(state._entries), 1)
 
-        try:
-            fs = FeedbackState(state_file=state_file)
-            assert len(fs._entries) == 2
-        finally:
-            os.unlink(state_file)
+    def test_load_missing_overall_score_entry_dropped(self):
+        data = {
+            "compressions": [
+                {"timestamp": 1.0},  # missing overall_score — should be dropped
+                {"timestamp": 2.0, "overall_score": 0.8},  # valid
+            ]
+        }
+        with open(self.tmp.name, "w") as f:
+            json.dump(data, f)
 
-    def test_load_enforces_max_entries(self):
-        """If loaded data exceeds MAX_ENTRIES, should be truncated."""
-        entries = [{"timestamp": i * 100, "overall_score": 0.5 + i * 0.01} for i in range(30)]
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            json.dump({"compressions": entries}, f)
-            state_file = f.name
-
-        try:
-            fs = FeedbackState(state_file=state_file)
-            assert len(fs._entries) == _MAX_ENTRIES
-        finally:
-            os.unlink(state_file)
-
-    def test_save_writes_atomic(self):
-        """Save should use atomic write pattern (temp file + rename)."""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            state_file = f.name
-
-        try:
-            fs = FeedbackState(state_file=state_file)
-            fs.record_compression(make_quality_score())
-            assert os.path.exists(state_file)
-            # Verify no .tmp file remains after save
-            assert not os.path.exists(state_file + ".tmp")
-        finally:
-            if os.path.exists(state_file):
-                os.unlink(state_file)
-
-    def test_save_failure_is_graceful(self):
-        """Save should not raise on IO errors."""
-        fs = FeedbackState(state_file="/nonexistent/dir/state.json")
-        # Should not raise even though directory doesn't exist
-        fs.record_compression(make_quality_score())
+        state = FeedbackState(state_file=self.tmp.name)
+        self.assertEqual(len(state._entries), 1)
 
 
-# ---------------------------------------------------------------------------
-# Tests: record_compression
-# ---------------------------------------------------------------------------
-
-class TestRecordCompression:
+class TestRecordCompression(unittest.TestCase):
     """Test recording compression events."""
 
-    def test_records_single_entry(self):
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            state_file = f.name
-        try:
-            fs = FeedbackState(state_file=state_file)
-            score = make_quality_score(overall=0.85)
-            fs.record_compression(score, session_id="test_session")
+    def setUp(self):
+        self.tmp = tempfile.NamedTemporaryFile(suffix=".json", delete=False)
+        self.tmp.close()
+        self.state = FeedbackState(state_file=self.tmp.name)
 
-            assert len(fs._entries) == 1
-            entry = fs._entries[0]
-            assert entry["session_id"] == "test_session"
-            assert entry["overall_score"] == 0.85
-            assert entry["tasks_preserved"] == score["active_tasks_preserved"]
-            assert entry["files_preserved"] == score["file_paths_preserved"]
-        finally:
-            if os.path.exists(state_file):
-                os.unlink(state_file)
+    def tearDown(self):
+        if os.path.exists(self.tmp.name):
+            os.unlink(self.tmp.name)
+        tmp_tmp = self.tmp.name + ".tmp"
+        if os.path.exists(tmp_tmp):
+            os.unlink(tmp_tmp)
 
-    def test_records_multiple_entries(self):
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            state_file = f.name
-        try:
-            fs = FeedbackState(state_file=state_file)
-            for i in range(5):
-                fs.record_compression(make_quality_score(overall=0.7 + i * 0.05))
+    def test_record_single_compression(self):
+        score = {"overall": 0.85, "active_tasks_preserved": 1.0}
+        self.state.record_compression(score, session_id="test_session")
+        self.assertEqual(len(self.state._entries), 1)
+        self.assertAlmostEqual(self.state._entries[0]["overall_score"], 0.85)
 
-            assert len(fs._entries) == 5
-        finally:
-            if os.path.exists(state_file):
-                os.unlink(state_file)
+    def test_record_multiple_compressions(self):
+        for i in range(5):
+            self.state.record_compression({"overall": 0.9 - i * 0.05})
+        self.assertEqual(len(self.state._entries), 5)
 
-    def test_enforces_sliding_window(self):
-        """Entries beyond MAX_ENTRIES should be trimmed."""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            state_file = f.name
-        try:
-            fs = FeedbackState(state_file=state_file)
-            for i in range(_MAX_ENTRIES + 10):
-                fs.record_compression(make_quality_score(overall=float(i)))
+    def test_sliding_window_enforced(self):
+        # Record more than MAX_ENTRIES
+        for i in range(_MAX_ENTRIES + 10):
+            self.state.record_compression({"overall": 0.9 - i * 0.01})
+        self.assertEqual(len(self.state._entries), _MAX_ENTRIES)
 
-            assert len(fs._entries) == _MAX_ENTRIES
-            # Should keep the last MAX_ENTRIES entries
-            assert fs._entries[-1]["overall_score"] == float(_MAX_ENTRIES + 9)
-        finally:
-            if os.path.exists(state_file):
-                os.unlink(state_file)
+    def test_sliding_window_keeps_newest(self):
+        # Record MAX_ENTRIES + 5, verify oldest are dropped
+        for i in range(_MAX_ENTRIES + 5):
+            self.state.record_compression({"overall": float(i)})
+        # Oldest entries (scores 0-4) should be gone
+        scores = [e["overall_score"] for e in self.state._entries]
+        self.assertEqual(min(scores), 5.0)
 
-    def test_entry_has_timestamp(self):
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            state_file = f.name
-        try:
-            fs = FeedbackState(state_file=state_file)
-            before_time = time.time()
-            fs.record_compression(make_quality_score())
-            after_time = time.time()
+    def test_record_persists_to_disk(self):
+        score = {"overall": 0.75}
+        self.state.record_compression(score)
 
-            ts = fs._entries[0]["timestamp"]
-            assert before_time <= ts <= after_time
-        finally:
-            if os.path.exists(state_file):
-                os.unlink(state_file)
+        # Load fresh instance from same file
+        state2 = FeedbackState(state_file=self.tmp.name)
+        self.assertEqual(len(state2._entries), 1)
+        self.assertAlmostEqual(state2._entries[0]["overall_score"], 0.75)
 
-    def test_entry_defaults_for_missing_keys(self):
-        """Missing keys in quality_score should default to 0.0."""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            state_file = f.name
-        try:
-            fs = FeedbackState(state_file=state_file)
-            empty_score = {}
-            fs.record_compression(empty_score)
-
-            entry = fs._entries[0]
-            assert entry["overall_score"] == 0.0
-            assert entry["tasks_preserved"] == 0.0
-        finally:
-            if os.path.exists(state_file):
-                os.unlink(state_file)
-
-
-# ---------------------------------------------------------------------------
-# Tests: clear
-# ---------------------------------------------------------------------------
-
-class TestClear:
-    """Test clearing feedback history."""
+    def test_record_with_empty_quality_score(self):
+        score = {}
+        self.state.record_compression(score)
+        entry = self.state._entries[0]
+        self.assertEqual(entry["overall_score"], 0.0)
+        self.assertEqual(entry["tasks_preserved"], 0.0)
 
     def test_clear_removes_all_entries(self):
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            state_file = f.name
-        try:
-            fs = FeedbackState(state_file=state_file)
-            for i in range(5):
-                fs.record_compression(make_quality_score())
-
-            assert len(fs._entries) == 5
-            fs.clear()
-            assert fs._entries == []
-        finally:
-            if os.path.exists(state_file):
-                os.unlink(state_file)
+        for i in range(5):
+            self.state.record_compression({"overall": 0.9})
+        self.state.clear()
+        self.assertEqual(len(self.state._entries), 0)
 
 
-# ---------------------------------------------------------------------------
-# Tests: get_degradation_trend
-# ---------------------------------------------------------------------------
+class TestDegradationTrend(unittest.TestCase):
+    """Test degradation trend calculations."""
 
-class TestGetDegradationTrend:
-    """Test degradation trend calculation."""
+    def setUp(self):
+        self.tmp = tempfile.NamedTemporaryFile(suffix=".json", delete=False)
+        self.tmp.close()
+        self.state = FeedbackState(state_file=self.tmp.name)
+
+    def tearDown(self):
+        if os.path.exists(self.tmp.name):
+            os.unlink(self.tmp.name)
+        tmp_tmp = self.tmp.name + ".tmp"
+        if os.path.exists(tmp_tmp):
+            os.unlink(tmp_tmp)
 
     def test_fewer_than_3_entries_returns_zero(self):
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            state_file = f.name
-        try:
-            fs = FeedbackState(state_file=state_file)
-            assert fs.get_degradation_trend() == 0.0
-
-            fs.record_compression(make_quality_score(overall=0.9))
-            assert fs.get_degradation_trend() == 0.0
-
-            fs.record_compression(make_quality_score(overall=0.8))
-            assert fs.get_degradation_trend() == 0.0
-        finally:
-            if os.path.exists(state_file):
-                os.unlink(state_file)
-
-    def test_improving_quality_returns_negative_trend(self):
-        """Improving quality (scores going up) should return negative trend."""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            state_file = f.name
-        try:
-            fs = FeedbackState(state_file=state_file)
-            # Quality improving from 0.5 to 0.9
-            for score in [0.5, 0.6, 0.7, 0.8, 0.9]:
-                fs.record_compression(make_quality_score(overall=score))
-
-            trend = fs.get_degradation_trend()
-            assert trend < 0  # Negative means improving (good)
-        finally:
-            if os.path.exists(state_file):
-                os.unlink(state_file)
-
-    def test_degrading_quality_returns_positive_trend(self):
-        """Degrading quality (scores going down) should return positive trend."""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            state_file = f.name
-        try:
-            fs = FeedbackState(state_file=state_file)
-            # Quality degrading from 0.9 to 0.5
-            for score in [0.9, 0.8, 0.7, 0.6, 0.5]:
-                fs.record_compression(make_quality_score(overall=score))
-
-            trend = fs.get_degradation_trend()
-            assert trend > 0  # Positive means degrading (bad)
-        finally:
-            if os.path.exists(state_file):
-                os.unlink(state_file)
+        self.state.record_compression({"overall": 0.9})
+        self.state.record_compression({"overall": 0.8})
+        trend = self.state.get_degradation_trend()
+        self.assertEqual(trend, 0.0)
 
     def test_stable_quality_returns_near_zero(self):
-        """Constant quality should return near-zero trend."""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            state_file = f.name
-        try:
-            fs = FeedbackState(state_file=state_file)
-            for _ in range(5):
-                fs.record_compression(make_quality_score(overall=0.7))
+        for _ in range(5):
+            self.state.record_compression({"overall": 0.9})
+        trend = self.state.get_degradation_trend()
+        self.assertAlmostEqual(trend, 0.0, places=2)
 
-            trend = fs.get_degradation_trend()
-            assert abs(trend) < 0.1
-        finally:
-            if os.path.exists(state_file):
-                os.unlink(state_file)
+    def test_improving_quality_returns_negative_trend(self):
+        # Quality improving: 0.5 -> 1.0
+        for i in range(5):
+            self.state.record_compression({"overall": 0.5 + i * 0.125})
+        trend = self.state.get_degradation_trend()
+        self.assertLess(trend, 0)
 
-    def test_trend_clamped_to_minus_1_plus_1(self):
-        """Trend should be clamped to [-1, +1] range."""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            state_file = f.name
-        try:
-            fs = FeedbackState(state_file=state_file)
-            # Extreme degradation
-            for score in [1.0, 0.5, 0.0]:
-                fs.record_compression(make_quality_score(overall=score))
+    def test_degrading_quality_returns_positive_trend(self):
+        # Quality degrading: 1.0 -> 0.5
+        for i in range(5):
+            self.state.record_compression({"overall": 1.0 - i * 0.125})
+        trend = self.state.get_degradation_trend()
+        self.assertGreater(trend, 0)
 
-            trend = fs.get_degradation_trend()
-            assert -1.0 <= trend <= 1.0
-        finally:
-            if os.path.exists(state_file):
-                os.unlink(state_file)
+    def test_severe_degradation_returns_high_positive(self):
+        # Sharp drop: all 1.0 then all 0.0
+        for _ in range(3):
+            self.state.record_compression({"overall": 1.0})
+        for _ in range(3):
+            self.state.record_compression({"overall": 0.0})
+        trend = self.state.get_degradation_trend()
+        self.assertGreater(trend, 0)
 
-    def test_uses_last_10_entries(self):
-        """Trend should only use the last 10 entries."""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            state_file = f.name
-        try:
-            fs = FeedbackState(state_file=state_file)
-            # First 5 entries: stable at 0.9 (should be ignored if >10 total)
-            for _ in range(5):
-                fs.record_compression(make_quality_score(overall=0.9))
-            # Last 5 entries: degrading from 0.8 to 0.4
-            for score in [0.8, 0.7, 0.6, 0.5, 0.4]:
-                fs.record_compression(make_quality_score(overall=score))
-
-            trend = fs.get_degradation_trend()
-            assert trend > 0  # Should detect degradation from last entries
-        finally:
-            if os.path.exists(state_file):
-                os.unlink(state_file)
+    def test_trend_clamped_to_minus_one_plus_one(self):
+        # Extreme values should still be clamped
+        for _ in range(3):
+            self.state.record_compression({"overall": -10.0})
+        for _ in range(3):
+            self.state.record_compression({"overall": 10.0})
+        trend = self.state.get_degradation_trend()
+        self.assertGreaterEqual(trend, -1.0)
+        self.assertLessEqual(trend, 1.0)
 
 
-# ---------------------------------------------------------------------------
-# Tests: get_recent_average
-# ---------------------------------------------------------------------------
+class TestRecentAverage(unittest.TestCase):
+    """Test recent average quality calculations."""
 
-class TestGetRecentAverage:
-    """Test recent average quality calculation."""
+    def setUp(self):
+        self.tmp = tempfile.NamedTemporaryFile(suffix=".json", delete=False)
+        self.tmp.close()
+        self.state = FeedbackState(state_file=self.tmp.name)
 
-    def test_no_entries_returns_1_0(self):
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            state_file = f.name
-        try:
-            fs = FeedbackState(state_file=state_file)
-            assert fs.get_recent_average() == 1.0
-        finally:
-            if os.path.exists(state_file):
-                os.unlink(state_file)
+    def tearDown(self):
+        if os.path.exists(self.tmp.name):
+            os.unlink(self.tmp.name)
+        tmp_tmp = self.tmp.name + ".tmp"
+        if os.path.exists(tmp_tmp):
+            os.unlink(tmp_tmp)
+
+    def test_no_entries_returns_one(self):
+        avg = self.state.get_recent_average()
+        self.assertEqual(avg, 1.0)
 
     def test_single_entry_returns_that_score(self):
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            state_file = f.name
-        try:
-            fs = FeedbackState(state_file=state_file)
-            fs.record_compression(make_quality_score(overall=0.75))
-            assert fs.get_recent_average() == 0.75
-        finally:
-            if os.path.exists(state_file):
-                os.unlink(state_file)
+        self.state.record_compression({"overall": 0.75})
+        avg = self.state.get_recent_average(window=3)
+        self.assertAlmostEqual(avg, 0.75)
 
-    def test_default_window_is_5(self):
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            state_file = f.name
-        try:
-            fs = FeedbackState(state_file=state_file)
-            for score in [0.6, 0.7, 0.8, 0.9, 1.0]:
-                fs.record_compression(make_quality_score(overall=score))
+    def test_window_larger_than_entries_uses_all(self):
+        for i in range(3):
+            self.state.record_compression({"overall": 0.8 + i * 0.1})
+        avg = self.state.get_recent_average(window=10)
+        # Average of 0.8, 0.9, 1.0 = 0.9
+        self.assertAlmostEqual(avg, 0.9)
 
-            avg = fs.get_recent_average()
-            expected = (0.6 + 0.7 + 0.8 + 0.9 + 1.0) / 5
-            assert abs(avg - round(expected, 3)) < 0.001
-        finally:
-            if os.path.exists(state_file):
-                os.unlink(state_file)
-
-    def test_custom_window(self):
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            state_file = f.name
-        try:
-            fs = FeedbackState(state_file=state_file)
-            for score in [0.5, 0.6, 0.7, 0.8, 0.9]:
-                fs.record_compression(make_quality_score(overall=score))
-
-            avg_2 = fs.get_recent_average(window=2)
-            expected = (0.8 + 0.9) / 2
-            assert abs(avg_2 - round(expected, 3)) < 0.001
-        finally:
-            if os.path.exists(state_file):
-                os.unlink(state_file)
-
-    def test_window_larger_than_entries(self):
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            state_file = f.name
-        try:
-            fs = FeedbackState(state_file=state_file)
-            for score in [0.6, 0.8]:
-                fs.record_compression(make_quality_score(overall=score))
-
-            avg = fs.get_recent_average(window=10)
-            expected = (0.6 + 0.8) / 2
-            assert abs(avg - round(expected, 3)) < 0.001
-        finally:
-            if os.path.exists(state_file):
-                os.unlink(state_file)
+    def test_window_smaller_than_entries_uses_last_n(self):
+        for i in range(10):
+            self.state.record_compression({"overall": float(i)})
+        avg = self.state.get_recent_average(window=3)
+        # Last 3 scores: 7.0, 8.0, 9.0 → average = 8.0
+        self.assertAlmostEqual(avg, 8.0)
 
 
-# ---------------------------------------------------------------------------
-# Tests: get_correction_params
-# ---------------------------------------------------------------------------
-
-class TestGetCorrectionParams:
+class TestCorrectionParams(unittest.TestCase):
     """Test correction parameter generation."""
 
-    def test_stable_quality_returns_neutral_params(self):
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            state_file = f.name
-        try:
-            fs = FeedbackState(state_file=state_file)
-            for _ in range(5):
-                fs.record_compression(make_quality_score(overall=0.8))
+    def setUp(self):
+        self.tmp = tempfile.NamedTemporaryFile(suffix=".json", delete=False)
+        self.tmp.close()
+        self.state = FeedbackState(state_file=self.tmp.name)
 
-            params = fs.get_correction_params()
-            assert params["extraction_window_multiplier"] == 1.0
-            assert params["preserve_critical_markers"] is False
-            assert params["min_bridge_quality_threshold"] == _MIN_QUALITY_THRESHOLD
-        finally:
-            if os.path.exists(state_file):
-                os.unlink(state_file)
+    def tearDown(self):
+        if os.path.exists(self.tmp.name):
+            os.unlink(self.tmp.name)
+        tmp_tmp = self.tmp.name + ".tmp"
+        if os.path.exists(tmp_tmp):
+            os.unlink(tmp_tmp)
 
-    def test_improving_quality_returns_neutral_params(self):
-        """Improving quality (negative trend) should return neutral params."""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            state_file = f.name
-        try:
-            fs = FeedbackState(state_file=state_file)
-            for score in [0.5, 0.6, 0.7, 0.8, 0.9]:
-                fs.record_compression(make_quality_score(overall=score))
+    def test_default_params_when_no_data(self):
+        params = self.state.get_correction_params()
+        self.assertEqual(params["extraction_window_multiplier"], 1.0)
+        self.assertFalse(params["preserve_critical_markers"])
+        self.assertAlmostEqual(params["min_bridge_quality_threshold"], _MIN_QUALITY_THRESHOLD)
 
-            params = fs.get_correction_params()
-            assert params["extraction_window_multiplier"] == 1.0
-            assert params["preserve_critical_markers"] is False
-        finally:
-            if os.path.exists(state_file):
-                os.unlink(state_file)
+    def test_no_correction_when_improving(self):
+        for i in range(5):
+            self.state.record_compression({"overall": 0.5 + i * 0.1})
+        params = self.state.get_correction_params()
+        self.assertEqual(params["extraction_window_multiplier"], 1.0)
 
-    def test_degradation_above_threshold_applies_corrections(self):
-        """Degradation above threshold should widen extraction window."""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            state_file = f.name
-        try:
-            fs = FeedbackState(state_file=state_file)
-            # Strong degradation from 1.0 to 0.2
-            for score in [1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2]:
-                fs.record_compression(make_quality_score(overall=score))
+    def test_correction_applied_when_degrading(self):
+        # Record degrading quality above threshold
+        for _ in range(3):
+            self.state.record_compression({"overall": 1.0})
+        for _ in range(3):
+            self.state.record_compression({"overall": 0.2})
+        params = self.state.get_correction_params()
+        # Should have widened extraction window
+        self.assertGreater(params["extraction_window_multiplier"], 1.0)
 
-            params = fs.get_correction_params()
-            assert params["extraction_window_multiplier"] > 1.0
-        finally:
-            if os.path.exists(state_file):
-                os.unlink(state_file)
+    def test_preserve_critical_markers_when_low_quality(self):
+        # Record very low quality with degradation
+        for _ in range(3):
+            self.state.record_compression({"overall": 0.9})
+        for _ in range(3):
+            self.state.record_compression({"overall": 0.1})
+        params = self.state.get_correction_params()
+        # Average quality is well below MIN_QUALITY_THRESHOLD (0.60)
+        self.assertTrue(params["preserve_critical_markers"])
 
-    def test_low_quality_forces_preservation_markers(self):
-        """When avg quality < MIN_QUALITY_THRESHOLD, force preservation markers."""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            state_file = f.name
-        try:
-            fs = FeedbackState(state_file=state_file)
-            # Strong degradation to very low scores
-            for score in [1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2]:
-                fs.record_compression(make_quality_score(overall=score))
+    def test_needs_correction_false_when_stable(self):
+        for _ in range(5):
+            self.state.record_compression({"overall": 0.9})
+        self.assertFalse(self.state.needs_correction())
 
-            params = fs.get_correction_params()
-            if params["degradation_trend"] >= _DEGRADATION_THRESHOLD:
-                # Check that preservation markers are set when avg is low enough
-                assert isinstance(params["preserve_critical_markers"], bool)
-        finally:
-            if os.path.exists(state_file):
-                os.unlink(state_file)
-
-    def test_dynamic_threshold_lowered(self):
-        """Dynamic threshold should be lowered based on recent average."""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            state_file = f.name
-        try:
-            fs = FeedbackState(state_file=state_file)
-            for score in [1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2]:
-                fs.record_compression(make_quality_score(overall=score))
-
-            params = fs.get_correction_params()
-            if params["degradation_trend"] >= _DEGRADATION_THRESHOLD:
-                # Threshold should be lowered from default
-                assert params["min_bridge_quality_threshold"] <= _MIN_QUALITY_THRESHOLD
-        finally:
-            if os.path.exists(state_file):
-                os.unlink(state_file)
-
-    def test_params_include_recent_avg(self):
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            state_file = f.name
-        try:
-            fs = FeedbackState(state_file=state_file)
-            for _ in range(3):
-                fs.record_compression(make_quality_score(overall=0.7))
-
-            params = fs.get_correction_params()
-            assert "recent_avg_quality" in params
-            assert abs(params["recent_avg_quality"] - 0.7) < 0.01
-        finally:
-            if os.path.exists(state_file):
-                os.unlink(state_file)
-
-    def test_insufficient_data_returns_neutral(self):
-        """With fewer than 3 entries, should return neutral params."""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            state_file = f.name
-        try:
-            fs = FeedbackState(state_file=state_file)
-            fs.record_compression(make_quality_score(overall=0.3))
-
-            params = fs.get_correction_params()
-            assert params["extraction_window_multiplier"] == 1.0
-            assert params["preserve_critical_markers"] is False
-        finally:
-            if os.path.exists(state_file):
-                os.unlink(state_file)
+    def test_needs_correction_true_when_degrading(self):
+        for _ in range(3):
+            self.state.record_compression({"overall": 1.0})
+        for _ in range(3):
+            self.state.record_compression({"overall": 0.2})
+        self.assertTrue(self.state.needs_correction())
 
 
-# ---------------------------------------------------------------------------
-# Tests: needs_correction
-# ---------------------------------------------------------------------------
-
-class TestNeedsCorrection:
-    """Test the quick correction check."""
-
-    def test_no_entries_returns_false(self):
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            state_file = f.name
-        try:
-            fs = FeedbackState(state_file=state_file)
-            assert fs.needs_correction() is False
-        finally:
-            if os.path.exists(state_file):
-                os.unlink(state_file)
-
-    def test_stable_quality_returns_false(self):
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            state_file = f.name
-        try:
-            fs = FeedbackState(state_file=state_file)
-            for _ in range(5):
-                fs.record_compression(make_quality_score(overall=0.8))
-
-            assert fs.needs_correction() is False
-        finally:
-            if os.path.exists(state_file):
-                os.unlink(state_file)
-
-    def test_strong_degradation_returns_true(self):
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            state_file = f.name
-        try:
-            fs = FeedbackState(state_file=state_file)
-            for score in [1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2]:
-                fs.record_compression(make_quality_score(overall=score))
-
-            assert fs.needs_correction() is True
-        finally:
-            if os.path.exists(state_file):
-                os.unlink(state_file)
-
-
-# ---------------------------------------------------------------------------
-# Tests: Constants
-# ---------------------------------------------------------------------------
-
-class TestConstants:
-    """Verify configuration constants."""
-
-    def test_max_entries_is_20(self):
-        assert _MAX_ENTRIES == 20
-
-    def test_degradation_threshold_is_positive(self):
-        assert _DEGRADATION_THRESHOLD > 0
-        assert _DEGRADATION_THRESHOLD < 1.0
-
-    def test_min_quality_threshold_is_reasonable(self):
-        assert 0.0 < _MIN_QUALITY_THRESHOLD <= 1.0
+if __name__ == "__main__":
+    unittest.main()

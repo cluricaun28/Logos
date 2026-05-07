@@ -128,30 +128,27 @@ class ContextBridgeBuilder:
     ) -> List[Dict[str, Any]]:
         """Apply feedback corrections to the message set before extraction.
 
-        If degradation detected, widens the effective message window so more
-        context is available for extraction.
+        Currently a no-op — the extraction engine already scans all provided
+        messages, so widening the window has no effect. Kept as a hook for
+        future implementation where we might fetch additional historical context.
 
         Args:
             messages: Original message list.
             correction_params: Correction params from FeedbackState.
 
         Returns:
-            Message list (possibly with additional historical messages prepended).
+            Original message list (unchanged).
         """
         if not correction_params:
             return messages
 
         multiplier = correction_params.get("extraction_window_multiplier", 1.0)
-        if multiplier <= 1.0:
-            return messages
-
-        # Nothing to widen — already have all messages
-        # In practice, the extraction engine scans all provided messages anyway.
-        # The multiplier is a signal for future expansion; for now we log it.
-        logger.info(
-            "Feedback correction applied: extraction window %sx (messages: %d)",
-            multiplier, len(messages),
-        )
+        if multiplier > 1.0:
+            logger.info(
+                "Feedback correction: extraction_window_multiplier=%.1fx "
+                "(currently a no-op, extraction scans all provided messages)",
+                multiplier,
+            )
         return messages
 
     def _score_quality(
@@ -171,8 +168,7 @@ class ContextBridgeBuilder:
 
             # Record in feedback state if available
             if self._feedback:
-                session_id = getattr(self._feedback, "_state_file", "")
-                self._feedback.record_compression(score, session_id="")
+                self._feedback.record_compression(score)
 
             logger.debug(
                 "Bridge quality: overall=%.2f (tasks=%.1f, files=%.1f, errors=%.1f)",
