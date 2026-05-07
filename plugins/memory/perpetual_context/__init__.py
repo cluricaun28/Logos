@@ -526,94 +526,6 @@ class PerpetualContextProvider(MemoryProvider):
         self._recall_past_enabled: bool = False
         self._periodic_enabled: bool = False
         self._deep_research_enabled: bool = False
-        # Intent classifier keywords
-        self._INTENT_CONVERSATION = {
-            "yes", "no", "ok", "okay", "alright", "cool", "nice",
-            "thanks", "thank you", "got it", "understood", "done",
-            "perfect", "great", "awesome", "good", "fine", "sure",
-            "right", "correct", "exactly", "yeah", "nah",
-            "let's do it", "let's go", "go ahead", "carry on",
-        }
-        self._INTENT_STATUS = {
-            "still", "is it done", "is it still", "any update",
-            "how's it going", "where are we", "progress",
-            "still broken", "is it working", "has it fixed",
-            "still happening",
-        }
-        self._INTENT_COMMAND = {
-            "restart", "backup", "deploy", "push", "commit",
-            "install", "uninstall", "enable", "disable",
-            "configure", "set up", "turn on", "turn off",
-            "check", "verify", "test", "debug", "fix it",
-            "do a", "run a", "make a", "build", "create",
-            "add", "remove", "update", "change", "modify",
-            "send", "push to", "back up",
-        }
-        self._INTENT_CODE = {
-            "code", "function", "method", "class", "module",
-            "import", "def ", "git", "python", "terminal",
-            "debug", "trace", "error", "exception", "log",
-            "refactor", "audit", "review", "fix the code",
-            "add to", "remove from", "update the",
-        }
-        self._INTENT_RECENT = {
-            "recent", "last time", "just now", "earlier today",
-            "from earlier", "a moment ago", "the last",
-            "most recent", "right before", "check recent",
-            "what was the last",
-        }
-        self._INTENT_PAST_WORK = {
-            "what did we do", "did we do", "did you finish",
-            "last time we", "remember", "from our conversation",
-            "we discussed", "we talked about", "we were working on",
-            "check pm", "check memory", "recall our conversation",
-            "what we built", "what we changed", "what we did with",
-            "previous session", "earlier session",
-        }
-        self._INTENT_REFERENCE = {
-            "read the", "is there an rl page", "is there a page for",
-            "look up in", "find in reference library", "the docs say",
-            "check the docs", "what's the config for",
-            "how does x work", "what's in the rl",
-        }
-        self._INTENT_RESEARCH = {
-            "research", "search for", "find out", "search the web",
-            "web search", "look up online", "what's happening with",
-            "latest news", "current state of", "search",
-            "use web tools", "find on the internet",
-        }
-        self._INTENT_FACTUAL = {
-            "what is", "tell me about", "explain", "define",
-            "describe", "how does x work", "what causes",
-            "what was", "who is", "what are",
-        }
-        self._INTENT_COMPARISON = {
-            "compare", "versus", "vs", "difference between",
-            "x or y", "which is better", "how does x compare",
-        }
-        self._INTENT_OPINION = {
-            "what do you think", "what's your opinion",
-            "do you agree", "do you believe", "should i",
-            "is it a good idea", "would you recommend",
-        }
-        self._INTENT_CREATIVE = {
-            "write me", "write a", "compose", "draft",
-            "create a", "generate a", "make a poem",
-            "make a song", "come up with",
-        }
-        self._INTENT_TOPIC = {
-            "on the topic of", "on the subject of",
-            "speaking of", "by the way",
-        }
-        self._INTENT_CREATIVE = {
-            "write me", "write a", "compose", "draft",
-            "create a", "generate a", "make a poem",
-            "make a song", "come up with",
-        }
-        self._INTENT_FACTUAL_WORDS = {
-            "what", "who", "where", "when", "why", "how",
-            "explain", "define", "describe",
-        }
         # SRP-compliant sub-components — instantiated in initialize() once DB is ready
         self._extraction: Optional[ExtractionEngine] = None
         self._tools: Optional[ToolHandler] = None
@@ -837,6 +749,42 @@ class PerpetualContextProvider(MemoryProvider):
         "what's a", "what's an", "describe",
         "how does it work", "tell me more",
     }
+    _INTENT_FACTUAL_WORDS: set = {
+        "what", "who", "where", "when", "why", "how",
+        "explain", "define", "describe",
+    }
+    _INTENT_OPINION: set = {
+        "what do you think", "should i", "is it better",
+        "would you recommend", "do you agree",
+        "what's your take", "in your opinion",
+    }
+    _INTENT_COMPARISON: set = {
+        "compare", "compared to", "difference between",
+        "versus", "vs ", "vs.", "better than",
+        "alternative to", "how does x compare",
+    }
+    _INTENT_TOPIC: set = {
+        "let's talk about", "on the topic of", "speaking of",
+        "about", "regarding", "concerning",
+    }
+    _INTENT_CODE: set = {
+        "fix", "audit", "refactor", "implement", "build",
+        "deploy", "push to", "backup", "restart",
+    }
+    _INTENT_COMMAND: set = {
+        "add 10 new", "review the conversation above",
+        "download is done", "let's see if that solves",
+        "ok, built it",
+    }
+    _INTENT_SHORT: set = {
+        "yes", "no", "ok", "okay", "thanks", "hello", "hi",
+        "good", "right", "correct", "wrong", "agreed",
+    }
+    _INTENT_STATUS: set = {
+        "still broken", "is it done", "any updates", "working",
+        "still no", "still happening", "fixed",
+    }
+
     def _classify_injection_intent(
         self, query: str
     ) -> Dict[str, Any]:
@@ -1021,24 +969,9 @@ class PerpetualContextProvider(MemoryProvider):
                 "intent": "topic",
             }
 
-        # --- Creative: write/compose/draft — no injection ---
-        if any(phrase in lower for phrase in self._INTENT_CREATIVE):
-            return {
-                "fire_prefetch": False,
-                "fire_recall": False,
-                "fire_web": False,
-                "needs_recent_context": False,
-                "needs_clarification": False,
-                "confidence": "high",
-                "intent": "creative",
-            }
-
         # --- Fallback: short question-like phrases with wh- words ---
         # Detect simple factual questions that didn't match _INTENT_FACTUAL phrases
-        # Guard: must start with a wh- word and be short, to avoid matching casual remarks
-        first_word = lower.split()[0].strip(".,!?;:\"'()[]{}") if lower.split() else ""
-        if (len(words) <= 8 and words & self._INTENT_FACTUAL_WORDS
-                and first_word[:3] in ("wha", "who", "why", "how", "whe")):
+        if len(words) <= 8 and words & self._INTENT_FACTUAL_WORDS:
             # Check if it looks like a simple factual question (not a command or code task)
             if not any(phrase in lower for phrase in self._INTENT_COMMAND):
                 return {
@@ -1132,7 +1065,7 @@ class PerpetualContextProvider(MemoryProvider):
         intent = routing.get("intent", "ambiguous")
         logger.debug("Injection intent: %s (confidence=%s)", intent, routing.get("confidence", "?"))
 
-        # --- Ambiguous: check recent PM, then ask for clarification ---
+        # --- Ambiguous: check recent PM, then return gracefully ---
         if routing.get("needs_recent_context"):
             recent = self._get_recent_context(max_turns=15)
             if recent:
@@ -1147,10 +1080,8 @@ class PerpetualContextProvider(MemoryProvider):
                         )
                 if parts:
                     return "\n\n---\n\n".join(parts)
-                # Recent context found but nothing above threshold — ask for clarification
-                return "[Your query is ambiguous. Ask the user for clarification before proceeding.]"
-            # No recent context at all — ask for clarification
-            return "[Your query is ambiguous. Ask the user for clarification before proceeding.]"
+            # No useful recent context — return empty, don't push clarification into prompt
+            return ""
 
         # --- Past work: recall cross-session ---
         if routing.get("fire_recall") and self._recall_past_enabled:
