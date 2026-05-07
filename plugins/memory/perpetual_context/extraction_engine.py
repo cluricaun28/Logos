@@ -15,8 +15,7 @@ from __future__ import annotations
 import json as _json
 import os
 import re as _re
-from typing import Any, Dict, List, Tuple
-
+from typing import Any
 
 # Common English stopwords to filter from topic extraction
 _STOPWORDS = frozenset({
@@ -29,7 +28,6 @@ _STOPWORDS = frozenset({
     'we', 'our', 'you', 'your', 'he', 'him', 'his', 'she', 'her', 'they', 'them',
     'then', 'there', 'here', 'when', 'where', 'why', 'how', 'can', 'may',
 })
-
 
 class ExtractionEngine:
     """Extracts structured data from conversation message history.
@@ -98,7 +96,7 @@ class ExtractionEngine:
     # Public extraction methods
     # -----------------------------------------------------------------------
 
-    def extract_active_tasks(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def extract_active_tasks(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Extracts active tasks from recent messages with their turn IDs.
 
         Scans user messages for task-related language (fix/add/implement/etc.),
@@ -111,7 +109,7 @@ class ExtractionEngine:
             return []
 
         # Dedup key -> first occurrence data (case-insensitive, whitespace-normalized)
-        seen: Dict[str, Dict[str, Any]] = {}
+        seen: dict[str, dict[str, Any]] = {}
 
         for idx in range(len(messages) - 1, -1, -1):  # Include index 0
             msg = messages[idx]
@@ -167,7 +165,7 @@ class ExtractionEngine:
         # Return most recent tasks first (backwards iteration = most recent inserted first)
         return list(seen.values())[:5]
 
-    def extract_file_edits(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def extract_file_edits(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Extracts file edit history from recent messages.
 
         Detects write_file/patch/read_file calls from both structured tool_calls
@@ -182,7 +180,7 @@ class ExtractionEngine:
             return []
 
         # path key -> data (normalized to lowercase for dedup)
-        seen: Dict[str, Dict[str, Any]] = {}
+        seen: dict[str, dict[str, Any]] = {}
 
         for idx in range(len(messages) - 1, -1, -1):  # Include index 0
             msg = messages[idx]
@@ -254,9 +252,9 @@ class ExtractionEngine:
         # Return most recently edited first (reverse insertion order)
         return list(reversed(seen.values()))[:10]
 
-    def find_related_discussions(self, messages: List[Dict[str, Any]],
+    def find_related_discussions(self, messages: list[dict[str, Any]],
                                  edit_turn: int, file_path: str,
-                                 window: int = 10) -> Tuple[List[int], str]:
+                                 window: int = 10) -> tuple[list[int], str]:
         """Find related discussion turns for a file edit.
 
         Scans surrounding messages for mentions of the same file path.
@@ -312,7 +310,7 @@ class ExtractionEngine:
 
         return related_turns, related_desc
 
-    def extract_known_errors(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def extract_known_errors(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Extracts known errors and their resolutions.
 
         Finds TypeError/AttributeError/etc. with normalized deduplication
@@ -324,7 +322,7 @@ class ExtractionEngine:
         if not messages:
             return []
 
-        seen: Dict[str, Dict[str, Any]] = {}
+        seen: dict[str, dict[str, Any]] = {}
 
         for idx in range(len(messages) - 1, -1, -1):  # Include index 0
             msg = messages[idx]
@@ -372,7 +370,7 @@ class ExtractionEngine:
         # Return most recent errors first (backwards iteration = most recent inserted first)
         return list(seen.values())[:5]
 
-    def extract_knowledge_gaps(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def extract_knowledge_gaps(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Extracts flagged knowledge gaps.
 
         Uses three pattern formats to detect knowledge gap flags:
@@ -385,7 +383,7 @@ class ExtractionEngine:
         if not messages:
             return []
 
-        seen: Dict[str, Dict[str, Any]] = {}
+        seen: dict[str, dict[str, Any]] = {}
 
         for idx in range(len(messages) - 1, -1, -1):  # Include index 0
             msg = messages[idx]

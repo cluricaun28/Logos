@@ -46,7 +46,7 @@ import sqlite3
 import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +73,6 @@ PROGRESS_LOG_INTERVAL = 512
 # Frontmatter parsing
 YAML_FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
-
 # ---------------------------------------------------------------------------
 # Simple YAML frontmatter parser (no external dependency)
 # ---------------------------------------------------------------------------
@@ -97,8 +96,7 @@ def _parse_yaml_frontmatter(text: str) -> dict:
                 result[key] = value
     return result
 
-
-def _extract_file_info(file_path: Path) -> Optional[dict]:
+def _extract_file_info(file_path: Path) -> dict | None:
     """Read a markdown file and extract title, frontmatter, body, category.
 
     Returns dict with keys: file_path, title, frontmatter (str),
@@ -183,7 +181,6 @@ def _extract_file_info(file_path: Path) -> Optional[dict]:
         "size": size,
     }
 
-
 # ---------------------------------------------------------------------------
 # Embedding helper — wraps the shared EmbeddingEngine
 # ---------------------------------------------------------------------------
@@ -194,22 +191,23 @@ def _get_embedding_engine() -> Any:
     from agent.perpetual_context_db import EmbeddingEngine  # noqa: PLC0415
     return EmbeddingEngine.get()
 
-
 def _embed_batch(
-    texts: List[str], batch_size: int = EMBED_BATCH_SIZE
-) -> List[Optional[List[float]]]:
+    texts: list[str], batch_size: int = EMBED_BATCH_SIZE
+) -> list[list[float | None]]:
     """Embed a batch of texts using the shared EmbeddingEngine.
 
     Returns list of vectors (same length as input).
     None for individual failed embeddings — never discards
     the entire batch because one item failed.
     """
+    # This is called from build_index() which uses RLIndex instance methods.
+    # For the module-level call path, fall back to the uncached singleton.
     engine = _get_embedding_engine()
     model = engine._load_model()
     if model is None:
         return [None] * len(texts)
 
-    results: List[Optional[List[float]]] = []
+    results: list[list[float | None]] = []
     try:
         for i in range(0, len(texts), batch_size):
             batch = texts[i: i + batch_size]
@@ -239,7 +237,6 @@ def _embed_batch(
 
     return results
 
-
 # ---------------------------------------------------------------------------
 # RLIndex — Main class
 # ---------------------------------------------------------------------------
@@ -251,15 +248,34 @@ class RLIndex:
     Thread-safe for reads; writes should be serialized.
     """
 
-    def __init__(self, db_path: Optional[str] = None) -> None:
+    def __init__(self, db_path: str | None = None) -> None:
         self._db_path = db_path or RL_INDEX_DB_PATH
-        self._conn: Optional[sqlite3.Connection] = None
+        self._conn: sqlite3.Connection | None = None
         self._lock = threading.RLock()
         self._initialized = False
+        self._embedding_engine: Any | None = None
+        self._embedding_model: Any | None = None
 
     @property
     def is_initialized(self) -> bool:
         return self._initialized
+
+    # -----------------------------------------------------------------------
+    # Embedding engine cache — lazy init, avoids N+1 model loads
+    # -----------------------------------------------------------------------
+
+    def _get_embedding_engine(self) -> Any:
+        """Lazy-load and cache the EmbeddingEngine singleton."""
+        if self._embedding_engine is None:
+            from agent.perpetual_context_db import EmbeddingEngine  # noqa: PLC0415
+            self._embedding_engine = EmbeddingEngine.get()
+        return self._embedding_engine
+
+    def _get_embedding_model(self) -> Any:
+        """Lazy-load and cache the embedding model."""
+        if self._embedding_model is None:
+            self._embedding_model = self._get_embedding_engine()._load_model()
+        return self._embedding_model
 
     # -----------------------------------------------------------------------
     # Lifecycle
@@ -412,7 +428,7 @@ class RLIndex:
     # Build
     # -----------------------------------------------------------------------
 
-    def build_index(self, rl_base: Optional[str] = None) -> dict:
+    def build_index(self, rl_base: str | None = None) -> dict:
         """Build the full RL index from scratch.
 
         Walks the RL directory tree, extracts file info, computes embeddings,
@@ -443,7 +459,7 @@ class RLIndex:
         start = time.time()
         now = time.time()
 
-        stats: Dict[str, Any] = {
+        stats: dict[str, Any] = {
             "files_processed": 0,
             "files_indexed": 0,
             "files_embedded": 0,
@@ -453,7 +469,7 @@ class RLIndex:
         }
 
         # Phase 1: Extract file info
-        file_infos: List[dict] = []
+        file_infos: list[dict] = []
         for md_file in md_files:
             info = _extract_file_info(md_file)
             if info is None:
@@ -470,7 +486,7 @@ class RLIndex:
             stats["files_processed"] += 1
 
         # Build lookup dict — O(1) instead of O(n) linear scan
-        info_by_path: Dict[str, dict] = {
+        info_by_path: dict[str, dict] = {
             fi["file_path"]: fi for fi in file_infos
         }
 
@@ -557,7 +573,7 @@ class RLIndex:
 
             vectors = _embed_batch(list(texts), batch_size=EMBED_BATCH_SIZE)
 
-            embed_rows: List[tuple] = []
+            embed_rows: list[tuple] = []
             for path, vector in zip(paths, vectors):
                 if vector is not None:
                     blob = struct.pack(f"{RL_EMBED_DIM}f", *vector)
@@ -640,7 +656,7 @@ class RLIndex:
                 )
 
                 # Update embedding
-                vector = _get_embedding_engine().embed(info["body"])
+                vector = self._get_embedding_engine().embed(info["body"])
                 if vector is not None:
                     blob = struct.pack(f"{RL_EMBED_DIM}f", *vector)
                     self._conn.execute(
@@ -700,10 +716,12 @@ class RLIndex:
     def reindex_stale(self) -> int:
         """Re-index files whose mtime has changed since last indexing.
 
+        Batches file extraction and embedding to avoid N+1 model loads.
+
         Returns the number of files updated.
         """
-        stale: List[str] = []
-        deleted: List[str] = []
+        stale: list[str] = []
+        deleted: list[str] = []
 
         with self._lock:
             cursor = self._conn.execute(
@@ -732,12 +750,97 @@ class RLIndex:
             if deleted:
                 self._conn.commit()
 
-        # Update stale files (outside the lock to avoid holding it too long)
-        count = 0
+        if not stale:
+            return 0
+
+        # Batch-update stale files: extract info, then embed in one pass
+        file_infos: list[dict] = []
+        now = time.time()
         for fp in stale:
             full_path = os.path.join(RL_BASE_DIR, fp)
-            if self.update_file(full_path):
-                count += 1
+            info = _extract_file_info(Path(full_path))
+            if info is not None:
+                info["indexed_at"] = now
+                file_infos.append(info)
+
+        if not file_infos:
+            if stale:
+                logger.info(
+                    "RLIndex reindex_stale: 0 updated, %d failed, "
+                    "removed %d deleted",
+                    len(stale), len(deleted),
+                )
+            return 0
+
+        count = 0
+
+        # Batch metadata inserts
+        with self._lock:
+            for info in file_infos:
+                try:
+                    self._conn.execute(
+                        "INSERT OR REPLACE INTO rl_files"
+                        " (file_path, title, frontmatter, body,"
+                        "  category, mtime, size, indexed_at)"
+                        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                        (
+                            info["file_path"], info["title"],
+                            info["frontmatter"], info["body"],
+                            info["category"], info["mtime"],
+                            info["size"], info["indexed_at"],
+                        ),
+                    )
+                except Exception as e:
+                    logger.error(
+                        "Failed to update RL file %s: %s",
+                        info.get("file_path"), e,
+                    )
+                    continue
+
+            # Batch embeddings in one model call
+            texts = [info["body"] for info in file_infos]
+            model = self._get_embedding_model()
+            if model is not None:
+                try:
+                    vectors = model.encode(
+                        [t[:RL_EMBED_MAX_CONTENT_LEN] for t in texts],
+                        convert_to_numpy=True,
+                        show_progress_bar=False,
+                        batch_size=EMBED_BATCH_SIZE,
+                    )
+                    if hasattr(vectors, "__len__") and not isinstance(vectors, str):
+                        vectors = list(vectors)
+                    else:
+                        vectors = [vectors]
+
+                    embed_rows: list[tuple] = []
+                    for info, vector in zip(file_infos, vectors):
+                        if vector is not None:
+                            blob = struct.pack(f"{RL_EMBED_DIM}f", *vector.tolist())
+                            embed_rows.append((
+                                info["file_path"], blob,
+                                info["mtime"], now,
+                            ))
+                            count += 1
+
+                    if embed_rows:
+                        self._conn.executemany(
+                            "INSERT OR REPLACE INTO rl_embeddings"
+                            " (file_path, embedding, mtime, created_at)"
+                            " VALUES (?, ?, ?, ?)",
+                            embed_rows,
+                        )
+                except Exception as e:
+                    logger.error("Batch embedding failed in reindex_stale: %s", e)
+                    # Fall back to individual updates
+                    count = 0
+                    for info in file_infos:
+                        if self.update_file(os.path.join(RL_BASE_DIR, info["file_path"])):
+                            count += 1
+            else:
+                count = len(file_infos)  # Metadata updated, embeddings skipped
+
+            self._conn.commit()
 
         if stale:
             logger.info(
@@ -756,10 +859,10 @@ class RLIndex:
         self,
         query: str,
         top_k: int = 5,
-        category: Optional[str] = None,
+        category: str | None = None,
         semantic_weight: float = RL_SEMANTIC_WEIGHT,
         fts5_weight: float = RL_FTS5_WEIGHT,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Hybrid search: FTS5 keyword + cosine similarity.
 
         Args:
@@ -785,8 +888,8 @@ class RLIndex:
             )
 
             # Hybrid fusion
-            scored: Dict[str, float] = {}
-            result_cache: Dict[str, Dict[str, Any]] = {}
+            scored: dict[str, float] = {}
+            result_cache: dict[str, dict[str, Any]] = {}
 
             # Score FTS5 results
             if fts_results:
@@ -837,7 +940,7 @@ class RLIndex:
             file_paths = [fp for fp, _ in sorted_results]
             snippets = self._extract_snippets_batch(file_paths, query)
 
-            final: List[Dict[str, Any]] = []
+            final: list[dict[str, Any]] = []
             for fp, total_score in sorted_results:
                 r = result_cache.get(fp, {})
                 final.append({
@@ -860,8 +963,8 @@ class RLIndex:
         self,
         query: str,
         top_k: int = 10,
-        category: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
+        category: str | None = None,
+    ) -> list[dict[str, Any]]:
         """FTS5 keyword search."""
         if not self._conn:
             return []
@@ -891,7 +994,7 @@ class RLIndex:
             cursor = self._conn.execute(sql, params)
             rows = cursor.fetchall()
 
-            results: List[Dict[str, Any]] = []
+            results: list[dict[str, Any]] = []
             for row in rows:
                 results.append({
                     "file_path": row[1],
@@ -910,14 +1013,14 @@ class RLIndex:
         self,
         query: str,
         top_k: int = 10,
-        category: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
+        category: str | None = None,
+    ) -> list[dict[str, Any]]:
         """Semantic search via cosine similarity against stored embeddings."""
         if not self._conn:
             return []
 
         try:
-            engine = _get_embedding_engine()
+            engine = self._get_embedding_engine()
             query_vector = engine.embed(query)
             if query_vector is None:
                 logger.debug(
@@ -955,7 +1058,7 @@ class RLIndex:
                 return []
 
             # Compute cosine similarity for each
-            scored: List[tuple] = []
+            scored: list[tuple] = []
             for row in rows:
                 blob = row[3]
                 if not blob or len(blob) < RL_EMBED_DIM * 4:
@@ -978,7 +1081,7 @@ class RLIndex:
 
             scored.sort(key=lambda x: -x[3])
 
-            results: List[Dict[str, Any]] = []
+            results: list[dict[str, Any]] = []
             for fp, title, cat, sim in scored[:top_k]:
                 results.append({
                     "file_path": fp,
@@ -994,7 +1097,7 @@ class RLIndex:
             return []
 
     @staticmethod
-    def _cosine_similarity(a: List[float], b: List[float]) -> float:
+    def _cosine_similarity(a: list[float], b: list[float]) -> float:
         """Compute cosine similarity between two vectors."""
         dot = sum(x * y for x, y in zip(a, b))
         norm_a = math.sqrt(sum(x * x for x in a))
@@ -1004,8 +1107,8 @@ class RLIndex:
         return dot / (norm_a * norm_b)
 
     def _extract_snippets_batch(
-        self, file_paths: List[str], query: str
-    ) -> Dict[str, str]:
+        self, file_paths: list[str], query: str
+    ) -> dict[str, str]:
         """Batch-extract snippets for multiple files in one query.
 
         Returns dict mapping file_path -> snippet text.
@@ -1021,7 +1124,7 @@ class RLIndex:
                 file_paths,
             )
 
-            snippets: Dict[str, str] = {}
+            snippets: dict[str, str] = {}
             query_lower = query.lower()
             max_len = 300
 
@@ -1066,7 +1169,7 @@ class RLIndex:
             embed_count = self._conn.execute(
                 "SELECT COUNT(*) FROM rl_embeddings"
             ).fetchone()[0]
-            categories: Dict[str, int] = {}
+            categories: dict[str, int] = {}
             for row in self._conn.execute(
                 "SELECT category, COUNT(*) FROM rl_files"
                 " GROUP BY category"

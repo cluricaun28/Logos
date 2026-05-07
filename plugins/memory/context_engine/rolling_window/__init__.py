@@ -30,7 +30,7 @@ import importlib.util
 import logging
 import os
 import sys
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from agent.context_engine import ContextEngine
 
@@ -51,13 +51,13 @@ class RollingWindowContextEngine(ContextEngine):
     def name(self) -> str:
         return "rolling_window"
 
-    # Token state (inherited from ContextEngine ABC, set in __init__ or update_from_response)
-    last_prompt_tokens: int = 0
-    last_completion_tokens: int = 0
-    last_total_tokens: int = 0
-    threshold_tokens: int = 0
-    context_length: int = 0
-    archive_count: int = 0
+    # Token state — initialised in __init__ (not class-level defaults)
+    last_prompt_tokens: int
+    last_completion_tokens: int
+    last_total_tokens: int
+    threshold_tokens: int
+    context_length: int
+    archive_count: int
 
     # Compaction parameters (override defaults as needed)
     threshold_percent: float = 0.75
@@ -66,6 +66,14 @@ class RollingWindowContextEngine(ContextEngine):
 
     def __init__(self, **kwargs):
         super().__init__()
+
+        # Initialise token-tracking instance attributes
+        self.last_prompt_tokens = 0
+        self.last_completion_tokens = 0
+        self.last_total_tokens = 0
+        self.threshold_tokens = 0
+        self.context_length = 0
+        self.archive_count = 0
         # Set engine-specific config from kwargs or defaults
         self.window_size: int = kwargs.get("window_size", 20)
         self.max_tokens: int = kwargs.get("max_tokens", 131072)
@@ -110,7 +118,7 @@ class RollingWindowContextEngine(ContextEngine):
         )
         self._injector = TaskMarkerInjector()
 
-    def update_from_response(self, usage: Dict[str, Any]) -> None:
+    def update_from_response(self, usage: dict[str, Any]) -> None:
         """Update tracked token usage from an API response."""
         if isinstance(usage, dict):
             self.last_prompt_tokens = int(usage.get("prompt_tokens", 0))
@@ -124,10 +132,10 @@ class RollingWindowContextEngine(ContextEngine):
 
     def archive(
         self,
-        messages: List[Dict[str, Any]],
+        messages: list[dict[str, Any]],
         current_tokens: int = None,
         focus_topic: str = None,  # ignored (deterministic pruning)
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Compact the message list and return the new message list.
 
         Rolling window approach — deterministic pruning without LLM summarization.
@@ -193,7 +201,7 @@ class RollingWindowContextEngine(ContextEngine):
 
         return pruned
     
-    def _fallback_window_prune(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _fallback_window_prune(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Simple window-based pruning fallback when task-aware components fail."""
         if len(messages) <= self.window_size:
             return messages
@@ -208,7 +216,7 @@ class RollingWindowContextEngine(ContextEngine):
         
         return messages
 
-    def should_compress_preflight(self, messages: List[Dict[str, Any]]) -> bool:
+    def should_compress_preflight(self, messages: list[dict[str, Any]]) -> bool:
         """Quick rough check before the API call. Default returns False."""
         return False
 
@@ -216,7 +224,7 @@ class RollingWindowContextEngine(ContextEngine):
         """Called when a new conversation session begins."""
         pass
 
-    def on_session_end(self, session_id: str, messages: List[Dict[str, Any]]) -> None:
+    def on_session_end(self, session_id: str, messages: list[dict[str, Any]]) -> None:
         """Called at real session boundaries. NOT called per-turn."""
         pass
 
@@ -227,16 +235,16 @@ class RollingWindowContextEngine(ContextEngine):
         self.last_total_tokens = 0
         self.archive_count = 0
 
-    def get_tool_schemas(self) -> List[Dict[str, Any]]:
+    def get_tool_schemas(self) -> list[dict[str, Any]]:
         """Return tool schemas this engine provides. Default returns empty list."""
         return []
 
-    def handle_tool_call(self, name: str, args: Dict[str, Any], **kwargs) -> str:
+    def handle_tool_call(self, name: str, args: dict[str, Any], **kwargs) -> str:
         """Handle a tool call from the agent. Only called for engine-specific tools."""
         import json
         return json.dumps({"error": f"Unknown context engine tool: {name}"})
 
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self) -> dict[str, Any]:
         """Return status dict for display/logging."""
         status = {
             "last_prompt_tokens": self.last_prompt_tokens,

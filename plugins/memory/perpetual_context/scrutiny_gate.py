@@ -19,7 +19,7 @@ import logging
 import os
 import re as _re
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
 
 from .extraction_engine import _STOPWORDS
 
@@ -104,7 +104,7 @@ class TopicSensitivityClassifier:
 # Known source editorial stances — simple mapping for bias detection
 # Values are rough left-right positioning: left, center-left, centrist,
 # center-right, right, or religious/traditional
-KNOWN_SOURCE_STANCES: Dict[str, str] = {
+KNOWN_SOURCE_STANCES: dict[str, str] = {
     "nytimes.com": "center-left",
     "washingtonpost.com": "center-left",
     "reuters.com": "centrist",
@@ -148,7 +148,7 @@ KNOWN_SOURCE_STANCES: Dict[str, str] = {
 }
 
 
-def _extract_domain(url: str) -> Optional[str]:
+def _extract_domain(url: str) -> str | None:
     """Extract the domain from a URL string.
 
     Returns 'nytimes.com' from 'https://www.nytimes.com/article'.
@@ -161,11 +161,12 @@ def _extract_domain(url: str) -> Optional[str]:
         parsed = urlparse(url)
         domain = parsed.netloc.lower().replace("www.", "")
         return domain if domain else None
-    except Exception:
+    except Exception as e:
+        logger.debug("Failed to extract domain from '%s': %s", url, e)
         return None
 
 
-def _get_source_stance(domain: Optional[str]) -> str:
+def _get_source_stance(domain: str | None) -> str:
     """Look up editorial stance for a known source domain.
 
     Returns stance string like 'center-left', 'right-leaning', 'institutional', etc.
@@ -188,87 +189,6 @@ def _get_source_stance(domain: Optional[str]) -> str:
     return "unknown"
 
 
-class WorldviewDivergenceChecker:
-    """Compare a source's stance against a user's worldview profile.
-
-    Uses the Worldview Quiz axis system from the Reference Library.
-    Returns a divergence score per axis: how many points the source differs
-    from the user's position.
-    """
-
-    # Map source stance labels to axis positions (-2 to +2)
-    # Positive = traditional/conservative, Negative = progressive/secular
-    STANCE_TO_POSITION: Dict[str, int] = {
-        "left-leaning": -2,
-        "center-left": -1,
-        "centrist": 0,
-        "center-right": 1,
-        "right-leaning": 2,
-        "religious/traditional": 2,
-        "institutional": 0,
-        "academic": -1,
-        "unknown": 0,
-    }
-
-    # Default user profile (all +2 = Patrick's profile from test)
-    # This gets overridden when a real profile is loaded from config
-    DEFAULT_USER_PROFILE: Dict[str, int] = {
-        "sexual_morality": 2,
-        "racial_policy": 2,
-        "free_speech": 2,
-        "government_power": 2,
-        "sanctity_of_life": 2,
-        "religion_in_public": 2,
-        "border_immigration": 2,
-        "criminal_justice": 2,
-    }
-
-    def __init__(self, user_profile: Optional[Dict[str, int]] = None) -> None:
-        self._profile = user_profile or self.DEFAULT_USER_PROFILE
-
-    def check_divergence(
-        self, source_stance: str, query: str
-    ) -> Dict[str, Any]:
-        """Check how much a source diverges from the user's worldview.
-
-        Args:
-            source_stance: Editorial stance label from _get_source_stance().
-            query: The search query, used to determine which axes matter.
-
-        Returns dict with divergence info and whether to flag.
-        """
-        source_pos = self.STANCE_TO_POSITION.get(source_stance, 0)
-        classifier = TopicSensitivityClassifier()
-        sensitivity = classifier.classify(query)
-
-        if sensitivity != "high":
-            return {"flag": False, "reason": "Low-sensitivity topic"}
-
-        # Check all relevant axes
-        divergences: List[str] = []
-        max_divergence = 0
-
-        for axis, user_pos in self._profile.items():
-            diff = abs(user_pos - source_pos)
-            if diff >= 2:
-                divergences.append(
-                    f"{axis}: source is {source_stance} "
-                    f"(user position: {'traditional' if user_pos > 0 else 'progressive'})"
-                )
-                max_divergence = max(max_divergence, diff)
-
-        flag = max_divergence >= 2
-        reason = "; ".join(divergences) if divergences else "No significant divergence"
-
-        return {
-            "flag": flag,
-            "reason": reason,
-            "max_divergence": max_divergence,
-            "source_stance": source_stance,
-            "divergent_axes": divergences,
-        }
-
-
 class ScrutinyGate:
     """Applies scrutiny to web-sourced data based on topic sensitivity.
 
@@ -281,7 +201,7 @@ class ScrutinyGate:
         profile = _load_worldview_profile()
         self._divergence_checker = WorldviewDivergenceChecker(profile)
 
-    def vet_results(self, results: List[Dict[str, Any]], query: str) -> Dict[str, Any]:
+    def vet_results(self, results: list[dict[str, Any]], query: str) -> dict[str, Any]:
         """Vet search results through appropriate scrutiny level.
 
         Returns dict with:
@@ -293,9 +213,9 @@ class ScrutinyGate:
         Gracefully handles bad inputs — returns empty results rather than raising.
         """
         sensitivity = self._classifier.classify(query)
-        warnings: List[str] = []
-        vetted: List[Dict[str, Any]] = []
-        rejected: List[Dict[str, Any]] = []
+        warnings: list[str] = []
+        vetted: list[dict[str, Any]] = []
+        rejected: list[dict[str, Any]] = []
 
         # Graceful degradation — handle non-list inputs
         if not isinstance(results, list):
@@ -372,7 +292,7 @@ class ScrutinyGate:
             "warnings": warnings,
         }
 
-    def detect_bias(self, text: str, source_url: str = "") -> Dict[str, Any]:
+    def detect_bias(self, text: str, source_url: str = "") -> dict[str, Any]:
         """Analyze text for potential bias indicators.
 
         Checks for:
@@ -383,7 +303,7 @@ class ScrutinyGate:
         Returns bias report with confidence scores and notes.
         Gracefully handles None/non-string inputs by returning neutral values.
         """
-        notes: List[str] = []
+        notes: list[str] = []
         bias_score = 0.0
 
         # Graceful degradation — handle non-string text
@@ -425,7 +345,7 @@ class ScrutinyGate:
             "confidence_above_threshold": bias_score >= BIAS_CONFIDENCE_THRESHOLD,
         }
 
-    def apply_worldview_filter(self, facts: List[Dict[str, Any]], query: str) -> List[Dict[str, Any]]:
+    def apply_worldview_filter(self, facts: list[dict[str, Any]], query: str) -> list[dict[str, Any]]:
         """Apply worldview baseline filter to vetted facts.
 
         Does NOT alter or censor facts — only annotates them with scrutiny metadata:
@@ -453,7 +373,7 @@ class ScrutinyGate:
 
         return annotated_facts
 
-    def _estimate_confidence(self, result: Dict[str, Any], sensitivity: str) -> float:
+    def _estimate_confidence(self, result: dict[str, Any], sensitivity: str) -> float:
         """Estimate confidence score for a search result."""
         base_score = result.get("score", 0.5)
 
@@ -476,7 +396,7 @@ class RLIngestionGate:
     def __init__(self, rl_dir: str = "~/.hermes/reference-library/") -> None:
         self._rl_dir = Path(os.path.expanduser(rl_dir))
 
-    def evaluate(self, new_data: Dict[str, Any], existing_rl_path: Optional[str] = None) -> Dict[str, Any]:
+    def evaluate(self, new_data: dict[str, Any], existing_rl_path: str | None = None) -> dict[str, Any]:
         """Evaluate if new web data should be ingested into the Reference Library.
 
         Checks:
@@ -498,8 +418,8 @@ class RLIngestionGate:
                 "scrutiny_passed": False,
             }
 
-        issues: List[str] = []
-        contradictions: List[str] = []
+        issues: list[str] = []
+        contradictions: list[str] = []
         scrutiny_passed = bool(new_data.get("_scrutiny_complete"))
 
         # Check if data has passed scrutiny
@@ -547,7 +467,7 @@ class RLIngestionGate:
             "scrutiny_passed": scrutiny_passed,
         }
 
-    def _check_contradiction(self, new_data: Dict[str, Any], rl_path: str) -> Optional[str]:
+    def _check_contradiction(self, new_data: dict[str, Any], rl_path: str) -> str | None:
         """Check if new data contradicts existing RL page content.
 
         Uses two strategies:
@@ -571,7 +491,7 @@ class RLIngestionGate:
                         existing_content = " ".join(
                             entry.get("content", "") for entry in parsed["entries"]
                         )
-            except (json.JSONDecodeError, TypeError):
+            except (_json.JSONDecodeError, TypeError):
                 pass  # Not JSON, use raw content
 
             # Extract key claims from new data
@@ -612,7 +532,7 @@ class RLIngestionGate:
 # Worldview Profile Loading
 # ---------------------------------------------------------------------------
 
-def _load_worldview_profile() -> Optional[Dict[str, int]]:
+def _load_worldview_profile() -> dict[str, int | None]:
     """Load the user's worldview profile from config.yaml.
 
     Returns dict mapping axis names to scores (-2 to +2), or None if not set.
@@ -671,14 +591,14 @@ class WorldviewDivergenceChecker:
 
     DIVERGENCE_THRESHOLD = 2  # Flag if divergence >= 2 points
 
-    def __init__(self, profile: Optional[Dict[str, int]]) -> None:
+    def __init__(self, profile: dict[str, int | None]) -> None:
         self._profile = profile or {}
 
     def check_divergence(
         self,
-        result: Dict[str, Any],
+        result: dict[str, Any],
         query: str,
-    ) -> List[str]:
+    ) -> list[str]:
         """Check if this result's topic diverges from the user's worldview.
 
         Returns list of divergence notes (empty if no significant divergence).
@@ -686,7 +606,7 @@ class WorldviewDivergenceChecker:
         if not self._profile:
             return []
 
-        notes: List[str] = []
+        notes: list[str] = []
         query_lower = query.lower() if isinstance(query, str) else ""
         snippet = (result.get("snippet") or result.get("content") or "").lower()
         text_to_check = query_lower + " " + snippet

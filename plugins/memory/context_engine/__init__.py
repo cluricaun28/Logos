@@ -23,14 +23,13 @@ import importlib.util
 import logging
 import sys
 from pathlib import Path
-from typing import List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
 _CONTEXT_ENGINE_PLUGINS_DIR = Path(__file__).parent
 
 
-def discover_context_engines() -> List[Tuple[str, str, bool]]:
+def discover_context_engines() -> list[tuple[str, str, bool]]:
     """Scan plugins/context_engine/ for available engines.
 
     Returns list of (name, description, is_available) tuples.
@@ -58,7 +57,7 @@ def discover_context_engines() -> List[Tuple[str, str, bool]]:
                     meta = yaml.safe_load(f) or {}
                 desc = meta.get("description", "")
             except Exception:
-                pass
+                logger.debug("Silently handled: %s", sys.exc_info()[1])
 
         # Quick availability check — try loading and calling is_available()
         available = True
@@ -76,7 +75,7 @@ def discover_context_engines() -> List[Tuple[str, str, bool]]:
     return results
 
 
-def load_context_engine(name: str, config: dict = None) -> Optional["ContextEngine"]:
+def load_context_engine(name: str, config: dict | None = None) -> "ContextEngine" | None:
     """Load and return a ContextEngine instance by name.
 
     Args:
@@ -101,7 +100,7 @@ def load_context_engine(name: str, config: dict = None) -> Optional["ContextEngi
         return None
 
 
-def _load_engine_from_dir(engine_dir: Path, config: dict = None) -> Optional["ContextEngine"]:
+def _load_engine_from_dir(engine_dir: Path, config: dict | None = None) -> "ContextEngine" | None:
     """Import an engine module and extract the ContextEngine instance.
 
     The module must have either:
@@ -142,7 +141,7 @@ def _load_engine_from_dir(engine_dir: Path, config: dict = None) -> Optional["Co
                         try:
                             spec.loader.exec_module(parent_mod)
                         except Exception:
-                            pass
+                            logger.debug("Silently handled: %s", sys.exc_info()[1])
 
         # Now load the engine module
         spec = importlib.util.spec_from_file_location(
@@ -200,7 +199,7 @@ def _load_engine_from_dir(engine_dir: Path, config: dict = None) -> Optional["Co
                 # Pass config as kwargs to the engine constructor
                 return attr(**(config or {}))
             except Exception:
-                pass
+                logger.debug("Silently handled: %s", sys.exc_info()[1])
 
     return None
 

@@ -1,5 +1,7 @@
 """Standalone RL Index Build Script.
 
+from __future__ import annotations
+
 Usage:
     # From the hermes-agent repo root:
     python -m plugins.memory.perpetual_context.rl_build

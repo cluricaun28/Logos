@@ -13,11 +13,10 @@ the scope of searches to recent sessions where decisions are most relevant.
 from __future__ import annotations
 
 import logging
-from typing import Optional, List, Dict, Any
+from typing import Any
 from agent.perpetual_context_db import PerpetualContextDB
 
 logger = logging.getLogger(__name__)
-
 
 class DecisionTraceEngine:
     """
@@ -31,7 +30,7 @@ class DecisionTraceEngine:
     def __init__(self, db: PerpetualContextDB):
         self.db = db
 
-    def find_decision(self, query_text: str) -> Optional[Dict[str, Any]]:
+    def find_decision(self, query_text: str) -> dict[str, Any | None]:
         """
         Finds the turn where a specific decision was made.
         
@@ -62,7 +61,7 @@ class DecisionTraceEngine:
         
         return None
 
-    def get_decision_context(self, turn_id: int) -> List[Dict[str, Any]]:
+    def get_decision_context(self, turn_id: int) -> list[dict[str, Any]]:
         """Retrieves ±5 turns around a specific decision for full context recovery.
 
         Gets messages from the same session as the decision and slices ±5 turns

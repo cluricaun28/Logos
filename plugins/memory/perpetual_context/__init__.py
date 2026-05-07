@@ -33,17 +33,19 @@ import re as _re  # renamed to avoid conflict with topic extraction regex
 import sqlite3
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from agent.memory_provider import MemoryProvider
 from agent.perpetual_context_db import RECALL_OUTPUT_MAX_CHARS
-from tools.registry import tool_error
 
 # Import split modules (SRP compliance)
+from . import utils
 from .extraction_engine import ExtractionEngine, _STOPWORDS
 from .tool_handler import ToolHandler
 from .context_bridge_builder import ContextBridgeBuilder
+from .injection_router import classify_injection_intent
 
 logger = logging.getLogger(__name__)
 
@@ -97,415 +99,11 @@ AUTO_ROUTING_KEYWORDS = {
     "recent": {"recently", "continue", "pick up"},
 }  # Deprecated — use retrieval_engine.AUTO_ROUTING_KEYWORDS instead
 
-# Topic stability classification — extensible keyword lists.
-# Add or remove keywords as needed. Each topic gets a stability level and a
-# half-life in days: how long before local data is considered suspect.
+# Topic stability classification moved to topic_classifier.py
+from .topic_classifier import _classify_topic_stability  # noqa: F401
 
-# STATIC — timeless knowledge. RL is authoritative; no web search needed.
-STATIC_TOPIC_KEYWORDS: frozenset = frozenset([
-    # Biology / nature
-    "dog", "cat", "bird", "fish", "plant", "tree", "animal", "species",
-    "photosynthesis", "evolution", "DNA", "cell", "ecosystem",
-    # Mathematics / science fundamentals
-    "calculus", "algebra", "geometry", "theorem", "proof", "prime number",
-    "gravity", "thermodynamics", "quantum", "atom", "molecule",
-    # Scripture / theology
-    "genesis", "exodus", "psalms", "gospel", "epistle", "revelation",
-    "bible", "scripture", "covenant", "redemption", "sanctification",
-    "justification", "election", "predestination", "trinity",
-    # Established history
-    "world war", "american revolution", "french revolution",
-    "roman empire", "byzantine", "reformation", "dark ages",
-    # General definitions
-    "what is", "define", "definition of", "meaning of",
-    "how does", "how does a",
-])
-
-# SLOW — evolves over months. Software docs, frameworks, legal, established tech.
-# Half-life: 90 days. Web search fires if local data is older than that with low score.
-SLOW_TOPIC_KEYWORDS: frozenset = frozenset([
-    # Software / frameworks (well-established)
-    "python", "sql", "docker", "linux", "git", "github", "api",
-    "postgresql", "sqlite", "nginx", "redis", "kubernetes",
-    "flask", "django", "fastapi", "react", "typescript",
-    # AI / ML (established concepts)
-    "transformer", "attention", "backpropagation", "gradient",
-    "neural network", "convolution", "gan", "vae",
-    # Legal / regulation
-    "regulation", "compliance", "tax", "irs", "llc", "corporation",
-    "contract", "liability", "warranty", "indemnification",
-    # Hardware (established)
-    "nvidia", "amd", "intel", "gpu", "cpu", "ram", "ssd",
-    "cuda", "opencl", "vulkan",
-    # Business / finance (stable concepts)
-    "accounting", "bookkeeping", "invoice", "receivable", "payable",
-    "p&l", "balance sheet", "cash flow", "depreciation",
-    "retail", "wholesale", "margin", "overhead",
-])
-
-# VOLATILE — changes weekly or daily. Current events, active development, pricing.
-# Half-life: 7 days. Web search fires aggressively.
-VOLATILE_TOPIC_KEYWORDS: frozenset = frozenset([
-    # AI / ML (active development)
-    "vllm", "llama", "qwen", "gpt", "claude", "gemini",
-    "model release", "new model", "model update", "fine-tuning",
-    "dpo", "sft", "rlhf", "training", "inference",
-    "unsloth", "axolotl", "trl", "peft", "qlora",
-    "xai", "grok", "openai", "anthropic", "google ai", "deepmind",
-    "llm", "large language model", "llm benchmark", "llm leader",
-    # Pricing / availability
-    "price", "pricing", "cost", "how much", "pricing change",
-    "sale", "discount", "deal", "buy", "purchase",
-    "available", "unavailable", "out of stock", "released",
-    # Current events / time-sensitive
-    "latest", "new", "recent", "current", "today", "this week",
-    "this month", "breaking", "news", "announcement", "update",
-    "what's happening", "what is going on", "status", "latest version",
-    "latest news", "recent development",
-    # Software versions / releases
-    "version", "release", "changelog", "roadmap", "beta", "alpha",
-    "stable release", "nightly", "latest release",
-    # Active projects / ongoing development
-    "progress", "development", "work in progress", "under construction",
-    "upcoming", "planned", "scheduled",
-])
-
-# Half-life in days per stability level
-STATIC_HALF_LIFE_DAYS = 3650      # ~10 years — essentially permanent
-SLOW_HALF_LIFE_DAYS = 90          # ~3 months
-VOLATILE_HALF_LIFE_DAYS = 7       # ~1 week
-
-# Score thresholds per stability level — web search fires if best local score is below this
-STATIC_WEB_THRESHOLD = 0.05       # Almost never fire web for static topics
-SLOW_WEB_THRESHOLD = 0.35         # Moderate — fire if local results are weak
-VOLATILE_WEB_THRESHOLD = 0.60     # Aggressive — fire unless local results are strong
-
-
-def _classify_topic_stability(query: str) -> tuple:
-    """Classify a query's topic stability.
-
-    Returns (stability: str, half_life_days: int, web_threshold: float).
-
-    Stability levels:
-      - 'static': timeless knowledge (what is a dog, math, scripture)
-      - 'slow': evolves over months (software docs, legal, established tech)
-      - 'volatile': changes weekly (current events, active dev, pricing)
-
-    When no keywords match, defaults to 'slow' — conservative fallback.
-
-    Extend the keyword frozensets above to add or remove topics.
-    """
-    q = query.lower()
-    q_words = set(q.split())
-
-    # Check volatile first (most specific, highest priority)
-    if q_words & VOLATILE_TOPIC_KEYWORDS:
-        return ("volatile", VOLATILE_HALF_LIFE_DAYS, VOLATILE_WEB_THRESHOLD)
-
-    # Check static
-    if q_words & STATIC_TOPIC_KEYWORDS:
-        return ("static", STATIC_HALF_LIFE_DAYS, STATIC_WEB_THRESHOLD)
-
-    # Check slow
-    if q_words & SLOW_TOPIC_KEYWORDS:
-        return ("slow", SLOW_HALF_LIFE_DAYS, SLOW_WEB_THRESHOLD)
-
-    # Default: treat as slow — better to slightly over-search than serve stale data
-    return ("slow", SLOW_HALF_LIFE_DAYS, SLOW_WEB_THRESHOLD)
-
-
-# ---------------------------------------------------------------------------
-# Tool schemas
-# ---------------------------------------------------------------------------
-
-PERPETUAL_SEARCH_SCHEMA = {
-    "name": "perpetual_search",
-    "description": (
-        "Search across all perpetual memory storage backends using hybrid semantic + keyword search. "
-        "Combines FTS5 full-text keyword matching with cosine similarity against stored embedding vectors "
-        "(weighted fusion: 60% keyword, 40% semantic). Returns the most relevant historical messages.\n\n"
-        "PARAMETERS:\\n"
-        "• query: Search text (required)\\n"
-        "• session_id: Optional session filter\\n"
-        "• top_k: Number of results (default 5, max 20)\\n"
-        "\\n"
-        "EXAMPLES:\\n"
-        "• 'Hermes configuration' — Find messages about setup\\n"
-        "• 'GPU training' — Find messages mentioning GPU training\\n"
-        "• session_id='20260421_023037' — Limit to one session"
-    ),
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "query": {"type": "string", "description": "Search query text"},
-            "session_id": {"type": "string", "description": "Optional session ID filter"},
-            "top_k": {"type": "integer", "description": "Number of results (default 5)", "default": 5},
-        },
-        "required": ["query"],
-    },
-}
-
-TOPIC_FLOW_SCHEMA = {
-    "name": "topic_flow",
-    "description": (
-        "View and manage topic clusters for a session. Shows the conversation's "
-        "topic evolution, message counts per topic, and allows adding new topics.\n\n"
-        "PARAMETERS:\n"
-        "• action: 'list', 'add', or 'drift_check' (default 'list')\n"
-        "• session_id: Session to analyze (defaults to current)\n"
-        "• topic_name: Topic name for 'add' action\n"
-        "• confidence: Confidence score 0.0-1.0 for new topics\n"
-        "\n"
-        "EXAMPLES:\n"
-        "• action='list' — Show all topics for current session\n"
-        "• action='drift_check' — Detect if conversation has drifted\n"
-        "• action='add', topic_name='GPU optimization' — Register new topic"
-    ),
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "action": {"type": "string", "description": "Action: list, add, or drift_check", "default": "list"},
-            "session_id": {"type": "string", "description": "Session ID (defaults to current)"},
-            "topic_name": {"type": "string", "description": "Topic name for 'add' action"},
-            "confidence": {"type": "number", "description": "Confidence score 0.0-1.0", "default": 0.5},
-        },
-    },
-}
-
-CONTEXT_DEPTH_SCHEMA = {
-    "name": "context_depth",
-    "description": (
-        "Control how much historical context is surfaced from perpetual memory. "
-        "Adjusts the depth of recall based on conversation needs.\n\n"
-        "DEPTH LEVELS:\n"
-        "• broad_overview: Only main topics and high-level summaries\n"
-        "• moderate: Topics + key messages (default)\n"
-        "• deep: All topics with detailed message content\n"
-        "• expert: Full history with relationships and metadata\n\n"
-        "PARAMETERS:\n"
-        "• action: 'get', 'set', or 'status'\n"
-        "• level: Depth level (for 'set' action)\n"
-        "\n"
-        "EXAMPLES:\n"
-        "• action='get' — Show current depth setting\n"
-        "• action='set', level='deep' — Increase recall depth\n"
-        "• action='status' — Full memory system status report"
-    ),
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "action": {"type": "string", "description": "Action: get, set, or status", "default": "get"},
-            "level": {"type": "string", "description": "Depth level: broad_overview, moderate, deep, expert"},
-        },
-    },
-}
-
-GET_MESSAGES_SCHEMA = {
-    "name": "get_messages",
-    "description": (
-        "Search messages using SQL LIKE-style pattern matching on content. "
-        "Returns full raw message content — no summarization, no truncation.\n\n"
-        "USE THIS WHEN:\n"
-        "• You know what you're looking for and need exact matches\n"
-        "• Searching for tokens, keys, or specific strings (e.g., 'ghp_%')\n"
-        "• You need the complete content of a message without search indexing abstraction\n\n"
-        "PARAMETERS:\n"
-        "• pattern: SQL LIKE pattern (use % as wildcard, _ as single char)\n"
-        "• session_id: Optional session filter\n"
-        "• role: Filter by role (user, assistant, system, tool)\n"
-        "• limit: Maximum results to return (default 50)\n\n"
-        "EXAMPLES:\n"
-        "• pattern='ghp_%' — Find all GitHub tokens\n"
-        "• pattern='%github token%' — Find messages mentioning github tokens\n"
-        "• pattern='%', role='user', limit=10 — Last 10 user messages"
-    ),
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "pattern": {"type": "string", "description": "SQL LIKE pattern (use % as wildcard)"},
-            "session_id": {"type": "string", "description": "Optional session ID filter"},
-            "role": {"type": "string", "description": "Filter by role: user, assistant, system, tool"},
-            "limit": {"type": "integer", "description": "Maximum results (default 50)", "default": 50},
-        },
-        "required": ["pattern"],
-    },
-}
-
-RECENT_MESSAGES_SCHEMA = {
-    "name": "recent_messages",
-    "description": (
-        "Get the N most recent messages from the database. Returns raw content "
-        "in chronological order — no summarization, no search indexing.\n\n"
-        "USE THIS WHEN:\n"
-        "• You need to see what was discussed recently without searching\n"
-        "• Reviewing the last few turns of a conversation\n"
-        "• Getting raw message content for verification (e.g., checking token length)\n\n"
-        "PARAMETERS:\n"
-        "• n: Number of recent messages to retrieve (default 10, max 50)\n"
-        "• session_id: Optional session filter (None for all sessions)\n"
-        "• role: Optional role filter\n\n"
-        "EXAMPLES:\n"
-        "• n=5 — Last 5 messages across all sessions\n"
-        "• n=10, session_id='20260421_124052' — Last 10 in specific session\n"
-        "• n=3, role='user' — Last 3 user messages"
-    ),
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "n": {"type": "integer", "description": "Number of recent messages (default 10)", "default": 10},
-            "session_id": {"type": "string", "description": "Optional session ID filter"},
-            "role": {"type": "string", "description": "Filter by role: user, assistant, system, tool"},
-        },
-    },
-}
-
-QUERY_MESSAGES_SCHEMA = {
-    "name": "query_messages",
-    "description": (
-        "Master query tool — comprehensive message filtering with time ranges,\n"
-        "token counts, direct ID lookup, metadata filters, and statistics.\n\n"
-        "USE THIS WHEN:\n"
-        "• You need precise control over what messages to retrieve\n"
-        "• Filtering by time range (e.g., 'messages from April 21st')\n"
-        "• Looking up specific message IDs directly\n"
-        "• Getting statistics about your conversation history\n\n"
-        "PARAMETERS:\n"
-        "• pattern: SQL LIKE pattern for content (use % as wildcard)\n"
-        "• session_id: Filter by session ID\n"
-        "• role: Filter by role (user, assistant, system, tool)\n"
-        "• ids: List of specific message IDs to retrieve\n"
-        "• time_start: Unix timestamp filter (messages >= this time)\n"
-        "• time_end: Unix timestamp filter (messages <= this time)\n"
-        "• min_tokens: Minimum token count filter\n"
-        "• max_tokens: Maximum token count filter\n"
-        "• metadata_key: Filter by metadata key name\n"
-        "• metadata_value: Value to match for the metadata key\n"
-        "• stats: True to return statistics instead of messages\n"
-        "• limit: Maximum results (default 100, max 500)\n"
-        "• offset: Pagination offset (default 0)\n\n"
-        "EXAMPLES:\n"
-        "• ids=[542] — Get message #542 directly\n"
-        "• pattern='ghp_%', limit=10 — Find all GitHub tokens\n"
-        "• time_start=1776780000, time_end=1776790000 — Messages in time range\n"
-        "• role='user', min_tokens=500 — Long user messages\n"
-        "• stats=True — Get conversation statistics"
-    ),
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "pattern": {"type": "string", "description": "SQL LIKE pattern (use % as wildcard)"},
-            "session_id": {"type": "string", "description": "Optional session ID filter"},
-            "role": {"type": "string", "description": "Filter by role: user, assistant, system, tool"},
-            "ids": {
-                "type": "array",
-                "items": {"type": "integer"},
-                "description": "List of specific message IDs to retrieve",
-            },
-            "time_start": {"type": "number", "description": "Unix timestamp filter (messages >= this time)"},
-            "time_end": {"type": "number", "description": "Unix timestamp filter (messages <= this time)"},
-            "min_tokens": {"type": "integer", "description": "Minimum token count filter"},
-            "max_tokens": {"type": "integer", "description": "Maximum token count filter"},
-            "metadata_key": {"type": "string", "description": "Filter by metadata key name"},
-            "metadata_value": {
-                "type": ["string", "boolean", "number"],
-                "description": "Value to match for the metadata key",
-            },
-            "stats": {"type": "boolean", "description": "True to return statistics instead of messages"},
-            "limit": {"type": "integer", "description": "Maximum results (default 100)", "default": 100},
-            "offset": {"type": "integer", "description": "Pagination offset (default 0)", "default": 0},
-        },
-    },
-}
-
-SMART_RETRIEVE_SCHEMA = {
-    "name": "smart_retrieve",
-    "description": (
-        "Adaptive retrieval engine for Perpetual Memory. Uses different strategies\n"
-        "based on the type of information needed, optimized for local hardware.\n\n"
-        "RETRIEVAL TYPES:\n"
-        "• auto — Let the system classify intent via keyword heuristics (recommended default)\n"
-        "• recent — Context from last 20 turns (fastest, O(1) turn ID lookup)\n"
-        "• topic — Topic-specific FTS5 search across all sessions\n"
-        "• decision_trace — Find where a decision was made and surrounding context\n"
-        "• file_history — All edits to a specific file with turn references\n\n"
-        "USE THIS WHEN:\n"
-        "• You're unsure which strategy to use (use 'auto' — system classifies for you)\n"
-        "• You need recent conversation context (use 'recent')\n"
-        "• Searching for topic-specific information across sessions (use 'topic')\n"
-        "• Tracing why a decision was made earlier (use 'decision_trace')\n"
-        "• Finding all edits to a specific file path (use 'file_history')\n\n"
-        "PARAMETERS:\n"
-        "• query_type: One of 'auto', 'recent', 'topic', 'decision_trace', 'file_history'\n"
-        "• query_text: The search query or context identifier\n\n"
-        "EXAMPLES:\n"
-        "• query_type='auto', query_text='why did we choose SQLite' — System auto-routes to decision_trace\n"
-        "• query_type='recent' — Get last 20 turns for immediate context\n"
-        "• query_type='topic', query_text='context bridge design' — Find topic discussion\n"
-        "• query_type='file_history', query_text='/path/to/file.py' — Get file edit history"
-    ),
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "query_type": {"type": "string", "description": "Retrieval type: auto, recent, topic, decision_trace, or file_history"},
-            "query_text": {"type": "string", "description": "Search query or context identifier"},
-        },
-        "required": ["query_type", "query_text"],
-    },
-}
-
-REFERENCE_LIBRARY_SEARCH_SCHEMA = {
-    "name": "reference_library_search",
-    "description": (
-        "MANDATORY FIRST STEP for all factual, historical, political, economic,\n"
-        "media, and worldview questions. Contains curated, worldview-aligned reference\n"
-        "material built from first principles.\n\n"
-        "USE THIS BEFORE ANY OTHER SEARCH TOOL when answering:\n"
-        "• Questions about history, politics, economics, media bias, or worldview\n"
-        "• Any factual claim that needs verification against curated knowledge\n"
-        "• Research involving people, organizations, or institutions\n\n"
-        "This is NOT optional. Always check reference_library_search before generating answers\n"
-        "from training data or session memory alone.\n\n"
-        "PARAMETERS:\n"
-        "• query: Search text (required)\n"
-        "• top_k: Number of results (default 5, max 20)\n\n"
-        "EXAMPLES:\n"
-        "• 'Elon Musk political influence' — Find entity page with reaction tracking\n"
-        "• 'media bias patterns' — Find curated analysis of source credibility\n"
-        "• 'American economic policy post-1964' — Find historical reference material"
-    ),
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "query": {"type": "string", "description": "Search query text"},
-            "top_k": {"type": "integer", "description": "Number of results (default 5)", "default": 5},
-        },
-        "required": ["query"],
-    },
-}
-
-SESSION_SEARCH_SCHEMA = {
-    "name": "session_search",
-    "description": (
-        "Use ONLY for recent conversation context — what Patrick said/did in the last\n"
-        "few turns. NEVER use this tool for facts, history, or analysis.\n\n"
-        "STRICT BOUNDARY:\n"
-        "• session_search = recent conversation memory only\n"
-        "• reference_library_search = factual/historical/worldview reference (use FIRST)\n"
-        "• perpetual_search = deep historical recall across all sessions\n\n"
-        "If the question requires factual knowledge, use reference_library_search first.\n"
-        "session_search is for remembering what was discussed recently, not for\n"
-        "answering questions about the world."
-    ),
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "query": {"type": "string", "description": "Search query text"},
-            "top_k": {"type": "integer", "description": "Number of results (default 5)", "default": 5},
-        },
-        "required": ["query"],
-    },
-}
-
+# Import tool schemas from dedicated module
+from . import schemas as _schemas  # noqa: F401
 
 class PerpetualContextProvider(MemoryProvider):
     """Memory provider using SQLite + FTS5 full-text indexing.
@@ -517,9 +115,9 @@ class PerpetualContextProvider(MemoryProvider):
 
     def __init__(self):
         self._db = None
-        self._session_id: Optional[str] = None
+        self._session_id: str | None = None
         self._current_depth: str = "moderate"
-        self._prefetch_queue: List[Dict[str, Any]] = []
+        self._prefetch_queue: list[dict[str, Any]] = []
         self._lock = threading.RLock()  # RLock for reentrant acquisition in nested calls
         # Per-injection toggles — read from config in initialize()
         self._prefetch_enabled: bool = False
@@ -527,16 +125,16 @@ class PerpetualContextProvider(MemoryProvider):
         self._periodic_enabled: bool = False
         self._deep_research_enabled: bool = False
         # SRP-compliant sub-components — instantiated in initialize() once DB is ready
-        self._extraction: Optional[ExtractionEngine] = None
-        self._tools: Optional[ToolHandler] = None
-        self._bridge_builder: Optional[ContextBridgeBuilder] = None
+        self._extraction: ExtractionEngine | None = None
+        self._tools: ToolHandler | None = None
+        self._bridge_builder: ContextBridgeBuilder | None = None
         # Negative feedback loop components
-        self._scorer: Optional[Any] = None  # BridgeQualityScorer (lazy import)
-        self._feedback: Optional[Any] = None  # FeedbackState (lazy init)
+        self._scorer: Any | None = None  # BridgeQualityScorer (lazy import)
+        self._feedback: Any | None = None  # FeedbackState (lazy init)
         # Deep Research phases 2-4 (lazy init)
-        self._web_research: Optional[Any] = None
-        self._scrutiny_gate: Optional[Any] = None
-        self._synthesis_engine: Optional[Any] = None
+        self._web_research: Any | None = None
+        self._scrutiny_gate: Any | None = None
+        self._synthesis_engine: Any | None = None
 
     def _ensure_subcomponents(self) -> None:
         """Lazy-init sub-components after DB is available.
@@ -702,7 +300,6 @@ class PerpetualContextProvider(MemoryProvider):
                 return ""
             db = self._db
             depth = self._current_depth
-        from datetime import datetime
         stats = db.get_stats()
         msg_count = stats.get('message_count', 0)
         session_count = stats.get('session_count', 0)
@@ -787,216 +384,17 @@ class PerpetualContextProvider(MemoryProvider):
 
     def _classify_injection_intent(
         self, query: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Classify the user's message and decide which injections to fire.
 
         Returns a routing dict with boolean flags for each injection type,
         a confidence level, and flags for recent-context / clarification fallback.
 
-        Design principle: only inject when it would improve the response.
-        When in doubt, inject nothing rather than noise.
+        Delegates to :func:`injection_router.classify_injection_intent`.
         """
-        if not query:
-            return self._empty_routing()
+        return classify_injection_intent(query)
 
-        lower = query.lower()
-        words = set(lower.split())
-        # Strip leading/trailing punctuation from words for cleaner matching
-        words = {w.strip(".,!?;:\"'()[]{}") for w in words if w.strip(".,!?;:\"'()[]{}")}
-
-        # --- Quick check: very short messages (chitchat) ---
-        if len(words) <= 3 and any(w in self._INTENT_SHORT for w in words):
-            return {
-                "fire_prefetch": False,
-                "fire_recall": False,
-                "fire_web": False,
-                "needs_recent_context": False,
-                "needs_clarification": False,
-                "confidence": "high",
-                "intent": "conversation",
-            }
-
-        # --- Status check: "still X", "is it done", etc. ---
-        if any(phrase in lower for phrase in self._INTENT_STATUS):
-            return {
-                "fire_prefetch": False,
-                "fire_recall": False,
-                "fire_web": False,
-                "needs_recent_context": True,
-                "needs_clarification": False,
-                "confidence": "high",
-                "intent": "status",
-            }
-
-        # --- Command/instruction: skip retrieval entirely ---
-        if any(phrase in lower for phrase in self._INTENT_COMMAND):
-            return {
-                "fire_prefetch": False,
-                "fire_recall": False,
-                "fire_web": False,
-                "needs_recent_context": False,
-                "needs_clarification": False,
-                "confidence": "high",
-                "intent": "command",
-            }
-
-        # --- Code task ---
-        if words & self._INTENT_CODE:
-            if any(phrase in lower for phrase in self._INTENT_RECENT):
-                return {
-                    "fire_prefetch": False,
-                    "fire_recall": False,
-                    "fire_web": False,
-                    "needs_recent_context": True,
-                    "needs_clarification": False,
-                    "confidence": "high",
-                    "intent": "recent",
-                }
-            if any(phrase in lower for phrase in self._INTENT_PAST_WORK):
-                return {
-                    "fire_prefetch": False,
-                    "fire_recall": True,
-                    "fire_web": False,
-                    "needs_recent_context": False,
-                    "needs_clarification": False,
-                    "confidence": "high",
-                    "intent": "past_work",
-                }
-            return {
-                "fire_prefetch": False,
-                "fire_recall": False,
-                "fire_web": False,
-                "needs_recent_context": False,
-                "needs_clarification": False,
-                "confidence": "high",
-                "intent": "code",
-            }
-
-        # --- Recent context (takes priority over past_work) ---
-        if any(phrase in lower for phrase in self._INTENT_RECENT):
-            return {
-                "fire_prefetch": False,
-                "fire_recall": False,
-                "fire_web": False,
-                "needs_recent_context": True,
-                "needs_clarification": False,
-                "confidence": "high",
-                "intent": "recent",
-            }
-
-        # --- Past work references ---
-        if any(phrase in lower for phrase in self._INTENT_PAST_WORK):
-            return {
-                "fire_prefetch": False,
-                "fire_recall": True,
-                "fire_web": False,
-                "needs_recent_context": False,
-                "needs_clarification": False,
-                "confidence": "high",
-                "intent": "past_work",
-            }
-
-        # --- Reference lookup ---
-        if words & self._INTENT_REFERENCE or any(phrase in lower for phrase in self._INTENT_REFERENCE):
-            return {
-                "fire_prefetch": True,
-                "fire_recall": False,
-                "fire_web": False,
-                "needs_recent_context": False,
-                "needs_clarification": False,
-                "confidence": "high",
-                "intent": "reference",
-            }
-
-        # --- External research (explicit request) ---
-        if words & self._INTENT_RESEARCH or any(phrase in lower for phrase in self._INTENT_RESEARCH):
-            return {
-                "fire_prefetch": True,
-                "fire_recall": False,
-                "fire_web": True,
-                "needs_recent_context": False,
-                "needs_clarification": False,
-                "confidence": "high",
-                "intent": "research",
-            }
-
-        # --- Factual questions: "what is X", "tell me about Y" ---
-        # Fire RL + web. The RL check first, then web if RL has nothing.
-        if any(phrase in lower for phrase in self._INTENT_FACTUAL):
-            return {
-                "fire_prefetch": True,
-                "fire_recall": False,
-                "fire_web": True,
-                "needs_recent_context": False,
-                "needs_clarification": False,
-                "confidence": "high",
-                "intent": "factual",
-            }
-
-        # --- Comparison: "how does X compare to Y" ---
-        if words & self._INTENT_COMPARISON or any(phrase in lower for phrase in self._INTENT_COMPARISON):
-            return {
-                "fire_prefetch": True,
-                "fire_recall": False,
-                "fire_web": True,
-                "needs_recent_context": False,
-                "needs_clarification": False,
-                "confidence": "high",
-                "intent": "comparison",
-            }
-
-        # --- Opinion/advice: no injection, just reasoning ---
-        if any(phrase in lower for phrase in self._INTENT_OPINION):
-            return {
-                "fire_prefetch": False,
-                "fire_recall": False,
-                "fire_web": False,
-                "needs_recent_context": False,
-                "needs_clarification": False,
-                "confidence": "high",
-                "intent": "opinion",
-            }
-
-        # --- Topic discussion: "let's talk about X" ---
-        if any(phrase in lower for phrase in self._INTENT_TOPIC):
-            return {
-                "fire_prefetch": True,
-                "fire_recall": False,
-                "fire_web": False,
-                "needs_recent_context": False,
-                "needs_clarification": False,
-                "confidence": "high",
-                "intent": "topic",
-            }
-
-        # --- Fallback: short question-like phrases with wh- words ---
-        # Detect simple factual questions that didn't match _INTENT_FACTUAL phrases
-        if len(words) <= 8 and words & self._INTENT_FACTUAL_WORDS:
-            # Check if it looks like a simple factual question (not a command or code task)
-            if not any(phrase in lower for phrase in self._INTENT_COMMAND):
-                return {
-                    "fire_prefetch": True,
-                    "fire_recall": False,
-                    "fire_web": True,
-                    "needs_recent_context": False,
-                    "needs_clarification": False,
-                    "confidence": "medium",
-                    "intent": "factual",
-                }
-
-        # --- Ambiguous: no strong signal ---
-        # Check last 15 PM turns with recency weighting, then ask if still unclear
-        return {
-            "fire_prefetch": False,
-            "fire_recall": False,
-            "fire_web": False,
-            "needs_recent_context": True,
-            "needs_clarification": False,  # set in prefetch() if 15-turn scan finds nothing
-            "confidence": "low",
-            "intent": "ambiguous",
-        }
-
-    def _empty_routing(self) -> Dict[str, Any]:
+    def _empty_routing(self) -> dict[str, Any]:
         """Return a routing dict with all flags False."""
         return {
             "fire_prefetch": False,
@@ -1008,7 +406,7 @@ class PerpetualContextProvider(MemoryProvider):
             "intent": "empty",
         }
 
-    def _get_recent_context(self, max_turns: int = 15) -> List[Dict[str, Any]]:
+    def _get_recent_context(self, max_turns: int = 15) -> list[dict[str, Any]]:
         """Get recent PM turns with recency weighting.
 
         More recent turns get higher scores. Returns messages sorted by
@@ -1206,7 +604,7 @@ class PerpetualContextProvider(MemoryProvider):
                         )
 
             # --- Phase 2: Web Research (only if router says so OR gap detected) ---
-            web_results: List[Dict[str, Any]] = []
+            web_results: list[dict[str, Any]] = []
             should_search_web = routing.get("fire_web") or gaps_detected
             if self._deep_research_enabled and should_search_web and web_research is not None:
                 try:
@@ -1229,7 +627,7 @@ class PerpetualContextProvider(MemoryProvider):
                     logger.debug("Phase 2 web research failed: %s", e)
 
             # --- Phase 3: Scrutiny Gate (vet web results before injection) ---
-            vetted_results: List[Dict[str, Any]] = []
+            vetted_results: list[dict[str, Any]] = []
             if web_results and scrutiny_gate is not None:
                 try:
                     # Filter blocked domains
@@ -1410,21 +808,11 @@ class PerpetualContextProvider(MemoryProvider):
         except Exception as e:
             logger.exception("Perpetual sync_turn failed: %s", e)
 
-    def get_tool_schemas(self) -> List[Dict[str, Any]]:
+    def get_tool_schemas(self) -> list[dict[str, Any]]:
         """Return tool schemas for perpetual memory tools."""
-        return [
-            PERPETUAL_SEARCH_SCHEMA,
-            TOPIC_FLOW_SCHEMA,
-            CONTEXT_DEPTH_SCHEMA,
-            GET_MESSAGES_SCHEMA,
-            RECENT_MESSAGES_SCHEMA,
-            QUERY_MESSAGES_SCHEMA,
-            SMART_RETRIEVE_SCHEMA,
-            REFERENCE_LIBRARY_SEARCH_SCHEMA,
-            SESSION_SEARCH_SCHEMA,
-        ]
+        return list(_schemas.TOOL_SCHEMAS)
 
-    def handle_tool_call(self, tool_name: str, args: Dict[str, Any], **kwargs) -> str:
+    def handle_tool_call(self, tool_name: str, args: dict[str, Any], **kwargs) -> str:
         """Handle a tool call — delegate directly to ToolHandler.
         Thread-safe: acquires lock before reading shared state."""
         with self._lock:
@@ -1436,28 +824,11 @@ class PerpetualContextProvider(MemoryProvider):
             tools = self._tools
 
         try:
-            handler_map = {
-                "perpetual_search": tools.handle_search,
-                "topic_flow": tools.handle_topic_flow,
-                "context_depth": tools.handle_context_depth,
-                "get_messages": tools.handle_get_messages,
-                "recent_messages": tools.handle_recent_messages,
-                "query_messages": tools.handle_query_messages,
-                "reference_library_search": tools.handle_reference_library_search,
-                "session_search": tools.handle_session_search,
-            }
-
-            handler = handler_map.get(tool_name)
-            if handler:
-                return handler(args)
-
-            # smart_retrieve needs special handling (passes self.smart_retrieve as callback)
             if tool_name == "smart_retrieve":
-                return self._tools.handle_smart_retrieve(
+                return tools.handle_smart_retrieve(
                     args, smart_retrieve_fn=self.smart_retrieve
                 )
-
-            raise NotImplementedError(f"Unknown tool: {tool_name}")
+            return tools.dispatch(tool_name, args)
 
         except Exception as e:
             logger.exception("Perpetual context tool error (%s)", tool_name)
@@ -1496,7 +867,7 @@ class PerpetualContextProvider(MemoryProvider):
         self._last_turn_number = turn_number
         self._last_user_message = message
 
-    def on_session_end(self, messages: List[Dict[str, Any]]) -> None:
+    def on_session_end(self, messages: list[dict[str, Any]]) -> None:
         """Called at end of session — extract topics and relationships.
         Thread-safe: acquires lock before reading shared state."""
         with self._lock:
@@ -1536,7 +907,7 @@ class PerpetualContextProvider(MemoryProvider):
         except Exception as e:
             logger.debug("on_session_end extraction failed: %s", e)
 
-    def on_pre_compress(self, messages: List[Dict[str, Any]]) -> str:
+    def on_pre_compress(self, messages: list[dict[str, Any]]) -> str:
         """Generates a rich retrieval index for the context bridge.
 
         Delegates to ContextBridgeBuilder which orchestrates extraction and formatting.
@@ -1581,7 +952,7 @@ class PerpetualContextProvider(MemoryProvider):
         """
         return _classify_query_intent_fn(query_text)
 
-    def _periodic_injection(self, turn_number: int, message: str) -> Optional[str]:
+    def _periodic_injection(self, turn_number: int, message: str) -> str | None:
         """Periodic context injection between compressions.
 
         Fires every PERIODIC_INJECTION_INTERVAL turns to keep the system aware of
@@ -1628,7 +999,7 @@ class PerpetualContextProvider(MemoryProvider):
             logger.debug("Periodic injection failed (turn %d): %s", turn_number, e)
             return None
 
-    def get_periodic_context(self) -> Optional[str]:
+    def get_periodic_context(self) -> str | None:
         """Get periodic context injection for pre-response hook.
 
         Called from run_agent.py alongside recall_past_discussions(). Returns compact
@@ -1648,7 +1019,7 @@ class PerpetualContextProvider(MemoryProvider):
 
         return self._periodic_injection(turn_number, message)
 
-    def smart_retrieve(self, query_type: str, query_text: str) -> List[Dict[str, Any]]:
+    def smart_retrieve(self, query_type: str, query_text: str) -> list[dict[str, Any]]:
         """
         Implements adaptive retrieval strategies based on Meta-Harness principles.
 

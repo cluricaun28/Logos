@@ -23,9 +23,7 @@ import re as _re
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
-
-import yaml as _yaml
+from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -40,15 +38,16 @@ INFERENCE_URL_DEFAULT = "http://localhost:8000/v1"  # vLLM (not LM Studio)
 SYNTHESIS_MODEL_DEFAULT = ""  # Empty = use whatever model the provider has loaded
 RL_CONTRADICTION_THRESHOLD = 3      # Min term overlap to flag potential contradiction
 
-
 def get_active_model() -> dict[str, Any]:
-    """Read the active model from Hermes config.yaml.
+    """Read the active model from Hermes config.
 
     All auxiliary tools (synthesis, distillation, archiving, web_extract)
     use this single source of truth. No hardcoded model names anywhere.
 
     Returns dict with 'model', 'provider', 'base_url'.
     """
+    import yaml as _yaml
+
     config_path = Path(os.path.expanduser("~/.hermes/config.yaml"))
     try:
         with open(config_path) as f:
@@ -80,7 +79,7 @@ class SynthesisEngine:
     Falls back to draft-only mode if the provider is unavailable.
     """
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(self, config: dict[str, Any | None] = None) -> None:
         cfg = config or {}
         active = get_active_model()
         # Support both old key (lm_studio_url) and new key for backward compat
@@ -89,9 +88,9 @@ class SynthesisEngine:
         self._max_passes: int = min(cfg.get("synthesis_passes", 3), MAX_SYNTHESIS_PASSES)
         self._context_budget_kb: int = cfg.get("context_budget_kb", CONTEXT_BUDGET_KB_DEFAULT)
 
-    def synthesize(self, facts: List[Dict[str, Any]], query: str,
+    def synthesize(self, facts: list[dict[str, Any]], query: str,
                    sensitivity: str = "low",
-                   progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
+                   progress_callback: Callable | None = None) -> dict[str, Any]:
         """Perform multi-pass synthesis of vetted facts.
 
         Returns dict with:
@@ -113,8 +112,8 @@ class SynthesisEngine:
             }
 
         start_time = time.time()
-        warnings: List[str] = []
-        sources_used: List[str] = []
+        warnings: list[str] = []
+        sources_used: list[str] = []
 
         # Collect unique sources
         for fact in facts:
@@ -165,7 +164,7 @@ class SynthesisEngine:
         elapsed = time.time() - start_time
 
         # Run RLUpdateDetector to flag stale RL pages — read-only, no auto-writes
-        rl_update_flags: List[Dict[str, Any]] = []
+        rl_update_flags: list[dict[str, Any]] = []
         try:
             detector = RLUpdateDetector()
             rl_update_flags = detector.check_for_updates(facts)
@@ -186,7 +185,7 @@ class SynthesisEngine:
             "rl_update_flags": rl_update_flags,
         }
 
-    def _compile_draft(self, facts: List[Dict[str, Any]], query: str) -> str:
+    def _compile_draft(self, facts: list[dict[str, Any]], query: str) -> str:
         """Pass 1: Compile raw facts into structured draft.
 
         Groups facts by topic, orders by relevance, extracts key claims.
@@ -195,7 +194,7 @@ class SynthesisEngine:
         lines = [f"# Research Synthesis — {query}", ""]
 
         # Group facts by source for organization
-        by_source: Dict[str, List[Dict]] = {}
+        by_source: dict[str, list[Dict]] = {}
         for fact in facts:
             src = fact.get("source", "unknown")
             if src not in by_source:
@@ -233,7 +232,7 @@ class SynthesisEngine:
 
         return "\n".join(lines)
 
-    def _refine_via_inference(self, draft: str, query: str, pass_number: int) -> Optional[str]:
+    def _refine_via_inference(self, draft: str, query: str, pass_number: int) -> str | None:
         """Send draft to active provider for refinement.
 
         Constructs a system prompt tailored to the current pass's objective.
@@ -309,15 +308,14 @@ class SynthesisEngine:
 
         return prompts.get(pass_number, prompts[2])
 
-
 class ContextBlockFormatter:
     """Formats synthesized facts into hidden context blocks for injection."""
 
     def __init__(self, budget_kb: int = CONTEXT_BUDGET_KB_DEFAULT) -> None:
         self._budget_bytes = budget_kb * 1024
 
-    def format(self, synthesized_text: str, sources: List[Dict[str, Any]],
-               metadata: Dict[str, Any]) -> str:
+    def format(self, synthesized_text: str, sources: list[dict[str, Any]],
+               metadata: dict[str, Any]) -> str:
         """Format synthesis output into a structured context block.
 
         Enforces hard cap at context_budget_kb. Truncates from bottom if needed.
@@ -378,15 +376,14 @@ class ContextBlockFormatter:
 
         return full
 
-
 class RLUpdateDetector:
     """Detects stale or contradictory RL pages that should be updated."""
 
     def __init__(self, rl_dir: str = "~/.hermes/reference-library/") -> None:
         self._rl_dir = Path(os.path.expanduser(rl_dir))
 
-    def check_for_updates(self, new_facts: List[Dict[str, Any]],
-                          rl_dir: Optional[str] = None) -> List[Dict[str, Any]]:
+    def check_for_updates(self, new_facts: list[dict[str, Any]],
+                          rl_dir: str | None = None) -> list[dict[str, Any]]:
         """Compare new facts against existing RL pages.
 
         For each fact, checks if any RL page covers the same topic with outdated info.
@@ -396,7 +393,7 @@ class RLUpdateDetector:
         Britannica entries (32K+ files would make this O(n) unworkable).
         """
         target_dir = Path(os.path.expanduser(rl_dir)) if rl_dir else self._rl_dir
-        recommendations: List[Dict[str, Any]] = []
+        recommendations: list[dict[str, Any]] = []
 
         if not target_dir.exists():
             logger.debug("RL directory not found: %s", target_dir)
@@ -411,7 +408,7 @@ class RLUpdateDetector:
                 md_files.extend(scan_dir.glob("*.md"))
 
         # Cache: read each file ONCE before comparing against all facts
-        file_cache: Dict[Path, str] = {}
+        file_cache: dict[Path, str] = {}
         for md_file in md_files:
             try:
                 file_cache[md_file] = md_file.read_text(encoding="utf-8")[:5000]
@@ -465,8 +462,8 @@ class RLUpdateDetector:
 
         return unique_recs
 
-    def _determine_update_reason(self, fact: Dict[str, Any], rl_content: str,
-                                  md_file: Path) -> Optional[str]:
+    def _determine_update_reason(self, fact: dict[str, Any], rl_content: str,
+                                  md_file: Path) -> str | None:
         """Determine why an RL page might need updating."""
         snippet = (fact.get("snippet") or "").lower()
         title = (fact.get("title") or "").lower()
@@ -494,13 +491,12 @@ class RLUpdateDetector:
 
         return None
 
-
 # ---------------------------------------------------------------------------
 # Module-level convenience function
 # ---------------------------------------------------------------------------
 
-def synthesize_research(facts: List[Dict[str, Any]], query: str,
-                        sensitivity: str = "low", config: Optional[Dict] = None) -> Dict[str, Any]:
+def synthesize_research(facts: list[dict[str, Any]], query: str,
+                        sensitivity: str = "low", config: Dict | None = None) -> dict[str, Any]:
     """Convenience wrapper for the full synthesis pipeline.
 
     Usage:
@@ -509,5 +505,4 @@ def synthesize_research(facts: List[Dict[str, Any]], query: str,
     """
     engine = SynthesisEngine(config)
     return engine.synthesize(facts, query, sensitivity=sensitivity)
-
 

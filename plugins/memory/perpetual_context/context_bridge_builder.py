@@ -17,7 +17,7 @@ if something goes wrong. This is an enhancement, not core functionality.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .quality_scorer import BridgeQualityScorer
@@ -25,13 +25,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-
 # Strict 4KB cap to preserve reasoning tokens on local hardware
 MAX_BRIDGE_CHARS = 4000
 
 # Minimum quality score before appending preservation warnings
 _PRESERVATION_WARNING_THRESHOLD = 0.65
-
 
 class ContextBridgeBuilder:
     """Formats extraction results into a compact context bridge string.
@@ -47,8 +45,8 @@ class ContextBridgeBuilder:
 
     def build_bridge(
         self,
-        messages: List[Dict[str, Any]],
-        correction_params: Optional[Dict[str, Any]] = None,
+        messages: list[dict[str, Any]],
+        correction_params: dict[str, Any | None] = None,
     ) -> str:
         """Build the full context bridge from message history.
 
@@ -123,9 +121,9 @@ class ContextBridgeBuilder:
 
     def _apply_corrections(
         self,
-        messages: List[Dict[str, Any]],
-        correction_params: Optional[Dict[str, Any]],
-    ) -> List[Dict[str, Any]]:
+        messages: list[dict[str, Any]],
+        correction_params: dict[str, Any | None],
+    ) -> list[dict[str, Any]]:
         """Apply feedback corrections to the message set before extraction.
 
         Currently a no-op — the extraction engine already scans all provided
@@ -153,9 +151,9 @@ class ContextBridgeBuilder:
 
     def _score_quality(
         self,
-        messages: List[Dict[str, Any]],
+        messages: list[dict[str, Any]],
         bridge_text: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Score bridge quality and record in feedback state.
 
         Non-blocking — returns empty score dict if scorer or feedback unavailable.
@@ -184,7 +182,7 @@ class ContextBridgeBuilder:
             logger.debug("Quality scoring failed (non-critical): %s", e)
             return {}
 
-    def _format_preservation_warning(self, lost_items: List[str]) -> str:
+    def _format_preservation_warning(self, lost_items: list[str]) -> str:
         """Format a preservation warning section for low-quality bridges.
 
         Explicitly tells the agent which items were at risk of being lost,
@@ -199,7 +197,7 @@ class ContextBridgeBuilder:
             lines.append(f"  - {item}")
         return "\n".join(lines)
 
-    def _extract(self, method_name: str, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _extract(self, method_name: str, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Call extraction method on the engine, degrading gracefully."""
         if not self._extraction:
             return []
@@ -215,7 +213,7 @@ class ContextBridgeBuilder:
     # Formatting methods — each returns a section string
     # -----------------------------------------------------------------------
 
-    def _format_active_tasks(self, tasks: List[Dict[str, Any]]) -> str:
+    def _format_active_tasks(self, tasks: list[dict[str, Any]]) -> str:
         """Format active tasks section."""
         lines = ["## Active Tasks (with retrieval pointers)"]
         for task in tasks[:3]:  # Limit to 3 most recent tasks
@@ -233,7 +231,7 @@ class ContextBridgeBuilder:
                     )
         return "\n".join(lines)
 
-    def _format_file_edits(self, edits: List[Dict[str, Any]]) -> str:
+    def _format_file_edits(self, edits: list[dict[str, Any]]) -> str:
         """Format file edits section."""
         lines = ["\n## Files Currently Being Edited"]
         for edit in edits[:3]:  # Limit to 3 most recent edits
@@ -249,7 +247,7 @@ class ContextBridgeBuilder:
                 lines.append(f"  → Related discussion: {rel_refs} ({rel_desc})")
         return "\n".join(lines)
 
-    def _format_known_errors(self, errors: List[Dict[str, Any]]) -> str:
+    def _format_known_errors(self, errors: list[dict[str, Any]]) -> str:
         """Format known errors section."""
         lines = ["\n## Known Errors/Issues"]
         for error in errors[:3]:  # Limit to 3 most recent errors
@@ -262,7 +260,7 @@ class ContextBridgeBuilder:
             )
         return "\n".join(lines)
 
-    def _format_knowledge_gaps(self, gaps: List[Dict[str, Any]]) -> str:
+    def _format_knowledge_gaps(self, gaps: list[dict[str, Any]]) -> str:
         """Format knowledge gaps section."""
         lines = ["\n## Knowledge Gaps (Pending Reference Library Entries)"]
         for gap in gaps[:3]:  # Limit to 3 most recent gaps

@@ -12,11 +12,10 @@ Optimized for local hardware by using indexed lookups and limiting search scope.
 from __future__ import annotations
 
 import logging
-from typing import Optional, List, Dict, Any
+from typing import Any
 from agent.perpetual_context_db import PerpetualContextDB
 
 logger = logging.getLogger(__name__)
-
 
 class FileHistoryTracker:
     """
@@ -30,7 +29,7 @@ class FileHistoryTracker:
     def __init__(self, db: PerpetualContextDB):
         self.db = db
 
-    def get_file_history(self, file_path: str) -> List[Dict[str, Any]]:
+    def get_file_history(self, file_path: str) -> list[dict[str, Any]]:
         """
         Retrieves all edits to a specific file with turn references.
         

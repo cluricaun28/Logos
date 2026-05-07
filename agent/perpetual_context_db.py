@@ -28,7 +28,6 @@ Usage:
     # Track topic flow
     topics = db.get_topic_flow(session_id="20260421_023037")
 """
-
 from __future__ import annotations
 
 import json
@@ -41,7 +40,7 @@ import struct
 import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 # Lazy-import torch — only loaded when embeddings are actually needed.
 # Avoids ~400MB memory / ~10s delay on every import of this module.
@@ -105,7 +104,7 @@ class EmbeddingEngine:
         None/empty rather than crashing. Embedding is an enhancement, not a blocker.
     """
 
-    _instance: Optional["EmbeddingEngine"] = None
+    _instance: "EmbeddingEngine | None" = None
     _lock = threading.Lock()
 
     def __init__(self) -> None:
@@ -147,7 +146,7 @@ class EmbeddingEngine:
             self._model = None
         return self._model
 
-    def embed(self, text: str) -> Optional[List[float]]:
+    def embed(self, text: str) -> list[float] | None:
         """Generate a 384-dim embedding vector for the given text.
 
         Args:
@@ -170,7 +169,7 @@ class EmbeddingEngine:
             return None
 
     @staticmethod
-    def serialize(vector: List[float]) -> bytes:
+    def serialize(vector: list[float]) -> bytes:
         """Pack a float32 embedding vector into compact binary (BLOB).
 
         Uses struct.pack for ~1.5KB per message (384 × 4 bytes).
@@ -191,7 +190,7 @@ class EmbeddingEngine:
         return struct.pack(fmt, *vector)
 
     @staticmethod
-    def deserialize(blob: bytes) -> Optional[List[float]]:
+    def deserialize(blob: bytes) -> list[float] | None:
         """Unpack a BLOB back into a float list.
 
         Args:
@@ -210,7 +209,7 @@ class EmbeddingEngine:
             return None
 
     @staticmethod
-    def cosine_similarity(a: List[float], b: List[float]) -> float:
+    def cosine_similarity(a: list[float], b: list[float]) -> float:
         """Compute cosine similarity between two vectors.
 
         Pure Python implementation — no numpy dependency for the search path.
@@ -246,10 +245,10 @@ class PerpetualContextDB:
                 ~/.hermes/perpetual_context.db if not specified.
         """
         self._db_path = db_path or os.path.expanduser("~/.hermes/perpetual_context.db")
-        self._conn: Optional[sqlite3.Connection] = None
+        self._conn: sqlite3.Connection | None = None
         self._lock = threading.RLock()  # Changed to RLock for reentrant calls
         self._initialized = False
-        self._time_column: Optional[str] = None  # Cached: 'created_at' or 'timestamp'
+        self._time_column: str | None = None  # Cached: 'created_at' or 'timestamp'
         self._schema_version: int = 0  # Cached schema version to skip redundant migrations
 
     @property
@@ -318,7 +317,7 @@ class PerpetualContextDB:
                 try:
                     self._conn.commit()
                 except Exception:
-                    pass
+                    logger.debug("Commit failed during shutdown")
                 self._conn.close()
                 self._conn = None
             self._initialized = False
@@ -370,7 +369,7 @@ class PerpetualContextDB:
             fts_columns = [row[1] for row in cursor.fetchall()]
             fts_has_metadata = 'metadata' in fts_columns
         except Exception:
-            pass
+            logger.debug("FTS metadata column check failed")
 
         if not fts_has_metadata:
             # Drop old FTS tables and recreate with correct schema
@@ -385,7 +384,7 @@ class PerpetualContextDB:
             try:
                 conn.execute(f"DROP TRIGGER IF EXISTS {trigger}")
             except Exception:
-                pass
+                logger.debug("Drop trigger failed")
 
         conn.execute("""
             CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts 
@@ -529,7 +528,7 @@ class PerpetualContextDB:
             if "timestamp" in columns and "created_at" not in columns:
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp)")
         except Exception:
-            pass
+            logger.debug("Timestamp index creation failed")
 
         # Auto-timestamp triggers — SQLite doesn't support function-call defaults in ALTER TABLE,
         # so we use constant defaults (0) above and these triggers to set the actual timestamp.
@@ -629,9 +628,9 @@ class PerpetualContextDB:
         session_id: str,
         role: str,
         content: str,
-        metadata: Dict[str, Any] = None,
+        metadata: dict[str, Any] = None,
         timestamp: float = None,
-    ) -> Optional[int]:
+    ) -> int | None:
         """Store a message in the database.
 
         Handles both old schema (timestamp required) and new schema
@@ -754,7 +753,7 @@ class PerpetualContextDB:
         self,
         batch_size: int = 100,
         max_messages: int = None,
-    ) -> Dict[str, int]:
+    ) -> dict[str, int]:
         """Generate embeddings for all historical messages missing them.
 
         Processes messages in batches to avoid holding the DB lock for too long.
@@ -852,7 +851,7 @@ class PerpetualContextDB:
         session_id: str = None,
         role: str = None,
         limit: int = 50,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Search messages using SQL LIKE-style pattern matching on content.
 
         This is for exact string/pattern searches (e.g., 'ghp_%' for tokens),
@@ -914,7 +913,7 @@ class PerpetualContextDB:
         n: int = 10,
         session_id: str = None,
         role: str = None,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Get the N most recent messages from the database.
 
         Returns raw message content in chronological order (oldest first).
@@ -968,7 +967,7 @@ class PerpetualContextDB:
             logger.error("Recent messages query failed: %s", e)
             return []
 
-    def get_message_session(self, message_id: int) -> Optional[str]:
+    def get_message_session(self, message_id: int) -> str | None:
         """Return the session_id for a given message ID.
 
         Args:
@@ -995,7 +994,7 @@ class PerpetualContextDB:
         role: str = None,
         limit: int = 50,
         offset: int = 0,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Retrieve messages with optional filtering.
 
         Handles both old schema (timestamp, no metadata) and new schema
@@ -1066,7 +1065,7 @@ class PerpetualContextDB:
             logger.error("Failed to get messages: %s", e)
             return []
 
-    def get_active_window(self, session_id: str, n: int = None) -> List[Dict[str, Any]]:
+    def get_active_window(self, session_id: str, n: int = None) -> list[dict[str, Any]]:
         """Get the most recent N messages for a session (short-term memory).
 
         Args:
@@ -1082,7 +1081,7 @@ class PerpetualContextDB:
 
     # -- Search ------------------------------------------------------------
 
-    def fts_search(self, query: str, session_id: str = None, top_k: int = 10) -> List[Dict[str, Any]]:
+    def fts_search(self, query: str, session_id: str = None, top_k: int = 10) -> list[dict[str, Any]]:
         """Full-text search using SQLite FTS5.
 
         Handles both old schema (timestamp, no metadata in FTS) and new schema.
@@ -1165,7 +1164,7 @@ class PerpetualContextDB:
         session_id: str = None,
         top_k: int = 10,
         exclude_session_id: str = None,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Semantic search using cosine similarity against stored embeddings.
 
         Embeds the query vector, loads all non-NULL message embeddings from DB,
@@ -1218,7 +1217,7 @@ class PerpetualContextDB:
                 return []
 
             # Compute cosine similarity for each message with stored embedding
-            scored: List[Tuple[int, float, Dict[str, Any]]] = []
+            scored: list[tuple[int, float, dict[str, Any]]] = []
             for row in rows:
                 blob = row[6]
                 vector = engine.deserialize(blob)
@@ -1261,7 +1260,7 @@ class PerpetualContextDB:
         exclude_session_id: str = None,
         semantic_weight: float = SEMANTIC_WEIGHT,
         fts5_weight: float = FTS5_WEIGHT,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Hybrid search combining FTS5 keyword matching + semantic embeddings.
 
         Uses weighted scoring to combine BM25 rank from FTS5 with cosine similarity
@@ -1293,8 +1292,8 @@ class PerpetualContextDB:
 
         # Combine using weighted scoring: FTS5 rank + cosine similarity.
         # Normalize both scores to [0, 1] range before weighting.
-        scored: Dict[int, float] = {}
-        msg_cache: Dict[int, Dict[str, Any]] = {}
+        scored: dict[int, float] = {}
+        msg_cache: dict[int, dict[str, Any]] = {}
 
         # Score FTS5 results — convert BM25 rank (lower=better) to normalized score
         if fts_results:
@@ -1331,7 +1330,7 @@ class PerpetualContextDB:
         cached_ids = {rid for rid in msg_cache}
         missing_ids = [rid for rid in msg_ids if rid not in cached_ids]
 
-        db_lookup: Dict[int, Dict[str, Any]] = {}
+        db_lookup: dict[int, dict[str, Any]] = {}
         if missing_ids:
             placeholders = ",".join("?" for _ in missing_ids)
             cursor = self._conn.execute(
@@ -1428,8 +1427,8 @@ class PerpetualContextDB:
 
     @staticmethod
     def _format_recall_pointers(
-        messages: Dict[int, Dict[str, Any]],
-        qualified: List[Tuple[int, float]],
+        messages: dict[int, dict[str, Any]],
+        qualified: list[tuple[int, float]],
         max_chars: int = RECALL_OUTPUT_MAX_CHARS,
     ) -> str:
         """Format scored messages into compact recall pointer strings.
@@ -1507,7 +1506,7 @@ class PerpetualContextDB:
 
     # -- Topic flow tracking -----------------------------------------------
 
-    def add_topic(self, session_id: str, topic_name: str, confidence: float = 0.5) -> Optional[int]:
+    def add_topic(self, session_id: str, topic_name: str, confidence: float = 0.5) -> int | None:
         """Register a new topic for a session.
 
         Args:
@@ -1582,7 +1581,7 @@ class PerpetualContextDB:
             logger.error("Failed to link topic to message: %s", e)
             return False
 
-    def get_topic_flow(self, session_id: str) -> List[Dict[str, Any]]:
+    def get_topic_flow(self, session_id: str) -> list[dict[str, Any]]:
         """Get the topic flow history for a session.
 
         Args:
@@ -1688,7 +1687,7 @@ class PerpetualContextDB:
         target_entity: str,
         relationship_type: str = "related",
         strength: float = 0.5,
-    ) -> Optional[int]:
+    ) -> int | None:
         """Record a relationship between two entities.
 
         Args:
@@ -1725,7 +1724,7 @@ class PerpetualContextDB:
         source_entity: str,
         target_entity: str,
         delta: float = 0.1,
-    ) -> Optional[int]:
+    ) -> int | None:
         """Increment relationship strength or create new one (UPSERT).
 
         If a relationship already exists for this source/target pair, increment its
@@ -1788,7 +1787,7 @@ class PerpetualContextDB:
         session_id: str = None,
         entity: str = None,
         relationship_type: str = None,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Query relationships with optional filters.
 
         Args:
@@ -1841,7 +1840,7 @@ class PerpetualContextDB:
 
     # -- Session management ------------------------------------------------
 
-    def get_session_info(self, session_id: str) -> Optional[Dict[str, Any]]:
+    def get_session_info(self, session_id: str) -> dict[str, Any | None]:
         """Get metadata about a session.
 
         Args:
@@ -1913,7 +1912,7 @@ class PerpetualContextDB:
 
     # -- Utility -----------------------------------------------------------
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get database statistics.
 
         Returns:
@@ -1953,7 +1952,7 @@ class PerpetualContextDB:
         pattern: str = None,
         session_id: str = None,
         role: str = None,
-        ids: List[int] = None,
+        ids: list[int] = None,
         time_start: float = None,
         time_end: float = None,
         min_tokens: int = None,
@@ -1964,7 +1963,7 @@ class PerpetualContextDB:
         stats: bool = False,
         limit: int = 100,
         offset: int = 0,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Unified message query with comprehensive filtering.
 
         This is the master query tool — handles time ranges, token counts,
@@ -2013,7 +2012,8 @@ class PerpetualContextDB:
                     query_sql += ", metadata"
                 else:
                     query_sql += ", '' as metadata"
-            except Exception:
+            except Exception as e:
+                logger.debug("Metadata column check failed: %s", e)
                 query_sql += ", '' as metadata"
             query_sql += f", {time_col}"
             query_sql += " FROM messages WHERE 1=1"
@@ -2115,7 +2115,7 @@ class PerpetualContextDB:
         max_tokens: int = None,
         time_start: float = None,
         time_end: float = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Return statistics about messages matching the given filters."""
         try:
             time_col = self.time_column
@@ -2200,10 +2200,10 @@ class PerpetualContextDB:
         confidence: float = 0.5,
         session_id: str = "",
         needs_reference_library_update: bool | None = None,
-        first_principles: List[str] | None = None,
+        first_principles: list[str] | None = None,
         # Legacy alias — kept for backward compatibility
         needs_wiki_update: bool | None = None,    # deprecated: use needs_reference_library_update
-    ) -> Optional[int]:
+    ) -> int | None:
         """Store a knowledge gap in the database.
 
         Focus: worldview-aligned reference library entries, not ephemeral search results.
@@ -2253,7 +2253,7 @@ class PerpetualContextDB:
             logger.error("Failed to add knowledge gap: %s", e)
             return None
 
-    def get_unresolved_gaps(self, limit: int = 10) -> List[Dict[str, Any]]:
+    def get_unresolved_gaps(self, limit: int = 10) -> list[dict[str, Any]]:
         """Get unresolved knowledge gaps from previous sessions.
 
         Returns gaps that need worldview-aligned reference library entries built from first
@@ -2361,7 +2361,7 @@ class PerpetualContextDB:
             logger.error("Failed to resolve knowledge gap %d: %s", gap_id, e)
             return False
 
-    def get_gap_stats(self) -> Dict[str, Any]:
+    def get_gap_stats(self) -> dict[str, Any]:
         """Get statistics about knowledge gaps.
 
         Returns:

@@ -13,7 +13,7 @@ import json
 import logging
 import os
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,6 @@ _DEGRADATION_THRESHOLD = 0.15
 # Minimum quality threshold — below this, force preservation markers
 _MIN_QUALITY_THRESHOLD = 0.60
 
-
 class FeedbackState:
     """Persistent feedback state across compression cycles.
 
@@ -39,7 +38,7 @@ class FeedbackState:
 
     def __init__(self, state_file: str = _DEFAULT_STATE_FILE):
         self._state_file = state_file
-        self._entries: List[Dict[str, Any]] = []
+        self._entries: list[dict[str, Any]] = []
         self._load()
 
     # -----------------------------------------------------------------------
@@ -81,7 +80,7 @@ class FeedbackState:
     # Recording
     # -----------------------------------------------------------------------
 
-    def record_compression(self, quality_score: Dict[str, Any], session_id: str = "") -> None:
+    def record_compression(self, quality_score: dict[str, Any], session_id: str = "") -> None:
         """Record a compression event with its quality score.
 
         Args:
@@ -165,7 +164,7 @@ class FeedbackState:
         scores = [e["overall_score"] for e in recent]
         return round(sum(scores) / len(scores), 3)
 
-    def get_correction_params(self) -> Dict[str, Any]:
+    def get_correction_params(self) -> dict[str, Any]:
         """Return correction parameters based on degradation trend.
 
         Analyzes the quality history and returns adjustments for the next
@@ -182,7 +181,7 @@ class FeedbackState:
         trend = self.get_degradation_trend()
         avg_quality = self.get_recent_average()
 
-        params: Dict[str, Any] = {
+        params: dict[str, Any] = {
             "extraction_window_multiplier": 1.0,
             "preserve_critical_markers": False,
             "min_bridge_quality_threshold": _MIN_QUALITY_THRESHOLD,

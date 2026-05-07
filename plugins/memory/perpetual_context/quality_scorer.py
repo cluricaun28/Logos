@@ -15,7 +15,7 @@ Overall score is a weighted average (tasks: 40%, files: 30%, errors: 20%, gaps: 
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List
+from typing import Any
 
 from .extraction_engine import ExtractionEngine
 
@@ -28,7 +28,6 @@ _FILE_WEIGHT = 0.30
 _ERROR_WEIGHT = 0.20
 _GAP_WEIGHT = 0.10
 
-
 class BridgeQualityScorer:
     """Scores context bridge quality against extraction results.
 
@@ -39,7 +38,7 @@ class BridgeQualityScorer:
     def __init__(self):
         self._extractor = ExtractionEngine()
 
-    def score(self, messages: List[Dict[str, Any]], bridge_text: str) -> Dict[str, Any]:
+    def score(self, messages: list[dict[str, Any]], bridge_text: str) -> dict[str, Any]:
         """Score the bridge on multiple preservation dimensions.
 
         Args:
@@ -101,7 +100,7 @@ class BridgeQualityScorer:
             "lost_items": lost_items[:10],  # Cap diagnostic list
         }
 
-    def _empty_score(self, bridge_text: str) -> Dict[str, Any]:
+    def _empty_score(self, bridge_text: str) -> dict[str, Any]:
         """Return zero-score result when no messages or bridge text."""
         sections_present = self._detect_sections(bridge_text) if bridge_text else []
         return {
@@ -119,7 +118,7 @@ class BridgeQualityScorer:
     # Scoring helpers
     # -----------------------------------------------------------------------
 
-    def _score_preservation(self, items: List[str], bridge_text: str) -> float:
+    def _score_preservation(self, items: list[str], bridge_text: str) -> float:
         """Score how many extracted items appear in the bridge text.
 
         Uses substring matching with normalization (lowercase, whitespace).
@@ -159,7 +158,7 @@ class BridgeQualityScorer:
 
         return min(preserved / len(items), 1.0)
 
-    def _find_lost(self, items: List[str], bridge_text: str) -> List[str]:
+    def _find_lost(self, items: list[str], bridge_text: str) -> list[str]:
         """Find specific items that were extracted but not in the bridge."""
         lost = []
         bridge_lower = bridge_text.lower()
@@ -173,7 +172,7 @@ class BridgeQualityScorer:
                     lost.append(item[:80])
         return lost
 
-    def _detect_sections(self, bridge_text: str) -> List[str]:
+    def _detect_sections(self, bridge_text: str) -> list[str]:
         """Detect which standard sections are present in the bridge."""
         sections = []
         section_markers = {

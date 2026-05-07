@@ -26,7 +26,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, Literal, List, Optional
+from typing import Any, Literal
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,6 @@ logger = logging.getLogger(__name__)
 # calls don't waste time re-importing.
 class _HttpUnavailable:
     """Typed sentinel for lazy httpx client unavailability."""
-
 
 _HTTP_UNAVAILABLE = _HttpUnavailable()
 
@@ -70,7 +69,6 @@ _URL_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-
 @dataclass
 class SearchResult:
     """Normalized web search result with source attribution."""
@@ -79,8 +77,7 @@ class SearchResult:
     snippet: str
     source: Literal["searxng", "firecrawl", "camofox"]
     score: float = 0.0
-    extracted_content: Optional[str] = None
-
+    extracted_content: str | None = None
 
 class WebResearchClient:
     """Web research abstraction layer for the Deep Research Engine.
@@ -95,7 +92,7 @@ class WebResearchClient:
 
     def __init__(
         self,
-        config: Optional[Dict[str, Any]] = None,
+        config: dict[str, Any | None] = None,
     ) -> None:
         """Initialize the WebResearchClient with optional configuration.
 
@@ -120,7 +117,7 @@ class WebResearchClient:
         ).rstrip("/")
 
         # Lazy-init HTTP client on first use
-        self._http_client: Optional[Dict[str, Any]] = None
+        self._http_client: dict[str, Any | None] = None
 
     def set_searxng_url(self, url: str) -> None:
         """Set or update the SearXNG URL.
@@ -145,7 +142,7 @@ class WebResearchClient:
     # Search
     # -----------------------------------------------------------------------
 
-    def search(self, query: str, top_k: int = MAX_WEB_RESULTS) -> List[SearchResult]:
+    def search(self, query: str, top_k: int = MAX_WEB_RESULTS) -> list[SearchResult]:
         """Search the web for relevant information.
 
         Tries backends in order of preference. Returns normalized results
@@ -179,7 +176,7 @@ class WebResearchClient:
         logger.debug("No web search backend available for query: '%s'", query[:QUERY_LOG_MAX_CHARS])
         return []
 
-    def _search_searxng(self, query: str, top_k: int) -> List[SearchResult]:
+    def _search_searxng(self, query: str, top_k: int) -> list[SearchResult]:
         """Search via SearXNG instance."""
         http = self._get_http()
         if http is _HTTP_UNAVAILABLE:  # httpx unavailable
@@ -194,7 +191,7 @@ class WebResearchClient:
         resp.raise_for_status()
         data = resp.json()
 
-        results: List[SearchResult] = []
+        results: list[SearchResult] = []
         for item in (data.get("results") or [])[:top_k]:
             results.append(SearchResult(
                 title=item.get("title", ""),
@@ -205,7 +202,7 @@ class WebResearchClient:
             ))
         return results
 
-    def _search_firecrawl(self, query: str, top_k: int) -> List[SearchResult]:
+    def _search_firecrawl(self, query: str, top_k: int) -> list[SearchResult]:
         """Search via Firecrawl API (local instance preferred, cloud fallback)."""
         http = self._get_http()
         if http is _HTTP_UNAVAILABLE:
@@ -229,7 +226,7 @@ class WebResearchClient:
             return []
 
         data = resp.json()
-        results: List[SearchResult] = []
+        results: list[SearchResult] = []
         for item in (data.get("data") or [])[:top_k]:
             results.append(SearchResult(
                 title=item.get("title", ""),
@@ -243,7 +240,7 @@ class WebResearchClient:
     # Extraction
     # -----------------------------------------------------------------------
 
-    def extract(self, url: str) -> Optional[str]:
+    def extract(self, url: str) -> str | None:
         """Extract content from a URL using Firecrawl or Camofox fallback."""
         if not url or not isinstance(url, str):
             return None
@@ -266,7 +263,7 @@ class WebResearchClient:
 
         return None
 
-    def _extract_firecrawl(self, url: str) -> Optional[str]:
+    def _extract_firecrawl(self, url: str) -> str | None:
         """Extract via Firecrawl scrape endpoint (local instance preferred, cloud fallback)."""
         http = self._get_http()
         if http is _HTTP_UNAVAILABLE:
@@ -299,7 +296,7 @@ class WebResearchClient:
     # -----------------------------------------------------------------------
 
     def _camofox_create_tab(self, http: Any, base: str,
-                            user_id: str, url: str) -> Optional[str]:
+                            user_id: str, url: str) -> str | None:
         """Create a Camofox tab and navigate to the given URL.
 
         Returns the tabId on success, None on failure.
@@ -328,7 +325,7 @@ class WebResearchClient:
         return tab_id
 
     def _camofox_evaluate_page(self, http: Any, base: str,
-                                tab_id: str, user_id: str) -> Optional[str]:
+                                tab_id: str, user_id: str) -> str | None:
         """Evaluate JavaScript on a Camofox tab and return the result text.
 
         Returns the evaluated string on success, None on failure.
@@ -363,7 +360,7 @@ class WebResearchClient:
         except Exception as e:
             logger.debug("Camofox tab cleanup failed for %s: %s", tab_id, e)
 
-    def _extract_camofox(self, url: str) -> Optional[str]:
+    def _extract_camofox(self, url: str) -> str | None:
         """Extract via Camofox browser automation using the tab-based API.
 
         Creates a tab, navigates to the URL, evaluates document.body.innerText,
@@ -391,21 +388,17 @@ class WebResearchClient:
             if tab_id:
                 self._camofox_close_tab(http, base, tab_id, user_id)
 
-    def set_searxng_url(self, url: str) -> None:
-        """Set or update the SearXNG URL after construction."""
-        self._searxng_url = url
-
     # -----------------------------------------------------------------------
     # Batch & gap utilities
     # -----------------------------------------------------------------------
 
-    def extract_all(self, urls: List[str]) -> Dict[str, Optional[str]]:
+    def extract_all(self, urls: list[str]) -> dict[str, str | None]:
         """Extract content from multiple URLs sequentially.
 
         Returns dict[url, content]. Each URL is processed independently;
         one failure does not affect the others.
         """
-        results: Dict[str, Optional[str]] = {}
+        results: dict[str, str | None] = {}
         for url in urls:
             try:
                 results[url] = self.extract(url)
@@ -417,7 +410,7 @@ class WebResearchClient:
     # Legacy alias — kept for backward compatibility
     batch_extract = extract_all
 
-    def generate_gap_queries(self, gaps: List[str]) -> List[str]:
+    def generate_gap_queries(self, gaps: list[str]) -> list[str]:
         """Generate targeted search queries from gap descriptions.
 
         Example: gap "current pricing for RTX 5090"

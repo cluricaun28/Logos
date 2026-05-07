@@ -12,12 +12,15 @@ for local open-source hardware by prioritizing indexed lookups over broad FTS5
 searches and caching results to minimize I/O latency.
 """
 
-import hashlib
+from __future__ import annotations
+
 import logging
 import re as _re
 import threading
 import time
-from typing import Optional, List, Dict, Any, Callable
+import zlib
+from typing import Any, Callable
+
 from agent.perpetual_context_db import PerpetualContextDB
 
 logger = logging.getLogger(__name__)
@@ -85,10 +88,10 @@ class TTLCache:
     def __init__(self, ttl_seconds: int = 60, max_size: int = 256):
         self.ttl = ttl_seconds
         self.max_size = max_size
-        self._cache: Dict[str, tuple[Any, float]] = {}
+        self._cache: dict[str, tuple[Any, float]] = {}
         self._lock = threading.RLock()
 
-    def get(self, key: str) -> Optional[Any]:
+    def get(self, key: str) -> Any | None:
         with self._lock:
             if key in self._cache:
                 value, timestamp = self._cache[key]
@@ -124,8 +127,8 @@ class SmartRetriever:
         self.db = db
         self.cache = TTLCache(ttl_seconds=60)
         # Lazy-init specialized engines on first use
-        self._decision_engine: Optional[Any] = None
-        self._file_tracker: Optional[Any] = None
+        self._decision_engine: Any | None = None
+        self._file_tracker: Any | None = None
 
     def _get_decision_engine(self):
         if self._decision_engine is None:
@@ -139,7 +142,7 @@ class SmartRetriever:
             self._file_tracker = FileHistoryTracker(self.db)
         return self._file_tracker
 
-    def retrieve(self, query_type: str, query_text: str) -> List[Dict[str, Any]]:
+    def retrieve(self, query_type: str, query_text: str) -> list[dict[str, Any]]:
         """
         Main entry point for smart retrieval.
 
@@ -157,7 +160,7 @@ class SmartRetriever:
             logger.debug("Auto-routed '%s' → %s", query_text[:50], query_type)
 
         # Check cache first to avoid redundant DB hits
-        cache_key = hashlib.md5(f"{query_type}:{query_text}".encode()).hexdigest()
+        cache_key = str(zlib.crc32(f"{query_type}:{query_text}".encode()))
         cached_result = self.cache.get(cache_key)
         if cached_result is not None:
             return cached_result
@@ -183,7 +186,7 @@ class SmartRetriever:
             logger.exception("Retrieval failed for type '%s'", query_type)
             return []
 
-    def _retrieve_recent(self, query_text: str) -> List[Dict[str, Any]]:
+    def _retrieve_recent(self, query_text: str) -> list[dict[str, Any]]:
         """Retrieve context from the last 20 turns using indexed lookups.
         
         Direct lookup of recent messages — no FTS5 interference. The query_text
@@ -196,7 +199,7 @@ class SmartRetriever:
             logger.exception("Failed to retrieve recent messages")
             return []
 
-    def _retrieve_topic(self, query_text: str) -> List[Dict[str, Any]]:
+    def _retrieve_topic(self, query_text: str) -> list[dict[str, Any]]:
         """Retrieve topic-specific context across all sessions using FTS5.
         
         Uses hybrid_search (FTS5 + reciprocal rank fusion) for better relevance
@@ -210,7 +213,7 @@ class SmartRetriever:
             logger.exception("Failed to retrieve topic '%s'", query_text)
             return []
 
-    def _retrieve_decision_trace(self, query_text: str) -> List[Dict[str, Any]]:
+    def _retrieve_decision_trace(self, query_text: str) -> list[dict[str, Any]]:
         """Find where a decision was made and surrounding context.
 
         Delegates to DecisionTraceEngine for clean separation of concerns.
@@ -232,7 +235,7 @@ class SmartRetriever:
             logger.exception("Failed to retrieve decision trace for '%s'", query_text)
             return []
 
-    def _retrieve_file_history(self, query_text: str) -> List[Dict[str, Any]]:
+    def _retrieve_file_history(self, query_text: str) -> list[dict[str, Any]]:
         """Retrieve all edits to a specific file using pattern matching.
 
         Delegates to FileHistoryTracker for clean separation of concerns.
