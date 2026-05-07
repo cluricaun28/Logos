@@ -1,18 +1,11 @@
 """Perpetual Context Memory Provider — Infinite recall across sessions.
 
-A local-first memory system combining SQLite, FTS5 full-text indexing, and
-topic flow tracking for keyword retrieval. Provides topic clustering,
-relationship management, and graded context depth control.
+SQLite + FTS5 full-text indexing with topic flow tracking. Provides keyword
+retrieval, topic clustering, and graded context depth control.
 
-Architecture:
-  - SQLite: Structured storage (messages, topics, relationships)
-  - FTS5: Full-text keyword search
-  - Topic Flow: Automatic topic clustering with drift detection
-
-Tools exposed to the agent:
-  - perpetual_search — Keyword search across all past sessions
-  - topic_flow       — View and manage topic clusters per session
-  - context_depth    — Control how much historical context is surfaced
+Tools: perpetual_search, topic_flow, context_depth, smart_retrieve,
+       query_messages, get_messages, recent_messages, memory,
+       perpetual_memory, context_depth, topic_flow.
 
 Config in ~/.hermes/config.yaml:
   memory:
@@ -32,19 +25,12 @@ import sqlite3
 import threading
 import time
 from datetime import datetime
-from pathlib import Path
 from typing import Any
-
 from agent.memory_provider import MemoryProvider
 from agent.perpetual_context_db import RECALL_OUTPUT_MAX_CHARS
-
 # Import split modules (SRP compliance)
-from .extraction_engine import ExtractionEngine, _STOPWORDS
-from .tool_handler import ToolHandler
-from .context_bridge_builder import ContextBridgeBuilder
+from .extraction_engine import _STOPWORDS
 from .injection_router import classify_injection_intent
-
-# Sub-modules extracted for SRP compliance
 from . import prefetch_pipeline
 from .session_end_extractor import extract_topics_from_messages
 from . import schemas as _schemas
@@ -53,17 +39,11 @@ logger = logging.getLogger(__name__)
 
 # Module-level configuration constants
 PREFETCH_TRUNCATION_CHARS = 1500
-PRE_COMPRESS_TRUNCATION_CHARS = 8000
 PERIODIC_INJECTION_INTERVAL = 10
 PERIODIC_INJECTION_MAX_CHARS = 300
 DEEP_RESEARCH_ENABLED = True
 RL_SEARCH_TOP_K = 5
-PM_SEARCH_TOP_K = 5
-GAP_DETECTION_MIN_SCORE = 0.3
 GAP_DETECTION_MIN_RESULTS = 2
-WEB_SEARCH_ENABLED = True
-SEARXNG_URL = "http://localhost:8080"
-WEB_PRIORITY_THRESHOLD = 0.3
 WEB_SEARCH_TOP_K = 5
 UNIFIED_SCORE_WEIGHTS: dict[str, float] = {
     "pm": 0.35,
@@ -74,12 +54,6 @@ WORLDVIEW_BLOCKED_DOMAINS: set[str] = {
     "reddit.com",
     "quora.com",
     "medium.com",
-}
-WORLDVIEW_FLAGGED_DOMAINS: dict[str, str] = {
-    "bbc.com": "State-aligned framing",
-    "cnn.com": "Progressive institutional capture",
-    "nytimes.com": "Elite establishment narrative",
-    "reuters.com": "Corporate wire service bias",
 }
 
 
@@ -106,85 +80,27 @@ class PerpetualContextProvider(MemoryProvider):
         self._recall_past_enabled: bool = False
         self._periodic_enabled: bool = False
         self._deep_research_enabled: bool = False
-        # Sub-components
-        self._extraction: ExtractionEngine | None = None
-        self._tools: ToolHandler | None = None
-        self._bridge_builder: ContextBridgeBuilder | None = None
-        # Feedback loop
-        self._scorer: Any | None = None
-        self._feedback: Any | None = None
-        # Deep Research phases 2-4 (lazy init)
-        self._web_research: Any | None = None
-        self._scrutiny_gate: Any | None = None
-        self._synthesis_engine: Any | None = None
+        # Sub-components (lazy-init via ComponentFactory)
+        self._factory: Any | None = None
         # Periodic injection state
         self._last_turn_number: int = 0
         self._last_user_message: str = ""
 
-    # -- Lazy initialization -------------------------------------------------
+    # -- Component factory ---------------------------------------------------
 
-    def _ensure_subcomponents(self) -> None:
-        with self._lock:
-            if self._extraction is None and self._db is not None:
-                self._extraction = ExtractionEngine()
-                self._bridge_builder = ContextBridgeBuilder(
-                    extraction_engine=self._extraction,
-                    scorer=self._scorer,
-                    feedback_state=self._feedback,
-                )
-            if self._tools is None and self._db is not None:
-                self._tools = ToolHandler(
-                    db=self._db,
-                    session_id=self._session_id or "",
-                    current_depth=self._current_depth,
-                    prefetch_queue=self._prefetch_queue,
-                )
-            self._ensure_deep_research()
-
-    def _ensure_deep_research(self) -> None:
-        with self._lock:
-            if not DEEP_RESEARCH_ENABLED:
-                return
-            self._ensure_web_research()
-            self._ensure_scrutiny_gate()
-            self._ensure_synthesis_engine()
-
-    def _ensure_web_research(self) -> None:
-        if self._web_research is None:
-            from .web_research import (  # noqa: PLC0415
-                CAMOFOX_URL_DEFAULT, CAMOFOX_URL_ENV,
-                FIRECRAWL_API_URL_ENV, FIRECRAWL_URL_ENV,
-                SEARXNG_URL_ENV, WebResearchClient,
-            )
-            self._web_research = WebResearchClient({
-                "searxng_url": os.environ.get(SEARXNG_URL_ENV, "").strip() or SEARXNG_URL,
-                "firecrawl_url": (os.environ.get(FIRECRAWL_URL_ENV, "").strip()
-                                  or os.environ.get(FIRECRAWL_API_URL_ENV, "").strip()
-                                  or ""),
-                "camofox_url": (os.environ.get(CAMOFOX_URL_ENV, "").strip()
-                                or CAMOFOX_URL_DEFAULT),
-            })
-        elif not self._web_research._searxng_url:
-            self._web_research.set_searxng_url(SEARXNG_URL)
-
-    def _ensure_scrutiny_gate(self) -> None:
-        if self._scrutiny_gate is None:
-            from .scrutiny_gate import ScrutinyGate  # noqa: PLC0415
-            self._scrutiny_gate = ScrutinyGate()
-
-    def _ensure_synthesis_engine(self) -> None:
-        if self._synthesis_engine is None:
-            from .synthesis_engine import SynthesisEngine  # noqa: PLC0415
-            self._synthesis_engine = SynthesisEngine()
-
-    def _ensure_feedback_loop(self) -> None:
-        with self._lock:
-            if self._scorer is None:
-                from .quality_scorer import BridgeQualityScorer  # noqa: PLC0415
-                self._scorer = BridgeQualityScorer()
-            if self._feedback is None:
-                from .feedback_state import FeedbackState  # noqa: PLC0415
-                self._feedback = FeedbackState()
+    def _get_factory(self) -> Any:  # returns ComponentFactory
+        if self._factory is None and self._db is not None:
+            with self._lock:
+                if self._factory is None:
+                    from .component_factory import ComponentFactory  # noqa: PLC0415
+                    self._factory = ComponentFactory(
+                        db=self._db,
+                        session_id=self._session_id or "",
+                        current_depth=self._current_depth,
+                        prefetch_queue=self._prefetch_queue,
+                        deep_research_enabled=self._deep_research_enabled,
+                    )
+        return self._factory
 
     @property
     def name(self) -> str:
@@ -242,7 +158,7 @@ class PerpetualContextProvider(MemoryProvider):
             stats.get("topic_count", 0),
         )
 
-        self._ensure_subcomponents()
+        self._get_factory().ensure_all()
 
     def system_prompt_block(self) -> str:
         with self._lock:
@@ -309,13 +225,13 @@ class PerpetualContextProvider(MemoryProvider):
             if not self._db or not self._db._initialized:
                 return ""
             effective_session = session_id or self._session_id or ""
-            self._ensure_subcomponents()
-            self._ensure_feedback_loop()
+            factory = self._get_factory()
+            factory.ensure_all()
             db = self._db
-            tools = self._tools
-            web_research = self._web_research
-            scrutiny_gate = self._scrutiny_gate
-            synthesis_engine = self._synthesis_engine
+            tools = factory.tools
+            web_research = factory.web_research
+            scrutiny_gate = factory.scrutiny_gate
+            synthesis_engine = factory.synthesis_engine
 
         return prefetch_pipeline.run_prefetch_pipeline(
             query=query,
@@ -410,10 +326,11 @@ class PerpetualContextProvider(MemoryProvider):
                 return (
                     '{"error": "Perpetual context database not initialized"}'
                 )
-            self._ensure_subcomponents()
-            if not self._tools:
+            factory = self._get_factory()
+            factory.ensure_core()
+            if not factory.tools:
                 return '{"error": "ToolHandler not initialized"}'
-            tools = self._tools
+            tools = factory.tools
 
         try:
             if tool_name == "smart_retrieve":
@@ -468,17 +385,17 @@ class PerpetualContextProvider(MemoryProvider):
             logger.debug("on_session_end extraction failed: %s", e)
 
     def on_pre_compress(self, messages: list[dict[str, Any]]) -> str:
-        self._ensure_subcomponents()
-        self._ensure_feedback_loop()
-        bridge = self._bridge_builder
+        factory = self._get_factory()
+        factory.ensure_all()
+        bridge = factory.bridge_builder
         if not bridge:
             return ""
         try:
-            bridge._scorer = self._scorer
-            bridge._feedback = self._feedback
+            bridge._scorer = factory.scorer
+            bridge._feedback = factory.feedback
             correction_params = None
-            if self._feedback and self._feedback.needs_correction():
-                correction_params = self._feedback.get_correction_params()
+            if factory.feedback and factory.feedback.needs_correction():
+                correction_params = factory.feedback.get_correction_params()
             return bridge.build_bridge(messages, correction_params)
         except Exception as e:
             logger.warning("Context Bridge generation failed: %s", e)
@@ -551,10 +468,9 @@ class PerpetualContextProvider(MemoryProvider):
         with self._lock:
             if not self._db or not self._db._initialized:
                 return []
-            if not hasattr(self, '_retriever'):
-                from .retrieval_engine import SmartRetriever  # noqa: PLC0415
-                self._retriever = SmartRetriever(self._db)
-            retriever = self._retriever
+            factory = self._get_factory()
+            factory.ensure_retriever()
+            retriever = factory.retriever
 
         try:
             strategy = {
@@ -579,15 +495,15 @@ class PerpetualContextProvider(MemoryProvider):
         return classify_query_intent(query_text)
 
     def _get_depth_limit(self) -> int:
-        with self._lock:
-            self._ensure_subcomponents()
-            if not self._tools:
-                return 5
-            try:
-                return self._tools.get_depth_limit()
-            except Exception as e:
-                logger.debug("_get_depth_limit failed: %s", e)
-                return 5
+        factory = self._get_factory()
+        factory.ensure_core()
+        if not factory.tools:
+            return 5
+        try:
+            return factory.tools.get_depth_limit()
+        except Exception as e:
+            logger.debug("_get_depth_limit failed: %s", e)
+            return 5
 
 
 # -- Plugin registration ---------------------------------------------------
