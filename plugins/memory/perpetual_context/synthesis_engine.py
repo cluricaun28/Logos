@@ -25,6 +25,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
+import yaml as _yaml
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -49,16 +51,16 @@ def get_active_model() -> dict[str, Any]:
     """
     config_path = Path(os.path.expanduser("~/.hermes/config.yaml"))
     try:
-        import yaml  # noqa: lazy import — yaml is a Hermes dep, not always preloaded
         with open(config_path) as f:
-            config = yaml.safe_load(f) or {}
+            config = _yaml.safe_load(f) or {}
         model_cfg = config.get("model", {})
         return {
             "model": model_cfg.get("default", SYNTHESIS_MODEL_DEFAULT),
             "provider": model_cfg.get("provider", "custom"),
             "base_url": model_cfg.get("base_url", INFERENCE_URL_DEFAULT),
         }
-    except (FileNotFoundError, yaml.YAMLError):
+    except (OSError, _yaml.YAMLError) as exc:
+        logger.debug("Could not read config for active model, using defaults: %s", exc)
         return {
             "model": SYNTHESIS_MODEL_DEFAULT,
             "provider": "custom",

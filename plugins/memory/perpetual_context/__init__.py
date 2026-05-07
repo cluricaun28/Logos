@@ -521,6 +521,99 @@ class PerpetualContextProvider(MemoryProvider):
         self._current_depth: str = "moderate"
         self._prefetch_queue: List[Dict[str, Any]] = []
         self._lock = threading.RLock()  # RLock for reentrant acquisition in nested calls
+        # Per-injection toggles — read from config in initialize()
+        self._prefetch_enabled: bool = False
+        self._recall_past_enabled: bool = False
+        self._periodic_enabled: bool = False
+        self._deep_research_enabled: bool = False
+        # Intent classifier keywords
+        self._INTENT_CONVERSATION = {
+            "yes", "no", "ok", "okay", "alright", "cool", "nice",
+            "thanks", "thank you", "got it", "understood", "done",
+            "perfect", "great", "awesome", "good", "fine", "sure",
+            "right", "correct", "exactly", "yeah", "nah",
+            "let's do it", "let's go", "go ahead", "carry on",
+        }
+        self._INTENT_STATUS = {
+            "still", "is it done", "is it still", "any update",
+            "how's it going", "where are we", "progress",
+            "still broken", "is it working", "has it fixed",
+            "still happening",
+        }
+        self._INTENT_COMMAND = {
+            "restart", "backup", "deploy", "push", "commit",
+            "install", "uninstall", "enable", "disable",
+            "configure", "set up", "turn on", "turn off",
+            "check", "verify", "test", "debug", "fix it",
+            "do a", "run a", "make a", "build", "create",
+            "add", "remove", "update", "change", "modify",
+            "send", "push to", "back up",
+        }
+        self._INTENT_CODE = {
+            "code", "function", "method", "class", "module",
+            "import", "def ", "git", "python", "terminal",
+            "debug", "trace", "error", "exception", "log",
+            "refactor", "audit", "review", "fix the code",
+            "add to", "remove from", "update the",
+        }
+        self._INTENT_RECENT = {
+            "recent", "last time", "just now", "earlier today",
+            "from earlier", "a moment ago", "the last",
+            "most recent", "right before", "check recent",
+            "what was the last",
+        }
+        self._INTENT_PAST_WORK = {
+            "what did we do", "did we do", "did you finish",
+            "last time we", "remember", "from our conversation",
+            "we discussed", "we talked about", "we were working on",
+            "check pm", "check memory", "recall our conversation",
+            "what we built", "what we changed", "what we did with",
+            "previous session", "earlier session",
+        }
+        self._INTENT_REFERENCE = {
+            "read the", "is there an rl page", "is there a page for",
+            "look up in", "find in reference library", "the docs say",
+            "check the docs", "what's the config for",
+            "how does x work", "what's in the rl",
+        }
+        self._INTENT_RESEARCH = {
+            "research", "search for", "find out", "search the web",
+            "web search", "look up online", "what's happening with",
+            "latest news", "current state of", "search",
+            "use web tools", "find on the internet",
+        }
+        self._INTENT_FACTUAL = {
+            "what is", "tell me about", "explain", "define",
+            "describe", "how does x work", "what causes",
+            "what was", "who is", "what are",
+        }
+        self._INTENT_COMPARISON = {
+            "compare", "versus", "vs", "difference between",
+            "x or y", "which is better", "how does x compare",
+        }
+        self._INTENT_OPINION = {
+            "what do you think", "what's your opinion",
+            "do you agree", "do you believe", "should i",
+            "is it a good idea", "would you recommend",
+        }
+        self._INTENT_CREATIVE = {
+            "write me", "write a", "compose", "draft",
+            "create a", "generate a", "make a poem",
+            "make a song", "come up with",
+        }
+        self._INTENT_TOPIC = {
+            "on the topic of", "on the subject of",
+            "speaking of", "by the way",
+        }
+        self._INTENT_CREATIVE = {
+            "write me", "write a", "compose", "draft",
+            "create a", "generate a", "make a poem",
+            "make a song", "come up with",
+        }
+        self._INTENT_FACTUAL_WORDS = {
+            "what", "who", "where", "when", "why", "how",
+            "explain", "define", "describe",
+        }
         # SRP-compliant sub-components — instantiated in initialize() once DB is ready
         self._extraction: Optional[ExtractionEngine] = None
         self._tools: Optional[ToolHandler] = None
@@ -650,6 +743,14 @@ class PerpetualContextProvider(MemoryProvider):
         config = kwargs.get("config", {})
         pc_config = config.get("perpetual_context", {}) if isinstance(config, dict) else {}
 
+        # Read per-injection toggles from config
+        self._prefetch_enabled = bool(pc_config.get("prefetch_enabled", False))
+        recall_cfg = pc_config.get("recall_injection", {})
+        self._recall_past_enabled = bool(recall_cfg.get("enabled", False)) if isinstance(recall_cfg, dict) else bool(pc_config.get("recall_injection", False))
+        self._periodic_enabled = bool(pc_config.get("pre_response_recall", False))
+        # deep_research toggle from module-level constant (gates web search)
+        self._deep_research_enabled = DEEP_RESEARCH_ENABLED
+
         # Determine DB path — always resolve through ~/.hermes/ first,
         # falling back to hermes_home from kwargs (which may be the project dir).
         db_path = pc_config.get("db_path")
@@ -705,6 +806,309 @@ class PerpetualContextProvider(MemoryProvider):
             f"Check RL before answering factual questions; use web search only if RL has no entry."
         )
 
+    # ---------------------------------------------------------------------------
+    # Injection Router — classify intent before any search fires
+    # ---------------------------------------------------------------------------
+
+    # Intent categories and their keyword/phrase signals.
+    # Each entry maps to which injections to fire.
+    _INTENT_PAST_WORK: set = {
+        "did we", "have we", "were you able", "did you finish",
+        "last time", "remember", "check pm", "from our conversation",
+        "continue", "what happened", "what did we do",
+        "back up our", "assess the errors", "review the",
+    }
+    _INTENT_RECENT: set = {
+        "recent", "recently", "recent turns", "what just",
+        "in the last", "this session", "just now", "right before",
+    }
+    _INTENT_REFERENCE: set = {
+        "how does", "what's the config", "read the docs",
+        "is there an rl page", "rl page", "reference library",
+        "read file", "take a look",
+    }
+    _INTENT_RESEARCH: set = {
+        "research", "search for", "find out about",
+        "what's happening", "latest news", "current status of",
+    }
+    _INTENT_FACTUAL: set = {
+        "what is", "what are", "who is", "who are",
+        "tell me about", "explain", "define",
+        "what's a", "what's an", "describe",
+        "how does it work", "tell me more",
+    }
+    def _classify_injection_intent(
+        self, query: str
+    ) -> Dict[str, Any]:
+        """Classify the user's message and decide which injections to fire.
+
+        Returns a routing dict with boolean flags for each injection type,
+        a confidence level, and flags for recent-context / clarification fallback.
+
+        Design principle: only inject when it would improve the response.
+        When in doubt, inject nothing rather than noise.
+        """
+        if not query:
+            return self._empty_routing()
+
+        lower = query.lower()
+        words = set(lower.split())
+        # Strip leading/trailing punctuation from words for cleaner matching
+        words = {w.strip(".,!?;:\"'()[]{}") for w in words if w.strip(".,!?;:\"'()[]{}")}
+
+        # --- Quick check: very short messages (chitchat) ---
+        if len(words) <= 3 and any(w in self._INTENT_SHORT for w in words):
+            return {
+                "fire_prefetch": False,
+                "fire_recall": False,
+                "fire_web": False,
+                "needs_recent_context": False,
+                "needs_clarification": False,
+                "confidence": "high",
+                "intent": "conversation",
+            }
+
+        # --- Status check: "still X", "is it done", etc. ---
+        if any(phrase in lower for phrase in self._INTENT_STATUS):
+            return {
+                "fire_prefetch": False,
+                "fire_recall": False,
+                "fire_web": False,
+                "needs_recent_context": True,
+                "needs_clarification": False,
+                "confidence": "high",
+                "intent": "status",
+            }
+
+        # --- Command/instruction: skip retrieval entirely ---
+        if any(phrase in lower for phrase in self._INTENT_COMMAND):
+            return {
+                "fire_prefetch": False,
+                "fire_recall": False,
+                "fire_web": False,
+                "needs_recent_context": False,
+                "needs_clarification": False,
+                "confidence": "high",
+                "intent": "command",
+            }
+
+        # --- Code task ---
+        if words & self._INTENT_CODE:
+            if any(phrase in lower for phrase in self._INTENT_RECENT):
+                return {
+                    "fire_prefetch": False,
+                    "fire_recall": False,
+                    "fire_web": False,
+                    "needs_recent_context": True,
+                    "needs_clarification": False,
+                    "confidence": "high",
+                    "intent": "recent",
+                }
+            if any(phrase in lower for phrase in self._INTENT_PAST_WORK):
+                return {
+                    "fire_prefetch": False,
+                    "fire_recall": True,
+                    "fire_web": False,
+                    "needs_recent_context": False,
+                    "needs_clarification": False,
+                    "confidence": "high",
+                    "intent": "past_work",
+                }
+            return {
+                "fire_prefetch": False,
+                "fire_recall": False,
+                "fire_web": False,
+                "needs_recent_context": False,
+                "needs_clarification": False,
+                "confidence": "high",
+                "intent": "code",
+            }
+
+        # --- Recent context (takes priority over past_work) ---
+        if any(phrase in lower for phrase in self._INTENT_RECENT):
+            return {
+                "fire_prefetch": False,
+                "fire_recall": False,
+                "fire_web": False,
+                "needs_recent_context": True,
+                "needs_clarification": False,
+                "confidence": "high",
+                "intent": "recent",
+            }
+
+        # --- Past work references ---
+        if any(phrase in lower for phrase in self._INTENT_PAST_WORK):
+            return {
+                "fire_prefetch": False,
+                "fire_recall": True,
+                "fire_web": False,
+                "needs_recent_context": False,
+                "needs_clarification": False,
+                "confidence": "high",
+                "intent": "past_work",
+            }
+
+        # --- Reference lookup ---
+        if words & self._INTENT_REFERENCE or any(phrase in lower for phrase in self._INTENT_REFERENCE):
+            return {
+                "fire_prefetch": True,
+                "fire_recall": False,
+                "fire_web": False,
+                "needs_recent_context": False,
+                "needs_clarification": False,
+                "confidence": "high",
+                "intent": "reference",
+            }
+
+        # --- External research (explicit request) ---
+        if words & self._INTENT_RESEARCH or any(phrase in lower for phrase in self._INTENT_RESEARCH):
+            return {
+                "fire_prefetch": True,
+                "fire_recall": False,
+                "fire_web": True,
+                "needs_recent_context": False,
+                "needs_clarification": False,
+                "confidence": "high",
+                "intent": "research",
+            }
+
+        # --- Factual questions: "what is X", "tell me about Y" ---
+        # Fire RL + web. The RL check first, then web if RL has nothing.
+        if any(phrase in lower for phrase in self._INTENT_FACTUAL):
+            return {
+                "fire_prefetch": True,
+                "fire_recall": False,
+                "fire_web": True,
+                "needs_recent_context": False,
+                "needs_clarification": False,
+                "confidence": "high",
+                "intent": "factual",
+            }
+
+        # --- Comparison: "how does X compare to Y" ---
+        if words & self._INTENT_COMPARISON or any(phrase in lower for phrase in self._INTENT_COMPARISON):
+            return {
+                "fire_prefetch": True,
+                "fire_recall": False,
+                "fire_web": True,
+                "needs_recent_context": False,
+                "needs_clarification": False,
+                "confidence": "high",
+                "intent": "comparison",
+            }
+
+        # --- Opinion/advice: no injection, just reasoning ---
+        if any(phrase in lower for phrase in self._INTENT_OPINION):
+            return {
+                "fire_prefetch": False,
+                "fire_recall": False,
+                "fire_web": False,
+                "needs_recent_context": False,
+                "needs_clarification": False,
+                "confidence": "high",
+                "intent": "opinion",
+            }
+
+        # --- Topic discussion: "let's talk about X" ---
+        if any(phrase in lower for phrase in self._INTENT_TOPIC):
+            return {
+                "fire_prefetch": True,
+                "fire_recall": False,
+                "fire_web": False,
+                "needs_recent_context": False,
+                "needs_clarification": False,
+                "confidence": "high",
+                "intent": "topic",
+            }
+
+        # --- Creative: write/compose/draft — no injection ---
+        if any(phrase in lower for phrase in self._INTENT_CREATIVE):
+            return {
+                "fire_prefetch": False,
+                "fire_recall": False,
+                "fire_web": False,
+                "needs_recent_context": False,
+                "needs_clarification": False,
+                "confidence": "high",
+                "intent": "creative",
+            }
+
+        # --- Fallback: short question-like phrases with wh- words ---
+        # Detect simple factual questions that didn't match _INTENT_FACTUAL phrases
+        # Guard: must start with a wh- word and be short, to avoid matching casual remarks
+        first_word = lower.split()[0].strip(".,!?;:\"'()[]{}") if lower.split() else ""
+        if (len(words) <= 8 and words & self._INTENT_FACTUAL_WORDS
+                and first_word[:3] in ("wha", "who", "why", "how", "whe")):
+            # Check if it looks like a simple factual question (not a command or code task)
+            if not any(phrase in lower for phrase in self._INTENT_COMMAND):
+                return {
+                    "fire_prefetch": True,
+                    "fire_recall": False,
+                    "fire_web": True,
+                    "needs_recent_context": False,
+                    "needs_clarification": False,
+                    "confidence": "medium",
+                    "intent": "factual",
+                }
+
+        # --- Ambiguous: no strong signal ---
+        # Check last 15 PM turns with recency weighting, then ask if still unclear
+        return {
+            "fire_prefetch": False,
+            "fire_recall": False,
+            "fire_web": False,
+            "needs_recent_context": True,
+            "needs_clarification": False,  # set in prefetch() if 15-turn scan finds nothing
+            "confidence": "low",
+            "intent": "ambiguous",
+        }
+
+    def _empty_routing(self) -> Dict[str, Any]:
+        """Return a routing dict with all flags False."""
+        return {
+            "fire_prefetch": False,
+            "fire_recall": False,
+            "fire_web": False,
+            "needs_recent_context": False,
+            "needs_clarification": False,
+            "confidence": "low",
+            "intent": "empty",
+        }
+
+    def _get_recent_context(self, max_turns: int = 15) -> List[Dict[str, Any]]:
+        """Get recent PM turns with recency weighting.
+
+        More recent turns get higher scores. Returns messages sorted by
+        combined relevance (recency_weight * content_relevance).
+
+        Args:
+            max_turns: Maximum number of recent turns to scan (default 15).
+
+        Returns:
+            List of message dicts with added '_recency_score' field (0.0-1.0).
+        """
+        with self._lock:
+            if not self._db or not self._db._initialized:
+                return []
+            db = self._db
+
+        try:
+            # Get the last N messages
+            recent = db.get_recent_messages(n=max_turns)
+            if not recent:
+                return []
+
+            total = len(recent)
+            # Weight by recency: most recent = 1.0, oldest of batch = 1/(total+1)
+            for i, msg in enumerate(recent):
+                recency = (i + 1) / (total + 1)
+                msg["_recency_score"] = round(recency, 2)
+
+            return recent
+        except Exception as e:
+            logger.debug("Recent context fetch failed: %s", e)
+            return []
+
     def prefetch(self, query: str, *, session_id: str = "") -> str:
         """Recall relevant context for the upcoming turn.
 
@@ -715,6 +1119,57 @@ class PerpetualContextProvider(MemoryProvider):
         Returns formatted text to inject as context, with source attribution
         and gap flags for Phase 2 when local recall is insufficient.
         """
+        # Master gate — if nothing is enabled, return immediately
+        if not any([
+            self._prefetch_enabled,
+            self._recall_past_enabled,
+            self._deep_research_enabled,
+        ]):
+            return ""
+
+        # Classify intent before any search fires
+        routing = self._classify_injection_intent(query)
+        intent = routing.get("intent", "ambiguous")
+        logger.debug("Injection intent: %s (confidence=%s)", intent, routing.get("confidence", "?"))
+
+        # --- Ambiguous: check recent PM, then ask for clarification ---
+        if routing.get("needs_recent_context"):
+            recent = self._get_recent_context(max_turns=15)
+            if recent:
+                parts = []
+                for msg in recent:
+                    role_label = msg.get("role", "unknown").upper()
+                    content = msg.get("content", "")[:200]
+                    recency = msg.get("_recency_score", 0)
+                    if recency > 0.3:  # Only inject turns with meaningful recency weight
+                        parts.append(
+                            f"[Recent ({role_label}, recency: {recency:.2f})] {content}"
+                        )
+                if parts:
+                    return "\n\n---\n\n".join(parts)
+                # Recent context found but nothing above threshold — ask for clarification
+                return "[Your query is ambiguous. Ask the user for clarification before proceeding.]"
+            # No recent context at all — ask for clarification
+            return "[Your query is ambiguous. Ask the user for clarification before proceeding.]"
+
+        # --- Past work: recall cross-session ---
+        if routing.get("fire_recall") and self._recall_past_enabled:
+            with self._lock:
+                if not self._db or not self._db._initialized:
+                    return ""
+                effective_session = session_id or self._session_id or ""
+            result = self._db.recall_past_discussions(
+                query=query,
+                exclude_session_id=effective_session,
+                max_chars=RECALL_OUTPUT_MAX_CHARS,
+            )
+            return result
+
+        # --- Nothing to inject ---
+        if not routing.get("fire_prefetch") and not routing.get("fire_web"):
+            return ""
+
+        # --- Prefetch + Web: the full pipeline ---
         # Acquire lock, snapshot shared state into locals, then release for I/O
         with self._lock:
             if not self._db or not self._db._initialized:
@@ -729,15 +1184,14 @@ class PerpetualContextProvider(MemoryProvider):
 
         try:
             effective_session = session_id or effective_session or ""
-            # Recompute after lock release — ensure_subcomponents may have populated _session_id
             parts = []
             rl_results_count = 0
             pm_results_count = 0
             gaps_detected = False
 
-            # --- Phase 1a: Reference Library Search (curated knowledge) ---
+            # --- Phase 1a: Reference Library Search (only if router says so) ---
             rl_data = {}
-            if DEEP_RESEARCH_ENABLED:
+            if routing.get("fire_prefetch") and self._prefetch_enabled:
                 try:
                     if tools:
                         rl_json = tools.handle_reference_library_search({
@@ -762,54 +1216,40 @@ class PerpetualContextProvider(MemoryProvider):
                 except Exception as e:
                     logger.debug("Reference library search failed in prefetch: %s", e)
 
-            # --- Phase 1b: Perpetual Memory Hybrid Search (historical context) ---
-            try:
-                pm_results = db.hybrid_search(
-                    query=query,
-                    session_id=effective_session if effective_session else None,
-                    top_k=self._get_depth_limit(),
-                )
+            # --- Phase 1b: Perpetual Memory Hybrid Search (only if router says so) ---
+            if routing.get("fire_prefetch") and self._prefetch_enabled:
+                try:
+                    pm_results = db.hybrid_search(
+                        query=query,
+                        session_id=effective_session if effective_session else None,
+                        top_k=self._get_depth_limit(),
+                    )
 
-                if pm_results:
-                    pm_formatted = []
-                    for msg in pm_results[:self._get_depth_limit()]:
-                        role_label = msg["role"].upper()
-                        content = msg.get("content", "")[:PREFETCH_TRUNCATION_CHARS]
-                        score = msg.get("_score", 0)
-                        pm_formatted.append(
-                            f"[PM: {role_label} (relevance: {score:.2f})]\n{content}"
-                        )
-                    parts.append("\n\n---\n\n".join(pm_formatted))
-                    pm_results_count = len(pm_results)
+                    if pm_results:
+                        pm_formatted = []
+                        for msg in pm_results[:self._get_depth_limit()]:
+                            role_label = msg["role"].upper()
+                            content = msg.get("content", "")[:PREFETCH_TRUNCATION_CHARS]
+                            score = msg.get("_score", 0)
+                            pm_formatted.append(
+                                f"[PM: {role_label} (relevance: {score:.2f})]\n{content}"
+                            )
+                        parts.append("\n\n---\n\n".join(pm_formatted))
+                        pm_results_count = len(pm_results)
 
-            except Exception as e:
-                logger.debug("Perpetual memory search failed in prefetch: %s", e)
+                except Exception as e:
+                    logger.debug("Perpetual memory search failed in prefetch: %s", e)
 
             # --- Phase 1c: Stability-Aware Gap Detection ---
-            # Classify the query's topic stability, then decide whether to
-            # fire web research based on how stale/uncertain the local data is.
             stability, half_life, web_threshold = _classify_topic_stability(query)
 
-            if DEEP_RESEARCH_ENABLED and parts:
+            if self._deep_research_enabled and parts:
                 total_results = rl_results_count + pm_results_count
 
-                # Hard gap: too few results — always worth checking the web
                 if total_results < GAP_DETECTION_MIN_RESULTS:
                     gaps_detected = True
                     logger.debug("Gap: too few local results (%d)", total_results)
-
-                # Soft gap: we have results but confidence is low relative to topic stability
                 else:
-                    # RL scores are raw term counts (not normalized). To assess whether
-                    # the RL match is *specific* to this query (good) or just hitting
-                    # common words across many pages (bad), we compare the best RL score
-                    # against the *second-best* RL score. A large gap means the top result
-                    # is genuinely relevant. A small gap means all results matched similarly —
-                    # the query is too broad for RL to discriminate.
-                    #
-                    # PM scores are already 0-1 (cosine + keyword fusion).
-
-                    # RL: use ratio of best-to-second-best. 1.0 = tie (bad), >2.0 = specific (good).
                     all_rl_scores = sorted(
                         [r.get("score", 0) for r in rl_data.get("results", [])[:RL_SEARCH_TOP_K]],
                         reverse=True,
@@ -817,34 +1257,27 @@ class PerpetualContextProvider(MemoryProvider):
                     if len(all_rl_scores) >= 2 and all_rl_scores[1] > 0:
                         best_rl_ratio = all_rl_scores[0] / all_rl_scores[1]
                     elif len(all_rl_scores) == 1:
-                        best_rl_ratio = 2.0  # Single result = fairly specific
+                        best_rl_ratio = 2.0
                     else:
-                        best_rl_ratio = 0  # No RL results
+                        best_rl_ratio = 0
 
-                    # PM: already 0-1
                     all_pm_scores = [msg.get("_score", 0) for msg in pm_results[:self._get_depth_limit()]]
                     best_pm_norm = max(all_pm_scores, default=0)
 
-                    # Combine: a query is "well-answered locally" if EITHER source shows
-                    # strong, specific results. The rl_ratio threshold is conservative:
-                    # ratio < 3 means the top RL result isn't much better than #2.
                     rl_confident = best_rl_ratio >= 3.0
                     pm_confident = best_pm_norm >= 0.3
 
-                    if rl_confident or pm_confident:
-                        # Local sources have a confident answer — no web needed
-                        pass
-                    else:
-                        # No confident local match — fire web for this topic
+                    if not (rl_confident or pm_confident):
                         gaps_detected = True
                         logger.debug(
                             "Gap: topic='%s' stability=%s, rl_ratio=%.1f pm=%.2f",
                             query[:50], stability, best_rl_ratio, best_pm_norm,
                         )
 
-            # --- Phase 2: Web Research (when local recall is insufficient) ---
+            # --- Phase 2: Web Research (only if router says so OR gap detected) ---
             web_results: List[Dict[str, Any]] = []
-            if DEEP_RESEARCH_ENABLED and gaps_detected and web_research is not None:
+            should_search_web = routing.get("fire_web") or gaps_detected
+            if self._deep_research_enabled and should_search_web and web_research is not None:
                 try:
                     import time as _time
                     _t0 = _time.monotonic()
@@ -996,6 +1429,8 @@ class PerpetualContextProvider(MemoryProvider):
         Returns:
             Formatted pointer string, or empty string if nothing relevant found.
         """
+        if not self._recall_past_enabled:
+            return ""
         with self._lock:
             if not self._db or not self._db._initialized:
                 return ""
@@ -1272,6 +1707,8 @@ class PerpetualContextProvider(MemoryProvider):
         Returns:
             Context string if injection is due and results found, else None
         """
+        if not self._periodic_enabled:
+            return None
         turn_number = getattr(self, "_last_turn_number", 0)
         message = getattr(self, "_last_user_message", "")
 
