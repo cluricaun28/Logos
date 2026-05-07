@@ -47,7 +47,6 @@ from .injection_router import classify_injection_intent
 # Sub-modules extracted for SRP compliance
 from . import prefetch_pipeline
 from .session_end_extractor import extract_topics_from_messages
-from .topic_classifier import _classify_topic_stability
 from . import schemas as _schemas
 
 logger = logging.getLogger(__name__)
@@ -338,7 +337,6 @@ class PerpetualContextProvider(MemoryProvider):
             web_search_top_k=WEB_SEARCH_TOP_K,
             worldview_blocked_domains=WORLDVIEW_BLOCKED_DOMAINS,
             deep_research_master=DEEP_RESEARCH_ENABLED,
-            classify_topic_stability_fn=_classify_topic_stability,
         )
 
     # -- Queued prefetch / recall --------------------------------------------

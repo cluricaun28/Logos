@@ -70,6 +70,7 @@ def run_prefetch_pipeline(
     rl_results_count = 0
     pm_results_count = 0
     gaps_detected = False
+    pm_results: list[dict] = []  # Guard: used in gap detection even if Phase 1b fails
 
     # Phase 1a: Reference Library Search
     rl_data: dict = {}
