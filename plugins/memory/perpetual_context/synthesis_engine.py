@@ -39,7 +39,7 @@ SYNTHESIS_MODEL_DEFAULT = ""  # Empty = use whatever model the provider has load
 RL_CONTRADICTION_THRESHOLD = 3      # Min term overlap to flag potential contradiction
 
 
-def get_active_model() -> Dict[str, Any]:
+def get_active_model() -> dict[str, Any]:
     """Read the active model from Hermes config.yaml.
 
     All auxiliary tools (synthesis, distillation, archiving, web_extract)
@@ -49,7 +49,7 @@ def get_active_model() -> Dict[str, Any]:
     """
     config_path = Path(os.path.expanduser("~/.hermes/config.yaml"))
     try:
-        import yaml  # type: ignore
+        import yaml  # noqa: lazy import — yaml is a Hermes dep, not always preloaded
         with open(config_path) as f:
             config = yaml.safe_load(f) or {}
         model_cfg = config.get("model", {})
@@ -58,7 +58,7 @@ def get_active_model() -> Dict[str, Any]:
             "provider": model_cfg.get("provider", "custom"),
             "base_url": model_cfg.get("base_url", INFERENCE_URL_DEFAULT),
         }
-    except Exception:
+    except (FileNotFoundError, yaml.YAMLError):
         return {
             "model": SYNTHESIS_MODEL_DEFAULT,
             "provider": "custom",
