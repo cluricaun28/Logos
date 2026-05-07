@@ -15,16 +15,16 @@ import sys
 import os
 from pathlib import Path
 
-# Add hermes-agent root to path for proper package imports
-sys.path.insert(0, os.path.expanduser("~/.hermes/hermes-agent"))
+# Add plugin dir to path for imports
+sys.path.insert(0, str(Path(__file__).parent))
 
-from plugins.memory.perpetual_context.web_research import WebResearchClient, SearchResult
-from plugins.memory.perpetual_context.scrutiny_gate import (
+from web_research import WebResearchClient, SearchResult
+from scrutiny_gate import (
     TopicSensitivityClassifier, ScrutinyGate, RLIngestionGate,
     KNOWN_SOURCE_STANCES, BIAS_CONFIDENCE_THRESHOLD,
     _extract_domain, _get_source_stance,
 )
-from plugins.memory.perpetual_context.synthesis_engine import (
+from synthesis_engine import (
     SynthesisEngine, ContextBlockFormatter, RLUpdateDetector,
     CONTEXT_BUDGET_KB_DEFAULT, MAX_SYNTHESIS_PASSES,
 )
@@ -182,10 +182,10 @@ def test_rl_ingestion_gate():
 # ============================================================================
 
 def test_synthesis_init():
-    """SynthesisEngine initializes without errors (even with inference unavailable)."""
+    """SynthesisEngine initializes without errors (even with LM Studio unavailable)."""
     print("\n=== Phase 4: Synthesis Engine ===")
     engine = SynthesisEngine()
-    assert_true(engine._inference_url == "http://127.0.0.1:1234/v1", "Default inference URL correct")
+    assert_true(engine._lm_studio_url == "http://127.0.0.1:1234/v1", "Default LM Studio URL correct")
     assert_true(engine._max_passes <= MAX_SYNTHESIS_PASSES, f"Pass count within limit ({engine._max_passes})")
 
 

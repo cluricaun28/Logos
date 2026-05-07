@@ -188,23 +188,3 @@ class BridgeQualityScorer:
             if any(m.upper() in bridge_upper for m in markers):
                 sections.append(section_name)
         return sections
-
-    # -----------------------------------------------------------------------
-    # Thin delegation wrappers for backward compatibility (tests call these)
-    # -----------------------------------------------------------------------
-
-    def _extract_task_summaries(self, messages: List[Dict[str, Any]]) -> List[str]:
-        """Extract task summaries from user messages (delegates to ExtractionEngine)."""
-        return [t.get("summary", "") for t in self._extractor.extract_active_tasks(messages)]
-
-    def _extract_file_paths(self, messages: List[Dict[str, Any]]) -> List[str]:
-        """Extract file paths from messages (delegates to ExtractionEngine)."""
-        return [f.get("path", "") for f in self._extractor.extract_file_edits(messages)]
-
-    def _extract_error_summaries(self, messages: List[Dict[str, Any]]) -> List[str]:
-        """Extract error summaries from tool messages (delegates to ExtractionEngine)."""
-        return [e.get("summary", "") for e in self._extractor.extract_known_errors(messages)]
-
-    def _extract_gap_summaries(self, messages: List[Dict[str, Any]]) -> List[str]:
-        """Extract knowledge gap summaries (delegates to ExtractionEngine)."""
-        return [g.get("summary", "") for g in self._extractor.extract_knowledge_gaps(messages)]

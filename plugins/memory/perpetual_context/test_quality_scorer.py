@@ -126,21 +126,17 @@ class TestTaskExtraction(unittest.TestCase):
         self.assertEqual(len(tasks), 5)
 
     def test_ignores_short_lines(self):
-        # "fix it" contains "fix" which is in _TASK_KEYWORDS, so it IS extracted.
-        # The engine has no minimum-length filter on the content itself.
         messages = [{"role": "user", "content": "fix it"}]
         tasks = self.scorer._extract_task_summaries(messages)
-        self.assertEqual(len(tasks), 1)
-        self.assertIn("fix it", tasks[0])
+        # "fix it" is only 6 chars, below the >10 threshold
+        self.assertEqual(len(tasks), 0)
 
     def test_truncates_long_first_line(self):
         long_content = "implement a very long feature description that goes on and on " * 5
         messages = [{"role": "user", "content": long_content}]
         tasks = self.scorer._extract_task_summaries(messages)
         self.assertEqual(len(tasks), 1)
-        # First line is untruncated; the whole content is one line at 309 chars.
-        # The dedup key is [:120], but the summary stores the full first line.
-        self.assertGreater(len(tasks[0]), 100)
+        self.assertLessEqual(len(tasks[0]), 120)
 
 
 class TestFilePathExtraction(unittest.TestCase):
@@ -159,10 +155,9 @@ class TestFilePathExtraction(unittest.TestCase):
         self.assertIn("/home/user/test.py", paths)
 
     def test_extracts_path_from_text_pattern(self):
-        # Pattern: 'wrote/saved/created' followed immediately by path (or 'to' then path)
         messages = [{
             "role": "assistant",
-            "content": "I wrote /path/to/config.yaml",
+            "content": "Edit the file at /path/to/config.yaml please",
         }]
         paths = self.scorer._extract_file_paths(messages)
         self.assertTrue(any("config.yaml" in p for p in paths))
@@ -177,12 +172,12 @@ class TestFilePathExtraction(unittest.TestCase):
         self.assertEqual(len(paths), 0)
 
     def test_deduplicates_paths(self):
-        # Same path mentioned twice — should appear only once due to dedup
         messages = [
-            {"role": "assistant", "content": "I wrote /path/to/file.py"},
-            {"role": "assistant", "content": "I saved /path/to/file.py"},
+            {"role": "assistant", "content": "/path/to/file.py"},
+            {"role": "assistant", "content": "/path/to/file.py again"},
         ]
         paths = self.scorer._extract_file_paths(messages)
+        # Should appear only once due to set dedup
         counts = [p for p in paths if "file.py" in p]
         self.assertEqual(len(counts), 1)
 
@@ -261,7 +256,7 @@ class TestGapExtraction(unittest.TestCase):
         self.assertEqual(len(gaps), 1)
 
     def test_extracts_rl_entry(self):
-        messages = [{"role": "assistant", "content": "RL entry needed: Docker setup"}]
+        messages = [{"role": "assistant", "content": "RL entry needed for Docker setup"}]
         gaps = self.scorer._extract_gap_summaries(messages)
         self.assertEqual(len(gaps), 1)
 

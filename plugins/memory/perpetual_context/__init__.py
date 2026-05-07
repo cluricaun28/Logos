@@ -66,7 +66,6 @@ GAP_DETECTION_MIN_RESULTS = 2        # Fewer than this triggers gap flag for Pha
 # Phase 2: Auto Web Search + Unified Relevance Scoring
 WEB_SEARCH_ENABLED = True            # Master toggle for automatic web search triggering
 SEARXNG_URL = "http://localhost:8080"  # SearXNG instance URL
-WEB_SEARCH_TIMEOUT = 10              # Seconds before timeout
 WEB_PRIORITY_THRESHOLD = 0.3         # Trigger web search when priority exceeds this
 WEB_SEARCH_TOP_K = 5                 # Max results from SearXNG
 UNIFIED_SCORE_WEIGHTS = {            # Source reliability weights for cross-source merge
@@ -565,17 +564,34 @@ class PerpetualContextProvider(MemoryProvider):
         """
         if not DEEP_RESEARCH_ENABLED:
             return
+        self._ensure_web_research()
+        self._ensure_scrutiny_gate()
+        self._ensure_synthesis_engine()
+
+    def _ensure_web_research(self) -> None:
+        """Lazy-init the WebResearchClient with local-first config."""
         if self._web_research is None:
-            from .web_research import WebResearchClient
+            from .web_research import WebResearchClient, CAMOFOX_URL_DEFAULT
             self._web_research = WebResearchClient({
                 "searxng_url": SEARXNG_URL,
+                "firecrawl_url": os.environ.get("FIRECRAWL_URL", "").strip()
+                    or os.environ.get("FIRECRAWL_API_URL", "").strip()
+                    or "",
+                "camofox_url": os.environ.get("CAMOFOX_URL", "").strip()
+                    or CAMOFOX_URL_DEFAULT,
             })
         elif not self._web_research._searxng_url:
             # Client exists but SearXNG wasn't configured — inject it now
             self._web_research._searxng_url = SEARXNG_URL
+
+    def _ensure_scrutiny_gate(self) -> None:
+        """Lazy-init the ScrutinyGate."""
         if self._scrutiny_gate is None:
             from .scrutiny_gate import ScrutinyGate
             self._scrutiny_gate = ScrutinyGate()
+
+    def _ensure_synthesis_engine(self) -> None:
+        """Lazy-init the SynthesisEngine."""
         if self._synthesis_engine is None:
             from .synthesis_engine import SynthesisEngine
             self._synthesis_engine = SynthesisEngine()
