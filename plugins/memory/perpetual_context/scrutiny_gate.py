@@ -23,6 +23,7 @@ from typing import Any, Dict, List, Optional, Set
 
 from .extraction_engine import _STOPWORDS
 
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -101,6 +102,8 @@ class TopicSensitivityClassifier:
 
 
 # Known source editorial stances — simple mapping for bias detection
+# Values are rough left-right positioning: left, center-left, centrist,
+# center-right, right, or religious/traditional
 KNOWN_SOURCE_STANCES: Dict[str, str] = {
     "nytimes.com": "center-left",
     "washingtonpost.com": "center-left",
@@ -108,11 +111,40 @@ KNOWN_SOURCE_STANCES: Dict[str, str] = {
     "apnews.com": "centrist",
     "bbc.co.uk": "center-left",
     "cnn.com": "left-leaning",
-    "foxnews.com": "right-leaning",
+    "foxnews.com": "center-right",
     "wsj.com": "center-right",
     "npr.org": "center-left",
     "thehill.com": "centrist",
-    "politico.com": "centrist",
+    "politico.com": "center-left",
+    "breitbart.com": "right-leaning",
+    "newsmax.com": "right-leaning",
+    "dailywire.com": "right-leaning",
+    "nationalreview.com": "center-right",
+    "thebulwark.com": "center-right",
+    "thegatewaypundit.com": "right-leaning",
+    "vox.com": "left-leaning",
+    "motherjones.com": "left-leaning",
+    "huffpost.com": "left-leaning",
+    "medium.com": "unknown",
+    "reddit.com": "unknown",
+    "wikipedia.org": "unknown",
+    "theatlantic.com": "center-left",
+    "theamericanconservative.com": "right-leaning",
+    "washingtonexaminer.com": "center-right",
+    "cnn.com": "left-leaning",
+    "aljazeera.com": "center-left",
+    "guardian.co.uk": "left-leaning",
+    "telegraph.co.uk": "center-right",
+    "economist.com": "centrist",
+    "quillette.com": "centrist",
+    "pjmedia.com": "right-leaning",
+    "crevdonline.com": "religious/traditional",
+    "christianpost.com": "religious/traditional",
+    "churchmilitant.com": "religious/traditional",
+    "prnewswire.com": "institutional",
+    "forbes.com": "centrist",
+    "bloomberg.com": "centrist",
+    "marketwatch.com": "centrist",
 }
 
 
@@ -156,6 +188,87 @@ def _get_source_stance(domain: Optional[str]) -> str:
     return "unknown"
 
 
+class WorldviewDivergenceChecker:
+    """Compare a source's stance against a user's worldview profile.
+
+    Uses the Worldview Quiz axis system from the Reference Library.
+    Returns a divergence score per axis: how many points the source differs
+    from the user's position.
+    """
+
+    # Map source stance labels to axis positions (-2 to +2)
+    # Positive = traditional/conservative, Negative = progressive/secular
+    STANCE_TO_POSITION: Dict[str, int] = {
+        "left-leaning": -2,
+        "center-left": -1,
+        "centrist": 0,
+        "center-right": 1,
+        "right-leaning": 2,
+        "religious/traditional": 2,
+        "institutional": 0,
+        "academic": -1,
+        "unknown": 0,
+    }
+
+    # Default user profile (all +2 = Patrick's profile from test)
+    # This gets overridden when a real profile is loaded from config
+    DEFAULT_USER_PROFILE: Dict[str, int] = {
+        "sexual_morality": 2,
+        "racial_policy": 2,
+        "free_speech": 2,
+        "government_power": 2,
+        "sanctity_of_life": 2,
+        "religion_in_public": 2,
+        "border_immigration": 2,
+        "criminal_justice": 2,
+    }
+
+    def __init__(self, user_profile: Optional[Dict[str, int]] = None) -> None:
+        self._profile = user_profile or self.DEFAULT_USER_PROFILE
+
+    def check_divergence(
+        self, source_stance: str, query: str
+    ) -> Dict[str, Any]:
+        """Check how much a source diverges from the user's worldview.
+
+        Args:
+            source_stance: Editorial stance label from _get_source_stance().
+            query: The search query, used to determine which axes matter.
+
+        Returns dict with divergence info and whether to flag.
+        """
+        source_pos = self.STANCE_TO_POSITION.get(source_stance, 0)
+        classifier = TopicSensitivityClassifier()
+        sensitivity = classifier.classify(query)
+
+        if sensitivity != "high":
+            return {"flag": False, "reason": "Low-sensitivity topic"}
+
+        # Check all relevant axes
+        divergences: List[str] = []
+        max_divergence = 0
+
+        for axis, user_pos in self._profile.items():
+            diff = abs(user_pos - source_pos)
+            if diff >= 2:
+                divergences.append(
+                    f"{axis}: source is {source_stance} "
+                    f"(user position: {'traditional' if user_pos > 0 else 'progressive'})"
+                )
+                max_divergence = max(max_divergence, diff)
+
+        flag = max_divergence >= 2
+        reason = "; ".join(divergences) if divergences else "No significant divergence"
+
+        return {
+            "flag": flag,
+            "reason": reason,
+            "max_divergence": max_divergence,
+            "source_stance": source_stance,
+            "divergent_axes": divergences,
+        }
+
+
 class ScrutinyGate:
     """Applies scrutiny to web-sourced data based on topic sensitivity.
 
@@ -165,6 +278,8 @@ class ScrutinyGate:
 
     def __init__(self) -> None:
         self._classifier = TopicSensitivityClassifier()
+        profile = _load_worldview_profile()
+        self._divergence_checker = WorldviewDivergenceChecker(profile)
 
     def vet_results(self, results: List[Dict[str, Any]], query: str) -> Dict[str, Any]:
         """Vet search results through appropriate scrutiny level.
@@ -491,3 +606,148 @@ class RLIngestionGate:
             logger.debug("Contradiction check failed for %s: %s", rl_path, e)
 
         return None
+
+
+# ---------------------------------------------------------------------------
+# Worldview Profile Loading
+# ---------------------------------------------------------------------------
+
+def _load_worldview_profile() -> Optional[Dict[str, int]]:
+    """Load the user's worldview profile from config.yaml.
+
+    Returns dict mapping axis names to scores (-2 to +2), or None if not set.
+    Gracefully handles missing config, missing key, or malformed data.
+    """
+    try:
+        from hermes_cli.config import load_config
+        cfg = load_config()
+        profile = cfg.get("worldview_profile")
+        if not profile:
+            return None
+        if isinstance(profile, dict):
+            # Validate: all values must be ints in [-2, +2]
+            valid = {}
+            for k, v in profile.items():
+                if isinstance(v, int) and -2 <= v <= 2:
+                    valid[k] = v
+                else:
+                    logger.warning(
+                        "Invalid worldview profile value for %s: %s (must be int -2..+2)",
+                        k, v,
+                    )
+            return valid if valid else None
+    except Exception as e:
+        logger.debug("Failed to load worldview profile: %s", e)
+    return None
+
+
+# Axis-to-topic mapping: which scrutiny axes correspond to which keywords
+AXIS_TOPIC_MAP = {
+    "sexual_morality": ("marriage", "same-sex", "gender", "lgbt", "trans", "adoption"),
+    "racial_policy": ("race", "affirmative action", "dei", "discrimination",
+                      "systemic racism", "quota"),
+    "free_speech": ("free speech", "cancel culture", "censorship", "hate speech",
+                    "employer"),
+    "government_power": ("constitution", "federal", "free market", "regulation",
+                         "ubiquitous", "basic income"),
+    "sanctity_of_life": ("abortion", "conception", "pro-life", "pro-choice"),
+    "religion_in_public": ("religion", "church", "prayer", "education",
+                           "anti-discrimination"),
+    "border_immigration": ("border", "immigration", "citizenship", "illegal"),
+    "criminal_justice": ("death penalty", "guns", "second amendment",
+                         "police", "criminal"),
+}
+
+
+class WorldviewDivergenceChecker:
+    """Compare source content against the user's worldview profile.
+
+    For high-sensitivity topics, checks whether the source's position on a
+    relevant axis diverges significantly from the user's stated position.
+    If so, annotates the result with a divergence note.
+
+    Does NOT reject results — only annotates them so the user can judge.
+    """
+
+    DIVERGENCE_THRESHOLD = 2  # Flag if divergence >= 2 points
+
+    def __init__(self, profile: Optional[Dict[str, int]]) -> None:
+        self._profile = profile or {}
+
+    def check_divergence(
+        self,
+        result: Dict[str, Any],
+        query: str,
+    ) -> List[str]:
+        """Check if this result's topic diverges from the user's worldview.
+
+        Returns list of divergence notes (empty if no significant divergence).
+        """
+        if not self._profile:
+            return []
+
+        notes: List[str] = []
+        query_lower = query.lower() if isinstance(query, str) else ""
+        snippet = (result.get("snippet") or result.get("content") or "").lower()
+        text_to_check = query_lower + " " + snippet
+
+        for axis, keywords in AXIS_TOPIC_MAP.items():
+            user_score = self._profile.get(axis)
+            if user_score is None:
+                continue
+
+            # Check if this result is about this axis
+            relevant = any(kw in text_to_check for kw in keywords)
+            if not relevant:
+                continue
+
+            # Estimate source position on this axis from source stance
+            source_stance = result.get("_source_stance", "unknown")
+            estimated = self._estimate_source_position(axis, source_stance)
+
+            divergence = abs(user_score - estimated)
+            if divergence >= self.DIVERGENCE_THRESHOLD:
+                direction = "opposite" if divergence >= 3 else "different"
+                notes.append(
+                    f"This source holds a {direction} view on {axis.replace('_', ' ')} "
+                    f"(yours: {user_score:+d}, source: ~{estimated:+d})"
+                )
+
+        return notes
+
+    def _estimate_source_position(
+        self, axis: str, source_stance: str
+    ) -> int:
+        """Estimate a source's position on an axis from its editorial stance.
+
+        Returns an integer from -2 to +2 where +2 = traditional/conservative,
+        -2 = progressive/secular, 0 = neutral/unknown.
+        """
+        stance_map = {
+            "left-leaning": -2,
+            "center-left": -1,
+            "centrist": 0,
+            "center-right": +1,
+            "right-leaning": +2,
+            "institutional": 0,
+            "academic": -1,
+            "unknown": 0,
+        }
+        base = stance_map.get(source_stance, 0)
+
+        # Axis-specific adjustments
+        if axis in ("sanctity_of_life", "sexual_morality"):
+            # Institutional sources tend to be more liberal on these
+            if source_stance == "institutional":
+                base = max(base - 1, -2)
+        if axis == "government_power":
+            # Institutional sources tend to be more statist
+            if source_stance == "institutional":
+                base = min(base - 1, -2)
+        if axis == "free_speech":
+            # Most established media are more restrictive on speech
+            if source_stance in ("left-leaning", "center-left", "institutional"):
+                base = min(base - 1, -2)
+
+        return base
+
