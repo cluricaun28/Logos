@@ -60,6 +60,10 @@ CAMOFOX_CONTENT_MAX_CHARS = 10000  # Cap extracted text at 10KB
 CAMOFOX_EVAL_EXPRESSION = "document.body.innerText"
 CAMOFOX_SESSION_KEY = "extract"
 
+# Logging truncation
+URL_LOG_MAX_CHARS = 80             # Max chars for URL in log messages
+QUERY_LOG_MAX_CHARS = 50           # Max chars for query in log messages
+
 # Pre-compiled regex for URL extraction from text
 _URL_PATTERN = re.compile(
     r'https?://[^\s<>"\')]+',
@@ -89,7 +93,16 @@ class WebResearchClient:
     All operations degrade gracefully — returns empty results rather than raising.
     """
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(
+        self,
+        config: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Initialize the WebResearchClient with optional configuration.
+
+        Args:
+            config: Optional dict with keys: searxng_url, firecrawl_url,
+                camofox_url. Values override corresponding environment variables.
+        """
         cfg = config or {}
         self._searxng_url: str = cfg.get("searxng_url", os.environ.get(SEARXNG_URL_ENV, ""))
         # Firecrawl: prefer config, then env vars (local first, then cloud)
@@ -107,13 +120,21 @@ class WebResearchClient:
         ).rstrip("/")
 
         # Lazy-init HTTP client on first use
-        self._http_client: Optional[Any] = None
+        self._http_client: Optional[Dict[str, Any]] = None
+
+    def set_searxng_url(self, url: str) -> None:
+        """Set or update the SearXNG URL.
+
+        Used by the plugin init layer when SearXNG wasn't configured
+        at construction time.
+        """
+        self._searxng_url = url
 
     def _get_http(self) -> Any:
         """Lazy-init httpx client. Returns _HTTP_UNAVAILABLE sentinel on failure."""
         if self._http_client is None:
             try:
-                import httpx as _httpx  # noqa: F811
+                import httpx as _httpx  # noqa: F811,PLC0415 — lazy import avoids startup cost
                 self._http_client = _httpx.Client(timeout=WEB_SEARCH_TIMEOUT, follow_redirects=True)
             except ImportError:
                 logger.debug("httpx not available — web research will use fallback methods")
@@ -140,7 +161,7 @@ class WebResearchClient:
             try:
                 results = self._search_searxng(query, top_k)
                 if results:
-                    logger.debug("SearXNG returned %d results for '%s'", len(results), query[:50])
+                    logger.debug("SearXNG returned %d results for '%s'", len(results), query[:QUERY_LOG_MAX_CHARS])
                     return results
             except Exception as e:
                 logger.warning("SearXNG search failed: %s", e)
@@ -149,13 +170,13 @@ class WebResearchClient:
         try:
             results = self._search_firecrawl(query, top_k)
             if results:
-                logger.debug("Firecrawl returned %d results for '%s'", len(results), query[:50])
+                logger.debug("Firecrawl returned %d results for '%s'", len(results), query[:QUERY_LOG_MAX_CHARS])
                 return results
         except Exception as e:
             logger.warning("Firecrawl search failed: %s", e)
 
         # No backends available — graceful degradation
-        logger.debug("No web search backend available for query: '%s'", query[:50])
+        logger.debug("No web search backend available for query: '%s'", query[:QUERY_LOG_MAX_CHARS])
         return []
 
     def _search_searxng(self, query: str, top_k: int) -> List[SearchResult]:
@@ -266,7 +287,7 @@ class WebResearchClient:
             )
             resp.raise_for_status()
         except Exception as e:
-            logger.debug("Firecrawl extraction request failed for %s: %s", url[:80], e)
+            logger.debug("Firecrawl extraction request failed for %s: %s", str(url)[:URL_LOG_MAX_CHARS], e)
             return None
 
         data = resp.json()
@@ -295,13 +316,13 @@ class WebResearchClient:
             )
             resp.raise_for_status()
         except Exception as e:
-            logger.debug("Camofox tab creation failed for %s: %s", url[:80], e)
+            logger.debug("Camofox tab creation failed for %s: %s", str(url)[:URL_LOG_MAX_CHARS], e)
             return None
 
         data = resp.json()
         tab_id = data.get("tabId")
         if not tab_id:
-            logger.debug("Camofox tab creation returned no tabId for %s", url[:80])
+            logger.debug("Camofox tab creation returned no tabId for %s", str(url)[:URL_LOG_MAX_CHARS])
             return None
 
         return tab_id
@@ -370,6 +391,10 @@ class WebResearchClient:
             if tab_id:
                 self._camofox_close_tab(http, base, tab_id, user_id)
 
+    def set_searxng_url(self, url: str) -> None:
+        """Set or update the SearXNG URL after construction."""
+        self._searxng_url = url
+
     # -----------------------------------------------------------------------
     # Batch & gap utilities
     # -----------------------------------------------------------------------
@@ -385,7 +410,7 @@ class WebResearchClient:
             try:
                 results[url] = self.extract(url)
             except Exception as e:
-                logger.debug("Batch extract failed for %s: %s", url[:80], e)
+                logger.debug("Batch extract failed for %s: %s", str(url)[:URL_LOG_MAX_CHARS], e)
                 results[url] = None
         return results
 
@@ -408,8 +433,9 @@ class WebResearchClient:
         for gap in gaps:
             query = gap.strip().rstrip("?.!")
             # Append temporal context if not already present
+            year_str = str(now.year)
             if not any(word in query.lower()
-                       for word in ("2026", "current", "latest", "recent")):
+                       for word in (year_str, "current", "latest", "recent")):
                 query = f"{query} {time_context}"
             queries.append(query)
 

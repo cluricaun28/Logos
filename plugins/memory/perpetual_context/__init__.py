@@ -571,15 +571,18 @@ class PerpetualContextProvider(MemoryProvider):
     def _ensure_web_research(self) -> None:
         """Lazy-init the WebResearchClient with local-first config."""
         if self._web_research is None:
-            from .web_research import (
+            from .web_research import (  # noqa: PLC0415 — lazy import avoids startup cost
                 CAMOFOX_URL_DEFAULT,
                 CAMOFOX_URL_ENV,
                 FIRECRAWL_API_URL_ENV,
                 FIRECRAWL_URL_ENV,
+                SEARXNG_URL_ENV,
                 WebResearchClient,
             )
+            # Let WebResearchClient read env vars itself — no redundant reading here
             self._web_research = WebResearchClient({
-                "searxng_url": SEARXNG_URL,
+                "searxng_url": os.environ.get(SEARXNG_URL_ENV, "").strip()
+                    or SEARXNG_URL,
                 "firecrawl_url": os.environ.get(FIRECRAWL_URL_ENV, "").strip()
                     or os.environ.get(FIRECRAWL_API_URL_ENV, "").strip()
                     or "",
@@ -588,18 +591,18 @@ class PerpetualContextProvider(MemoryProvider):
             })
         elif not self._web_research._searxng_url:
             # Client exists but SearXNG wasn't configured — inject it now
-            self._web_research._searxng_url = SEARXNG_URL
+            self._web_research.set_searxng_url(SEARXNG_URL)
 
     def _ensure_scrutiny_gate(self) -> None:
         """Lazy-init the ScrutinyGate."""
         if self._scrutiny_gate is None:
-            from .scrutiny_gate import ScrutinyGate
+            from .scrutiny_gate import ScrutinyGate  # noqa: PLC0415 — lazy import
             self._scrutiny_gate = ScrutinyGate()
 
     def _ensure_synthesis_engine(self) -> None:
         """Lazy-init the SynthesisEngine."""
         if self._synthesis_engine is None:
-            from .synthesis_engine import SynthesisEngine
+            from .synthesis_engine import SynthesisEngine  # noqa: PLC0415 — lazy import
             self._synthesis_engine = SynthesisEngine()
 
     def _ensure_feedback_loop(self) -> None:
