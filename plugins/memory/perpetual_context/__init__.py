@@ -10,9 +10,9 @@ Architecture:
   - Topic Flow: Automatic topic clustering with drift detection
 
 Tools exposed to the agent:
-  • perpetual_search — Keyword search across all past sessions
-  • topic_flow       — View and manage topic clusters per session
-  • context_depth    — Control how much historical context is surfaced
+  - perpetual_search — Keyword search across all past sessions
+  - topic_flow       — View and manage topic clusters per session
+  - context_depth    — Control how much historical context is surfaced
 
 Config in ~/.hermes/config.yaml:
   memory:
@@ -24,12 +24,10 @@ Config in ~/.hermes/config.yaml:
 
 from __future__ import annotations
 
-__version__ = "0.11.0"
+__version__ = "0.12.0"
 
-import json
 import logging
 import os
-import re as _re  # renamed to avoid conflict with topic extraction regex
 import sqlite3
 import threading
 import time
@@ -41,108 +39,95 @@ from agent.memory_provider import MemoryProvider
 from agent.perpetual_context_db import RECALL_OUTPUT_MAX_CHARS
 
 # Import split modules (SRP compliance)
-from . import utils
 from .extraction_engine import ExtractionEngine, _STOPWORDS
 from .tool_handler import ToolHandler
 from .context_bridge_builder import ContextBridgeBuilder
 from .injection_router import classify_injection_intent
 
+# Sub-modules extracted for SRP compliance
+from . import prefetch_pipeline
+from .session_end_extractor import extract_topics_from_messages
+from .topic_classifier import _classify_topic_stability
+from . import schemas as _schemas
+
 logger = logging.getLogger(__name__)
 
-# Configurable truncation limits — adjust for your use case
-PREFETCH_TRUNCATION_CHARS = 1500    # Max chars per message in prefetch results (increased from 500)
-PRE_COMPRESS_TRUNCATION_CHARS = 8000  # Max chars when archiving before compression (increased from 2000)
-
-# Periodic context injection config — fires every N turns between compressions.
-# Keeps the system aware of historical context without waiting for token budget exhaustion.
-PERIODIC_INJECTION_INTERVAL = 10     # Turns between injections (configurable via memory.perpetual_context.injection_interval)
-PERIODIC_INJECTION_MAX_CHARS = 300   # Hard cap on injected context — pointer, not full content
-
-# Deep Research Engine config — Phase 1: Local Recall auto-hook
-DEEP_RESEARCH_ENABLED = True         # Master toggle for deep research loop
-RL_SEARCH_TOP_K = 5                  # Results from reference library search
-PM_SEARCH_TOP_K = 5                  # Results from perpetual memory hybrid search
-GAP_DETECTION_MIN_SCORE = 0.3        # Below this, results considered low-confidence
-GAP_DETECTION_MIN_RESULTS = 2        # Fewer than this triggers gap flag for Phase 2 web fallback
-
-# Phase 2: Auto Web Search + Unified Relevance Scoring
-WEB_SEARCH_ENABLED = True            # Master toggle for automatic web search triggering
-SEARXNG_URL = "http://localhost:8080"  # SearXNG instance URL
-WEB_PRIORITY_THRESHOLD = 0.3         # Trigger web search when priority exceeds this
-WEB_SEARCH_TOP_K = 5                 # Max results from SearXNG
-UNIFIED_SCORE_WEIGHTS = {            # Source reliability weights for cross-source merge
-    "pm": 0.35,   # Perpetual Memory — personal context, episodic memory
-    "rl": 0.40,   # Reference Library — curated, worldview-aligned knowledge (highest)
-    "web": 0.25,  # Web search — needs verification, time-sensitive (lowest)
+# Module-level configuration constants
+PREFETCH_TRUNCATION_CHARS = 1500
+PRE_COMPRESS_TRUNCATION_CHARS = 8000
+PERIODIC_INJECTION_INTERVAL = 10
+PERIODIC_INJECTION_MAX_CHARS = 300
+DEEP_RESEARCH_ENABLED = True
+RL_SEARCH_TOP_K = 5
+PM_SEARCH_TOP_K = 5
+GAP_DETECTION_MIN_SCORE = 0.3
+GAP_DETECTION_MIN_RESULTS = 2
+WEB_SEARCH_ENABLED = True
+SEARXNG_URL = "http://localhost:8080"
+WEB_PRIORITY_THRESHOLD = 0.3
+WEB_SEARCH_TOP_K = 5
+UNIFIED_SCORE_WEIGHTS: dict[str, float] = {
+    "pm": 0.35,
+    "rl": 0.40,
+    "web": 0.25,
 }
-
-# Worldview filter: domains to block or flag on web results
-WORLDVIEW_BLOCKED_DOMAINS = {
-    "reddit.com",   # Low-signal echo chamber
-    "quora.com",    # Unverified opinions presented as facts
-    "medium.com",   # Paywalled opinion pieces
+WORLDVIEW_BLOCKED_DOMAINS: set[str] = {
+    "reddit.com",
+    "quora.com",
+    "medium.com",
 }
-
-WORLDVIEW_FLAGGED_DOMAINS = {
+WORLDVIEW_FLAGGED_DOMAINS: dict[str, str] = {
     "bbc.com": "State-aligned framing",
     "cnn.com": "Progressive institutional capture",
     "nytimes.com": "Elite establishment narrative",
     "reuters.com": "Corporate wire service bias",
 }
 
-# Auto-routing constants moved to retrieval_engine.py — imported below.
-# Kept here for backward compatibility with existing code that references them directly.
-from .retrieval_engine import classify_query_intent as _classify_query_intent_fn  # noqa: F401
-AUTO_ROUTING_KEYWORDS = {
-    "decision_trace": {"why", "decision", "chose", "instead of", "reason", "rationale"},
-    "file_history": {"file", "edit", "changed"},
-    "recent": {"recently", "continue", "pick up"},
-}  # Deprecated — use retrieval_engine.AUTO_ROUTING_KEYWORDS instead
-
-# Topic stability classification moved to topic_classifier.py
-from .topic_classifier import _classify_topic_stability  # noqa: F401
-
-# Import tool schemas from dedicated module
-from . import schemas as _schemas  # noqa: F401
 
 class PerpetualContextProvider(MemoryProvider):
     """Memory provider using SQLite + FTS5 full-text indexing.
 
-    Provides infinite recall across sessions with keyword retrieval:
-    1. Structured SQL queries (topics, relationships, metadata)
-    2. Full-text search via SQLite FTS5 (keyword matching)
+    Thin orchestrator that delegates to specialized sub-modules:
+    - prefetch_pipeline: 4-phase Deep Research & Local Recall
+    - injection_router: intent classification
+    - tool_handler: PM tool dispatch
+    - extraction_engine: structured data from conversations
+    - context_bridge_builder: archival index generation
+    - session_end_extractor: topic extraction from messages
     """
 
-    def __init__(self):
-        self._db = None
+    def __init__(self) -> None:
+        self._db: Any = None
         self._session_id: str | None = None
         self._current_depth: str = "moderate"
         self._prefetch_queue: list[dict[str, Any]] = []
-        self._lock = threading.RLock()  # RLock for reentrant acquisition in nested calls
-        # Per-injection toggles — read from config in initialize()
+        self._lock = threading.RLock()
+        # Per-injection toggles
         self._prefetch_enabled: bool = False
         self._recall_past_enabled: bool = False
         self._periodic_enabled: bool = False
         self._deep_research_enabled: bool = False
-        # SRP-compliant sub-components — instantiated in initialize() once DB is ready
+        # Sub-components
         self._extraction: ExtractionEngine | None = None
         self._tools: ToolHandler | None = None
         self._bridge_builder: ContextBridgeBuilder | None = None
-        # Negative feedback loop components
-        self._scorer: Any | None = None  # BridgeQualityScorer (lazy import)
-        self._feedback: Any | None = None  # FeedbackState (lazy init)
+        # Feedback loop
+        self._scorer: Any | None = None
+        self._feedback: Any | None = None
         # Deep Research phases 2-4 (lazy init)
         self._web_research: Any | None = None
         self._scrutiny_gate: Any | None = None
         self._synthesis_engine: Any | None = None
+        # Periodic injection state
+        self._last_turn_number: int = 0
+        self._last_user_message: str = ""
+
+    # -- Lazy initialization -------------------------------------------------
 
     def _ensure_subcomponents(self) -> None:
-        """Lazy-init sub-components after DB is available.
-        Thread-safe: acquires self._lock to guard shared mutable state."""
         with self._lock:
             if self._extraction is None and self._db is not None:
                 self._extraction = ExtractionEngine()
-                # Bridge builder depends on extraction engine + feedback components
                 self._bridge_builder = ContextBridgeBuilder(
                     extraction_engine=self._extraction,
                     scorer=self._scorer,
@@ -155,132 +140,101 @@ class PerpetualContextProvider(MemoryProvider):
                     current_depth=self._current_depth,
                     prefetch_queue=self._prefetch_queue,
                 )
-            # Wire Deep Research phases if enabled
             self._ensure_deep_research()
 
     def _ensure_deep_research(self) -> None:
-        """Lazy-init Deep Research phase components (2-4).
-
-        Only instantiates when DEEP_RESEARCH_ENABLED is True. Each component
-        is imported lazily to avoid startup cost when the feature is off.
-        Caller must hold self._lock.
-        """
-        if not DEEP_RESEARCH_ENABLED:
-            return
-        self._ensure_web_research()
-        self._ensure_scrutiny_gate()
-        self._ensure_synthesis_engine()
+        with self._lock:
+            if not DEEP_RESEARCH_ENABLED:
+                return
+            self._ensure_web_research()
+            self._ensure_scrutiny_gate()
+            self._ensure_synthesis_engine()
 
     def _ensure_web_research(self) -> None:
-        """Lazy-init the WebResearchClient with local-first config."""
         if self._web_research is None:
-            from .web_research import (  # noqa: PLC0415 — lazy import avoids startup cost
-                CAMOFOX_URL_DEFAULT,
-                CAMOFOX_URL_ENV,
-                FIRECRAWL_API_URL_ENV,
-                FIRECRAWL_URL_ENV,
-                SEARXNG_URL_ENV,
-                WebResearchClient,
+            from .web_research import (  # noqa: PLC0415
+                CAMOFOX_URL_DEFAULT, CAMOFOX_URL_ENV,
+                FIRECRAWL_API_URL_ENV, FIRECRAWL_URL_ENV,
+                SEARXNG_URL_ENV, WebResearchClient,
             )
-            # Let WebResearchClient read env vars itself — no redundant reading here
             self._web_research = WebResearchClient({
-                "searxng_url": os.environ.get(SEARXNG_URL_ENV, "").strip()
-                    or SEARXNG_URL,
-                "firecrawl_url": os.environ.get(FIRECRAWL_URL_ENV, "").strip()
-                    or os.environ.get(FIRECRAWL_API_URL_ENV, "").strip()
-                    or "",
-                "camofox_url": os.environ.get(CAMOFOX_URL_ENV, "").strip()
-                    or CAMOFOX_URL_DEFAULT,
+                "searxng_url": os.environ.get(SEARXNG_URL_ENV, "").strip() or SEARXNG_URL,
+                "firecrawl_url": (os.environ.get(FIRECRAWL_URL_ENV, "").strip()
+                                  or os.environ.get(FIRECRAWL_API_URL_ENV, "").strip()
+                                  or ""),
+                "camofox_url": (os.environ.get(CAMOFOX_URL_ENV, "").strip()
+                                or CAMOFOX_URL_DEFAULT),
             })
         elif not self._web_research._searxng_url:
-            # Client exists but SearXNG wasn't configured — inject it now
             self._web_research.set_searxng_url(SEARXNG_URL)
 
     def _ensure_scrutiny_gate(self) -> None:
-        """Lazy-init the ScrutinyGate."""
         if self._scrutiny_gate is None:
-            from .scrutiny_gate import ScrutinyGate  # noqa: PLC0415 — lazy import
+            from .scrutiny_gate import ScrutinyGate  # noqa: PLC0415
             self._scrutiny_gate = ScrutinyGate()
 
     def _ensure_synthesis_engine(self) -> None:
-        """Lazy-init the SynthesisEngine."""
         if self._synthesis_engine is None:
-            from .synthesis_engine import SynthesisEngine  # noqa: PLC0415 — lazy import
+            from .synthesis_engine import SynthesisEngine  # noqa: PLC0415
             self._synthesis_engine = SynthesisEngine()
 
     def _ensure_feedback_loop(self) -> None:
-        """Lazy-init negative feedback loop components.
-        Thread-safe: acquires self._lock to guard shared mutable state."""
         with self._lock:
             if self._scorer is None:
-                from .quality_scorer import BridgeQualityScorer
+                from .quality_scorer import BridgeQualityScorer  # noqa: PLC0415
                 self._scorer = BridgeQualityScorer()
             if self._feedback is None:
-                from .feedback_state import FeedbackState
+                from .feedback_state import FeedbackState  # noqa: PLC0415
                 self._feedback = FeedbackState()
 
     @property
     def name(self) -> str:
         return "perpetual_context"
 
-    # -- Core lifecycle ----------------------------------------------------
+    # -- Core lifecycle ------------------------------------------------------
 
     def is_available(self) -> bool:
-        """Check if perpetual context provider is available.
-
-        Returns True if sqlite3 (always available in Python stdlib) can be imported.
-        """
         try:
-            import sqlite3  # Always available in Python stdlib
+            import sqlite3
             return True
         except Exception as e:
             logger.error("PerpetualContext availability check failed: %s", e)
             return False
 
     def initialize(self, session_id: str, **kwargs) -> None:
-        """Initialize the perpetual context database.
-
-        Args:
-            session_id: The current session ID
-            kwargs: Additional initialization parameters including:
-                - hermes_home: Path to ~/.hermes directory
-                - platform: Platform name (cli, telegram, etc.)
-                - agent_context: Context type (primary, subagent, cron)
-        """
         self._session_id = session_id
 
-        # Get config
         config = kwargs.get("config", {})
-        pc_config = config.get("perpetual_context", {}) if isinstance(config, dict) else {}
+        pc_config = (config.get("perpetual_context", {})
+                     if isinstance(config, dict) else {})
 
-        # Read per-injection toggles from config
         self._prefetch_enabled = bool(pc_config.get("prefetch_enabled", False))
         recall_cfg = pc_config.get("recall_injection", {})
-        self._recall_past_enabled = bool(recall_cfg.get("enabled", False)) if isinstance(recall_cfg, dict) else bool(pc_config.get("recall_injection", False))
+        self._recall_past_enabled = (
+            bool(recall_cfg.get("enabled", False))
+            if isinstance(recall_cfg, dict)
+            else bool(pc_config.get("recall_injection", False))
+        )
         self._periodic_enabled = bool(pc_config.get("pre_response_recall", False))
-        # deep_research toggle from module-level constant (gates web search)
         self._deep_research_enabled = DEEP_RESEARCH_ENABLED
 
-        # Determine DB path — always resolve through ~/.hermes/ first,
-        # falling back to hermes_home from kwargs (which may be the project dir).
         db_path = pc_config.get("db_path")
         if not db_path:
-            # Default: use ~/.hermes/perpetual_context.db regardless of cwd
-            home_dir = os.path.expanduser("~/.hermes")
-            db_path = os.path.join(home_dir, "perpetual_context.db")
+            db_path = os.path.join(os.path.expanduser("~/.hermes"),
+                                   "perpetual_context.db")
         else:
-            # Expand tildes in explicit paths too
             db_path = os.path.expanduser(db_path)
 
-        # Initialize database
-        from agent.perpetual_context_db import PerpetualContextDB
+        from agent.perpetual_context_db import PerpetualContextDB  # noqa: PLC0415
         self._db = PerpetualContextDB(db_path=db_path)
 
         if not self._db.initialize():
-            logger.warning("PerpetualContextDB failed to initialize — provider will be read-only")
+            logger.warning(
+                "PerpetualContextDB failed to initialize — provider will be "
+                "read-only"
+            )
             return
 
-        # Log session info
         stats = self._db.get_stats()
         logger.info(
             "PerpetualContext initialized: %d messages, %d sessions, %d topics",
@@ -289,168 +243,34 @@ class PerpetualContextProvider(MemoryProvider):
             stats.get("topic_count", 0),
         )
 
-        # Initialize SRP sub-components now that DB is ready
         self._ensure_subcomponents()
 
     def system_prompt_block(self) -> str:
-        """Return text to include in the system prompt.
-        Thread-safe: acquires lock before reading shared state."""
         with self._lock:
             if not self._db or not self._db._initialized:
                 return ""
             db = self._db
             depth = self._current_depth
         stats = db.get_stats()
-        msg_count = stats.get('message_count', 0)
-        session_count = stats.get('session_count', 0)
-        current_time = datetime.now().astimezone().strftime('%A, %B %d, %Y %-I:%M %p (%Z)')
-
+        current_time = (
+            datetime.now().astimezone()
+            .strftime('%A, %B %d, %Y %-I:%M %p (%Z)')
+        )
         return (
             f"[Current Time: {current_time}]\n"
-            f"[Perpetual Context Memory: {msg_count} messages across "
-            f"{session_count} sessions, depth={depth}]\n"
-            f"Infinite recall via Perpetual Memory — every turn stored in local SQLite with FTS5. "
-            f"Use `perpetual_search` for past conversations, `reference_library_search` for curated knowledge. "
-            f"Reference library at `~/.hermes/reference-library/` — read with `read_file`. "
-            f"Check RL before answering factual questions; use web search only if RL has no entry."
+            f"[Perpetual Context Memory: {stats.get('message_count', 0)} messages "
+            f"across {stats.get('session_count', 0)} sessions, depth={depth}]\n"
+            f"Infinite recall via Perpetual Memory — every turn stored in local "
+            f"SQLite with FTS5. Use `perpetual_search` for past conversations, "
+            f"`reference_library_search` for curated knowledge. "
+            f"Reference library at `~/.hermes/reference-library/` — read with "
+            f"`read_file`. Check RL before answering factual questions; use web "
+            f"search only if RL has no entry."
         )
 
-    # ---------------------------------------------------------------------------
-    # Injection Router — classify intent before any search fires
-    # ---------------------------------------------------------------------------
-
-    # Intent categories and their keyword/phrase signals.
-    # Each entry maps to which injections to fire.
-    _INTENT_PAST_WORK: set = {
-        "did we", "have we", "were you able", "did you finish",
-        "last time", "remember", "check pm", "from our conversation",
-        "continue", "what happened", "what did we do",
-        "back up our", "assess the errors", "review the",
-    }
-    _INTENT_RECENT: set = {
-        "recent", "recently", "recent turns", "what just",
-        "in the last", "this session", "just now", "right before",
-    }
-    _INTENT_REFERENCE: set = {
-        "how does", "what's the config", "read the docs",
-        "is there an rl page", "rl page", "reference library",
-        "read file", "take a look",
-    }
-    _INTENT_RESEARCH: set = {
-        "research", "search for", "find out about",
-        "what's happening", "latest news", "current status of",
-    }
-    _INTENT_FACTUAL: set = {
-        "what is", "what are", "who is", "who are",
-        "tell me about", "explain", "define",
-        "what's a", "what's an", "describe",
-        "how does it work", "tell me more",
-    }
-    _INTENT_FACTUAL_WORDS: set = {
-        "what", "who", "where", "when", "why", "how",
-        "explain", "define", "describe",
-    }
-    _INTENT_OPINION: set = {
-        "what do you think", "should i", "is it better",
-        "would you recommend", "do you agree",
-        "what's your take", "in your opinion",
-    }
-    _INTENT_COMPARISON: set = {
-        "compare", "compared to", "difference between",
-        "versus", "vs ", "vs.", "better than",
-        "alternative to", "how does x compare",
-    }
-    _INTENT_TOPIC: set = {
-        "let's talk about", "on the topic of", "speaking of",
-        "about", "regarding", "concerning",
-    }
-    _INTENT_CODE: set = {
-        "fix", "audit", "refactor", "implement", "build",
-        "deploy", "push to", "backup", "restart",
-    }
-    _INTENT_COMMAND: set = {
-        "add 10 new", "review the conversation above",
-        "download is done", "let's see if that solves",
-        "ok, built it",
-    }
-    _INTENT_SHORT: set = {
-        "yes", "no", "ok", "okay", "thanks", "hello", "hi",
-        "good", "right", "correct", "wrong", "agreed",
-    }
-    _INTENT_STATUS: set = {
-        "still broken", "is it done", "any updates", "working",
-        "still no", "still happening", "fixed",
-    }
-
-    def _classify_injection_intent(
-        self, query: str
-    ) -> dict[str, Any]:
-        """Classify the user's message and decide which injections to fire.
-
-        Returns a routing dict with boolean flags for each injection type,
-        a confidence level, and flags for recent-context / clarification fallback.
-
-        Delegates to :func:`injection_router.classify_injection_intent`.
-        """
-        return classify_injection_intent(query)
-
-    def _empty_routing(self) -> dict[str, Any]:
-        """Return a routing dict with all flags False."""
-        return {
-            "fire_prefetch": False,
-            "fire_recall": False,
-            "fire_web": False,
-            "needs_recent_context": False,
-            "needs_clarification": False,
-            "confidence": "low",
-            "intent": "empty",
-        }
-
-    def _get_recent_context(self, max_turns: int = 15) -> list[dict[str, Any]]:
-        """Get recent PM turns with recency weighting.
-
-        More recent turns get higher scores. Returns messages sorted by
-        combined relevance (recency_weight * content_relevance).
-
-        Args:
-            max_turns: Maximum number of recent turns to scan (default 15).
-
-        Returns:
-            List of message dicts with added '_recency_score' field (0.0-1.0).
-        """
-        with self._lock:
-            if not self._db or not self._db._initialized:
-                return []
-            db = self._db
-
-        try:
-            # Get the last N messages
-            recent = db.get_recent_messages(n=max_turns)
-            if not recent:
-                return []
-
-            total = len(recent)
-            # Weight by recency: most recent = 1.0, oldest of batch = 1/(total+1)
-            for i, msg in enumerate(recent):
-                recency = (i + 1) / (total + 1)
-                msg["_recency_score"] = round(recency, 2)
-
-            return recent
-        except Exception as e:
-            logger.debug("Recent context fetch failed: %s", e)
-            return []
+    # -- Prefetch (delegates to prefetch_pipeline) ---------------------------
 
     def prefetch(self, query: str, *, session_id: str = "") -> str:
-        """Recall relevant context for the upcoming turn.
-
-        Phase 1 of Deep Research & Continuity Engine — Local Recall auto-hook.
-        Searches both Reference Library (curated knowledge) and Perpetual Memory
-        (historical conversation data), then detects gaps that may need web fallback.
-
-        Returns formatted text to inject as context, with source attribution
-        and gap flags for Phase 2 when local recall is insufficient.
-        """
-        # Master gate — if nothing is enabled, return immediately
         if not any([
             self._prefetch_enabled,
             self._recall_past_enabled,
@@ -458,283 +278,72 @@ class PerpetualContextProvider(MemoryProvider):
         ]):
             return ""
 
-        # Classify intent before any search fires
-        routing = self._classify_injection_intent(query)
-        intent = routing.get("intent", "ambiguous")
-        logger.debug("Injection intent: %s (confidence=%s)", intent, routing.get("confidence", "?"))
+        routing = classify_injection_intent(query)
 
-        # --- Ambiguous: check recent PM, then return gracefully ---
+        # Ambiguous: recent context fallback
         if routing.get("needs_recent_context"):
-            recent = self._get_recent_context(max_turns=15)
-            if recent:
-                parts = []
-                for msg in recent:
-                    role_label = msg.get("role", "unknown").upper()
-                    content = msg.get("content", "")[:200]
-                    recency = msg.get("_recency_score", 0)
-                    if recency > 0.3:  # Only inject turns with meaningful recency weight
-                        parts.append(
-                            f"[Recent ({role_label}, recency: {recency:.2f})] {content}"
-                        )
-                if parts:
-                    return "\n\n---\n\n".join(parts)
-            # No useful recent context — return empty, don't push clarification into prompt
-            return ""
+            with self._lock:
+                if not self._db or not self._db._initialized:
+                    return ""
+                db = self._db
+            return prefetch_pipeline.format_recent_context(db, max_turns=15)
 
-        # --- Past work: recall cross-session ---
+        # Past work recall
         if routing.get("fire_recall") and self._recall_past_enabled:
             with self._lock:
                 if not self._db or not self._db._initialized:
                     return ""
                 effective_session = session_id or self._session_id or ""
-            result = self._db.recall_past_discussions(
+                db = self._db
+            return db.recall_past_discussions(
                 query=query,
                 exclude_session_id=effective_session,
                 max_chars=RECALL_OUTPUT_MAX_CHARS,
             )
-            return result
 
-        # --- Nothing to inject ---
+        # Nothing to inject
         if not routing.get("fire_prefetch") and not routing.get("fire_web"):
             return ""
 
-        # --- Prefetch + Web: the full pipeline ---
-        # Acquire lock, snapshot shared state into locals, then release for I/O
+        # Full pipeline — snapshot state, release lock for I/O
         with self._lock:
             if not self._db or not self._db._initialized:
                 return ""
             effective_session = session_id or self._session_id or ""
             self._ensure_subcomponents()
+            self._ensure_feedback_loop()
             db = self._db
             tools = self._tools
             web_research = self._web_research
             scrutiny_gate = self._scrutiny_gate
             synthesis_engine = self._synthesis_engine
 
-        try:
-            effective_session = session_id or effective_session or ""
-            parts = []
-            rl_results_count = 0
-            pm_results_count = 0
-            gaps_detected = False
+        return prefetch_pipeline.run_prefetch_pipeline(
+            query=query,
+            routing=routing,
+            db=db,
+            tools=tools,
+            web_research=web_research,
+            scrutiny_gate=scrutiny_gate,
+            synthesis_engine=synthesis_engine,
+            session_id=effective_session,
+            depth_limit=self._get_depth_limit(),
+            prefetch_enabled=self._prefetch_enabled,
+            recall_past_enabled=self._recall_past_enabled,
+            deep_research_enabled=self._deep_research_enabled,
+            prefetch_trunc_chars=PREFETCH_TRUNCATION_CHARS,
+            recall_output_max_chars=RECALL_OUTPUT_MAX_CHARS,
+            rl_search_top_k=RL_SEARCH_TOP_K,
+            gap_detection_min_results=GAP_DETECTION_MIN_RESULTS,
+            web_search_top_k=WEB_SEARCH_TOP_K,
+            worldview_blocked_domains=WORLDVIEW_BLOCKED_DOMAINS,
+            deep_research_master=DEEP_RESEARCH_ENABLED,
+            classify_topic_stability_fn=_classify_topic_stability,
+        )
 
-            # --- Phase 1a: Reference Library Search (only if router says so) ---
-            rl_data = {}
-            if routing.get("fire_prefetch") and self._prefetch_enabled:
-                try:
-                    if tools:
-                        rl_json = tools.handle_reference_library_search({
-                            "query": query,
-                            "top_k": RL_SEARCH_TOP_K,
-                        })
-                        rl_data = json.loads(rl_json)
-                        rl_results = rl_data.get("results", [])
-
-                        if rl_results:
-                            rl_parts = []
-                            for r in rl_results[:RL_SEARCH_TOP_K]:
-                                name = r.get("name", "Unknown")
-                                snippet = r.get("snippet", "")[:300]
-                                score = r.get("score", 0)
-                                rl_parts.append(
-                                    f"[RL: {name} (score: {score})]\n{snippet}"
-                                )
-                            parts.append("\n\n---\n\n".join(rl_parts))
-                            rl_results_count = len(rl_results)
-
-                except Exception as e:
-                    logger.debug("Reference library search failed in prefetch: %s", e)
-
-            # --- Phase 1b: Perpetual Memory Hybrid Search (only if router says so) ---
-            if routing.get("fire_prefetch") and self._prefetch_enabled:
-                try:
-                    pm_results = db.hybrid_search(
-                        query=query,
-                        session_id=effective_session if effective_session else None,
-                        top_k=self._get_depth_limit(),
-                    )
-
-                    if pm_results:
-                        pm_formatted = []
-                        for msg in pm_results[:self._get_depth_limit()]:
-                            role_label = msg["role"].upper()
-                            content = msg.get("content", "")[:PREFETCH_TRUNCATION_CHARS]
-                            score = msg.get("_score", 0)
-                            pm_formatted.append(
-                                f"[PM: {role_label} (relevance: {score:.2f})]\n{content}"
-                            )
-                        parts.append("\n\n---\n\n".join(pm_formatted))
-                        pm_results_count = len(pm_results)
-
-                except Exception as e:
-                    logger.debug("Perpetual memory search failed in prefetch: %s", e)
-
-            # --- Phase 1c: Stability-Aware Gap Detection ---
-            stability, half_life, web_threshold = _classify_topic_stability(query)
-
-            if self._deep_research_enabled and parts:
-                total_results = rl_results_count + pm_results_count
-
-                if total_results < GAP_DETECTION_MIN_RESULTS:
-                    gaps_detected = True
-                    logger.debug("Gap: too few local results (%d)", total_results)
-                else:
-                    all_rl_scores = sorted(
-                        [r.get("score", 0) for r in rl_data.get("results", [])[:RL_SEARCH_TOP_K]],
-                        reverse=True,
-                    )
-                    if len(all_rl_scores) >= 2 and all_rl_scores[1] > 0:
-                        best_rl_ratio = all_rl_scores[0] / all_rl_scores[1]
-                    elif len(all_rl_scores) == 1:
-                        best_rl_ratio = 2.0
-                    else:
-                        best_rl_ratio = 0
-
-                    all_pm_scores = [msg.get("_score", 0) for msg in pm_results[:self._get_depth_limit()]]
-                    best_pm_norm = max(all_pm_scores, default=0)
-
-                    rl_confident = best_rl_ratio >= 3.0
-                    pm_confident = best_pm_norm >= 0.3
-
-                    if not (rl_confident or pm_confident):
-                        gaps_detected = True
-                        logger.debug(
-                            "Gap: topic='%s' stability=%s, rl_ratio=%.1f pm=%.2f",
-                            query[:50], stability, best_rl_ratio, best_pm_norm,
-                        )
-
-            # --- Phase 2: Web Research (only if router says so OR gap detected) ---
-            web_results: list[dict[str, Any]] = []
-            should_search_web = routing.get("fire_web") or gaps_detected
-            if self._deep_research_enabled and should_search_web and web_research is not None:
-                try:
-                    import time as _time
-                    _t0 = _time.monotonic()
-                    raw = web_research.search(query, top_k=WEB_SEARCH_TOP_K)
-                    _elapsed = _time.monotonic() - _t0
-                    logger.debug("Web search for '%s' returned %d results in %.1fs",
-                                 query[:50], len(raw), _elapsed)
-                    for sr in raw:
-                        web_results.append({
-                            "title": sr.title,
-                            "url": sr.url,
-                            "snippet": sr.snippet,
-                            "source": sr.source,
-                            "score": sr.score,
-                            "extracted_content": sr.extracted_content,
-                        })
-                except Exception as e:
-                    logger.debug("Phase 2 web research failed: %s", e)
-
-            # --- Phase 3: Scrutiny Gate (vet web results before injection) ---
-            vetted_results: list[dict[str, Any]] = []
-            if web_results and scrutiny_gate is not None:
-                try:
-                    # Filter blocked domains
-                    filtered = [
-                        r for r in web_results
-                        if not any(
-                            blocked in r.get("url", "")
-                            for blocked in WORLDVIEW_BLOCKED_DOMAINS
-                        )
-                    ]
-                    scrutiny = scrutiny_gate.vet_results(filtered, query)
-                    vetted_results = scrutiny.get("vetted_results", [])
-                    flagged = scrutiny.get("rejected_results", [])
-                    if flagged:
-                        logger.debug("Scrutiny flagged %d results: %s",
-                                     len(flagged), [f.get("reason", "") for f in flagged[:3]])
-                except Exception as e:
-                    logger.debug("Phase 3 scrutiny failed: %s", e)
-                    vetted_results = web_results  # Fallback: use unvetted
-
-            # --- Phase 4: Synthesis (compact context block from vetted facts) ---
-            footer_parts = []  # Initialize before Phase 4 uses it
-            if vetted_results and synthesis_engine is not None:
-                try:
-                    import time as _time2
-                    _t2 = _time2.monotonic()
-                    sensitivity = "high" if stability == "volatile" else "low"
-                    synthesis = synthesis_engine.synthesize(
-                        facts=vetted_results,
-                        query=query,
-                        sensitivity=sensitivity,
-                    )
-                    _e2 = _time2.monotonic() - _t2
-                    context_block = synthesis.get("context_block", "")
-                    if context_block:
-                        sources = ", ".join(r.get("source", "web") for r in vetted_results[:3])
-                        web_section = (
-                            f"[Web Research Results (from {sources})]\n"
-                            f"{context_block}"
-                        )
-                        parts.append(web_section)
-                        logger.debug("Phase 4 synthesis produced %d bytes in %.1fs",
-                                     len(context_block), _e2)
-
-                    # RLUpdateDetector: check if new facts suggest stale RL pages
-                    rl_update_flags = synthesis.get("rl_update_flags", [])
-                    if rl_update_flags:
-                        # Only surface the most relevant flags — skip mass false positives
-                        # from scanning huge directories (e.g. Britannica with 32K entries)
-                        relevant_flags = [
-                            f for f in rl_update_flags[:10]
-                            if "britannica" not in f.get("page", "").lower()
-                        ][:2]
-                        if relevant_flags:
-                            logger.info(
-                                "RLUpdateDetector flagged %d relevant page(s) for review",
-                                len(relevant_flags),
-                            )
-                            for flag in relevant_flags:
-                                footer_parts.append(
-                                    f"[RL Update: {flag.get('page', '').split('/')[-1]} — "
-                                    f"{flag.get('reason', '')[:120]}]"
-                                )
-                except Exception as e:
-                    logger.debug("Phase 4 synthesis failed: %s", e)
-                    # Fallback: inject raw vetted snippets
-                    if vetted_results:
-                        snippets = []
-                        for r in vetted_results[:3]:
-                            snippets.append(
-                                f"[Web: {r.get('title', 'Unknown')} ({r.get('source', '')})]\n"
-                                f"{r.get('snippet', '')[:200]}"
-                            )
-                        if snippets:
-                            parts.append("\n\n".join(snippets))
-
-            # --- Combine and format results ---
-            if not parts:
-                return ""
-
-            result_text = "\n\n---\n\n".join(parts)
-
-            # Add source summary and gap flag
-            # (footer_parts already initialized before Phase 4)
-            if DEEP_RESEARCH_ENABLED:
-                web_results_count = len(vetted_results)
-                footer_parts.append(
-                    f"[Recall: {rl_results_count} RL, {pm_results_count} PM"
-                    f"{', ' + str(web_results_count) + ' web' if web_results_count else ''}]"
-                )
-                footer_parts.append(f"[Topic: {stability}]")
-                if gaps_detected and not web_results_count:
-                    footer_parts.append(
-                        "[Gap detected — local recall insufficient. "
-                        "Consider web research for current/external data.]"
-                    )
-
-            result_text += "\n\n" + " ".join(footer_parts)
-
-            return result_text
-
-        except Exception as e:
-            logger.debug("Perpetual prefetch failed: %s", e)
-            return ""
+    # -- Queued prefetch / recall --------------------------------------------
 
     def queue_prefetch(self, query: str, *, session_id: str = "") -> None:
-        """Queue a background recall for the NEXT turn."""
         with self._lock:
             self._prefetch_queue.append({
                 "query": query,
@@ -742,22 +351,9 @@ class PerpetualContextProvider(MemoryProvider):
             })
 
     def recall_past_discussions(
-        self, query: str, exclude_session_id: str, max_chars: int = RECALL_OUTPUT_MAX_CHARS
+        self, query: str, exclude_session_id: str,
+        max_chars: int = RECALL_OUTPUT_MAX_CHARS,
     ) -> str:
-        """Recall relevant discussions from past sessions (excluding current).
-
-        Returns a compact pointer string with session/date/score and short
-        content snippets. Only fires when FTS5 finds results above the score
-        threshold outside the active window.
-
-        Args:
-            query: Search text (typically the user message).
-            exclude_session_id: Current session ID to skip.
-            max_chars: Hard cap on output length (defaults from DB module constant).
-
-        Returns:
-            Formatted pointer string, or empty string if nothing relevant found.
-        """
         if not self._recall_past_enabled:
             return ""
         with self._lock:
@@ -774,69 +370,64 @@ class PerpetualContextProvider(MemoryProvider):
             logger.exception("recall_past_discussions failed: %s", e)
             return ""
 
-    def sync_turn(self, user_content: str, assistant_content: str, *, session_id: str = "") -> None:
-        """Persist a completed turn to the backend.
-        Thread-safe: acquires lock before reading shared state."""
+    # -- Turn lifecycle ------------------------------------------------------
+
+    def sync_turn(
+        self, user_content: str, assistant_content: str,
+        *, session_id: str = "",
+    ) -> None:
         with self._lock:
             if not self._db or not self._db._initialized:
                 return
             effective_session = session_id or self._session_id or ""
             db = self._db
 
-        # Skip non-primary contexts (cron system prompts would corrupt data)
         agent_context = getattr(self, "_agent_context", "primary")
         if agent_context in ("cron", "subagent"):
             return
 
         try:
-            # Store user message
             db.add_message(
-                session_id=effective_session,
-                role="user",
-                content=user_content,
-                metadata={"synced_at": time.time()},
+                session_id=effective_session, role="user",
+                content=user_content, metadata={"synced_at": time.time()},
             )
-
-            # Store assistant message
             db.add_message(
-                session_id=effective_session,
-                role="assistant",
+                session_id=effective_session, role="assistant",
                 content=assistant_content,
                 metadata={"synced_at": time.time()},
             )
-
         except Exception as e:
             logger.exception("Perpetual sync_turn failed: %s", e)
 
+    # -- Tools ---------------------------------------------------------------
+
     def get_tool_schemas(self) -> list[dict[str, Any]]:
-        """Return tool schemas for perpetual memory tools."""
         return list(_schemas.TOOL_SCHEMAS)
 
-    def handle_tool_call(self, tool_name: str, args: dict[str, Any], **kwargs) -> str:
-        """Handle a tool call — delegate directly to ToolHandler.
-        Thread-safe: acquires lock before reading shared state."""
+    def handle_tool_call(
+        self, tool_name: str, args: dict[str, Any], **kwargs,
+    ) -> str:
         with self._lock:
             if not self._db or not self._db._initialized:
-                return json.dumps({"error": "Perpetual context database not initialized"})
+                return (
+                    '{"error": "Perpetual context database not initialized"}'
+                )
             self._ensure_subcomponents()
             if not self._tools:
-                return json.dumps({"error": "ToolHandler not initialized"})
+                return '{"error": "ToolHandler not initialized"}'
             tools = self._tools
 
         try:
             if tool_name == "smart_retrieve":
                 return tools.handle_smart_retrieve(
-                    args, smart_retrieve_fn=self.smart_retrieve
+                    args, smart_retrieve_fn=self.smart_retrieve,
                 )
             return tools.dispatch(tool_name, args)
-
         except Exception as e:
             logger.exception("Perpetual context tool error (%s)", tool_name)
-            return json.dumps({"error": str(e)})
+            return f'{{"error": "{e}"}}'
 
     def shutdown(self) -> None:
-        """Clean shutdown — flush queues, close connections.
-        Thread-safe: acquires lock before accessing shared state."""
         with self._lock:
             if self._db and self._db._initialized:
                 try:
@@ -845,31 +436,26 @@ class PerpetualContextProvider(MemoryProvider):
                     logger.debug("optimize() failed during shutdown: %s", e)
                 self._db.shutdown()
 
-    # -- Optional hooks ----------------------------------------------------
+    # -- Hooks ---------------------------------------------------------------
 
     def on_turn_start(self, turn_number: int, message: str, **kwargs) -> None:
-        """Called at the start of each turn with the user message.
-        Thread-safe: acquires lock before reading/writing shared state."""
         with self._lock:
             if not self._db or not self._db._initialized:
                 return
             db = self._db
 
-        # Periodic maintenance every 100 turns (VACUUM is expensive — avoid frequent calls)
         if turn_number % 100 == 0:
             try:
                 db.optimize()
             except Exception as e:
-                logger.debug("optimize() failed during on_turn_start: %s", e)
+                logger.debug(
+                    "optimize() failed during on_turn_start: %s", e,
+                )
 
-        # Cache latest message for periodic injection lookup later.
-        # on_turn_start fires early; actual injection happens in run_agent.py's pre-response hook.
         self._last_turn_number = turn_number
         self._last_user_message = message
 
     def on_session_end(self, messages: list[dict[str, Any]]) -> None:
-        """Called at end of session — extract topics and relationships.
-        Thread-safe: acquires lock before reading shared state."""
         with self._lock:
             if not self._db or not self._db._initialized:
                 return
@@ -877,203 +463,39 @@ class PerpetualContextProvider(MemoryProvider):
             sid = self._session_id or ""
 
         try:
-            # Extract topics from recent conversation
-            for msg in messages[-10:]:  # Last 10 messages
-                content = msg.get("content", "").lower()
-                # Topic extraction: capture meaningful technical phrases only.
-                # Pattern 1: Capitalized phrases (e.g., "Python Programming", "Docker Networking")
-                # Pattern 2: Technical terms with file extensions or dots (e.g., "perpetual_context.db", "run_agent.py")
-                # Pattern 3: CamelCase identifiers (e.g., "PerpetualContextDB", "SmartRetriever")
-                topics = _re.findall(
-                    r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})\b'  # Capitalized phrases
-                    r'|(?:[a-zA-Z_]+\.(?:py|md|yaml|json|txt|sh))\b'  # File references
-                    r'|(?:[A-Z][a-zA-Z]{2,}(?:[A-Z][a-z]+)+)\b',  # CamelCase identifiers
-                    msg.get("content", ""),
-                )
-                # Flatten tuple results (from alternation groups) and filter stopwords
-                flat_topics = []
-                for t in topics:
-                    if isinstance(t, tuple):
-                        t = next((g for g in t if g), "")
-                    flat_topics.append(t)
-                filtered_topics = [t for t in flat_topics if len(t) > 3 and t.lower() not in _STOPWORDS]
-                for topic in filtered_topics[:3]:  # Max 3 topics per message (after filtering)
-                    db.add_topic(
-                        session_id=sid,
-                        topic_name=topic.strip(),
-                        confidence=0.6,
-                    )
-
+            topics = extract_topics_from_messages(messages[-10:], _STOPWORDS)
+            for topic in topics:
+                db.add_topic(session_id=sid, topic_name=topic, confidence=0.6)
         except Exception as e:
             logger.debug("on_session_end extraction failed: %s", e)
 
     def on_pre_compress(self, messages: list[dict[str, Any]]) -> str:
-        """Generates a rich retrieval index for the context bridge.
-
-        Delegates to ContextBridgeBuilder which orchestrates extraction and formatting.
-        Negative feedback loop: scores quality after building, records results,
-        applies corrections if degradation detected.
-
-        Graceful degradation — never breaks compression if something goes wrong.
-        Thread-safe: acquires lock before accessing shared mutable state.
-        """
-        # _ensure_subcomponents() and _ensure_feedback_loop() each acquire
-        # self._lock internally (RLock allows reentrant calls).
         self._ensure_subcomponents()
         self._ensure_feedback_loop()
-
-        # Snapshot shared references after init (all already locked above via RLock)
         bridge = self._bridge_builder
         if not bridge:
             return ""
-
         try:
-            # Update bridge builder with latest feedback components (may have just initialized)
             bridge._scorer = self._scorer
             bridge._feedback = self._feedback
-
-            # Get correction params from feedback state
             correction_params = None
             if self._feedback and self._feedback.needs_correction():
                 correction_params = self._feedback.get_correction_params()
-
             return bridge.build_bridge(messages, correction_params)
         except Exception as e:
-            # Robust error handling: never break archival due to bridge generation failure
             logger.warning("Context Bridge generation failed: %s", e)
-            return "## Context Bridge\n- Error generating retrieval index. See logs for details."
+            return (
+                "## Context Bridge\n"
+                "- Error generating retrieval index. See logs for details."
+            )
 
-    @staticmethod
-    def _classify_query_intent(query_text: str) -> str:
-        """Classify query intent for SmartRetriever auto-routing.
-
-        Delegates to the shared implementation in retrieval_engine.py so both
-        periodic injection and explicit smart_retrieve calls use identical logic.
-        """
-        return _classify_query_intent_fn(query_text)
-
-    def _periodic_injection(self, turn_number: int, message: str) -> str | None:
-        """Periodic context injection between compressions.
-
-        Fires every PERIODIC_INJECTION_INTERVAL turns to keep the system aware of
-        historical context without waiting for token budget exhaustion. Uses auto-routing
-        to pick the right retrieval strategy based on query intent.
-
-        Args:
-            turn_number: Current turn number in session
-            message: Latest user message text
-
-        Returns:
-            Compact context string (~300 chars max) or None if no injection needed
-        """
-        # Check interval — skip if not time for injection
-        if turn_number % PERIODIC_INJECTION_INTERVAL != 0:
-            return None
-
-        try:
-            # Classify intent and retrieve with auto-routing
-            query_type = self._classify_query_intent(message)
-            results = self.smart_retrieve(query_type, message)
-
-            if not results:
-                return None
-
-            # Format as compact pointer — not full content
-            parts = []
-            for r in results[:2]:  # Limit to 2 most relevant results
-                role = r.get("role", "assistant").title()
-                session_id = r.get("session_id", "")[:12]
-                snippet = (r.get("content") or "")[:PERIODIC_INJECTION_MAX_CHARS // 2].strip()
-                parts.append(f"[{role} | Session {session_id}] {snippet}")
-
-            injected_text = "\n".join(parts)
-
-            # Hard cap enforcement — truncate if needed
-            if len(injected_text) > PERIODIC_INJECTION_MAX_CHARS:
-                injected_text = injected_text[:PERIODIC_INJECTION_MAX_CHARS - 3] + "..."
-
-            return f"\n[Periodic Context Injection]\n{injected_text}\n"
-
-        except Exception as e:
-            # Graceful degradation — injection is enhancement, not critical path
-            logger.debug("Periodic injection failed (turn %d): %s", turn_number, e)
-            return None
-
-    def get_periodic_context(self) -> str | None:
-        """Get periodic context injection for pre-response hook.
-
-        Called from run_agent.py alongside recall_past_discussions(). Returns compact
-        historical context pointers (~300 chars max) when it's time for injection,
-        or None otherwise. Uses auto-routing to pick the right retrieval strategy.
-
-        Returns:
-            Context string if injection is due and results found, else None
-        """
-        if not self._periodic_enabled:
-            return None
-        turn_number = getattr(self, "_last_turn_number", 0)
-        message = getattr(self, "_last_user_message", "")
-
-        if not turn_number or not message:
-            return None
-
-        return self._periodic_injection(turn_number, message)
-
-    def smart_retrieve(self, query_type: str, query_text: str) -> list[dict[str, Any]]:
-        """
-        Implements adaptive retrieval strategies based on Meta-Harness principles.
-
-        Args:
-            query_type: One of 'auto', 'recent', 'topic', 'decision_trace', 'file_history'.
-                Use 'auto' to let the system classify intent via keyword heuristics.
-            query_text: The search query or context identifier.
-
-        Returns:
-            A list of relevant messages or metadata from Perpetual Memory.
-        Thread-safe: acquires lock before reading shared state."""
-        with self._lock:
-            if not self._db or not self._db._initialized:
-                return []
-            # Initialize retrieval modules on first use (under lock)
-            if not hasattr(self, '_retriever'):
-                from .retrieval_engine import SmartRetriever
-                self._retriever = SmartRetriever(self._db)
-            retriever = self._retriever
-
-        try:
-
-            if query_type == "recent":
-                # Context from last 20 turns — use recent_messages for speed
-                return retriever.retrieve("recent", query_text)
-            
-            elif query_type == "topic":
-                # Context about a specific topic across all sessions
-                return retriever.retrieve("topic", query_text)
-            
-            elif query_type == "decision_trace":
-                # Delegate to SmartRetriever (single source of truth for decision trace)
-                return retriever.retrieve("decision_trace", query_text)
-            
-            elif query_type == "file_history":
-                # All edits to a specific file
-                return retriever.retrieve("file_history", query_text)
-            
-            else:
-                logger.warning(f"Unknown retrieval type: {query_type}")
-                return []
-                
-        except Exception as e:
-            logger.exception("Smart retrieve failed for type '%s'", query_type)
-            return []
-    
-    def on_memory_write(self, action: str, target: str, content: str, metadata=None) -> None:
-        """Mirror built-in memory writes to perpetual storage.
-        Thread-safe: acquires lock before reading shared state."""
+    def on_memory_write(
+        self, action: str, target: str, content: str, metadata=None,
+    ) -> None:
         with self._lock:
             if not self._db or not self._db._initialized:
                 return
             db = self._db
-
         try:
             db.add_message(
                 session_id="memory_mirror",
@@ -1084,11 +506,81 @@ class PerpetualContextProvider(MemoryProvider):
         except Exception as e:
             logger.debug("on_memory_write failed: %s", e)
 
-    # -- Internal helpers --------------------------------------------------
+    # -- Periodic injection --------------------------------------------------
+
+    def get_periodic_context(self) -> str | None:
+        if not self._periodic_enabled:
+            return None
+        turn_number = self._last_turn_number
+        message = self._last_user_message
+        if not turn_number or not message:
+            return None
+
+        if turn_number % PERIODIC_INJECTION_INTERVAL != 0:
+            return None
+
+        try:
+            query_type = self._classify_query_intent(message)
+            results = self.smart_retrieve(query_type, message)
+            if not results:
+                return None
+
+            parts: list[str] = []
+            for r in results[:2]:
+                role = r.get("role", "assistant").title()
+                sid = r.get("session_id", "")[:12]
+                snippet = (
+                    (r.get("content") or "")
+                    [:PERIODIC_INJECTION_MAX_CHARS // 2].strip()
+                )
+                parts.append(f"[{role} | Session {sid}] {snippet}")
+
+            injected_text = "\n".join(parts)
+            if len(injected_text) > PERIODIC_INJECTION_MAX_CHARS:
+                injected_text = injected_text[:PERIODIC_INJECTION_MAX_CHARS - 3] + "..."
+            return f"\n[Periodic Context Injection]\n{injected_text}\n"
+        except Exception as e:
+            logger.debug(
+                "Periodic injection failed (turn %d): %s", turn_number, e,
+            )
+            return None
+
+    # -- Smart retrieve ------------------------------------------------------
+
+    def smart_retrieve(
+        self, query_type: str, query_text: str,
+    ) -> list[dict[str, Any]]:
+        with self._lock:
+            if not self._db or not self._db._initialized:
+                return []
+            if not hasattr(self, '_retriever'):
+                from .retrieval_engine import SmartRetriever  # noqa: PLC0415
+                self._retriever = SmartRetriever(self._db)
+            retriever = self._retriever
+
+        try:
+            strategy = {
+                "recent": "recent",
+                "topic": "topic",
+                "decision_trace": "decision_trace",
+                "file_history": "file_history",
+            }.get(query_type)
+            if not strategy:
+                logger.warning("Unknown retrieval type: %s", query_type)
+                return []
+            return retriever.retrieve(strategy, query_text)
+        except Exception as e:
+            logger.exception(
+                "Smart retrieve failed for type '%s'", query_type,
+            )
+            return []
+
+    @staticmethod
+    def _classify_query_intent(query_text: str) -> str:
+        from .retrieval_engine import classify_query_intent  # noqa: PLC0415
+        return classify_query_intent(query_text)
 
     def _get_depth_limit(self) -> int:
-        """Get result limit based on current depth level.
-        Thread-safe: acquires lock before reading shared state."""
         with self._lock:
             self._ensure_subcomponents()
             if not self._tools:
@@ -1099,8 +591,8 @@ class PerpetualContextProvider(MemoryProvider):
                 logger.debug("_get_depth_limit failed: %s", e)
                 return 5
 
+
 # -- Plugin registration ---------------------------------------------------
 
 def register(collector):
-    """Register this provider with the Hermes plugin system."""
     collector.register_memory_provider(PerpetualContextProvider())
