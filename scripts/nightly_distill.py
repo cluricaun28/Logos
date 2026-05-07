@@ -68,16 +68,20 @@ def distill_cluster(cluster_id_str: str, turn_ids: list, topic: str) -> dict:
     sys.path.insert(0, str(PROJECT_DIR))
 
     from agent.logos_orchestrator import LogosOrchestrator
+    from synthesis_engine import get_active_model
+
     orchestrator = LogosOrchestrator()
 
     # Parse cluster_id string "cluster_N" → int N
     cid_num = int(cluster_id_str.split('_')[1])
 
+    main_runtime = get_active_model()
+
     logger.info(f"Distilling {cluster_id_str} (topic={topic}, turns={len(turn_ids)})")
     start = datetime.now()
 
     try:
-        result = orchestrator.distill_cluster(cid_num, turn_ids)
+        result = orchestrator.distill_cluster(cid_num, turn_ids, main_runtime=main_runtime)
         elapsed = (datetime.now() - start).total_seconds()
         success = result.get("success", False)
         rl_path = result.get("rl_path", "") or ""
@@ -85,13 +89,16 @@ def distill_cluster(cluster_id_str: str, turn_ids: list, topic: str) -> dict:
 
         status_str = "COMMITTED" if success else f"FAILED: {error}"
 
-        # Mark as distilled in queue (even on failure, don't retry indefinitely)
-        for s in load_queue():
-            if s["cluster_id"] == cluster_id_str:
-                s["distilled"] = True  # Mark done regardless of outcome
-                s["distilled_at"] = datetime.now().isoformat()
-                break
-        save_queue(load_queue())
+        # Mark as distilled only on success, or on non-LLM errors
+        # If LLM was unavailable, mark as undistilled so it retries next run
+        llm_error = "does not exist" in error or "LLM unavailable" in error or "Auxiliary LLM" in error
+        if success or (error and not llm_error):
+            for s in load_queue():
+                if s["cluster_id"] == cluster_id_str:
+                    s["distilled"] = True
+                    s["distilled_at"] = datetime.now().isoformat()
+                    break
+            save_queue(load_queue())
 
         return {
             "cluster_id": cluster_id_str,

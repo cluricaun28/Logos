@@ -38,6 +38,33 @@ INFERENCE_URL_DEFAULT = "http://localhost:8000/v1"  # vLLM (not LM Studio)
 SYNTHESIS_MODEL_DEFAULT = ""  # Empty = use whatever model the provider has loaded
 RL_CONTRADICTION_THRESHOLD = 3      # Min term overlap to flag potential contradiction
 
+
+def get_active_model() -> Dict[str, Any]:
+    """Read the active model from Hermes config.yaml.
+
+    All auxiliary tools (synthesis, distillation, archiving, web_extract)
+    use this single source of truth. No hardcoded model names anywhere.
+
+    Returns dict with 'model', 'provider', 'base_url'.
+    """
+    config_path = Path(os.path.expanduser("~/.hermes/config.yaml"))
+    try:
+        import yaml  # type: ignore
+        with open(config_path) as f:
+            config = yaml.safe_load(f) or {}
+        model_cfg = config.get("model", {})
+        return {
+            "model": model_cfg.get("default", SYNTHESIS_MODEL_DEFAULT),
+            "provider": model_cfg.get("provider", "custom"),
+            "base_url": model_cfg.get("base_url", INFERENCE_URL_DEFAULT),
+        }
+    except Exception:
+        return {
+            "model": SYNTHESIS_MODEL_DEFAULT,
+            "provider": "custom",
+            "base_url": INFERENCE_URL_DEFAULT,
+        }
+
 class SynthesisEngine:
     """Multi-pass synthesis engine using local inference (vLLM).
 
@@ -53,9 +80,10 @@ class SynthesisEngine:
 
     def __init__(self, config: Optional[Dict[str, Any]] = None) -> None:
         cfg = config or {}
+        active = get_active_model()
         # Support both old key (lm_studio_url) and new key for backward compat
-        self._inference_url: str = cfg.get("lm_studio_url", cfg.get("inference_url", INFERENCE_URL_DEFAULT))
-        self._model: str = cfg.get("synthesis_model", SYNTHESIS_MODEL_DEFAULT)
+        self._inference_url: str = cfg.get("lm_studio_url", cfg.get("inference_url", active["base_url"]))
+        self._model: str = cfg.get("synthesis_model", active["model"])
         self._max_passes: int = min(cfg.get("synthesis_passes", 3), MAX_SYNTHESIS_PASSES)
         self._context_budget_kb: int = cfg.get("context_budget_kb", CONTEXT_BUDGET_KB_DEFAULT)
 
