@@ -19,21 +19,24 @@ Config in ~/.hermes/config.yaml (optional):
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import re
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Literal, List, Optional
 
 logger = logging.getLogger(__name__)
 
 # Sentinel: returned by _get_http() when httpx is unavailable, so subsequent
 # calls don't waste time re-importing.
-_HTTP_UNAVAILABLE: Any = object()
+class _HttpUnavailable:
+    """Typed sentinel for lazy httpx client unavailability."""
+
+
+_HTTP_UNAVAILABLE = _HttpUnavailable()
 
 # ---------------------------------------------------------------------------
 # Configuration constants
@@ -46,6 +49,9 @@ FIRECRAWL_URL_ENV = "FIRECRAWL_URL"
 FIRECRAWL_API_URL_ENV = "FIRECRAWL_API_URL"
 CAMOFOX_URL_ENV = "CAMOFOX_URL"
 CAMOFOX_URL_DEFAULT = "http://localhost:9377"
+FIRECRAWL_CLOUD_BASE_URL = "https://api.firecrawl.dev/v1"
+SNIPPET_MAX_CHARS = 300            # Max chars for search result snippets
+MAX_GAP_QUERIES = 5                # Max gap queries to prevent runaway research
 
 # Camofox-specific constants
 CAMOFOX_PAGE_LOAD_DELAY = 1.5      # Seconds to wait after navigation
@@ -67,7 +73,7 @@ class SearchResult:
     title: str
     url: str
     snippet: str
-    source: str  # "searxng", "firecrawl", "camofox"
+    source: Literal["searxng", "firecrawl", "camofox"]
     score: float = 0.0
     extracted_content: Optional[str] = None
 
@@ -172,7 +178,7 @@ class WebResearchClient:
             results.append(SearchResult(
                 title=item.get("title", ""),
                 url=item.get("url", ""),
-                snippet=item.get("content", "")[:300],
+                snippet=item.get("content", "")[:SNIPPET_MAX_CHARS],
                 source="searxng",
                 score=float(item.get("score", 0)),
             ))
@@ -188,7 +194,7 @@ class WebResearchClient:
         if self._firecrawl_url:
             url = f"{self._firecrawl_url.rstrip('/')}/v1/search"
         else:
-            url = "https://api.firecrawl.dev/v1/search"
+            url = f"{FIRECRAWL_CLOUD_BASE_URL}/search"
 
         try:
             resp = http.post(
@@ -197,7 +203,7 @@ class WebResearchClient:
                 headers={"Content-Type": "application/json"},
             )
             resp.raise_for_status()
-        except Exception as e:
+        except Exception as e:  # noqa: S110 — graceful degradation, must not raise
             logger.debug("Firecrawl search request failed: %s", e)
             return []
 
@@ -207,7 +213,7 @@ class WebResearchClient:
             results.append(SearchResult(
                 title=item.get("title", ""),
                 url=item.get("url", ""),
-                snippet=item.get("description", "")[:300],
+                snippet=item.get("description", "")[:SNIPPET_MAX_CHARS],
                 source="firecrawl",
             ))
         return results
@@ -218,7 +224,7 @@ class WebResearchClient:
 
     def extract(self, url: str) -> Optional[str]:
         """Extract content from a URL using Firecrawl or Camofox fallback."""
-        if not url:
+        if not url or not isinstance(url, str):
             return None
 
         # Try Firecrawl first (better structured extraction)
@@ -227,7 +233,7 @@ class WebResearchClient:
             if content:
                 return content
         except Exception as e:
-            logger.warning("Firecrawl extraction failed for %s: %s", url[:80], e)
+            logger.warning("Firecrawl extraction failed for %s: %s", str(url)[:80], e)
 
         # Fallback to Camofox browser scraping
         try:
@@ -235,7 +241,7 @@ class WebResearchClient:
             if content:
                 return content
         except Exception as e:
-            logger.warning("Camofox extraction failed for %s: %s", url[:80], e)
+            logger.warning("Camofox extraction failed for %s: %s", str(url)[:80], e)
 
         return None
 
@@ -249,7 +255,7 @@ class WebResearchClient:
         if self._firecrawl_url:
             endpoint = f"{self._firecrawl_url.rstrip('/')}/v1/scrape"
         else:
-            endpoint = "https://api.firecrawl.dev/v1/scrape"
+            endpoint = f"{FIRECRAWL_CLOUD_BASE_URL}/scrape"
 
         try:
             resp = http.post(
@@ -407,4 +413,4 @@ class WebResearchClient:
                 query = f"{query} {time_context}"
             queries.append(query)
 
-        return queries[:5]  # Cap at 5 gap queries to prevent runaway research
+        return queries[:MAX_GAP_QUERIES]

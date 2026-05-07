@@ -571,13 +571,19 @@ class PerpetualContextProvider(MemoryProvider):
     def _ensure_web_research(self) -> None:
         """Lazy-init the WebResearchClient with local-first config."""
         if self._web_research is None:
-            from .web_research import WebResearchClient, CAMOFOX_URL_DEFAULT
+            from .web_research import (
+                CAMOFOX_URL_DEFAULT,
+                CAMOFOX_URL_ENV,
+                FIRECRAWL_API_URL_ENV,
+                FIRECRAWL_URL_ENV,
+                WebResearchClient,
+            )
             self._web_research = WebResearchClient({
                 "searxng_url": SEARXNG_URL,
-                "firecrawl_url": os.environ.get("FIRECRAWL_URL", "").strip()
-                    or os.environ.get("FIRECRAWL_API_URL", "").strip()
+                "firecrawl_url": os.environ.get(FIRECRAWL_URL_ENV, "").strip()
+                    or os.environ.get(FIRECRAWL_API_URL_ENV, "").strip()
                     or "",
-                "camofox_url": os.environ.get("CAMOFOX_URL", "").strip()
+                "camofox_url": os.environ.get(CAMOFOX_URL_ENV, "").strip()
                     or CAMOFOX_URL_DEFAULT,
             })
         elif not self._web_research._searxng_url:
