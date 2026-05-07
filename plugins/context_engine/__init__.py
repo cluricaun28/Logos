@@ -56,8 +56,8 @@ def discover_context_engines() -> list[tuple[str, str, bool]]:
                 with open(yaml_file) as f:
                     meta = yaml.safe_load(f) or {}
                 desc = meta.get("description", "")
-            except Exception:
-                logger.debug("Silently handled: %s", sys.exc_info()[1])
+            except Exception as e:
+                logger.debug("Silently handled: %s", e)
 
         # Quick availability check — try loading and calling is_available()
         available = True
@@ -67,7 +67,8 @@ def discover_context_engines() -> list[tuple[str, str, bool]]:
                 available = False
             elif hasattr(engine, "is_available"):
                 available = engine.is_available()
-        except Exception:
+        except Exception as e:
+            logger.debug("Availability check failed for '%s': %s", child.name, e)
             available = False
 
         results.append((child.name, desc, available))
@@ -140,8 +141,8 @@ def _load_engine_from_dir(engine_dir: Path, config: dict | None = None) -> "Cont
                         sys.modules[parent] = parent_mod
                         try:
                             spec.loader.exec_module(parent_mod)
-                        except Exception:
-                            logger.debug("Silently handled: %s", sys.exc_info()[1])
+                        except Exception as e:
+                            logger.debug("Failed to load parent module '%s': %s", parent, e)
 
         # Now load the engine module
         spec = importlib.util.spec_from_file_location(
@@ -198,8 +199,8 @@ def _load_engine_from_dir(engine_dir: Path, config: dict | None = None) -> "Cont
             try:
                 # Pass config as kwargs to the engine constructor
                 return attr(**(config or {}))
-            except Exception:
-                logger.debug("Silently handled: %s", sys.exc_info()[1])
+            except Exception as e:
+                logger.debug("Failed to instantiate engine '%s': %s", name, e)
 
     return None
 

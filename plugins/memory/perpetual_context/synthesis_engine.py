@@ -194,7 +194,7 @@ class SynthesisEngine:
         lines = [f"# Research Synthesis — {query}", ""]
 
         # Group facts by source for organization
-        by_source: dict[str, list[Dict]] = {}
+        by_source: dict[str, list[dict]] = {}
         for fact in facts:
             src = fact.get("source", "unknown")
             if src not in by_source:
@@ -496,7 +496,7 @@ class RLUpdateDetector:
 # ---------------------------------------------------------------------------
 
 def synthesize_research(facts: list[dict[str, Any]], query: str,
-                        sensitivity: str = "low", config: Dict | None = None) -> dict[str, Any]:
+                        sensitivity: str = "low", config: dict | None = None) -> dict[str, Any]:
     """Convenience wrapper for the full synthesis pipeline.
 
     Usage:
