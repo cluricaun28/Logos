@@ -150,7 +150,7 @@ class _SearchEngine:
             return []
 
         try:
-            time_col = self.time_col
+            time_col = self.time_column
             like_pattern = f"%{query.strip()}%"
             query_words = set(query.lower().split())
 

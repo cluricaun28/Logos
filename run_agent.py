@@ -9877,10 +9877,12 @@ class AIAgent:
             effective_system = self._cached_system_prompt or ""
             if self.ephemeral_system_prompt:
                 effective_system = (effective_system + "\n\n" + self.ephemeral_system_prompt).strip()
-            if effective_system:
-                api_messages = [{"role": "system", "content": effective_system}] + api_messages
+            # Always ensure a system message is present at position 0 — vLLM
+            # returns 400 if the first message isn't a system message.  Use a
+            # minimal placeholder when no system prompt is configured.
+            api_messages = [{"role": "system", "content": effective_system or " "}] + api_messages
             if self.prefill_messages:
-                sys_offset = 1 if effective_system else 0
+                sys_offset = 1
                 for idx, pfm in enumerate(self.prefill_messages):
                     api_messages.insert(sys_offset + idx, pfm.copy())
 
