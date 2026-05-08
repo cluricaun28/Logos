@@ -3,12 +3,11 @@
 Handles topics, relationships, sessions, knowledge gaps, queries,
 and database statistics.
 """
+
 from __future__ import annotations
 
 import json
 import logging
-import sqlite3
-import threading
 import time
 from typing import Any
 
@@ -50,7 +49,7 @@ class _MetadataManager:
                     return None  # Duplicate
 
                 cursor = self._conn.execute(
-                    """INSERT INTO topics (session_id, topic_name, confidence) 
+                    """INSERT INTO topics (session_id, topic_name, confidence)
                        VALUES (?, ?, ?)""",
                     (session_id, topic_name, confidence),
                 )
@@ -60,7 +59,7 @@ class _MetadataManager:
                 self._conn.execute(
                     """INSERT INTO session_metadata (session_id, topic_count, last_updated)
                        VALUES (?, 1, ?)
-                       ON CONFLICT(session_id) DO UPDATE SET 
+                       ON CONFLICT(session_id) DO UPDATE SET
                            topic_count = topic_count + 1,
                            last_updated = ?""",
                     (session_id, time.time(), time.time()),
@@ -113,7 +112,8 @@ class _MetadataManager:
             return []
 
         try:
-            cursor = self._conn.execute("""
+            cursor = self._conn.execute(
+                """
                 SELECT t.id, t.topic_name, t.confidence, t.created_at, t.updated_at,
                        COUNT(tm.message_id) as message_count
                 FROM topics t
@@ -121,19 +121,23 @@ class _MetadataManager:
                 WHERE t.session_id = ?
                 GROUP BY t.id
                 ORDER BY t.created_at ASC
-            """, (session_id,))
+            """,
+                (session_id,),
+            )
 
             rows = cursor.fetchall()
             results = []
             for row in rows:
-                results.append({
-                    "id": row[0],
-                    "topic_name": row[1],
-                    "confidence": row[2],
-                    "created_at": row[3],
-                    "updated_at": row[4],
-                    "message_count": row[5] or 0,
-                })
+                results.append(
+                    {
+                        "id": row[0],
+                        "topic_name": row[1],
+                        "confidence": row[2],
+                        "created_at": row[3],
+                        "updated_at": row[4],
+                        "message_count": row[5] or 0,
+                    }
+                )
 
             return results
 
@@ -170,27 +174,65 @@ class _MetadataManager:
         for msg in recent_messages:
             content_lower = msg["content"].lower()
             topic_names = [t["topic_name"].lower() for t in topics]
-            
+
             matched = False
             for topic_name in topic_names:
                 # Filter out common English stopwords to reduce false positives
-                stop_words = {'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 
-                              'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will',
-                              'would', 'could', 'should', 'may', 'might', 'shall', 'can',
-                              'to', 'of', 'in', 'for', 'on', 'with', 'at', 'by', 'from',
-                              'and', 'or', 'but', 'not', 'no', 'if', 'then', 'else'}
+                stop_words = {
+                    "the",
+                    "a",
+                    "an",
+                    "is",
+                    "are",
+                    "was",
+                    "were",
+                    "be",
+                    "been",
+                    "being",
+                    "have",
+                    "has",
+                    "had",
+                    "do",
+                    "does",
+                    "did",
+                    "will",
+                    "would",
+                    "could",
+                    "should",
+                    "may",
+                    "might",
+                    "shall",
+                    "can",
+                    "to",
+                    "of",
+                    "in",
+                    "for",
+                    "on",
+                    "with",
+                    "at",
+                    "by",
+                    "from",
+                    "and",
+                    "or",
+                    "but",
+                    "not",
+                    "no",
+                    "if",
+                    "then",
+                    "else",
+                }
                 topic_words = set(topic_name.split()) - stop_words
                 content_words = set(content_lower.split()) - stop_words
-                
+
                 if not topic_words:  # Skip topics that are all stopwords
                     continue
-                    
+
                 words = topic_words & content_words
                 # Require at least 2 shared non-stopwords OR 50%+ of topic words match
                 if len(words) >= 2 or (topic_words and len(words) / len(topic_words) >= 0.5):
                     matched = True
                     break
-            
+
             if matched:
                 total_match += 1
 
@@ -225,7 +267,7 @@ class _MetadataManager:
         try:
             with self._lock:
                 cursor = self._conn.execute(
-                    """INSERT INTO relationships (session_id, source_entity, target_entity, 
+                    """INSERT INTO relationships (session_id, source_entity, target_entity,
                        relationship_type, strength) VALUES (?, ?, ?, ?, ?)""",
                     (session_id, source_entity, target_entity, relationship_type, strength),
                 )
@@ -302,7 +344,7 @@ class _MetadataManager:
             return None
 
     def get_relationships(
-        self, 
+        self,
         session_id: str = None,
         entity: str = None,
         relationship_type: str = None,
@@ -341,15 +383,17 @@ class _MetadataManager:
 
             results = []
             for row in rows:
-                results.append({
-                    "id": row[0],
-                    "session_id": row[1],
-                    "source_entity": row[2],
-                    "target_entity": row[3],
-                    "relationship_type": row[4],
-                    "strength": row[5],
-                    "created_at": row[6],
-                })
+                results.append(
+                    {
+                        "id": row[0],
+                        "session_id": row[1],
+                        "source_entity": row[2],
+                        "target_entity": row[3],
+                        "relationship_type": row[4],
+                        "strength": row[5],
+                        "created_at": row[6],
+                    }
+                )
 
             return results
 
@@ -406,17 +450,20 @@ class _MetadataManager:
             with self._lock:
                 # Explicit transaction — if any operation fails, roll back to avoid partial deletions
                 self._conn.execute("BEGIN")
-                
+
                 # Delete in correct order (respect foreign keys)
                 # FTS5 triggers handle automatic cleanup when messages are deleted
                 try:
-                    self._conn.execute("DELETE FROM topic_messages WHERE topic_id IN (SELECT id FROM topics WHERE session_id = ?)", (session_id,))
+                    self._conn.execute(
+                        "DELETE FROM topic_messages WHERE topic_id IN (SELECT id FROM topics WHERE session_id = ?)",
+                        (session_id,),
+                    )
                     self._conn.execute("DELETE FROM relationships WHERE session_id = ?", (session_id,))
                     self._conn.execute("DELETE FROM topics WHERE session_id = ?", (session_id,))
                     self._conn.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
                     self._conn.execute("DELETE FROM session_metadata WHERE session_id = ?", (session_id,))
                     # FTS5 cleanup is handled automatically by the messages_ad trigger
-                    
+
                     self._conn.commit()
                     return True
                 except Exception:
@@ -426,8 +473,6 @@ class _MetadataManager:
         except Exception as e:
             logger.error("Failed to delete session: %s", e)
             return False
-
-
 
     # -- Utility -----------------------------------------------------------
 
@@ -516,9 +561,13 @@ class _MetadataManager:
             # ---- STATISTICS MODE ----
             if stats:
                 return self._get_query_stats(
-                    session_id=session_id, role=role, pattern=pattern,
-                    min_tokens=min_tokens, max_tokens=max_tokens,
-                    time_start=time_start, time_end=time_end,
+                    session_id=session_id,
+                    role=role,
+                    pattern=pattern,
+                    min_tokens=min_tokens,
+                    max_tokens=max_tokens,
+                    time_start=time_start,
+                    time_end=time_end,
                 )
 
             # ---- BUILD SQL QUERY ----
@@ -527,7 +576,7 @@ class _MetadataManager:
             try:
                 cursor = self._conn.execute("PRAGMA table_info(messages)")
                 columns = {row[1] for row in cursor.fetchall()}
-                if 'metadata' in columns:
+                if "metadata" in columns:
                     query_sql += ", metadata"
                 else:
                     query_sql += ", '' as metadata"
@@ -553,7 +602,7 @@ class _MetadataManager:
                 params.append(role)
 
             if ids is not None and len(ids) > 0:
-                placeholders = ','.join(['?' for _ in ids])
+                placeholders = ",".join(["?" for _ in ids])
                 query_sql += f" AND id IN ({placeholders})"
                 params.extend(ids)
 
@@ -576,18 +625,17 @@ class _MetadataManager:
 
             # Metadata filter — use json_extract for proper JSON key lookup.
             # Pass numeric values as-is (not str()) so SQLite type matching works correctly.
-            if metadata_key is not None and metadata_value is not None:
-                if 'metadata' in columns:
-                    if isinstance(metadata_value, (dict, list)):
-                        meta_val = json.dumps(metadata_value)
-                    elif isinstance(metadata_value, bool):
-                        # JSON booleans must be lowercase for SQLite json_extract comparison
-                        meta_val = str(metadata_value).lower()
-                    else:
-                        # Pass numbers as-is; strings as quoted JSON strings
-                        meta_val = metadata_value
-                    query_sql += " AND json_extract(metadata, ?) = ?"
-                    params.extend([f'$.{metadata_key}', meta_val])
+            if metadata_key is not None and metadata_value is not None and "metadata" in columns:
+                if isinstance(metadata_value, (dict, list)):
+                    meta_val = json.dumps(metadata_value)
+                elif isinstance(metadata_value, bool):
+                    # JSON booleans must be lowercase for SQLite json_extract comparison
+                    meta_val = str(metadata_value).lower()
+                else:
+                    # Pass numbers as-is; strings as quoted JSON strings
+                    meta_val = metadata_value
+                query_sql += " AND json_extract(metadata, ?) = ?"
+                params.extend([f"$.{metadata_key}", meta_val])
 
             # Order by time descending, apply pagination
             query_sql += f" ORDER BY {time_col} DESC LIMIT ? OFFSET ?"
@@ -606,7 +654,7 @@ class _MetadataManager:
                     "token_count": row[4] or 0,
                     "created_at": row[-1],  # Always use 'created_at' key for API consistency
                 }
-                if 'metadata' in columns and len(row) > 5:
+                if "metadata" in columns and len(row) > 5:
                     try:
                         msg["metadata"] = json.loads(row[5]) if row[5] else {}
                     except (json.JSONDecodeError, TypeError):
@@ -689,7 +737,6 @@ class _MetadataManager:
             logger.error("Query stats failed: %s", e)
             return {"error": str(e)}
 
-
     def optimize(self) -> bool:
         """Run database optimization (VACUUM, FTS5 optimization).
 
@@ -721,7 +768,7 @@ class _MetadataManager:
         needs_reference_library_update: bool | None = None,
         first_principles: list[str] | None = None,
         # Legacy alias — kept for backward compatibility
-        needs_wiki_update: bool | None = None,    # deprecated: use needs_reference_library_update
+        needs_wiki_update: bool | None = None,  # deprecated: use needs_reference_library_update
     ) -> int | None:
         """Store a knowledge gap in the database.
 
@@ -752,7 +799,7 @@ class _MetadataManager:
         try:
             with self._lock:
                 cursor = self._conn.execute(
-                    """INSERT INTO knowledge_gaps 
+                    """INSERT INTO knowledge_gaps
                        (topic, query, confidence, session_id, needs_wiki_update, first_principles)
                        VALUES (?, ?, ?, ?, ?, ?)""",
                     (
@@ -789,7 +836,7 @@ class _MetadataManager:
 
         try:
             cursor = self._conn.execute(
-                """SELECT id, topic, query, confidence, session_id, created_at, 
+                """SELECT id, topic, query, confidence, session_id, created_at,
                           needs_wiki_update, first_principles
                    FROM knowledge_gaps
                    WHERE resolved = 0
@@ -807,16 +854,18 @@ class _MetadataManager:
                 except (json.JSONDecodeError, TypeError):
                     first_principles = []
 
-                gaps.append({
-                    "id": row[0],
-                    "topic": row[1],
-                    "query": row[2],
-                    "confidence": row[3] or 0.5,
-                    "session_id": row[4] or "",
-                    "created_at": row[5] or 0,
-                    "needs_wiki_update": bool(row[6]) if row[6] is not None else True,
-                    "first_principles": first_principles,
-                })
+                gaps.append(
+                    {
+                        "id": row[0],
+                        "topic": row[1],
+                        "query": row[2],
+                        "confidence": row[3] or 0.5,
+                        "session_id": row[4] or "",
+                        "created_at": row[5] or 0,
+                        "needs_wiki_update": bool(row[6]) if row[6] is not None else True,
+                        "first_principles": first_principles,
+                    }
+                )
 
             return gaps
 
@@ -831,7 +880,7 @@ class _MetadataManager:
         session_id: str = "",
         reference_library_entry_written: bool | None = None,
         # Legacy alias — kept for backward compatibility
-        wiki_entry_written: bool | None = None,    # deprecated: use reference_library_entry_written
+        wiki_entry_written: bool | None = None,  # deprecated: use reference_library_entry_written
     ) -> bool:
         """Mark a knowledge gap as resolved and store the resolution.
 
@@ -860,13 +909,12 @@ class _MetadataManager:
         try:
             with self._lock:
                 # Truncate only if genuinely excessive (SQLite TEXT max is ~2GB, but 64KB is a practical limit)
-                truncation_warning = ""
                 text_to_store = resolution_text or ""
                 max_len = 65536  # 64KB — generous but prevents abuse
                 if len(text_to_store) > max_len:
                     logger.warning("Resolution text truncated from %d to %d chars (gap_id=%d)", len(text_to_store), max_len, gap_id)
                     text_to_store = text_to_store[:max_len]
-                
+
                 self._conn.execute(
                     """UPDATE knowledge_gaps
                        SET resolved = 1, resolution_text = ?, resolution_timestamp = ?
@@ -891,7 +939,7 @@ class _MetadataManager:
 
         try:
             cursor = self._conn.execute(
-                """SELECT 
+                """SELECT
                        COUNT(*) as total,
                        COALESCE(SUM(CASE WHEN resolved = 1 THEN 1 ELSE 0 END), 0) as resolved,
                        COALESCE(SUM(CASE WHEN resolved = 0 THEN 1 ELSE 0 END), 0) as unresolved

@@ -1,0 +1,17 @@
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff (lint)
+        entry: ruff check .
+        language: system
+        types: [python]
+        pass_filenames: false
+        files: ^agent/(perpetual_context_db|pcdb_).*\.py$|^plugins/
+      - id: ruff-format
+        name: ruff (format)
+        entry: ruff format .
+        language: system
+        types: [python]
+        pass_filenames: false
+        files: ^agent/(perpetual_context_db|pcdb_).*\.py$|^plugins/

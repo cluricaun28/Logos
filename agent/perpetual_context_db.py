@@ -10,10 +10,10 @@ Architecture:
 
 Usage:
     from agent.perpetual_context_db import PerpetualContextDB
-    
+
     db = PerpetualContextDB(db_path="~/.hermes/perpetual_context.db")
     db.initialize()
-    
+
     # Store a message
     db.add_message(
         session_id="20260421_023037",
@@ -21,29 +21,25 @@ Usage:
         content="Hello, how do I configure Hermes?",
         metadata={"turn": 1}
     )
-    
+
     # Search via FTS5 + SQL
     results = db.hybrid_search("Hermes configuration", top_k=5)
-    
+
     # Track topic flow
     topics = db.get_topic_flow(session_id="20260421_023037")
 """
+
 from __future__ import annotations
 
-import json
 import logging
 import math
 import os
-import pickle
 import sqlite3
 import struct
 import threading
-import time
-from pathlib import Path
-from typing import Any
 
-from agent.pcdb_metadata import _MetadataManager
 from agent.pcdb_messages import _MessageManager
+from agent.pcdb_metadata import _MetadataManager
 from agent.pcdb_schema import _SchemaManager
 from agent.pcdb_search import _SearchEngine
 
@@ -60,16 +56,16 @@ __version__ = "0.11.0"
 # Configuration defaults
 # ---------------------------------------------------------------------------
 
-CONTEXT_DRIFT_THRESHOLD = 0.3       # Lower = more sensitive to topic shifts
-ACTIVE_WINDOW_SIZE = 5              # Recent turns kept in short-term memory
-TOP_K_CHUNKS = 5                    # Archival chunks retrieved per search
-AUTO_TAG_ENABLED = True             # Auto-extract topics from messages
+CONTEXT_DRIFT_THRESHOLD = 0.3  # Lower = more sensitive to topic shifts
+ACTIVE_WINDOW_SIZE = 5  # Recent turns kept in short-term memory
+TOP_K_CHUNKS = 5  # Archival chunks retrieved per search
+AUTO_TAG_ENABLED = True  # Auto-extract topics from messages
 
 # Recall hook configuration — pre-response cross-session awareness
-RECALL_TOP_K_MULTIPLIER = 3         # Fetch N× results before scoring to account for session filtering
-RECALL_MIN_SCORE = 0.15             # Minimum RRF score threshold; lower = more inclusive, higher = stricter
-RECALL_SNIPPET_MAX_LEN = 80         # Max chars per message snippet in recall pointers
-RECALL_OUTPUT_MAX_CHARS = 200       # Hard cap on total recall output to prevent context bloat
+RECALL_TOP_K_MULTIPLIER = 3  # Fetch N× results before scoring to account for session filtering
+RECALL_MIN_SCORE = 0.15  # Minimum RRF score threshold; lower = more inclusive, higher = stricter
+RECALL_SNIPPET_MAX_LEN = 80  # Max chars per message snippet in recall pointers
+RECALL_OUTPUT_MAX_CHARS = 200  # Hard cap on total recall output to prevent context bloat
 
 # Whitelist of valid time column names for SQL interpolation safety
 VALID_TIME_COLUMNS = frozenset({"created_at", "timestamp"})
@@ -82,15 +78,15 @@ VALID_TIME_COLUMNS = frozenset({"created_at", "timestamp"})
 # ~80MB model download on first use, 384-dim vectors (~1.5KB per message).
 # Graceful degradation: if model unavailable, embedding is skipped silently.
 
-EMBED_MODEL_NAME = "all-MiniLM-L6-v2"   # SentenceTransformers model identifier
-EMBED_DIM = 384                          # Output dimension of all-MiniLM-L6-v2
-EMBED_MIN_CONTENT_LEN = 10               # Skip embedding for content shorter than this (noise filter)
-EMBED_MAX_CONTENT_LEN = 5000             # Truncate very long messages to avoid excessive compute
+EMBED_MODEL_NAME = "all-MiniLM-L6-v2"  # SentenceTransformers model identifier
+EMBED_DIM = 384  # Output dimension of all-MiniLM-L6-v2
+EMBED_MIN_CONTENT_LEN = 10  # Skip embedding for content shorter than this (noise filter)
+EMBED_MAX_CONTENT_LEN = 5000  # Truncate very long messages to avoid excessive compute
 
 # Hybrid search weighting — how much semantic vs FTS5 contributes to final score.
 # Higher SEMANTIC_WEIGHT means more emphasis on meaning over keyword matching.
-SEMANTIC_WEIGHT = 0.4                    # Weight for cosine similarity in hybrid scoring
-FTS5_WEIGHT = 0.6                       # Weight for BM25 rank in hybrid scoring
+SEMANTIC_WEIGHT = 0.4  # Weight for cosine similarity in hybrid scoring
+FTS5_WEIGHT = 0.6  # Weight for BM25 rank in hybrid scoring
 
 # Cosine similarity threshold — below this, semantic results are discarded as irrelevant
 COSINE_SIMILARITY_THRESHOLD = 0.1
@@ -109,14 +105,14 @@ class EmbeddingEngine:
         None/empty rather than crashing. Embedding is an enhancement, not a blocker.
     """
 
-    _instance: "EmbeddingEngine | None" = None
+    _instance: EmbeddingEngine | None = None
     _lock = threading.Lock()
 
     def __init__(self) -> None:
         self._model = None  # Lazy-loaded SentenceTransformer model
 
     @classmethod
-    def get(cls) -> "EmbeddingEngine":
+    def get(cls) -> EmbeddingEngine:
         """Thread-safe singleton accessor."""
         if cls._instance is None:
             with cls._lock:
@@ -126,7 +122,7 @@ class EmbeddingEngine:
 
     def _load_model(self):
         """Load the SentenceTransformer model on first use.
-        
+
         Loads from sovereign local path to ensure zero network latency and total sovereignty.
         """
         if self._model is not None:
@@ -134,17 +130,13 @@ class EmbeddingEngine:
         try:
             import torch
             from sentence_transformers import SentenceTransformer
+
             local_path = os.path.expanduser("~/.hermes/models/embeddings/all-MiniLM-L6-v2")
-            logger.info(
-                "Loading embedding model from local path '%s'...", local_path
-            )
+            logger.info("Loading embedding model from local path '%s'...", local_path)
             self._model = SentenceTransformer(local_path, device="cuda" if torch.cuda.is_available() else "cpu", local_files_only=True)
             logger.info("Embedding model loaded successfully (%d-dim vectors)", EMBED_DIM)
         except ImportError:
-            logger.warning(
-                "sentence-transformers not installed — semantic search disabled. "
-                "Install with: pip install sentence-transformers"
-            )
+            logger.warning("sentence-transformers not installed — semantic search disabled. Install with: pip install sentence-transformers")
             self._model = None
         except Exception as e:
             logger.error("Failed to load embedding model from local path '%s': %s", local_path, e)
@@ -187,9 +179,7 @@ class EmbeddingEngine:
             Binary blob suitable for SQLite BLOB storage.
         """
         if len(vector) != EMBED_DIM:
-            logger.warning(
-                "Embedding dimension mismatch: expected %d, got %d", EMBED_DIM, len(vector)
-            )
+            logger.warning("Embedding dimension mismatch: expected %d, got %d", EMBED_DIM, len(vector))
             return b""
         fmt = f"{EMBED_DIM}f"  # e.g., "384f" for 384 float32 values
         return struct.pack(fmt, *vector)
@@ -226,7 +216,7 @@ class EmbeddingEngine:
         Returns:
             Similarity score in range [-1, 1]. Higher = more similar.
         """
-        dot_product = sum(x * y for x, y in zip(a, b))
+        dot_product = sum(x * y for x, y in zip(a, b, strict=False))
         norm_a = math.sqrt(sum(x * x for x in a))
         norm_b = math.sqrt(sum(x * x for x in b))
         if norm_a == 0 or norm_b == 0:
@@ -307,9 +297,7 @@ class PerpetualContextDB(
         try:
             with self._lock:
                 # Connect to SQLite (create if not exists)
-                self._conn = sqlite3.connect(
-                    self._db_path, timeout=30, check_same_thread=False
-                )
+                self._conn = sqlite3.connect(self._db_path, timeout=30, check_same_thread=False)
                 self._conn.execute("PRAGMA journal_mode=WAL")
                 self._conn.execute("PRAGMA foreign_keys=ON")
                 self._create_tables()
@@ -318,7 +306,7 @@ class PerpetualContextDB(
                 self._migrate_timestamps_to_created_at()
 
                 self._initialized = True
-                
+
                 return True
 
         except Exception as e:

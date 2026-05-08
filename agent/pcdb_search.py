@@ -3,10 +3,12 @@
 Handles FTS5 keyword search, semantic vector search, hybrid fusion,
 and cross-session recall.
 """
+
 from __future__ import annotations
 
 import json
 import logging
+import sqlite3
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -48,10 +50,10 @@ class _SearchEngine:
 
         try:
             time_col = self.time_column
-            
+
             # FTS5 uses special syntax for matching — need to escape operators
             search_query = query.strip()
-            
+
             # Always use LIKE-based search to avoid FTS5 expression injection.
             # FTS5 MATCH cannot be safely parameterized in SQLite (the query
             # expression is part of the SQL, not a bound parameter), so we
@@ -65,12 +67,12 @@ class _SearchEngine:
             escaped_words = [w.replace("'", "''") for w in list(query_words)[:5]]
 
             base_sql = f"""
-                SELECT m.id, m.session_id, m.role, m.content, 
+                SELECT m.id, m.session_id, m.role, m.content,
                        COALESCE(m.metadata, '{{{{}}}}') as metadata,
                        m.{time_col},
                        -- Simple relevance: count of query words found in content (higher = more relevant).
                        -- Negated so ORDER BY rank works the same way as FTS5 (lower = better).
-                       -({'+ '.join([f"CASE WHEN LOWER(m.content) LIKE '%{w}%' THEN 1 ELSE 0 END" for w in escaped_words])}) as rank
+                       -({"+ ".join([f"CASE WHEN LOWER(m.content) LIKE '%{w}%' THEN 1 ELSE 0 END" for w in escaped_words])}) as rank
                 FROM messages m
                 WHERE m.content LIKE ?
             """
@@ -137,6 +139,7 @@ class _SearchEngine:
         try:
             # Embed the query — returns None if model unavailable
             from agent.perpetual_context_db import EmbeddingEngine  # noqa: PLC0415
+
             engine = EmbeddingEngine.get()
             query_vector = engine.embed(query)
             if query_vector is None:
@@ -156,8 +159,7 @@ class _SearchEngine:
 
             time_col = self.time_column
             cursor = self._conn.execute(
-                f"SELECT id, session_id, role, content, metadata, {time_col}, embedding "
-                f"FROM messages WHERE {' AND '.join(where_parts)}",
+                f"SELECT id, session_id, role, content, metadata, {time_col}, embedding FROM messages WHERE {' AND '.join(where_parts)}",
                 params,
             )
             rows = cursor.fetchall()
@@ -191,7 +193,7 @@ class _SearchEngine:
             # Sort by similarity descending, take top_k
             scored.sort(key=lambda x: -x[1])
             results = []
-            for msg_id, sim, msg in scored[:top_k]:
+            for _msg_id, sim, msg in scored[:top_k]:
                 result = dict(msg)
                 result["_similarity"] = round(sim, 4)
                 results.append(result)
@@ -228,9 +230,7 @@ class _SearchEngine:
             List of matching message dicts with '_score' field (weighted hybrid score).
         """
         # Get FTS5 keyword results — fetch extra for fusion
-        fts_results = self.fts_search(
-            query, session_id=session_id, top_k=top_k * 2
-        )
+        fts_results = self.fts_search(query, session_id=session_id, top_k=top_k * 2)
 
         # Get semantic embedding results — fetch extra for fusion
         semantic_results = self.semantic_search(
@@ -284,8 +284,7 @@ class _SearchEngine:
         if missing_ids:
             placeholders = ",".join("?" for _ in missing_ids)
             cursor = self._conn.execute(
-                f"SELECT id, session_id, role, content, metadata, {self.time_column} "
-                f"FROM messages WHERE id IN ({placeholders})",
+                f"SELECT id, session_id, role, content, metadata, {self.time_column} FROM messages WHERE id IN ({placeholders})",
                 missing_ids,
             )
             for row in cursor.fetchall():
@@ -344,7 +343,9 @@ class _SearchEngine:
         try:
             # Step 1: Hybrid search across ALL sessions (semantic + keyword fusion)
             hybrid_results = self.hybrid_search(
-                query, session_id=None, top_k=top_k * RECALL_TOP_K_MULTIPLIER,
+                query,
+                session_id=None,
+                top_k=top_k * RECALL_TOP_K_MULTIPLIER,
                 exclude_session_id=exclude_session_id,
             )
             if not hybrid_results:
@@ -352,11 +353,7 @@ class _SearchEngine:
 
             # Step 2: Filter by score threshold and take top_k.
             # hybrid_search already returns dicts with '_score' (weighted hybrid score).
-            qualified = [
-                (msg["id"], msg["_score"])
-                for msg in hybrid_results[:top_k]
-                if msg.get("_score", 0) >= min_score
-            ]
+            qualified = [(msg["id"], msg["_score"]) for msg in hybrid_results[:top_k] if msg.get("_score", 0) >= min_score]
             if not qualified:
                 return ""
 
@@ -367,9 +364,7 @@ class _SearchEngine:
                 return ""
 
             # Step 4: Format as compact pointers with hard cap
-            return self._format_recall_pointers(
-                messages, qualified, max_chars=max_chars
-            )
+            return self._format_recall_pointers(messages, qualified, max_chars=max_chars)
 
         except (sqlite3.Error, KeyError, TypeError) as e:
             logger.exception("recall_past_discussions failed: %s", e)
@@ -399,14 +394,9 @@ class _SearchEngine:
             session = m["session_id"][:15]  # Truncate long IDs
             ts = str(m.get("created_at", ""))[:10] if m.get("created_at") else "?"
 
-            snippet = PerpetualContextDB._extract_snippet(
-                m.get("content", "") or "", max_len=RECALL_SNIPPET_MAX_LEN
-            )
+            snippet = _SearchEngine._extract_snippet(m.get("content", "") or "", max_len=RECALL_SNIPPET_MAX_LEN)
 
-            parts.append(
-                f"[{role} {ts} session:{session} score:{score:.2f}] "
-                f"{snippet}"
-            )
+            parts.append(f"[{role} {ts} session:{session} score:{score:.2f}] {snippet}")
 
         if not parts:
             return ""
@@ -416,7 +406,7 @@ class _SearchEngine:
 
         # Hard cap on total characters to prevent context bloat
         if len(result) > max_chars:
-            result = result[:max_chars - 3] + "..."
+            result = result[: max_chars - 3] + "..."
 
         return result
 
@@ -433,7 +423,7 @@ class _SearchEngine:
         # Strip common prefixes that add noise
         for prefix in ("tool_call:", "function:", "[", "{"):
             if text.startswith(prefix):
-                text = text[len(prefix):]
+                text = text[len(prefix) :]
                 break
 
         # Try to end at a sentence boundary
@@ -441,7 +431,7 @@ class _SearchEngine:
         for delim in (". ", "\n", "! ", "? "):
             idx = text.find(delim)
             if 0 < idx <= max_len:
-                snippet = text[:idx + 1].strip()
+                snippet = text[: idx + 1].strip()
                 break
 
         # Truncate at word boundary if too long

@@ -166,7 +166,13 @@ invalid-assignment = "ignore"
 not-iterable = "ignore"
 
 [tool.ruff]
-exclude = ["*"]
+# Only lint our custom code, not the full upstream repo
+include = ["agent/perpetual_context_db.py", "agent/pcdb_*.py", "plugins/"]
+line-length = 150
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+
 
 [tool.uv]
 exclude-newer = "7 days"

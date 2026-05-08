@@ -3,12 +3,11 @@
 Handles CRUD operations for conversation messages, embedding generation,
 and backfill operations.
 """
+
 from __future__ import annotations
 
 import json
 import logging
-import os
-import threading
 import time
 from typing import Any
 
@@ -57,7 +56,7 @@ class _MessageManager:
 
         try:
             meta_json = json.dumps(metadata or {})
-            
+
             # Use provided timestamp or generate one with millisecond precision
             ts = timestamp if timestamp is not None else time.time()
 
@@ -66,25 +65,25 @@ class _MessageManager:
                 cursor = self._conn.execute("PRAGMA table_info(messages)")
                 columns = {row[1] for row in cursor.fetchall()}
 
-                if 'timestamp' in columns and 'created_at' not in columns:
+                if "timestamp" in columns and "created_at" not in columns:
                     # Old schema only (no created_at): use timestamp column
                     self._conn.execute(
-                        """INSERT INTO messages (session_id, role, content, metadata, timestamp) 
+                        """INSERT INTO messages (session_id, role, content, metadata, timestamp)
                            VALUES (?, ?, ?, ?, ?)""",
                         (session_id, role, content, meta_json, ts),
                     )
                 else:
                     # New schema or mixed: use created_at column with explicit timestamp
                     # Also set timestamp column if it exists (NOT NULL, no default)
-                    if 'timestamp' in columns:
+                    if "timestamp" in columns:
                         self._conn.execute(
-                            """INSERT INTO messages (session_id, role, content, metadata, timestamp, created_at) 
+                            """INSERT INTO messages (session_id, role, content, metadata, timestamp, created_at)
                                VALUES (?, ?, ?, ?, ?, ?)""",
                             (session_id, role, content, meta_json, ts, ts),
                         )
                     else:
                         self._conn.execute(
-                            """INSERT INTO messages (session_id, role, content, metadata, created_at) 
+                            """INSERT INTO messages (session_id, role, content, metadata, created_at)
                                VALUES (?, ?, ?, ?, ?)""",
                             (session_id, role, content, meta_json, ts),
                         )
@@ -95,7 +94,7 @@ class _MessageManager:
                 self._conn.execute(
                     """INSERT INTO session_metadata (session_id, message_count, last_updated)
                        VALUES (?, 1, ?)
-                       ON CONFLICT(session_id) DO UPDATE SET 
+                       ON CONFLICT(session_id) DO UPDATE SET
                            message_count = message_count + 1,
                            last_updated = ?""",
                     (session_id, time.time(), time.time()),
@@ -134,6 +133,7 @@ class _MessageManager:
             return
 
         from agent.perpetual_context_db import EmbeddingEngine  # noqa: PLC0415
+
         engine = EmbeddingEngine.get()
         vector = engine.embed(content)
         if vector is None:
@@ -145,9 +145,7 @@ class _MessageManager:
 
         try:
             with self._lock:
-                self._conn.execute(
-                    "UPDATE messages SET embedding = ? WHERE id = ?", (blob, message_id)
-                )
+                self._conn.execute("UPDATE messages SET embedding = ? WHERE id = ?", (blob, message_id))
                 self._conn.commit()
         except Exception as e:
             logger.debug("Failed to store embedding for message %d: %s", message_id, e)
@@ -190,8 +188,7 @@ class _MessageManager:
         # Fetch IDs in batches
         limit_clause = f"LIMIT {max_messages}" if max_messages else ""
         cursor = self._conn.execute(
-            f"SELECT id, role, content FROM messages "
-            f"WHERE {' AND '.join(where_parts)} ORDER BY id ASC {limit_clause}",
+            f"SELECT id, role, content FROM messages WHERE {' AND '.join(where_parts)} ORDER BY id ASC {limit_clause}",
             params,
         )
         rows = cursor.fetchall()
@@ -203,15 +200,17 @@ class _MessageManager:
 
         logger.info(
             "Starting embedding backfill for %d messages (batch_size=%d)...",
-            stats["total"], batch_size,
+            stats["total"],
+            batch_size,
         )
 
         from agent.perpetual_context_db import EmbeddingEngine  # noqa: PLC0415
+
         engine = EmbeddingEngine.get()
 
         # Process in batches — embed outside lock, write inside lock
         for batch_start in range(0, len(rows), batch_size):
-            batch = rows[batch_start: batch_start + batch_size]
+            batch = rows[batch_start : batch_start + batch_size]
 
             for row in batch:
                 msg_id, role, content = row
@@ -244,12 +243,17 @@ class _MessageManager:
             processed = min(batch_start + batch_size, len(rows))
             logger.info(
                 "Backfill progress: %d/%d messages (%d embedded, %d skipped, %d failed)",
-                processed, stats["total"], stats["embedded"], stats["skipped"], stats["failed"],
+                processed,
+                stats["total"],
+                stats["embedded"],
+                stats["skipped"],
+                stats["failed"],
             )
 
         logger.info(
             "Embedding backfill complete: %d/%d messages embedded",
-            stats["embedded"], stats["total"],
+            stats["embedded"],
+            stats["total"],
         )
         return stats
 
@@ -302,13 +306,15 @@ class _MessageManager:
 
             results = []
             for row in rows:
-                results.append({
-                    "id": row[0],
-                    "session_id": row[1],
-                    "role": row[2],
-                    "content": row[3],  # Full content, no truncation
-                    "created_at": row[4],  # Always use 'created_at' key for API consistency
-                })
+                results.append(
+                    {
+                        "id": row[0],
+                        "session_id": row[1],
+                        "role": row[2],
+                        "content": row[3],  # Full content, no truncation
+                        "created_at": row[4],  # Always use 'created_at' key for API consistency
+                    }
+                )
 
             return results
 
@@ -359,13 +365,15 @@ class _MessageManager:
 
             results = []
             for row in rows:
-                results.append({
-                    "id": row[0],
-                    "session_id": row[1],
-                    "role": row[2],
-                    "content": row[3],  # Full content, no truncation
-                    "created_at": row[4],  # Always use 'created_at' key for API consistency
-                })
+                results.append(
+                    {
+                        "id": row[0],
+                        "session_id": row[1],
+                        "role": row[2],
+                        "content": row[3],  # Full content, no truncation
+                        "created_at": row[4],  # Always use 'created_at' key for API consistency
+                    }
+                )
 
             # Reverse to get chronological order (oldest first)
             results.reverse()
@@ -388,9 +396,7 @@ class _MessageManager:
             return None
         try:
             with self._lock:
-                row = self._conn.execute(
-                    "SELECT session_id FROM messages WHERE id = ?", (message_id,)
-                ).fetchone()
+                row = self._conn.execute("SELECT session_id FROM messages WHERE id = ?", (message_id,)).fetchone()
             return row[0] if row else None
         except Exception as e:
             logger.debug("get_message_session(%d) failed: %s", message_id, e)
@@ -427,14 +433,14 @@ class _MessageManager:
 
             query = "SELECT id, session_id, role, content"
 
-            if 'metadata' in columns:
+            if "metadata" in columns:
                 query += ", metadata"
             else:
                 query += ", '' as metadata"  # Default empty JSON
 
-            if 'created_at' in columns:
+            if "created_at" in columns:
                 query += ", created_at"
-            elif 'timestamp' in columns:
+            elif "timestamp" in columns:
                 query += ", timestamp as created_at"
             else:
                 query += ", 0 as created_at"

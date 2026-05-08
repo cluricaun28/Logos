@@ -3,10 +3,10 @@
 Handles table creation, column migration, and backward compatibility.
 Extracted from perpetual_context_db.py for single-responsibility compliance.
 """
+
 from __future__ import annotations
 
 import logging
-import sqlite3
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +56,10 @@ class _SchemaManager:
         # Backward compatibility: add missing columns from old schema (only if schema < v2).
         # NOTE: SQLite does NOT support function calls in ALTER TABLE ADD COLUMN defaults.
         # Use constant defaults here; triggers handle auto-timestamping where needed.
+        if self._schema_version < 2:
+            self._ensure_column("messages", "timestamp", "REAL DEFAULT 0")
+            self._ensure_column("messages", "token_count", "INTEGER DEFAULT 0")
+            self._ensure_column("messages", "embedding", "BLOB")
 
         # FTS5 virtual table for full-text search
         # Check if existing FTS table has the right columns, recreate if needed
@@ -63,7 +67,7 @@ class _SchemaManager:
         try:
             cursor = conn.execute("PRAGMA table_info(messages_fts)")
             fts_columns = [row[1] for row in cursor.fetchall()]
-            fts_has_metadata = 'metadata' in fts_columns
+            fts_has_metadata = "metadata" in fts_columns
         except Exception:
             logger.debug("FTS metadata column check failed")
 
@@ -76,14 +80,14 @@ class _SchemaManager:
             conn.execute("DROP TABLE IF EXISTS messages_fts_idx")
 
         # ALWAYS drop old triggers that reference the old FTS schema (2-column insert)
-        for trigger in ('messages_ai', 'messages_ad', 'messages_au'):
+        for trigger in ("messages_ai", "messages_ad", "messages_au"):
             try:
                 conn.execute(f"DROP TRIGGER IF EXISTS {trigger}")
             except Exception:
                 logger.debug("Drop trigger failed")
 
         conn.execute("""
-            CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts 
+            CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts
             USING fts5(content, metadata, session_id, content_bm25)
         """)
 
@@ -134,8 +138,8 @@ class _SchemaManager:
 
         # Backward compatibility: ensure topics has required columns (only if schema < v2).
         if self._schema_version < 2:
-            self._ensure_column('topics', 'created_at', "REAL DEFAULT 0")
-            self._ensure_column('topics', 'updated_at', "REAL DEFAULT 0")
+            self._ensure_column("topics", "created_at", "REAL DEFAULT 0")
+            self._ensure_column("topics", "updated_at", "REAL DEFAULT 0")
 
         # Topic messages — links between topics and messages
         conn.execute("""
@@ -162,9 +166,9 @@ class _SchemaManager:
 
         # Backward compatibility: ensure relationships has required columns (only if schema < v2).
         if self._schema_version < 2:
-            self._ensure_column('relationships', 'relationship_type', "TEXT DEFAULT 'related'")
-            self._ensure_column('relationships', 'strength', "REAL DEFAULT 0.5")
-            self._ensure_column('relationships', 'created_at', "REAL DEFAULT 0")
+            self._ensure_column("relationships", "relationship_type", "TEXT DEFAULT 'related'")
+            self._ensure_column("relationships", "strength", "REAL DEFAULT 0.5")
+            self._ensure_column("relationships", "created_at", "REAL DEFAULT 0")
 
         # Session metadata table
         conn.execute("""
@@ -178,8 +182,8 @@ class _SchemaManager:
 
         # Backward compatibility: ensure session_metadata has required columns (only if schema < v2).
         if self._schema_version < 2:
-            self._ensure_column('session_metadata', 'topic_count', "INTEGER DEFAULT 0")
-            self._ensure_column('session_metadata', 'last_updated', "REAL DEFAULT 0")
+            self._ensure_column("session_metadata", "topic_count", "INTEGER DEFAULT 0")
+            self._ensure_column("session_metadata", "last_updated", "REAL DEFAULT 0")
 
         # Knowledge gaps table — stores unresolved questions from previous sessions
         # Focus: worldview-aligned reference library entries, not ephemeral search results
@@ -201,19 +205,19 @@ class _SchemaManager:
 
         # Backward compatibility: ensure knowledge_gaps has required columns (only if schema < v2).
         if self._schema_version < 2:
-            self._ensure_column('knowledge_gaps', 'resolved', "INTEGER DEFAULT 0")
-            self._ensure_column('knowledge_gaps', 'resolution_text', "TEXT DEFAULT ''")
-            self._ensure_column('knowledge_gaps', 'resolution_timestamp', "REAL DEFAULT 0")
+            self._ensure_column("knowledge_gaps", "resolved", "INTEGER DEFAULT 0")
+            self._ensure_column("knowledge_gaps", "resolution_text", "TEXT DEFAULT ''")
+            self._ensure_column("knowledge_gaps", "resolution_timestamp", "REAL DEFAULT 0")
             # Legacy column: needs_wiki_update (renamed to needs_reference_library_update in docs)
-            self._ensure_column('knowledge_gaps', 'needs_wiki_update', "INTEGER DEFAULT 1")
-            self._ensure_column('knowledge_gaps', 'first_principles', "TEXT DEFAULT ''")
+            self._ensure_column("knowledge_gaps", "needs_wiki_update", "INTEGER DEFAULT 1")
+            self._ensure_column("knowledge_gaps", "first_principles", "TEXT DEFAULT ''")
 
         # Indexes for common queries
         conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_topics_session ON topics(session_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_relationships_entities ON relationships(source_entity, target_entity)")
-        
+
         # Index for knowledge gap queries (unresolved gaps ordered by confidence)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_knowledge_gaps_resolved ON knowledge_gaps(resolved, confidence ASC, created_at DESC)")
 
@@ -259,7 +263,7 @@ class _SchemaManager:
 
         Args:
             table: Table name
-            column: Column name  
+            column: Column name
             col_def: Full column definition (e.g., "TEXT DEFAULT '{}'")
 
         Returns:
@@ -283,7 +287,7 @@ class _SchemaManager:
 
     def _migrate_timestamps_to_created_at(self) -> None:
         """Migrate existing timestamp data to created_at for backward compatibility.
-        
+
         When both 'timestamp' and 'created_at' columns exist (mixed schema),
         copy non-NULL timestamp values to created_at where it's NULL or 0.
         This ensures time-based queries work correctly regardless of which column
@@ -292,27 +296,25 @@ class _SchemaManager:
         try:
             cursor = self._conn.execute("PRAGMA table_info(messages)")
             columns = {row[1] for row in cursor.fetchall()}
-            
-            if 'timestamp' not in columns or 'created_at' not in columns:
+
+            if "timestamp" not in columns or "created_at" not in columns:
                 return  # No migration needed
-            
+
             # Count rows that need migration (created_at is NULL or 0)
-            needs_migration = self._conn.execute(
-                "SELECT COUNT(*) FROM messages WHERE created_at IS NULL OR created_at = 0"
-            ).fetchone()[0]
-            
+            needs_migration = self._conn.execute("SELECT COUNT(*) FROM messages WHERE created_at IS NULL OR created_at = 0").fetchone()[0]
+
             if needs_migration == 0:
                 logger.debug("No timestamp migration needed — all rows have valid created_at")
                 return
-            
+
             # Copy timestamp values to created_at where created_at is missing/zero
             cursor = self._conn.execute("""
-                UPDATE messages 
-                SET created_at = timestamp 
+                UPDATE messages
+                SET created_at = timestamp
                 WHERE (created_at IS NULL OR created_at = 0) AND timestamp IS NOT NULL
             """)
             migrated = cursor.rowcount
             logger.info("Migrated %d/%d rows: copied timestamp → created_at", migrated, needs_migration)
-            
+
         except Exception as e:
             logger.warning("Timestamp migration failed (non-fatal): %s", e)
