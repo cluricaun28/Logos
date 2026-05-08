@@ -9,6 +9,9 @@ Most AI agents are stateless—they forget who you are and what you've decided o
 - **Truth Hierarchy:** The system prioritizes curated, verified facts (Reference Library) over the volatile noise of the open web.
 - **Continuity:** It remembers not just what was said, but the *decisions* made and the *tasks* deferred, ensuring work continues exactly where it left off across sessions.
 
+### 📄 White Paper
+For a comprehensive architectural deep-dive covering all subsystems, the epistemic framework, and the design philosophy in detail, see [WHITEPAPER.md](WHITEPAPER.md).
+
 ---
 
 ## What This Fork Adds
