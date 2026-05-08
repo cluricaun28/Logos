@@ -50,7 +50,10 @@ if __name__ == "__main__":
     if result.get("action_taken") == "skipped":
         print(f"Skipped: {result.get('reason', 'no action needed')}")
     elif result.get("action_taken") == "completed":
-        print(f"Completed: embedded {result.get('messages_embedded', 0)} messages, FAISS rebuilt: {result.get('faiss_rebuilt', False)}")
+        print(
+            f"Completed: embedded {result.get('messages_embedded', 0)} messages, "
+            f"FAISS rebuilt: {result.get('faiss_rebuilt', False)}"
+        )
     else:
         print(f"Failed: {result.get('reason', 'unknown error')}")
         sys.exit(1)

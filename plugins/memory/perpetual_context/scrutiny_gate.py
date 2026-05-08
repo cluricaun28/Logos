@@ -924,7 +924,11 @@ class WorldviewDivergenceChecker:
             divergence = abs(user_score - estimated)
             if divergence >= self.DIVERGENCE_THRESHOLD:
                 direction = "opposite" if divergence >= 3 else "different"
-                notes.append(f"This source holds a {direction} view on {axis.replace('_', ' ')} (yours: {user_score:+d}, source: ~{estimated:+d})")
+                notes.append(
+                    f"This source holds a {direction} view on "
+                    f"{axis.replace('_', ' ')} (yours: {user_score:+d}, "
+                    f"source: ~{estimated:+d})"
+                )
 
         return notes
 

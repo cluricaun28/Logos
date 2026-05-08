@@ -19,7 +19,6 @@ sys.path.insert(0, os.path.expanduser("~/.hermes/hermes-agent/plugins/memory"))
 
 from perpetual_context.extraction_engine import ExtractionEngine
 
-
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
 # ---------------------------------------------------------------------------
@@ -206,7 +205,9 @@ class TestExtractActiveTasks:
             {"role": "assistant", "content": (
                 "I decided to fix it.\n"
                 "Short\n"
-                "This is a very long decision line that explains the key design principle we must never forget when implementing this feature because it always check for edge cases and mandatory validation."
+            "This is a very long decision line that explains the key design "
+            "principle we must never forget when implementing this feature "
+            "because it always check for edge cases and mandatory validation."
             )},
         ]
         result = engine.extract_active_tasks(msgs)
@@ -233,7 +234,7 @@ class TestExtractActiveTasks:
         msgs = []
         for i in range(10):
             msgs.append({"role": "user", "content": f"Fix bug number {i}"})
-            msgs.append({"role": "assistant", "content": f"On it."})
+            msgs.append({"role": "assistant", "content": "On it."})
         result = engine.extract_active_tasks(msgs)
         assert len(result) == 5
 
@@ -753,7 +754,12 @@ class TestExtractKnownErrors:
     def test_cleans_traceback_artifacts(self):
         """Traceback prefixes like 'File "...", line N' should be cleaned."""
         engine = ExtractionEngine()
-        msgs = [{"role": "user", "content": 'TypeError: File "/path/to/file.py", line 42, in func\nactual error message'}]
+        msgs = [
+            {"role": "user", "content": (
+                'TypeError: File "/path/to/file.py", line 42, in func\n'
+                "actual error message"
+            )}
+        ]
         result = engine.extract_known_errors(msgs)
         assert len(result) >= 1
 

@@ -78,7 +78,11 @@ class ExtractionEngine:
     # Knowledge gap patterns
     _EXPLICIT_GAP_PATTERNS = [
         _re.compile(r"knowledge\s+gap(?:\s*:\s*(.*?))?(?:\n|$)", _re.IGNORECASE),
-        _re.compile(r"(?:RL|reference library)\s+(?:entry|page|topic)\s+(?:needed|required|missing)(?:\s*:\s*(.*?))?(?:\n|$)", _re.IGNORECASE),
+        _re.compile(
+            r"(?:RL|reference library)\s+(?:entry|page|topic)\s+"
+            r"(?:needed|required|missing)(?:\s*:\s*(.*?))?(?:\n|$)",
+            _re.IGNORECASE,
+        ),
         _re.compile(r"\[gap\]\s*(.*?)(?:\n|$)", _re.IGNORECASE),
     ]
 
