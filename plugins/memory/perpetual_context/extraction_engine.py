@@ -70,9 +70,9 @@ class ExtractionEngine:
 
     # File operation text patterns
     _FILE_EDIT_PATTERNS = [
-        _re.compile(r"(?:wrote|saved|created)\s+(?:to\s+)?['\"]?(/[^'\"\n]+)"),
-        _re.compile(r"(?:patched|modified|updated)\s+['\"]?(/[^'\"\n]+)"),
-        _re.compile(r"(?:reading|read)\s+['\"]?(/[^'\"\n]+)"),
+        _re.compile(r"""(?:wrote|saved|created)\s+(?:to\s+)?['"]?(/[^\n'"]+)""", _re.IGNORECASE),
+        _re.compile(r"""(?:patched|modified|updated)\s+['"]?(/[^\n'"]+)""", _re.IGNORECASE),
+        _re.compile(r"""(?:reading|read)\s+['"]?(/[^\n'"]+)""", _re.IGNORECASE),
     ]
 
     # Knowledge gap patterns
@@ -244,13 +244,13 @@ class ExtractionEngine:
                         seen[norm_key] = {
                             "path": path,
                             "last_edit_turn": idx,
-                            "description": f"Text pattern match",
+                            "description": "Text pattern match",
                             "related_turns": related_turns[:5],
                             "related_description": related_desc or "related discussion",
                         }
 
-        # Return most recently edited first (reverse insertion order)
-        return list(reversed(seen.values()))[:10]
+        # Return most recently edited first (backwards iteration = most recent inserted first)
+        return list(seen.values())[:10]
 
     def find_related_discussions(self, messages: list[dict[str, Any]],
                                  edit_turn: int, file_path: str,
@@ -263,7 +263,7 @@ class ExtractionEngine:
         # Normalize file path for matching (basename + extension)
         try:
             basename = os.path.basename(file_path)
-            name_no_ext = os.path.splitext(basename)[0]
+            os.path.splitext(basename)[0]
         except (TypeError, ValueError):
             return [], ""
 
@@ -364,8 +364,8 @@ class ExtractionEngine:
                 seen[norm_key] = {
                     "summary": f"{exc_type}: {error_msg}",
                     "turn_id": idx,
-                        "fix_location": fix_location,
-                    }
+                    "fix_location": fix_location,
+                }
 
         # Return most recent errors first (backwards iteration = most recent inserted first)
         return list(seen.values())[:5]
@@ -441,6 +441,6 @@ class ExtractionEngine:
                             "turn_ids": [idx],
                         }
 
-        # Return most recent gaps first
-        return list(reversed(seen.values()))[:5]
+        # Return most recent gaps first (backwards iteration = most recent inserted first)
+        return list(seen.values())[:5]
 

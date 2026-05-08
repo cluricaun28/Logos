@@ -5,13 +5,11 @@ Verifies:
 1. Module-level weight constants sum to 1.0
 2. score() returns correct structure with all expected keys
 3. Empty/None inputs return zero scores
-4. Task extraction from user messages
-5. File path extraction from tool calls and text patterns
-6. Error type extraction
-7. Knowledge gap extraction
-8. Preservation scoring (full, partial, none)
-9. Section detection in bridge text
-10. Lost items identification
+4. Preservation scoring (full, partial, none)
+5. Section detection in bridge text
+6. Lost items identification
+
+Extraction tests live in test_extraction_engine.py (single source of truth).
 
 Run:
     python -m pytest test_quality_scorer.py -v
@@ -19,7 +17,6 @@ Run:
 
 from __future__ import annotations
 
-import json
 import os
 import sys
 import unittest
@@ -94,176 +91,6 @@ class TestEmptyInputs(unittest.TestCase):
             "sections_present", "lost_items",
         }
         self.assertEqual(set(result.keys()), expected_keys)
-
-
-class TestTaskExtraction(unittest.TestCase):
-    """Test task summary extraction from messages."""
-
-    def setUp(self):
-        self.scorer = BridgeQualityScorer()
-
-    def test_extracts_task_from_user_message(self):
-        messages = [{"role": "user", "content": "Please fix the login bug"}]
-        tasks = self.scorer._extract_task_summaries(messages)
-        self.assertEqual(len(tasks), 1)
-        self.assertIn("fix", tasks[0].lower())
-
-    def test_ignores_non_user_messages(self):
-        messages = [{"role": "assistant", "content": "I'll fix the bug"}]
-        tasks = self.scorer._extract_task_summaries(messages)
-        self.assertEqual(len(tasks), 0)
-
-    def test_ignores_empty_content(self):
-        messages = [{"role": "user", "content": ""}]
-        tasks = self.scorer._extract_task_summaries(messages)
-        self.assertEqual(len(tasks), 0)
-
-    def test_limits_to_most_recent_five(self):
-        messages = [
-            {"role": "user", "content": f"fix bug number {i}"} for i in range(10)
-        ]
-        tasks = self.scorer._extract_task_summaries(messages)
-        self.assertEqual(len(tasks), 5)
-
-    def test_ignores_short_lines(self):
-        messages = [{"role": "user", "content": "fix it"}]
-        tasks = self.scorer._extract_task_summaries(messages)
-        # "fix it" is only 6 chars, below the >10 threshold
-        self.assertEqual(len(tasks), 0)
-
-    def test_truncates_long_first_line(self):
-        long_content = "implement a very long feature description that goes on and on " * 5
-        messages = [{"role": "user", "content": long_content}]
-        tasks = self.scorer._extract_task_summaries(messages)
-        self.assertEqual(len(tasks), 1)
-        self.assertLessEqual(len(tasks[0]), 120)
-
-
-class TestFilePathExtraction(unittest.TestCase):
-    """Test file path extraction from messages."""
-
-    def setUp(self):
-        self.scorer = BridgeQualityScorer()
-
-    def test_extracts_path_from_tool_call(self):
-        args = json.dumps({"path": "/home/user/test.py"})
-        messages = [{
-            "role": "assistant",
-            "tool_calls": [{"function": {"name": "write_file", "arguments": args}}],
-        }]
-        paths = self.scorer._extract_file_paths(messages)
-        self.assertIn("/home/user/test.py", paths)
-
-    def test_extracts_path_from_text_pattern(self):
-        messages = [{
-            "role": "assistant",
-            "content": "Edit the file at /path/to/config.yaml please",
-        }]
-        paths = self.scorer._extract_file_paths(messages)
-        self.assertTrue(any("config.yaml" in p for p in paths))
-
-    def test_ignores_non_file_tool_calls(self):
-        args = json.dumps({"url": "https://example.com"})
-        messages = [{
-            "role": "assistant",
-            "tool_calls": [{"function": {"name": "browser_navigate", "arguments": args}}],
-        }]
-        paths = self.scorer._extract_file_paths(messages)
-        self.assertEqual(len(paths), 0)
-
-    def test_deduplicates_paths(self):
-        messages = [
-            {"role": "assistant", "content": "/path/to/file.py"},
-            {"role": "assistant", "content": "/path/to/file.py again"},
-        ]
-        paths = self.scorer._extract_file_paths(messages)
-        # Should appear only once due to set dedup
-        counts = [p for p in paths if "file.py" in p]
-        self.assertEqual(len(counts), 1)
-
-    def test_limits_to_ten(self):
-        messages = [
-            {"role": "assistant", "content": f"/path/to/file{i}.py"}
-            for i in range(20)
-        ]
-        paths = self.scorer._extract_file_paths(messages)
-        self.assertLessEqual(len(paths), 10)
-
-    def test_ignores_short_paths(self):
-        messages = [{"role": "assistant", "content": "/a.py"}]
-        paths = self.scorer._extract_file_paths(messages)
-        # /a.py is only 5 chars, not > 5
-        self.assertEqual(len(paths), 0)
-
-
-class TestErrorExtraction(unittest.TestCase):
-    """Test error type extraction from messages."""
-
-    def setUp(self):
-        self.scorer = BridgeQualityScorer()
-
-    def test_extracts_type_error(self):
-        messages = [{"role": "tool", "content": "TypeError: 'NoneType' object has no attribute"}]
-        errors = self.scorer._extract_error_summaries(messages)
-        self.assertEqual(len(errors), 1)
-        self.assertTrue(errors[0].startswith("TypeError"))
-
-    def test_extracts_value_error(self):
-        messages = [{"role": "tool", "content": "ValueError: invalid literal for int()"}]
-        errors = self.scorer._extract_error_summaries(messages)
-        self.assertEqual(len(errors), 1)
-        self.assertTrue(errors[0].startswith("ValueError"))
-
-    def test_extracts_file_not_found(self):
-        messages = [{"role": "tool", "content": "FileNotFoundError: [Errno 2] No such file"}]
-        errors = self.scorer._extract_error_summaries(messages)
-        self.assertEqual(len(errors), 1)
-        self.assertTrue(errors[0].startswith("FileNotFoundError"))
-
-    def test_no_errors_in_clean_message(self):
-        messages = [{"role": "assistant", "content": "Everything works fine"}]
-        errors = self.scorer._extract_error_summaries(messages)
-        self.assertEqual(len(errors), 0)
-
-    def test_deduplicates_errors(self):
-        messages = [
-            {"role": "tool", "content": "TypeError: x"},
-            {"role": "tool", "content": "TypeError: x"},
-        ]
-        errors = self.scorer._extract_error_summaries(messages)
-        # Dedup via dict.fromkeys
-        self.assertEqual(len(errors), 1)
-
-    def test_limits_to_five(self):
-        error_types = [
-            "TypeError", "ValueError", "KeyError", "RuntimeError",
-            "OSError", "IndexError", "AttributeError",
-        ]
-        messages = [{"role": "tool", "content": f"{et}: msg"} for et in error_types]
-        errors = self.scorer._extract_error_summaries(messages)
-        self.assertLessEqual(len(errors), 5)
-
-
-class TestGapExtraction(unittest.TestCase):
-    """Test knowledge gap extraction from messages."""
-
-    def setUp(self):
-        self.scorer = BridgeQualityScorer()
-
-    def test_extracts_knowledge_gap(self):
-        messages = [{"role": "assistant", "content": "knowledge gap: how to configure SSL"}]
-        gaps = self.scorer._extract_gap_summaries(messages)
-        self.assertEqual(len(gaps), 1)
-
-    def test_extracts_rl_entry(self):
-        messages = [{"role": "assistant", "content": "RL entry needed for Docker setup"}]
-        gaps = self.scorer._extract_gap_summaries(messages)
-        self.assertEqual(len(gaps), 1)
-
-    def test_no_gaps_in_normal_text(self):
-        messages = [{"role": "assistant", "content": "The code is working correctly."}]
-        gaps = self.scorer._extract_gap_summaries(messages)
-        self.assertEqual(len(gaps), 0)
 
 
 class TestPreservationScoring(unittest.TestCase):

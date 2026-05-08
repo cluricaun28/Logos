@@ -25,7 +25,10 @@ try:
 except ImportError:
     _yaml = None  # Graceful fallback
 
-from .extraction_engine import _STOPWORDS
+try:
+    from .extraction_engine import _STOPWORDS
+except ImportError:
+    from extraction_engine import _STOPWORDS
 
 logger = logging.getLogger(__name__)
 

@@ -464,6 +464,7 @@ The system runs several autonomous jobs that maintain and improve itself overnig
 | 2026-05-03 | Quartz v4 adopted for RL serving |
 | 2026-05-04 | Recall Engine with query classification integrated |
 | 2026-05-06 | RL index expanded to 32,676 entries, 7 of 12 signal clusters distilled |
+| 2026-05-08 | **Sovereign Sieve v2:** Source dossiers as YAML (`source_dossiers.yaml`, 284 entries), embedding-based semantic marker detection alongside regex, `WorldviewDivergenceChecker` wired into `ScrutinyGate`. FAISS vector index rebuilt (100% coverage, 6,716 vectors). `ExtractionEngine` split from `BridgeQualityScorer`. Test suite cleaned (stale duplicates removed). `scrutiny_gate.py` at 960 lines, full ruff compliance. |
 
 ---
 
@@ -493,6 +494,6 @@ The system is not perfect — it is a work in progress maintained by one person 
 
 ---
 
-*This white paper was compiled from the live codebase, Reference Library documentation, and Perpetual Memory records of a custom Hermes Agent fork. Last updated 2026-05-07.*
+*This white paper was compiled from the live codebase, Reference Library documentation, and Perpetual Memory records of a custom Hermes Agent fork. Last updated 2026-05-08.*
 
 See also: [[System White Paper (arXiv-style)]](topics/hermes-agent/system-white-paper-arxiv.md) — formal prose format with abstract, numbered sections, and references.
