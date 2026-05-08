@@ -23,9 +23,9 @@ from perpetual_context.scrutiny_gate import (
     BIAS_CONFIDENCE_THRESHOLD,
     DEFAULT_SENSITIVITY,
     RL_CONTRADICTION_THRESHOLD,
+    RLIngestionGate,
     ScrutinyGate,
     TopicSensitivityClassifier,
-    RLIngestionGate,
     _extract_domain,
     _get_source_stance,
 )
@@ -196,10 +196,7 @@ class TestScrutinyGate(unittest.TestCase):
     # --- detect_bias tests ---
 
     def test_detect_bias_identifies_loaded_language(self):
-        text = (
-            "The so-called expert allegedly made toxic claims that were "
-            "shockingly disgraceful and scandalous."
-        )
+        text = "The so-called expert allegedly made toxic claims that were shockingly disgraceful and scandalous."
         report = self.gate.detect_bias(text)
 
         self.assertGreater(report["bias_score"], 0)
@@ -210,8 +207,8 @@ class TestScrutinyGate(unittest.TestCase):
         text = "Mistakes were made and errors were found in the report."
         report = self.gate.detect_bias(text)
 
-        # Should detect passive voice framing
-        self.assertTrue(any("Passive" in n for n in report["notes"]))
+        # Should detect passive voice framing (case-insensitive for semantic vs regex output)
+        self.assertTrue(any("passive" in n.lower() for n in report["notes"]))
 
     def test_detect_bias_neutral_text_returns_low_score(self):
         text = (
@@ -309,11 +306,13 @@ class TestRLIngestionGate(unittest.TestCase):
         self.assertIn("status", result)
 
     def test_evaluate_returns_structured_output(self):
-        result = self.gate.evaluate({
-            "content": "Python 3.12 was released in October 2023.",
-            "url": "https://www.python.org/downloads/",
-            "query": "python release date",
-        })
+        result = self.gate.evaluate(
+            {
+                "content": "Python 3.12 was released in October 2023.",
+                "url": "https://www.python.org/downloads/",
+                "query": "python release date",
+            }
+        )
 
         self.assertIn("status", result)
         self.assertIn("reason", result)
@@ -323,29 +322,35 @@ class TestRLIngestionGate(unittest.TestCase):
 
     def test_evaluate_approved_for_low_sensitivity(self):
         """Technical content from neutral source should be approved."""
-        result = self.gate.evaluate({
-            "content": "Docker uses Linux namespaces and cgroups for isolation.",
-            "url": "https://docs.docker.com/engine/",
-            "query": "docker architecture",
-            "_scrutiny_complete": True,
-        })
+        result = self.gate.evaluate(
+            {
+                "content": "Docker uses Linux namespaces and cgroups for isolation.",
+                "url": "https://docs.docker.com/engine/",
+                "query": "docker architecture",
+                "_scrutiny_complete": True,
+            }
+        )
         # Should be approved — low sensitivity, neutral source, scrutiny complete
         self.assertEqual(result["status"], "approved")
 
     def test_evaluate_manual_review_for_high_issues(self):
         """Content with multiple issues should go to manual review."""
-        result = self.gate.evaluate({
-            "content": "Some content",
-            # Missing _scrutiny_complete + unknown source = 2 issues → manual_review
-        })
+        result = self.gate.evaluate(
+            {
+                "content": "Some content",
+                # Missing _scrutiny_complete + unknown source = 2 issues → manual_review
+            }
+        )
         self.assertEqual(result["status"], "manual_review")
 
     def test_evaluate_source_assessment_populated(self):
-        result = self.gate.evaluate({
-            "content": "Some factual content.",
-            "url": "https://www.reuters.com/article",
-            "query": "test",
-        })
+        result = self.gate.evaluate(
+            {
+                "content": "Some factual content.",
+                "url": "https://www.reuters.com/article",
+                "query": "test",
+            }
+        )
         assessment = result["source_assessment"]
         self.assertEqual(assessment["domain"], "reuters.com")
 
@@ -354,29 +359,35 @@ class TestRLIngestionGate(unittest.TestCase):
     def test_evaluate_flags_contradiction_for_manual_review(self):
         """Content contradicting existing RL should be flagged for manual review."""
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            json.dump({
-                "entries": [
-                    {
-                        "content": (
-                            "The vaccine is safe and effective. Clinical trials show it "
-                            "is proven to prevent serious illness. Researchers confirm "
-                            "it causes no significant side effects."
-                        ),
-                        "source": "https://www.cdc.gov",
-                    }
-                ]
-            }, f)
+            json.dump(
+                {
+                    "entries": [
+                        {
+                            "content": (
+                                "The vaccine is safe and effective. Clinical trials show it "
+                                "is proven to prevent serious illness. Researchers confirm "
+                                "it causes no significant side effects."
+                            ),
+                            "source": "https://www.cdc.gov",
+                        }
+                    ]
+                },
+                f,
+            )
             rl_path = f.name
 
         try:
-            result = self.gate.evaluate({
-                "content": (
-                    "The vaccine is dangerous and ineffective. Studies show it is unproven "
-                    "and causes harmful side effects. Experts oppose its use."
-                ),
-                "url": "https://example.com",
-                "query": "vaccine safety",
-            }, existing_rl_path=rl_path)
+            result = self.gate.evaluate(
+                {
+                    "content": (
+                        "The vaccine is dangerous and ineffective. Studies show it is unproven "
+                        "and causes harmful side effects. Experts oppose its use."
+                    ),
+                    "url": "https://example.com",
+                    "query": "vaccine safety",
+                },
+                existing_rl_path=rl_path,
+            )
 
             # Should flag for manual review due to contradiction + missing scrutiny
             self.assertEqual(result["status"], "manual_review")
@@ -386,28 +397,32 @@ class TestRLIngestionGate(unittest.TestCase):
     def test_evaluate_no_contradiction_approves(self):
         """Non-contradictory content with scrutiny complete should be approved."""
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            json.dump({
-                "entries": [
-                    {
-                        "content": (
-                            "Python is a high-level programming language created by Guido van Rossum. "
-                            "It supports multiple paradigms and has a large standard library."
-                        ),
-                        "source": "https://python.org",
-                    }
-                ]
-            }, f)
+            json.dump(
+                {
+                    "entries": [
+                        {
+                            "content": (
+                                "Python is a high-level programming language created by Guido van Rossum. "
+                                "It supports multiple paradigms and has a large standard library."
+                            ),
+                            "source": "https://python.org",
+                        }
+                    ]
+                },
+                f,
+            )
             rl_path = f.name
 
         try:
-            result = self.gate.evaluate({
-                "content": (
-                    "Python 3.12 introduced the typing module improvements and faster interpreter."
-                ),
-                "url": "https://python.org",
-                "query": "python 3.12 features",
-                "_scrutiny_complete": True,
-            }, existing_rl_path=rl_path)
+            result = self.gate.evaluate(
+                {
+                    "content": ("Python 3.12 introduced the typing module improvements and faster interpreter."),
+                    "url": "https://python.org",
+                    "query": "python 3.12 features",
+                    "_scrutiny_complete": True,
+                },
+                existing_rl_path=rl_path,
+            )
 
             self.assertEqual(result["status"], "approved")
         finally:
@@ -415,12 +430,15 @@ class TestRLIngestionGate(unittest.TestCase):
 
     def test_evaluate_missing_rl_file_ignores_contradiction_check(self):
         """Missing RL file should not cause failure."""
-        result = self.gate.evaluate({
-            "content": "Some content.",
-            "url": "https://example.com",
-            "query": "test",
-            "_scrutiny_complete": True,
-        }, existing_rl_path="/nonexistent/path.json")
+        result = self.gate.evaluate(
+            {
+                "content": "Some content.",
+                "url": "https://example.com",
+                "query": "test",
+                "_scrutiny_complete": True,
+            },
+            existing_rl_path="/nonexistent/path.json",
+        )
 
         # Should still return a valid result (not crash)
         self.assertIn("status", result)
@@ -428,18 +446,24 @@ class TestRLIngestionGate(unittest.TestCase):
     def test_evaluate_existing_rl_as_list(self):
         """RL file as a list of entries should work."""
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            json.dump([
-                {"content": "Fact one about python.", "source": "https://python.org"},
-            ], f)
+            json.dump(
+                [
+                    {"content": "Fact one about python.", "source": "https://python.org"},
+                ],
+                f,
+            )
             rl_path = f.name
 
         try:
-            result = self.gate.evaluate({
-                "content": "Python is a programming language.",
-                "url": "https://example.com",
-                "query": "python basics",
-                "_scrutiny_complete": True,
-            }, existing_rl_path=rl_path)
+            result = self.gate.evaluate(
+                {
+                    "content": "Python is a programming language.",
+                    "url": "https://example.com",
+                    "query": "python basics",
+                    "_scrutiny_complete": True,
+                },
+                existing_rl_path=rl_path,
+            )
 
             self.assertIn("status", result)
         finally:

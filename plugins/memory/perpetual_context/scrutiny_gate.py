@@ -14,60 +14,269 @@ All operations degrade gracefully — returns neutral values rather than raising
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import re as _re
 from pathlib import Path
 from typing import Any
 
-from .extraction_engine import _STOPWORDS
+try:
+    import yaml as _yaml
+except ImportError:
+    _yaml = None  # Graceful fallback
 
+from .extraction_engine import _STOPWORDS
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Configuration constants
 # ---------------------------------------------------------------------------
-DEFAULT_SENSITIVITY = "high"       # Default when classification is ambiguous
-BIAS_CONFIDENCE_THRESHOLD = 0.5    # Below this, bias flag is informational only
-RL_CONTRADICTION_THRESHOLD = 3     # Min keyword overlap to flag contradiction
+DEFAULT_SENSITIVITY = "high"  # Default when classification is ambiguous
+BIAS_CONFIDENCE_THRESHOLD = 0.5  # Below this, bias flag is informational only
+RL_CONTRADICTION_THRESHOLD = 3  # Min keyword overlap to flag contradiction
 
-# Pre-compiled regex patterns (class-level, not per-call)
+# Pre-compiled regex patterns (class-level, not per-call) — retained as fallback
 _LOADED_LANGUAGE_PATTERN = _re.compile(
-    r'\b(allegedly|so-called|supposedly|infamously|notoriously)\b',
+    r"\b(allegedly|so-called|supposedly|infamously|notoriously)\b",
     _re.IGNORECASE,
 )
 _VALUE_LADEN_PATTERN = _re.compile(
-    r'\b(toxic|woke|fascist|socialist|liberal|conservative|radical|extremist)\b',
+    r"\b(toxic|woke|fascist|socialist|liberal|conservative|radical|extremist)\b",
     _re.IGNORECASE,
 )
+
+
+class _SemanticMarkerDetector:
+    """Detect ideological markers via embedding similarity.
+
+    Instead of pure keyword/regex matching, compares input text against
+    representative example phrases for each marker category using the
+    MiniLM embedding model. More robust to paraphrasing and euphemism.
+
+    Keeps the old regex method as fallback when embedding model unavailable.
+    """
+
+    # Representative phrases for each marker category — used as embedding anchors
+    _MARKER_PROFILES: dict[str, list[str]] = {
+        "loaded_language": [
+            "allegedly committed the crime",
+            "so-called expert",
+            "supposedly independent analysis",
+            "infamously known for corruption",
+            "notoriously biased reporting",
+        ],
+        "value_laden": [
+            "toxic cultural influence",
+            "woke ideology spreading",
+            "fascist authoritarian policies",
+            "socialist economic program",
+            "radical extremist agenda",
+        ],
+        "passive_voice_framing": [
+            "mistakes were made by the administration",
+            "it was decided that changes would occur",
+            "actions were taken against the protesters",
+            "errors were discovered in the report",
+        ],
+        "one_sided_framing": [
+            "everyone agrees that this is wrong",
+            "nobody could possibly support this",
+            "the only reasonable conclusion is",
+            "all experts confirm without doubt",
+        ],
+        "moral_positioning": [
+            "this is a moral imperative for our society",
+            "we have an ethical duty to act",
+            "morally reprehensible behavior",
+            "the righteous path forward",
+        ],
+    }
+
+    SIMILARITY_THRESHOLD = 0.65  # Cosine similarity above this = marker detected
+
+    def __init__(self) -> None:
+        self._anchors: dict[str, list[list[float]]] | None = None
+
+    def _build_anchors(self) -> dict[str, list[list[float]]] | None:
+        """Pre-compute embeddings for all marker profile phrases."""
+        from agent.perpetual_context_db import EmbeddingEngine
+
+        engine = EmbeddingEngine.get()
+        anchors: dict[str, list[list[float]]] = {}
+
+        for category, phrases in self._MARKER_PROFILES.items():
+            category_anchors: list[list[float]] = []
+            for phrase in phrases:
+                vec = engine.embed(phrase)
+                if vec is not None:
+                    category_anchors.append(vec)
+            if category_anchors:
+                anchors[category] = category_anchors
+
+        return anchors if anchors else None
+
+    def detect(self, text: str) -> dict[str, Any]:
+        """Analyze text for ideological markers via semantic similarity.
+
+        Returns dict with:
+          - detected_markers: list of category names that matched
+          - scores: dict mapping category -> max similarity score
+          - notes: human-readable descriptions of what was found
+          - method: 'semantic' or 'regex' (fallback)
+        """
+        if not isinstance(text, str) or not text.strip():
+            return {"detected_markers": [], "scores": {}, "notes": [], "method": "none"}
+
+        # Try semantic detection first
+        if self._anchors is None:
+            self._anchors = self._build_anchors()
+
+        if self._anchors:
+            return self._detect_semantic(text)
+        else:
+            # Fallback to regex
+            return self._detect_regex(text)
+
+    def _detect_semantic(self, text: str) -> dict[str, Any]:
+        """Embed the input text and compare against all anchor profiles."""
+        from agent.perpetual_context_db import EmbeddingEngine
+
+        engine = EmbeddingEngine.get()
+        text_vec = engine.embed(text[:5000])  # Cap to avoid excessive compute
+
+        if text_vec is None:
+            return self._detect_regex(text)
+
+        scores: dict[str, float] = {}
+        detected: list[str] = []
+        notes: list[str] = []
+
+        for category, anchors in self._anchors.items():
+            max_sim = max(EmbeddingEngine.cosine_similarity(text_vec, anchor) for anchor in anchors)
+            scores[category] = round(max_sim, 3)
+
+            if max_sim >= self.SIMILARITY_THRESHOLD:
+                detected.append(category)
+                notes.append(f"Semantic {category.replace('_', ' ')} detected (similarity: {max_sim:.2f})")
+
+        return {
+            "detected_markers": detected,
+            "scores": scores,
+            "notes": notes,
+            "method": "semantic",
+        }
+
+    def _detect_regex(self, text: str) -> dict[str, Any]:
+        """Regex-based fallback when embedding model unavailable."""
+        detected: list[str] = []
+        notes: list[str] = []
+
+        loaded = _LOADED_LANGUAGE_PATTERN.findall(text)
+        if loaded:
+            detected.append("loaded_language")
+            notes.append(f"Loaded language: {', '.join(loaded)}")
+
+        value = _VALUE_LADEN_PATTERN.findall(text)
+        if value:
+            detected.append("value_laden")
+            notes.append(f"Value-laden terms: {', '.join(value)}")
+
+        passive_phrases = ["mistakes were made", "it was decided", "actions were taken"]
+        text_lower = text.lower()
+        passive_matches = [p for p in passive_phrases if p in text_lower]
+        if passive_matches:
+            detected.append("passive_voice_framing")
+            notes.append(f"Passive voice framing: {', '.join(passive_matches)}")
+
+        return {
+            "detected_markers": detected,
+            "scores": {},
+            "notes": notes,
+            "method": "regex",
+        }
 
 
 class TopicSensitivityClassifier:
     """Classifies query/topic sensitivity for scrutiny level selection."""
 
     # Low sensitivity — trust major sources, fast extraction, minimal scrutiny
-    LOW_SENSITIVITY_KEYWORDS = frozenset([
-        "hardware", "code", "programming", "software", "mathematics",
-        "python", "docker", "gpu", "cpu", "memory", "networking",
-        "api", "database", "sql", "linux", "windows", "wsl",
-        "build", "compile", "deploy", "test", "debug",
-        "git", "github", "npm", "pip", "package", "dependency",
-        "configuration", "settings", "environment", "variable",
-    ])
+    LOW_SENSITIVITY_KEYWORDS = frozenset(
+        [
+            "hardware",
+            "code",
+            "programming",
+            "software",
+            "mathematics",
+            "python",
+            "docker",
+            "gpu",
+            "cpu",
+            "memory",
+            "networking",
+            "api",
+            "database",
+            "sql",
+            "linux",
+            "windows",
+            "wsl",
+            "build",
+            "compile",
+            "deploy",
+            "test",
+            "debug",
+            "git",
+            "github",
+            "npm",
+            "pip",
+            "package",
+            "dependency",
+            "configuration",
+            "settings",
+            "environment",
+            "variable",
+        ]
+    )
 
     # High sensitivity — activate deep scrutiny, identify bias/motives
-    HIGH_SENSITIVITY_KEYWORDS = frozenset([
-        "history", "politics", "economics", "culture", "media",
-        "government", "election", "policy", "law", "court",
-        "religion", "faith", "christianity", "theology",
-        "race", "gender", "identity", "social justice",
-        "war", "military", "defense", "intelligence",
-        "education", "science funding", "climate", "environment",
-        "news", "journalism", "reporting", "opinion",
-        "protest", "movement", "activism", "rights",
-    ])
+    HIGH_SENSITIVITY_KEYWORDS = frozenset(
+        [
+            "history",
+            "politics",
+            "economics",
+            "culture",
+            "media",
+            "government",
+            "election",
+            "policy",
+            "law",
+            "court",
+            "religion",
+            "faith",
+            "christianity",
+            "theology",
+            "race",
+            "gender",
+            "identity",
+            "social justice",
+            "war",
+            "military",
+            "defense",
+            "intelligence",
+            "education",
+            "science funding",
+            "climate",
+            "environment",
+            "news",
+            "journalism",
+            "reporting",
+            "opinion",
+            "protest",
+            "movement",
+            "activism",
+            "rights",
+        ]
+    )
 
     def classify(self, query: str) -> str:
         """Classify a query as 'low' or 'high' sensitivity.
@@ -101,71 +310,60 @@ class TopicSensitivityClassifier:
         return DEFAULT_SENSITIVITY
 
 
-# Known source editorial stances — simple mapping for bias detection
-# Values are rough left-right positioning: left, center-left, centrist,
-# center-right, right, or religious/traditional
-KNOWN_SOURCE_STANCES: dict[str, str] = {
-    "nytimes.com": "center-left",
-    "washingtonpost.com": "center-left",
-    "reuters.com": "centrist",
-    "apnews.com": "centrist",
-    "bbc.co.uk": "center-left",
-    "cnn.com": "left-leaning",
-    "foxnews.com": "center-right",
-    "wsj.com": "center-right",
-    "npr.org": "center-left",
-    "thehill.com": "centrist",
-    "politico.com": "center-left",
-    "breitbart.com": "right-leaning",
-    "newsmax.com": "right-leaning",
-    "dailywire.com": "right-leaning",
-    "nationalreview.com": "center-right",
-    "thebulwark.com": "center-right",
-    "thegatewaypundit.com": "right-leaning",
-    "vox.com": "left-leaning",
-    "motherjones.com": "left-leaning",
-    "huffpost.com": "left-leaning",
-    "medium.com": "unknown",
-    "reddit.com": "unknown",
-    "wikipedia.org": "unknown",
-    "theatlantic.com": "center-left",
-    "theamericanconservative.com": "right-leaning",
-    "washingtonexaminer.com": "center-right",
-    "cnn.com": "left-leaning",
-    "aljazeera.com": "center-left",
-    "guardian.co.uk": "left-leaning",
-    "telegraph.co.uk": "center-right",
-    "economist.com": "centrist",
-    "quillette.com": "centrist",
-    "pjmedia.com": "right-leaning",
-    "crevdonline.com": "religious/traditional",
-    "christianpost.com": "religious/traditional",
-    "churchmilitant.com": "religious/traditional",
-    "prnewswire.com": "institutional",
-    "forbes.com": "centrist",
-    "bloomberg.com": "centrist",
-    "marketwatch.com": "centrist",
-}
+# ---------------------------------------------------------------------------
+# Source Dossier Loading
+# ---------------------------------------------------------------------------
 
 
-def _extract_domain(url: str) -> str | None:
-    """Extract the domain from a URL string.
+def _load_source_dossiers() -> dict[str, dict[str, Any]]:
+    """Load source credibility data from config/source_dossiers.yaml.
 
-    Returns 'nytimes.com' from 'https://www.nytimes.com/article'.
-    Returns None for empty strings or invalid URLs.
+    Returns a dict mapping domain -> {stance, reliability, ownership, notes}.
+    Falls back to an empty dict if YAML is unavailable or file missing.
     """
-    if not url:
-        return None
+    if _yaml is None:
+        logger.debug("PyYAML not available — source dossiers unavailable")
+        return {}
+
+    dossier_path = Path(__file__).parent / "config" / "source_dossiers.yaml"
+    if not dossier_path.is_file():
+        logger.debug("source_dossiers.yaml not found at '%s'", dossier_path)
+        return {}
+
     try:
-        from urllib.parse import urlparse
-        parsed = urlparse(url)
-        domain = parsed.netloc.lower().replace("www.", "")
-        return domain if domain else None
+        with open(dossier_path, encoding="utf-8") as f:
+            data = _yaml.safe_load(f)
+        if not isinstance(data, dict):
+            logger.warning("source_dossiers.yaml did not return a dict")
+            return {}
+
+        dossiers: dict[str, dict[str, Any]] = {}
+        sources = data.get("sources", {})
+        if isinstance(sources, dict):
+            for domain, info in sources.items():
+                if isinstance(info, dict):
+                    dossiers[domain] = info
+                else:
+                    logger.debug("Skipping malformed source entry: %s", domain)
+        return dossiers
     except Exception as e:
-        logger.debug("Failed to extract domain from '%s': %s", url, e)
-        return None
+        logger.debug("Failed to load source_dossiers.yaml: %s", e)
+        return {}
 
 
+# Pre-loaded dossiers (lazy-loaded on first access)
+_SOURCE_DOSSIERS: dict[str, dict[str, Any]] | None = None
+
+
+def _get_dossiers() -> dict[str, dict[str, Any]]:
+    """Lazy-load source dossiers on first access."""
+    global _SOURCE_DOSSIERS
+    if _SOURCE_DOSSIERS is None:
+        _SOURCE_DOSSIERS = _load_source_dossiers()
+    return _SOURCE_DOSSIERS
+
+
+# Backward-compatible stance lookup for legacy code paths
 def _get_source_stance(domain: str | None) -> str:
     """Look up editorial stance for a known source domain.
 
@@ -182,11 +380,59 @@ def _get_source_stance(domain: str | None) -> str:
     if domain.endswith(".edu"):
         return "academic"
 
-    for known_domain, stance in KNOWN_SOURCE_STANCES.items():
+    dossiers = _get_dossiers()
+    for known_domain, info in dossiers.items():
         if known_domain in domain:
-            return stance
+            return info.get("stance", "unknown")
 
     return "unknown"
+
+
+def _extract_domain(url: str) -> str | None:
+    """Extract the domain from a URL string.
+
+    Returns 'nytimes.com' from 'https://www.nytimes.com/article'.
+    Returns None for empty strings or invalid URLs.
+    """
+    if not url:
+        return None
+    try:
+        from urllib.parse import urlparse
+
+        parsed = urlparse(url)
+        domain = parsed.netloc.lower().replace("www.", "")
+        return domain if domain else None
+    except Exception as e:
+        logger.debug("Failed to extract domain from '%s': %s", url, e)
+        return None
+
+
+def _get_source_info(domain: str | None) -> dict[str, Any]:
+    """Look up full source dossier for a domain.
+
+    Returns dict with stance, reliability, ownership, notes.
+    Falls back to defaults for unrecognized domains.
+    """
+    if not domain:
+        return {"domain": None, "stance": "unknown", "reliability": "C", "notes": ""}
+
+    if domain.endswith(".gov"):
+        return {"domain": domain, "stance": "institutional", "reliability": "B", "notes": "Government source"}
+    if domain.endswith(".edu"):
+        return {"domain": domain, "stance": "academic", "reliability": "B", "notes": "Academic source"}
+
+    dossiers = _get_dossiers()
+    for known_domain, info in dossiers.items():
+        if known_domain in domain:
+            return {
+                "domain": known_domain,
+                "stance": info.get("stance", "unknown"),
+                "reliability": info.get("reliability", "C"),
+                "ownership": info.get("ownership", ""),
+                "notes": info.get("notes", ""),
+            }
+
+    return {"domain": domain, "stance": "unknown", "reliability": "C", "notes": ""}
 
 
 class ScrutinyGate:
@@ -198,6 +444,7 @@ class ScrutinyGate:
 
     def __init__(self) -> None:
         self._classifier = TopicSensitivityClassifier()
+        self._marker_detector = _SemanticMarkerDetector()
         profile = _load_worldview_profile()
         self._divergence_checker = WorldviewDivergenceChecker(profile)
 
@@ -243,9 +490,11 @@ class ScrutinyGate:
                 # Skip non-dict items gracefully
                 if not isinstance(result, dict):
                     logger.debug("Skipping non-dict result item: %s", type(result).__name__)
-                    rejected.append({
-                        "rejection_reason": f"Invalid result format (expected dict, got {type(result).__name__})",
-                    })
+                    rejected.append(
+                        {
+                            "rejection_reason": f"Invalid result format (expected dict, got {type(result).__name__})",
+                        }
+                    )
                     continue
 
                 # Basic validation — must have URL and content
@@ -281,9 +530,7 @@ class ScrutinyGate:
                 rejected.append({**safe_result, "rejection_reason": f"Vetting error: {e}"})
 
         if sensitivity == "high" and len(vetted) < len(results):
-            warnings.append(
-                f"High-sensitivity query: {len(rejected)} of {len(results)} results flagged or rejected"
-            )
+            warnings.append(f"High-sensitivity query: {len(rejected)} of {len(results)} results flagged or rejected")
 
         return {
             "vetted_results": vetted,
@@ -297,6 +544,7 @@ class ScrutinyGate:
 
         Checks for:
         - Loaded language (emotive words, value-laden terms)
+        - Semantic ideological markers (embedding-based similarity detection)
         - One-sided framing indicators
         - Source credibility signals
 
@@ -310,31 +558,37 @@ class ScrutinyGate:
         if not isinstance(text, str):
             return {"bias_score": 0.0, "notes": [], "confidence_above_threshold": False}
 
-        # Check for loaded language
+        # Layer 1: Keyword/regex detection (existing)
         loaded_matches = _LOADED_LANGUAGE_PATTERN.findall(text)
         if loaded_matches:
             notes.append(f"Loaded language detected: {', '.join(loaded_matches)}")
             bias_score += 0.2 * len(loaded_matches)
 
-        # Check for value-laden terms
         value_matches = _VALUE_LADEN_PATTERN.findall(text)
         if value_matches:
             notes.append(f"Value-laden terms detected: {', '.join(value_matches)}")
             bias_score += 0.15 * len(value_matches)
 
+        # Layer 2: Semantic marker detection (new)
+        semantic_result = self._marker_detector.detect(text)
+        if semantic_result["method"] == "semantic":
+            for marker_note in semantic_result["notes"]:
+                notes.append(marker_note)
+            for marker in semantic_result["detected_markers"]:
+                if marker not in ("loaded_language", "value_laden"):  # Already counted above
+                    bias_score += 0.1
+        else:
+            for marker_note in semantic_result["notes"]:
+                notes.append(marker_note)
+            bias_score += 0.05 * len(semantic_result["detected_markers"])
+
         # Check source stance
-        stance = _get_source_stance(_extract_domain(source_url))
+        domain = _extract_domain(source_url)
+        source_info = _get_source_info(domain)
+        stance = source_info.get("stance", "unknown")
         if stance and stance not in ("centrist", "unknown"):
             notes.append(f"Source editorial stance: {stance}")
             bias_score += 0.1
-
-        # Check for one-sided framing indicators
-        passive_indicators = ["mistakes were made", "it was decided", "actions were taken"]
-        text_lower = text.lower()
-        for indicator in passive_indicators:
-            if indicator in text_lower:
-                notes.append(f"Passive voice framing detected: '{indicator}'")
-                bias_score += 0.15
 
         # Cap bias score at 1.0
         bias_score = min(bias_score, 1.0)
@@ -343,6 +597,7 @@ class ScrutinyGate:
             "bias_score": round(bias_score, 2),
             "notes": notes,
             "confidence_above_threshold": bias_score >= BIAS_CONFIDENCE_THRESHOLD,
+            "method": semantic_result.get("method", "regex"),
         }
 
     def apply_worldview_filter(self, facts: list[dict[str, Any]], query: str) -> list[dict[str, Any]]:
@@ -359,17 +614,18 @@ class ScrutinyGate:
         for fact in facts:
             # Add worldview alignment annotation
             stance = fact.get("_source_stance", "unknown")
-            bias_notes = fact.get("_bias_notes", [])
 
             worldview_note = ""
             if sensitivity == "high" and stance not in ("centrist", "unknown"):
                 worldview_note = f"Source has {stance} editorial stance — verify against multiple sources"
 
-            annotated_facts.append({
-                **fact,
-                "_worldview_note": worldview_note,
-                "_scrutiny_complete": True,
-            })
+            annotated_facts.append(
+                {
+                    **fact,
+                    "_worldview_note": worldview_note,
+                    "_scrutiny_complete": True,
+                }
+            )
 
         return annotated_facts
 
@@ -378,7 +634,7 @@ class ScrutinyGate:
         base_score = result.get("score", 0.5)
 
         # Normalize to 0-1 range if needed
-        if isinstance(base_score, (int, float)):
+        if isinstance(base_score, (int, float)):  # noqa: SIM108
             normalized = min(max(base_score / 100.0, 0), 1.0) if base_score > 1 else base_score
         else:
             normalized = 0.5
@@ -475,22 +731,19 @@ class RLIngestionGate:
         2. General topic word overlap — if many words appear in both texts, flag for review
         """
         try:
-            with open(rl_path, "r", encoding="utf-8") as f:
+            with open(rl_path, encoding="utf-8") as f:
                 existing_content = f.read()
 
             # Handle JSON-formatted RL files (common in tests)
             import json as _json
+
             try:
                 parsed = _json.loads(existing_content)
                 if isinstance(parsed, dict):
                     # Flatten JSON to text for comparison
-                    existing_content = " ".join(
-                        str(v) for v in parsed.values() if isinstance(v, (str, list))
-                    )
+                    existing_content = " ".join(str(v) for v in parsed.values() if isinstance(v, (str, list)))
                     if isinstance(parsed, dict) and "entries" in parsed:
-                        existing_content = " ".join(
-                            entry.get("content", "") for entry in parsed["entries"]
-                        )
+                        existing_content = " ".join(entry.get("content", "") for entry in parsed["entries"])
             except (_json.JSONDecodeError, TypeError):
                 pass  # Not JSON, use raw content
 
@@ -532,6 +785,7 @@ class RLIngestionGate:
 # Worldview Profile Loading
 # ---------------------------------------------------------------------------
 
+
 def _load_worldview_profile() -> dict[str, int | None]:
     """Load the user's worldview profile from config.yaml.
 
@@ -540,6 +794,7 @@ def _load_worldview_profile() -> dict[str, int | None]:
     """
     try:
         from hermes_cli.config import load_config
+
         cfg = load_config()
         profile = cfg.get("worldview_profile")
         if not profile:
@@ -553,7 +808,8 @@ def _load_worldview_profile() -> dict[str, int | None]:
                 else:
                     logger.warning(
                         "Invalid worldview profile value for %s: %s (must be int -2..+2)",
-                        k, v,
+                        k,
+                        v,
                     )
             return valid if valid else None
     except Exception as e:
@@ -561,22 +817,59 @@ def _load_worldview_profile() -> dict[str, int | None]:
     return None
 
 
-# Axis-to-topic mapping: which scrutiny axes correspond to which keywords
-AXIS_TOPIC_MAP = {
-    "sexual_morality": ("marriage", "same-sex", "gender", "lgbt", "trans", "adoption"),
-    "racial_policy": ("race", "affirmative action", "dei", "discrimination",
-                      "systemic racism", "quota"),
-    "free_speech": ("free speech", "cancel culture", "censorship", "hate speech",
-                    "employer"),
-    "government_power": ("constitution", "federal", "free market", "regulation",
-                         "ubiquitous", "basic income"),
-    "sanctity_of_life": ("abortion", "conception", "pro-life", "pro-choice"),
-    "religion_in_public": ("religion", "church", "prayer", "education",
-                           "anti-discrimination"),
-    "border_immigration": ("border", "immigration", "citizenship", "illegal"),
-    "criminal_justice": ("death penalty", "guns", "second amendment",
-                         "police", "criminal"),
+# ---------------------------------------------------------------------------
+# Worldview Axis Loading
+# ---------------------------------------------------------------------------
+
+
+def _load_axes() -> dict[str, list[str]]:
+    """Load axis-topic mappings from source_dossiers.yaml.
+
+    Returns dict mapping axis name -> list of keywords.
+    Falls back to inline defaults if YAML unavailable.
+    """
+    dossiers = _get_dossiers()
+    if dossiers:
+        # Try to load from the dossier file's axes section
+        dossier_path = Path(__file__).parent / "config" / "source_dossiers.yaml"
+        if _yaml is not None and dossier_path.is_file():
+            try:
+                with open(dossier_path, encoding="utf-8") as f:
+                    data = _yaml.safe_load(f)
+                if isinstance(data, dict) and "axes" in data:
+                    axes: dict[str, list[str]] = {}
+                    for axis_name, axis_data in data["axes"].items():
+                        if isinstance(axis_data, dict) and "keywords" in axis_data:
+                            axes[axis_name] = axis_data["keywords"]
+                    return axes if axes else _DEFAULT_AXES
+            except Exception as e:
+                logger.debug("Failed to load axes from YAML: %s", e)
+
+    return _DEFAULT_AXES
+
+
+# Inline fallback defaults for when YAML is unavailable
+_DEFAULT_AXES: dict[str, list[str]] = {
+    "sexual_morality": ["marriage", "same-sex", "gender", "lgbt", "trans", "adoption"],
+    "racial_policy": ["race", "affirmative action", "dei", "discrimination", "systemic racism", "quota"],
+    "free_speech": ["free speech", "cancel culture", "censorship", "hate speech", "employer"],
+    "government_power": ["constitution", "federal", "free market", "regulation", "ubiquitous", "basic income"],
+    "sanctity_of_life": ["abortion", "conception", "pro-life", "pro-choice"],
+    "religion_in_public": ["religion", "church", "prayer", "education", "anti-discrimination"],
+    "border_immigration": ["border", "immigration", "citizenship", "illegal"],
+    "criminal_justice": ["death penalty", "guns", "second amendment", "police", "criminal"],
 }
+
+
+def _get_axes() -> dict[str, list[str]]:
+    """Lazy-load axis mappings on first access."""
+    global _AXIS_CACHE
+    if _AXIS_CACHE is None:
+        _AXIS_CACHE = _load_axes()
+    return _AXIS_CACHE
+
+
+_AXIS_CACHE: dict[str, list[str]] | None = None
 
 
 class WorldviewDivergenceChecker:
@@ -611,7 +904,7 @@ class WorldviewDivergenceChecker:
         snippet = (result.get("snippet") or result.get("content") or "").lower()
         text_to_check = query_lower + " " + snippet
 
-        for axis, keywords in AXIS_TOPIC_MAP.items():
+        for axis, keywords in _get_axes().items():
             user_score = self._profile.get(axis)
             if user_score is None:
                 continue
@@ -628,16 +921,11 @@ class WorldviewDivergenceChecker:
             divergence = abs(user_score - estimated)
             if divergence >= self.DIVERGENCE_THRESHOLD:
                 direction = "opposite" if divergence >= 3 else "different"
-                notes.append(
-                    f"This source holds a {direction} view on {axis.replace('_', ' ')} "
-                    f"(yours: {user_score:+d}, source: ~{estimated:+d})"
-                )
+                notes.append(f"This source holds a {direction} view on {axis.replace('_', ' ')} (yours: {user_score:+d}, source: ~{estimated:+d})")
 
         return notes
 
-    def _estimate_source_position(
-        self, axis: str, source_stance: str
-    ) -> int:
+    def _estimate_source_position(self, axis: str, source_stance: str) -> int:
         """Estimate a source's position on an axis from its editorial stance.
 
         Returns an integer from -2 to +2 where +2 = traditional/conservative,
@@ -656,18 +944,17 @@ class WorldviewDivergenceChecker:
         base = stance_map.get(source_stance, 0)
 
         # Axis-specific adjustments
-        if axis in ("sanctity_of_life", "sexual_morality"):
+        if axis in ("sanctity_of_life", "sexual_morality"):  # noqa: SIM102
             # Institutional sources tend to be more liberal on these
             if source_stance == "institutional":
                 base = max(base - 1, -2)
-        if axis == "government_power":
+        if axis == "government_power":  # noqa: SIM102
             # Institutional sources tend to be more statist
             if source_stance == "institutional":
                 base = min(base - 1, -2)
-        if axis == "free_speech":
+        if axis == "free_speech":  # noqa: SIM102
             # Most established media are more restrictive on speech
             if source_stance in ("left-leaning", "center-left", "institutional"):
                 base = min(base - 1, -2)
 
         return base
-

@@ -37,6 +37,7 @@ import os
 import sqlite3
 import struct
 import threading
+from typing import Any
 
 from agent.pcdb_messages import _MessageManager
 from agent.pcdb_metadata import _MetadataManager
@@ -325,3 +326,66 @@ class PerpetualContextDB(
                 self._conn.close()
                 self._conn = None
             self._initialized = False
+
+    def reindex_embeddings(self) -> dict[str, Any]:
+        """Embed any unembedded messages and rebuild the FAISS index.
+
+        Designed for periodic maintenance (nightly cron). Skips entirely
+        if the message count is below 15,000 — not worth the overhead for
+        small databases.
+
+        Returns:
+            dict with keys: action_taken, messages_embedded,
+            total_messages, faiss_rebuilt
+        """
+        if self._conn is None:
+            logger.debug("Cannot reindex — database not initialized")
+            return {"action_taken": "skipped", "reason": "database not initialized"}
+
+        try:
+            with self._lock:
+                row = self._conn.execute("SELECT COUNT(*) FROM messages").fetchone()
+            total_count = row[0] if row else 0
+            if total_count < 15_000:
+                logger.info("Skipping reindex — %d messages below 15,000 threshold", total_count)
+                return {
+                    "action_taken": "skipped",
+                    "total_messages": total_count,
+                    "reason": "below threshold",
+                }
+
+            # Embed missing messages using existing backfill method
+            backfill_result = self.backfill_embeddings(batch_size=50)
+            embedded_count = backfill_result.get("embedded", 0)
+
+            if embedded_count == 0:
+                logger.info("No unembedded messages — reindex not needed")
+                return {
+                    "action_taken": "skipped",
+                    "total_messages": total_count,
+                    "messages_embedded": 0,
+                    "reason": "all embedded",
+                }
+
+            # Rebuild FAISS index
+            try:
+                from agent.pcdb_vector_index import VectorIndex
+
+                vi = VectorIndex()
+                vi.rebuild_from_db(self._conn)
+                faiss_rebuilt = True
+                logger.info("FAISS index rebuilt with %d vectors", vi.get_count())
+            except Exception as e:
+                logger.warning("FAISS rebuild failed: %s", e)
+                faiss_rebuilt = False
+
+            return {
+                "action_taken": "completed",
+                "total_messages": total_count,
+                "messages_embedded": embedded_count,
+                "faiss_rebuilt": faiss_rebuilt,
+                "backfill_stats": backfill_result,
+            }
+        except Exception as e:
+            logger.error("Reindex failed: %s", e)
+            return {"action_taken": "failed", "reason": str(e)}

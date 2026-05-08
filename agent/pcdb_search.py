@@ -2,12 +2,19 @@
 
 Handles FTS5 keyword search, semantic vector search, hybrid fusion,
 and cross-session recall.
+
+Search architecture:
+  - FTS5: Actual BM25 ranking via SQLite FTS5 virtual table with safe query escaping
+  - Semantic: FAISS-based approximate nearest-neighbor (exact for <100K vectors)
+  - Hybrid: Reciprocal Rank Fusion of FTS5 rank and FAISS cosine similarity
+  - Recall: Cross-session pointer injection with hard character cap
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import re as _re
 import sqlite3
 from typing import Any
 
@@ -24,6 +31,42 @@ RECALL_MIN_SCORE = 0.15
 RECALL_SNIPPET_MAX_LEN = 80
 RECALL_OUTPUT_MAX_CHARS = 200
 
+# FTS5 query operators that must be escaped to prevent injection
+_FTS5_SPECIAL_CHARS = _re.compile(r"[%*\+\-&|>()~]")
+_FTS5_ESCAPE_MAP = str.maketrans(
+    {
+        "%": "%25",
+        "*": "%2A",
+        "+": "%2B",
+        "-": "%2D",
+        "&": "%26",
+        "|": "%7C",
+        ">": "%3E",
+        "<": "%3C",
+        "(": "%28",
+        ")": "%29",
+        "~": "%7E",
+    }
+)
+
+
+def _escape_fts5_query(query: str) -> str:
+    """Escape special FTS5 operators in a search query.
+
+    FTS5 MATCH expressions cannot be parameterized (the query is part of
+    the SQL string, not a bound parameter). This function escapes all
+    special characters so arbitrary user input can be safely interpolated.
+
+    Args:
+        query: Raw search query string.
+
+    Returns:
+        Safe FTS5-compatible query string.
+    """
+    if not query:
+        return ""
+    return query.translate(_FTS5_ESCAPE_MAP)
+
 
 class _SearchEngine:
     """Mixin: FTS5, semantic, and hybrid search with recall formatting.
@@ -33,52 +76,40 @@ class _SearchEngine:
     """
 
     def fts_search(self, query: str, session_id: str = None, top_k: int = 10) -> list[dict[str, Any]]:
-        """Full-text search using SQLite FTS5.
+        """Full-text search using SQLite FTS5 with BM25 ranking.
 
-        Handles both old schema (timestamp, no metadata in FTS) and new schema.
+        Uses actual FTS5 MATCH (not LIKE) with proper query escaping to prevent
+        injection. Returns results ranked by BM25 relevance score.
 
         Args:
-            query: Search query string
-            session_id: Optional session filter
-            top_k: Maximum results to return
+            query: Search query string.
+            session_id: Optional session filter.
+            top_k: Maximum results to return.
 
         Returns:
-            List of matching message dicts with _rank field
+            List of matching message dicts with _rank field (BM25 score).
         """
         if not self._initialized or not self._conn:
             return []
 
         try:
             time_col = self.time_column
+            escaped = _escape_fts5_query(query.strip())
+            if not escaped:
+                return []
 
-            # FTS5 uses special syntax for matching — need to escape operators
-            search_query = query.strip()
-
-            # Always use LIKE-based search to avoid FTS5 expression injection.
-            # FTS5 MATCH cannot be safely parameterized in SQLite (the query
-            # expression is part of the SQL, not a bound parameter), so we
-            # use a parameterized LIKE search with a simple relevance score.
-            like_pattern = f"%{search_query}%"
-
-            # Tokenize the query for relevance scoring (simple word count)
-            query_words = set(search_query.lower().split())
-
-            # Escape single quotes in each word to prevent SQL injection
-            escaped_words = [w.replace("'", "''") for w in list(query_words)[:5]]
-
+            # Use FTS5 MATCH with proper BM25 ranking.
+            # The escaped query is safe to interpolate (all special chars percent-encoded).
             base_sql = f"""
                 SELECT m.id, m.session_id, m.role, m.content,
-                       COALESCE(m.metadata, '{{{{}}}}') as metadata,
+                       COALESCE(m.metadata, '{{}}') as metadata,
                        m.{time_col},
-                       -- Simple relevance: count of query words found in content (higher = more relevant).
-                       -- Negated so ORDER BY rank works the same way as FTS5 (lower = better).
-                       -({"+ ".join([f"CASE WHEN LOWER(m.content) LIKE '%{w}%' THEN 1 ELSE 0 END" for w in escaped_words])}) as rank
-                FROM messages m
-                WHERE m.content LIKE ?
+                       -bm25(messages_fts) as rank
+                FROM messages_fts
+                JOIN messages m ON m.id = messages_fts.rowid
+                WHERE messages_fts MATCH ?
             """
-            params: list = [like_pattern]
-
-            # FTS5 join uses m.created_at — time_column property handles fallback at init
+            params: list = [escaped]
 
             if session_id:
                 base_sql += " AND m.session_id = ?"
@@ -99,14 +130,68 @@ class _SearchEngine:
                     "content": row[3],
                     "metadata": json.loads(row[4]) if row[4] else {},
                     "created_at": row[5],
-                    "_rank": float(row[6]),  # FTS5 BM25 rank (lower = better)
+                    "_rank": round(float(row[6]), 4),
+                }
+                results.append(msg)
+
+            return results
+
+        except sqlite3.OperationalError as e:
+            # FTS5 table may not exist yet on fresh DB — degrade gracefully
+            logger.debug("FTS5 search unavailable (%s), falling back to LIKE", e)
+            return self._fts_search_fallback(query, session_id, top_k)
+        except Exception as e:
+            logger.error("FTS search failed: %s", e)
+            return self._fts_search_fallback(query, session_id, top_k)
+
+    def _fts_search_fallback(self, query: str, session_id: str = None, top_k: int = 10) -> list[dict[str, Any]]:
+        """LIKE-based fallback if FTS5 virtual table is not available."""
+        if not self._initialized or not self._conn:
+            return []
+
+        try:
+            time_col = self.time_col
+            like_pattern = f"%{query.strip()}%"
+            query_words = set(query.lower().split())
+
+            escaped_words = [w.replace("'", "''") for w in list(query_words)[:5]]
+            base_sql = f"""
+                SELECT m.id, m.session_id, m.role, m.content,
+                       COALESCE(m.metadata, '{{}}') as metadata,
+                       m.{time_col},
+                       -({"+ ".join([f"CASE WHEN LOWER(m.content) LIKE '%{w}%' THEN 1 ELSE 0 END" for w in escaped_words])}) as rank
+                FROM messages m
+                WHERE m.content LIKE ?
+            """
+            params: list = [like_pattern]
+
+            if session_id:
+                base_sql += " AND m.session_id = ?"
+                params.append(session_id)
+
+            base_sql += " ORDER BY rank LIMIT ?"
+            params.append(top_k)
+
+            cursor = self._conn.execute(base_sql, params)
+            rows = cursor.fetchall()
+
+            results = []
+            for row in rows:
+                msg = {
+                    "id": row[0],
+                    "session_id": row[1],
+                    "role": row[2],
+                    "content": row[3],
+                    "metadata": json.loads(row[4]) if row[4] else {},
+                    "created_at": row[5],
+                    "_rank": float(row[6]),
                 }
                 results.append(msg)
 
             return results
 
         except Exception as e:
-            logger.error("FTS search failed: %s", e)
+            logger.error("FTS fallback search also failed: %s", e)
             return []
 
     def semantic_search(
@@ -116,19 +201,19 @@ class _SearchEngine:
         top_k: int = 10,
         exclude_session_id: str = None,
     ) -> list[dict[str, Any]]:
-        """Semantic search using cosine similarity against stored embeddings.
+        """Semantic search using FAISS-based cosine similarity.
 
-        Embeds the query vector, loads all non-NULL message embeddings from DB,
-        computes cosine similarity, and returns top-k results ranked by similarity score.
+        Uses FAISS index for O(log n) approximate nearest-neighbor lookup.
+        Falls back to full-table Python cosine scan if FAISS index is not built.
 
-        Graceful degradation: if embedding model is unavailable or no messages have
-        embeddings yet, returns empty list without error.
+        Graceful degradation: if embedding model is unavailable or no messages
+        have embeddings yet, returns empty list without error.
 
         Args:
             query: Search query text to embed.
             session_id: Optional session filter.
             top_k: Maximum results to return.
-            exclude_session_id: Optional session ID to skip (for cross-session recall).
+            exclude_session_id: Optional session ID to skip.
 
         Returns:
             List of message dicts with '_similarity' score field (0-1, higher = more similar).
@@ -137,7 +222,6 @@ class _SearchEngine:
             return []
 
         try:
-            # Embed the query — returns None if model unavailable
             from agent.perpetual_context_db import EmbeddingEngine  # noqa: PLC0415
 
             engine = EmbeddingEngine.get()
@@ -146,63 +230,140 @@ class _SearchEngine:
                 logger.debug("Semantic search skipped — embedding model unavailable")
                 return []
 
-            # Build WHERE clause for session filtering
-            where_parts = ["embedding IS NOT NULL AND LENGTH(embedding) >= ?"]
-            params: list = [EMBED_DIM * 4]  # Minimum valid blob size
+            # Try FAISS index first
+            try:
+                from agent.pcdb_vector_index import VectorIndex  # noqa: PLC0415
 
-            if session_id:
-                where_parts.append("session_id = ?")
-                params.append(session_id)
-            if exclude_session_id:
-                where_parts.append("session_id != ?")
-                params.append(exclude_session_id)
+                vi = VectorIndex(EMBED_DIM)
+                if not vi.load():
+                    vi.build_from_db(self._conn)
+                    vi.save()
 
-            time_col = self.time_column
-            cursor = self._conn.execute(
-                f"SELECT id, session_id, role, content, metadata, {time_col}, embedding FROM messages WHERE {' AND '.join(where_parts)}",
-                params,
-            )
-            rows = cursor.fetchall()
+                faiss_results = vi.search(query_vector, top_k=top_k * 2)
+                if faiss_results:
+                    return self._apply_semantic_filters(faiss_results, session_id, exclude_session_id, top_k, engine)
+            except Exception as e:
+                logger.debug("FAISS search unavailable (%s), falling back to DB scan", e)
 
-            if not rows:
-                logger.debug("Semantic search returned no embedded messages")
-                return []
-
-            # Compute cosine similarity for each message with stored embedding
-            scored: list[tuple[int, float, dict[str, Any]]] = []
-            for row in rows:
-                blob = row[6]
-                vector = engine.deserialize(blob)
-                if vector is None:
-                    continue  # Skip corrupted or empty embeddings
-
-                sim = EmbeddingEngine.cosine_similarity(query_vector, vector)
-                if sim < COSINE_SIMILARITY_THRESHOLD:
-                    continue  # Filter out low-similarity results
-
-                msg = {
-                    "id": row[0],
-                    "session_id": row[1],
-                    "role": row[2],
-                    "content": row[3],
-                    "metadata": json.loads(row[4]) if row[4] else {},
-                    "created_at": row[5],
-                }
-                scored.append((row[0], sim, msg))
-
-            # Sort by similarity descending, take top_k
-            scored.sort(key=lambda x: -x[1])
-            results = []
-            for _msg_id, sim, msg in scored[:top_k]:
-                result = dict(msg)
-                result["_similarity"] = round(sim, 4)
-                results.append(result)
-
-            return results
+            # Fallback: full-table scan with Python cosine
+            return self._semantic_search_fallback(query_vector, session_id, exclude_session_id, top_k, engine)
 
         except Exception as e:
             logger.error("Semantic search failed: %s", e)
             return []
+
+    def _apply_semantic_filters(
+        self,
+        faiss_results: list[tuple[int, float]],
+        session_id: str = None,
+        exclude_session_id: str = None,
+        top_k: int = 10,
+        engine: Any = None,
+    ) -> list[dict[str, Any]]:
+        """Apply session filters to FAISS results and fetch full message data."""
+        # Build session filter query
+        ids_to_fetch = []
+        filtered_scores: dict[int, float] = {}
+
+        for msg_id, sim in faiss_results:
+            if sim < COSINE_SIMILARITY_THRESHOLD:
+                continue
+            ids_to_fetch.append(msg_id)
+            filtered_scores[msg_id] = sim
+
+        if not ids_to_fetch:
+            return []
+
+        time_col = self.time_column
+        placeholders = ",".join("?" for _ in ids_to_fetch)
+        sql = f"SELECT id, session_id, role, content, metadata, {time_col} FROM messages WHERE id IN ({placeholders})"
+        params: list = list(ids_to_fetch)
+
+        if session_id:
+            sql += " AND session_id = ?"
+            params.append(session_id)
+        if exclude_session_id:
+            sql += " AND session_id != ?"
+            params.append(exclude_session_id)
+
+        cursor = self._conn.execute(sql, params)
+        results = []
+        for row in cursor.fetchall():
+            msg_id = row[0]
+            sim = filtered_scores.get(msg_id, 0)
+            if sim < COSINE_SIMILARITY_THRESHOLD:
+                continue
+            msg = {
+                "id": msg_id,
+                "session_id": row[1],
+                "role": row[2],
+                "content": row[3],
+                "metadata": json.loads(row[4]) if row[4] else {},
+                "created_at": row[5],
+                "_similarity": round(sim, 4),
+            }
+            results.append(msg)
+
+        results.sort(key=lambda m: -m["_similarity"])
+        return results[:top_k]
+
+    def _semantic_search_fallback(
+        self,
+        query_vector: list[float],
+        session_id: str = None,
+        exclude_session_id: str = None,
+        top_k: int = 10,
+        engine: Any = None,
+    ) -> list[dict[str, Any]]:
+        """Full-table Python cosine fallback when FAISS is unavailable."""
+        from agent.perpetual_context_db import EmbeddingEngine  # noqa: PLC0415
+
+        where_parts = ["embedding IS NOT NULL AND LENGTH(embedding) >= ?"]
+        params: list = [EMBED_DIM * 4]
+
+        if session_id:
+            where_parts.append("session_id = ?")
+            params.append(session_id)
+        if exclude_session_id:
+            where_parts.append("session_id != ?")
+            params.append(exclude_session_id)
+
+        time_col = self.time_column
+        cursor = self._conn.execute(
+            f"SELECT id, session_id, role, content, metadata, {time_col}, embedding FROM messages WHERE {' AND '.join(where_parts)}",
+            params,
+        )
+        rows = cursor.fetchall()
+
+        if not rows:
+            return []
+
+        scored: list[tuple[int, float, dict[str, Any]]] = []
+        for row in rows:
+            vector = engine.deserialize(row[6])
+            if vector is None:
+                continue
+            sim = EmbeddingEngine.cosine_similarity(query_vector, vector)
+            if sim < COSINE_SIMILARITY_THRESHOLD:
+                continue
+            msg = {
+                "id": row[0],
+                "session_id": row[1],
+                "role": row[2],
+                "content": row[3],
+                "metadata": json.loads(row[4]) if row[4] else {},
+                "created_at": row[5],
+            }
+            scored.append((row[0], sim, msg))
+
+        scored.sort(key=lambda x: -x[1])
+        results = []
+        for _msg_id, sim, msg in scored[:top_k]:
+            result = dict(msg)
+            result["_similarity"] = round(sim, 4)
+            results.append(result)
+
+        return results
 
     def hybrid_search(
         self,
@@ -213,71 +374,59 @@ class _SearchEngine:
         semantic_weight: float = SEMANTIC_WEIGHT,
         fts5_weight: float = FTS5_WEIGHT,
     ) -> list[dict[str, Any]]:
-        """Hybrid search combining FTS5 keyword matching + semantic embeddings.
+        """Hybrid search using Reciprocal Rank Fusion of FTS5 BM25 + semantic cosine.
 
-        Uses weighted scoring to combine BM25 rank from FTS5 with cosine similarity
-        from embedding vectors. Messages appearing in both result sets get boosted scores.
+        RRF is the standard approach used by modern search engines:
+        score(d) = sum(1 / (k + rank_i)) for each ranking.
+        This avoids the normalization issues of weighted scoring with
+        different scales (BM25 rank vs cosine similarity).
 
         Args:
             query: Search query string.
             session_id: Optional session filter.
             top_k: Maximum results to return.
-            exclude_session_id: Optional session ID to skip (for cross-session recall).
-            semantic_weight: Weight for cosine similarity (default: SEMANTIC_WEIGHT).
-            fts5_weight: Weight for BM25 rank (default: FTS5_WEIGHT).
+            exclude_session_id: Optional session ID to skip.
+            semantic_weight: Weight multiplier for semantic ranking.
+            fts5_weight: Weight multiplier for FTS5 ranking.
 
         Returns:
-            List of matching message dicts with '_score' field (weighted hybrid score).
+            List of matching message dicts with '_score' field (RRF hybrid score).
         """
-        # Get FTS5 keyword results — fetch extra for fusion
-        fts_results = self.fts_search(query, session_id=session_id, top_k=top_k * 2)
-
-        # Get semantic embedding results — fetch extra for fusion
+        # Fetch extra results from each ranking for fusion
+        fts_results = self.fts_search(query, session_id=session_id, top_k=top_k * 3)
         semantic_results = self.semantic_search(
             query,
             session_id=session_id,
-            top_k=top_k * 2,
+            top_k=top_k * 3,
             exclude_session_id=exclude_session_id,
         )
 
-        # Combine using weighted scoring: FTS5 rank + cosine similarity.
-        # Normalize both scores to [0, 1] range before weighting.
-        scored: dict[int, float] = {}
+        # Reciprocal Rank Fusion with weighting
+        k = 60  # Standard RRF constant
+        scores: dict[int, float] = {}
         msg_cache: dict[int, dict[str, Any]] = {}
 
-        # Score FTS5 results — convert BM25 rank (lower=better) to normalized score
-        if fts_results:
-            min_rank = min(m["_rank"] for m in fts_results)
-            max_rank = max(m["_rank"] for m in fts_results)
-            rank_range = max_rank - min_rank if max_rank != min_rank else 1.0
+        for i, msg in enumerate(fts_results):
+            rid = msg["id"]
+            rrf_score = fts5_weight / (k + i + 1)
+            scores[rid] = scores.get(rid, 0) + rrf_score
+            msg_cache[rid] = msg
 
-            for i, msg in enumerate(fts_results):
-                rid = msg["id"]
-                # Normalize BM25: invert so higher=better, scale to [0, 1]
-                normalized = 1.0 - ((msg["_rank"] - min_rank) / rank_range)
-                score = FTS5_WEIGHT * normalized + (1.0 / (i + 1)) * FTS5_WEIGHT * 0.1
-                scored[rid] = scored.get(rid, 0) + score
-                msg_cache[rid] = msg
-
-        # Score semantic results — cosine similarity already in [0, 1] range
         for i, msg in enumerate(semantic_results):
             rid = msg["id"]
-            sim_score = msg["_similarity"]
-            score = SEMANTIC_WEIGHT * sim_score + (1.0 / (i + 1)) * SEMANTIC_WEIGHT * 0.1
-            scored[rid] = scored.get(rid, 0) + score
-            # Prefer semantic result dict if FTS didn't have it (has similarity field)
+            rrf_score = semantic_weight / (k + i + 1)
+            scores[rid] = scores.get(rid, 0) + rrf_score
             if rid not in msg_cache:
                 msg_cache[rid] = msg
 
-        # Sort by combined score descending, return top_k
-        sorted_msgs = sorted(scored.items(), key=lambda x: -x[1])[:top_k]
+        sorted_msgs = sorted(scores.items(), key=lambda x: -x[1])[:top_k]
 
         if not sorted_msgs:
             return []
 
-        # Build final results from cache (already have content) or fetch from DB
+        # Fetch any missing messages from DB
         msg_ids = [mid for mid, _ in sorted_msgs]
-        cached_ids = {rid for rid in msg_cache}
+        cached_ids = set(msg_cache.keys())
         missing_ids = [rid for rid in msg_ids if rid not in cached_ids]
 
         db_lookup: dict[int, dict[str, Any]] = {}
@@ -300,12 +449,11 @@ class _SearchEngine:
         results = []
         for msg_id, score in sorted_msgs:
             if msg_id in msg_cache:
-                result = {k: v for k, v in msg_cache[msg_id].items() if not k.startswith("_")}
+                result = {k2: v2 for k2, v2 in msg_cache[msg_id].items() if not k2.startswith("_")}
             elif msg_id in db_lookup:
                 result = dict(db_lookup[msg_id])
             else:
-                continue  # Shouldn't happen, but skip safely
-
+                continue
             result["_score"] = round(score, 4)
             results.append(result)
 
@@ -341,7 +489,6 @@ class _SearchEngine:
             return ""
 
         try:
-            # Step 1: Hybrid search across ALL sessions (semantic + keyword fusion)
             hybrid_results = self.hybrid_search(
                 query,
                 session_id=None,
@@ -351,19 +498,15 @@ class _SearchEngine:
             if not hybrid_results:
                 return ""
 
-            # Step 2: Filter by score threshold and take top_k.
-            # hybrid_search already returns dicts with '_score' (weighted hybrid score).
             qualified = [(msg["id"], msg["_score"]) for msg in hybrid_results[:top_k] if msg.get("_score", 0) >= min_score]
             if not qualified:
                 return ""
 
-            # Step 3: Build message dict from hybrid_results (already have full content)
             msg_lookup = {msg["id"]: msg for msg in hybrid_results}
             messages = {mid: msg_lookup[mid] for mid, _ in qualified if mid in msg_lookup}
             if not messages:
                 return ""
 
-            # Step 4: Format as compact pointers with hard cap
             return self._format_recall_pointers(messages, qualified, max_chars=max_chars)
 
         except (sqlite3.Error, KeyError, TypeError) as e:
@@ -391,7 +534,7 @@ class _SearchEngine:
                 continue
 
             role = m["role"].upper()
-            session = m["session_id"][:15]  # Truncate long IDs
+            session = m["session_id"][:15]
             ts = str(m.get("created_at", ""))[:10] if m.get("created_at") else "?"
 
             snippet = _SearchEngine._extract_snippet(m.get("content", "") or "", max_len=RECALL_SNIPPET_MAX_LEN)
@@ -404,7 +547,6 @@ class _SearchEngine:
         header = "[Relevant past discussion — use perpetual_search for full context]\n"
         result = header + "\n".join(parts)
 
-        # Hard cap on total characters to prevent context bloat
         if len(result) > max_chars:
             result = result[: max_chars - 3] + "..."
 
@@ -420,13 +562,11 @@ class _SearchEngine:
         if not text:
             return ""
 
-        # Strip common prefixes that add noise
         for prefix in ("tool_call:", "function:", "[", "{"):
             if text.startswith(prefix):
                 text = text[len(prefix) :]
                 break
 
-        # Try to end at a sentence boundary
         snippet = text.strip()
         for delim in (". ", "\n", "! ", "? "):
             idx = text.find(delim)
@@ -434,7 +574,6 @@ class _SearchEngine:
                 snippet = text[: idx + 1].strip()
                 break
 
-        # Truncate at word boundary if too long
         if len(snippet) > max_len:
             snippet = snippet[:max_len]
             last_space = snippet.rfind(" ")

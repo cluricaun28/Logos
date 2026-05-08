@@ -1,0 +1,284 @@
+# Source Dossiers — external source credibility data for the Sovereign Sieve.
+#
+# Each entry maps a domain to its editorial stance, known ownership/funding,
+# reliability tier, and notes on historical behavior.
+#
+# Stance values: left-leaning, center-left, centrist, center-right, right-leaning,
+#                religious/traditional, institutional, academic, unknown
+#
+# Reliability tiers:
+#   A — Primary news wire / fact-checked reporting
+#   B — Established outlet with editorial perspective
+#   C — Opinion-first / advocacy / low editorial standards
+#
+# Edit this file to add or update sources. The scrutiny gate loads it on init
+# with graceful fallback to an empty dict if the file is missing or malformed.
+
+sources:
+  # Major US news wires
+  nytimes.com:
+    stance: center-left
+    reliability: B
+    ownership: The New York Times Company (publicly traded)
+    notes: "Strong editorial page separate from news desk. Liberal opinion section."
+
+  washingtonpost.com:
+    stance: center-left
+    reliability: B
+    ownership: Amazon (Jeff Bezos)
+    notes: "Known for political favorability toward its owner's interests."
+
+  reuters.com:
+    stance: centrist
+    reliability: A
+    ownership: Thomson Reuters (private)
+    notes: "News wire service. Strictly factual reporting standards."
+
+  apnews.com:
+    stance: centrist
+    reliability: A
+    ownership: Associated Press (cooperative)
+    notes: "News wire service. Member-owned cooperative."
+
+  # International
+  bbc.co.uk:
+    stance: center-left
+    reliability: B
+    ownership: UK public broadcaster (license-funded)
+    notes: "British state media with perceived center-left editorial bias."
+
+  aljazeera.com:
+    stance: center-left
+    reliability: B
+    ownership: Qatar government
+    notes: "State-funded. Strong Middle East coverage. Qatari editorial perspective."
+
+  guardian.co.uk:
+    stance: left-leaning
+    reliability: B
+    ownership: Scott Trust (1936)
+    notes: "Known progressive editorial stance. Strong investigative journalism."
+
+  telegraph.co.uk:
+    stance: center-right
+    reliability: B
+    ownership: Barclay brothers (private)
+    notes: "Traditional conservative British newspaper."
+
+  economist.com:
+    stance: centrist
+    reliability: A
+    ownership: Economist Group (private)
+    notes: "Classical liberal perspective. Strong data-driven analysis."
+
+  # US cable / digital
+  cnn.com:
+    stance: left-leaning
+    reliability: B
+    ownership: Warner Bros. Discovery
+    notes: "Known sensationalism and progressive editorial slant."
+
+  foxnews.com:
+    stance: center-right
+    reliability: B
+    ownership: Fox Corporation (Bauer family)
+    notes: "Opinion shows more right-leaning than news division."
+
+  npr.org:
+    stance: center-left
+    reliability: B
+    ownership: Nonprofit (federal funding + donations)
+    notes: "Public radio. Criticized for subtle liberal bias in story selection."
+
+  thehill.com:
+    stance: centrist
+    reliability: B
+    ownership: DC Forum Holdings
+    notes: "Capitol Hill-focused. Generally balanced political coverage."
+
+  politico.com:
+    stance: center-left
+    reliability: B
+    ownership: Axel Springer SE
+    notes: "Insider political coverage. Progressive-leaning editorial."
+
+  vox.com:
+    stance: left-leaning
+    reliability: C
+    ownership: Vox Media (publicly traded)
+    notes: "Opinion-first explainer format. Strong progressive perspective."
+
+  motherjones.com:
+    stance: left-leaning
+    reliability: B
+    ownership: Mother Jones Fund (nonprofit)
+    notes: "Progressive investigative magazine."
+
+  huffpost.com:
+    stance: left-leaning
+    reliability: C
+    ownership: Axel Springer SE
+    notes: "Progressive opinion and aggregation. Low original reporting."
+
+  # Right-leaning
+  wsj.com:
+    stance: center-right
+    reliability: B
+    ownership: News Corp (Murdoch)
+    notes: "News desk more centrist than editorial page. Strong business coverage."
+
+  breitbart.com:
+    stance: right-leaning
+    reliability: C
+    notes: "Alex Marlow. Previously Steve Bannon."
+
+  newsmax.com:
+    stance: right-leaning
+    reliability: C
+    ownership: Chris Ruddy
+    notes: "Alternative conservative media. Frequently disputed factuality."
+
+  dailywire.com:
+    stance: right-leaning
+    reliability: C
+    ownership: Ben Shapiro / Graham Hill
+    notes: "Opinion-first conservative media. Subscription model."
+
+  nationalreview.com:
+    stance: center-right
+    reliability: B
+    ownership: NR Media (Baker family)
+    notes: "Traditional conservative intellectual journal."
+
+  thebulwark.com:
+    stance: center-right
+    reliability: B
+    ownership: Independent (donor-funded)
+    notes: "Post-Trump conservative intellectual outlet."
+
+  thegatewaypundit.com:
+    stance: right-leaning
+    reliability: C
+    ownership: Private
+    notes: "Fringe conservative. Frequently publishes unverified claims."
+
+  theamericanconservative.com:
+    stance: right-leaning
+    reliability: B
+    ownership: Independent (subscription)
+    notes: "Traditional conservative intellectual journal."
+
+  washingtonexaminer.com:
+    stance: center-right
+    reliability: B
+    ownership: Heritage Foundation (conservative think tank)
+    notes: "Think-tank affiliated. Strong editorial perspective."
+
+  pjmedia.com:
+    stance: right-leaning
+    reliability: C
+    ownership: Townhall Media Group
+    notes: "Opinion-heavy conservative commentary."
+
+  quillette.com:
+    stance: centrist
+    reliability: B
+    ownership: Independent (subscription)
+    notes: "Anti-woke cultural commentary. Skeptical of progressive orthodoxy."
+
+  # Religious / traditional
+  crevdonline.com:
+    stance: religious/traditional
+    reliability: C
+    ownership: Catholic media
+    notes: "Catholic news and commentary."
+
+  christianpost.com:
+    stance: religious/traditional
+    reliability: C
+    ownership: Christian media group
+    notes: "Evangelical news and commentary."
+
+  churchmilitant.com:
+    stance: religious/traditional
+    reliability: C
+    ownership: Church Militant (Priest Dennis Prager)
+    notes: "Traditional Catholic commentary. Strong editorial perspective."
+
+  # Business / financial
+  forbes.com:
+    stance: centrist
+    reliability: B
+    ownership: Forbes LLC
+    notes: "Business and financial news. Contributor-driven content."
+
+  bloomberg.com:
+    stance: centrist
+    reliability: A
+    ownership: Bloomberg L.P. (Michael Bloomberg)
+    notes: "Business and financial data. Strong factual standards."
+
+  marketwatch.com:
+    stance: centrist
+    reliability: B
+    ownership: Dow Jones (News Corp)
+    notes: "Financial data and market analysis."
+
+  prnewswire.com:
+    stance: institutional
+    reliability: B
+    ownership: PR Newswire Association
+    notes: "Press wire service. Self-reported corporate communications."
+
+  # Social / aggregation
+  medium.com:
+    stance: unknown
+    reliability: C
+    ownership: Medium LLC (Zuckerberg)
+    notes: "User-generated content. No editorial standards."
+
+  reddit.com:
+    stance: unknown
+    reliability: C
+    ownership: Advance Publications
+    notes: "Crowdsourced content. Highly variable quality."
+
+  wikipedia.org:
+    stance: unknown
+    reliability: B
+    ownership: Wikimedia Foundation (nonprofit)
+    notes: "Community-edited encyclopedia. Generally reliable but variable."
+
+# Worldview axis mappings — which axes correspond to which topic keywords
+# Used by the WorldviewDivergenceChecker to estimate source positions.
+axes:
+  sexual_morality:
+    keywords: [marriage, same-sex, gender, lgbt, trans, adoption]
+  racial_policy:
+    keywords: [race, affirmative action, dei, discrimination, systemic racism, quota]
+  free_speech:
+    keywords: [free speech, cancel culture, censorship, hate speech, employer]
+  government_power:
+    keywords: [constitution, federal, free market, regulation, ubiquitous, basic income]
+  sanctity_of_life:
+    keywords: [abortion, conception, pro-life, pro-choice]
+  religion_in_public:
+    keywords: [religion, church, prayer, education, anti-discrimination]
+  border_immigration:
+    keywords: [border, immigration, citizenship, illegal]
+  criminal_justice:
+    keywords: [death penalty, guns, second amendment, police, criminal]
+
+# Stance-to-position mapping for axis scoring
+# Maps editorial stance to a -2..+2 score where +2 = traditional/conservative,
+# -2 = progressive/secular, 0 = neutral/unknown.
+stance_positions:
+  left-leaning: -2
+  center-left: -1
+  centrist: 0
+  center-right: 1
+  right-leaning: 2
+  institutional: 0
+  academic: -1
+  "religious/traditional": 2
+  unknown: 0
