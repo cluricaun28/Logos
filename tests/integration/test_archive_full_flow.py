@@ -13,7 +13,7 @@ def make_realistic_conversation():
     """Build a multi-turn conversation simulating real Hermes usage with tasks, tool calls, and memory context."""
     return [
         # System prompt (protected)
-        {"role": "system", "content": "You are Patrick Daley's assistant."},
+        {"role": "system", "content": "You are a personal assistant."},
 
         # Task 1: Code review (completed)
         {"role": "user", "content": "Review the G-code for my CNC post-processor. Check for threading issues."},
@@ -54,7 +54,7 @@ def make_realistic_conversation():
 
 def make_long_conversation_with_many_tasks():
     """Build a conversation with many completed tasks and one active task — tests aggressive pruning."""
-    msgs = [{"role": "system", "content": "You are Patrick Daley's assistant."}]
+    msgs = [{"role": "system", "content": "You are a personal assistant."}]
 
     # Generate 8 completed tasks (each ~4 messages)
     tasks = [
@@ -441,7 +441,7 @@ class TestArchiveSessionSplit:
         # Mock the archiver to return a reduced message list
         test_msgs = make_realistic_conversation()
         agent.context_archiver.archive.return_value = [
-            {"role": "system", "content": "You are Patrick Daley's assistant."},
+            {"role": "system", "content": "You are a personal assistant."},
             {"role": "user", "content": "Summary of previous work: CNC fix, RL page, DPO setup"},
             {"role": "assistant", "content": "Ready to continue with inference server configuration."},
         ]

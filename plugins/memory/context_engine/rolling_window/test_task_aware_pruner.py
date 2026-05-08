@@ -59,7 +59,7 @@ This is the most serious problem. DPO learns to prefer longer responses when rej
 | Theology/Doctrine | 86 total | 50+ | ✅ Exceeded |
 | Politics/Civil Authority | 60 total | 30+ | ✅ Exceeded |
 
-**Next Step:** The dataset is structurally sound and ready for DPO training on your RTX 5090.""",
+**Next Step:** The dataset is structurally sound and ready for DPO training on your GPU.""",
 
     # Task with explicit marker (what the model should learn to emit)
     """[TASK_START: dpo_dataset_review] Reviewing DPO dataset quality
@@ -309,11 +309,11 @@ class TestTaskAwarePruner:
             # Task 2 starts (active - should be preserved)
             make_message("user", "Now set up Unsloth Docker container."),
             make_message("assistant", "[TASK_START: docker_setup] Configuring Docker environment...\n\nPulling the official Unsloth image..."),
-            make_message("assistant", "Installing CUDA dependencies for RTX 5090 Blackwell architecture..."),
+            make_message("assistant", "Installing CUDA dependencies for NVIDIA Blackwell architecture..."),
             
             # More conversation while task 2 is active
             make_message("user", "What about GPU memory configuration?"),
-            make_message("assistant", "For a 27B model, you'll need at least 64GB VRAM. Your RTX 5090 has that covered."),
+            make_message("assistant", "For a 27B model, you'll need at least 64GB VRAM. Your GPU has that covered."),
             
             # Recent turns (always protected)
             make_message("user", "Any other considerations?"),
