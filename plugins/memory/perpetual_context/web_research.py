@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import logging
 import os
-import re
+import re as _re
 import time
 import uuid
 from dataclasses import dataclass
@@ -64,7 +64,7 @@ URL_LOG_MAX_CHARS = 80             # Max chars for URL in log messages
 QUERY_LOG_MAX_CHARS = 50           # Max chars for query in log messages
 
 # Pre-compiled regex for URL extraction from text
-_URL_PATTERN = re.compile(
+_URL_PATTERN = _re.compile(
     r'https?://[^\s<>"\')]+',
     re.IGNORECASE,
 )
