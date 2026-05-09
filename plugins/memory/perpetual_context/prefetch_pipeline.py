@@ -13,7 +13,6 @@ from __future__ import annotations
 import json
 import logging
 import time as _time
-
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -77,10 +76,12 @@ def run_prefetch_pipeline(
     rl_data: dict = {}
     if routing.get("fire_prefetch") and prefetch_enabled and tools:
         try:
-            rl_json = tools.handle_reference_library_search({
-                "query": query,
-                "top_k": rl_search_top_k,
-            })
+            rl_json = tools.handle_reference_library_search(
+                {
+                    "query": query,
+                    "top_k": rl_search_top_k,
+                }
+            )
             rl_data = json.loads(rl_json)
             rl_results = rl_data.get("results", [])
             if rl_results:
@@ -89,9 +90,7 @@ def run_prefetch_pipeline(
                     name = r.get("name", "Unknown")
                     snippet = r.get("snippet", "")[:300]
                     score = r.get("score", 0)
-                    rl_parts.append(
-                        f"[RL: {name} (score: {score})]\n{snippet}"
-                    )
+                    rl_parts.append(f"[RL: {name} (score: {score})]\n{snippet}")
                 parts.append("\n\n---\n\n".join(rl_parts))
                 rl_results_count = len(rl_results)
         except Exception as e:
@@ -111,9 +110,7 @@ def run_prefetch_pipeline(
                     role_label = msg["role"].upper()
                     content = msg.get("content", "")[:prefetch_trunc_chars]
                     score = msg.get("_score", 0)
-                    pm_formatted.append(
-                        f"[PM: {role_label} (relevance: {score:.2f})]\n{content}"
-                    )
+                    pm_formatted.append(f"[PM: {role_label} (relevance: {score:.2f})]\n{content}")
                 parts.append("\n\n---\n\n".join(pm_formatted))
                 pm_results_count = len(pm_results)
         except Exception as e:
@@ -150,7 +147,10 @@ def run_prefetch_pipeline(
                 gaps_detected = True
                 logger.debug(
                     "Gap: topic='%s' stability=%s, rl_ratio=%.1f pm=%.2f",
-                    query[:50], stability, best_rl_ratio, best_pm_norm,
+                    query[:50],
+                    stability,
+                    best_rl_ratio,
+                    best_pm_norm,
                 )
 
     # Phase 2: Web Research
@@ -161,17 +161,18 @@ def run_prefetch_pipeline(
             _t0 = _time.monotonic()
             raw = web_research.search(query, top_k=web_search_top_k)
             _elapsed = _time.monotonic() - _t0
-            logger.debug("Web search for '%s' returned %d results in %.1fs",
-                         query[:50], len(raw), _elapsed)
+            logger.debug("Web search for '%s' returned %d results in %.1fs", query[:50], len(raw), _elapsed)
             for sr in raw:
-                web_results.append({
-                    "title": sr.title,
-                    "url": sr.url,
-                    "snippet": sr.snippet,
-                    "source": sr.source,
-                    "score": sr.score,
-                    "extracted_content": sr.extracted_content,
-                })
+                web_results.append(
+                    {
+                        "title": sr.title,
+                        "url": sr.url,
+                        "snippet": sr.snippet,
+                        "source": sr.source,
+                        "score": sr.score,
+                        "extracted_content": sr.extracted_content,
+                    }
+                )
         except Exception as e:
             logger.debug("Phase 2 web research failed: %s", e)
 
@@ -179,19 +180,12 @@ def run_prefetch_pipeline(
     vetted_results: list[dict] = []
     if web_results and scrutiny_gate is not None:
         try:
-            filtered = [
-                r for r in web_results
-                if not any(
-                    blocked in r.get("url", "")
-                    for blocked in worldview_blocked_domains
-                )
-            ]
+            filtered = [r for r in web_results if not any(blocked in r.get("url", "") for blocked in worldview_blocked_domains)]
             scrutiny = scrutiny_gate.vet_results(filtered, query)
             vetted_results = scrutiny.get("vetted_results", [])
             flagged = scrutiny.get("rejected_results", [])
             if flagged:
-                logger.debug("Scrutiny flagged %d results: %s",
-                             len(flagged), [f.get("reason", "") for f in flagged[:3]])
+                logger.debug("Scrutiny flagged %d results: %s", len(flagged), [f.get("reason", "") for f in flagged[:3]])
         except Exception as e:
             logger.debug("Phase 3 scrutiny failed: %s", e)
             vetted_results = web_results  # Fallback: use unvetted
@@ -218,39 +212,26 @@ def run_prefetch_pipeline(
             context_block = synthesis.get("context_block", "")
             if context_block:
                 sources = ", ".join(r.get("source", "web") for r in vetted_results[:3])
-                web_section = (
-                    f"[Web Research Results (from {sources})]\n"
-                    f"{context_block}"
-                )
+                web_section = f"[Web Research Results (from {sources})]\n{context_block}"
                 parts.append(web_section)
-                logger.debug("Phase 4 synthesis produced %d bytes in %.1fs",
-                             len(context_block), _e2)
+                logger.debug("Phase 4 synthesis produced %d bytes in %.1fs", len(context_block), _e2)
 
             rl_update_flags = synthesis.get("rl_update_flags", [])
             if rl_update_flags:
-                relevant_flags = [
-                    f for f in rl_update_flags[:10]
-                    if "britannica" not in f.get("page", "").lower()
-                ][:2]
+                relevant_flags = [f for f in rl_update_flags[:10] if "britannica" not in f.get("page", "").lower()][:2]
                 if relevant_flags:
                     logger.info(
                         "RLUpdateDetector flagged %d relevant page(s) for review",
                         len(relevant_flags),
                     )
                     for flag in relevant_flags:
-                        footer_parts.append(
-                            f"[RL Update: {flag.get('page', '').split('/')[-1]} — "
-                            f"{flag.get('reason', '')[:120]}]"
-                        )
+                        footer_parts.append(f"[RL Update: {flag.get('page', '').split('/')[-1]} — {flag.get('reason', '')[:120]}]")
         except Exception as e:
             logger.debug("Phase 4 synthesis failed: %s", e)
             if vetted_results:
                 snippets = []
                 for r in vetted_results[:3]:
-                    snippets.append(
-                        f"[Web: {r.get('title', 'Unknown')} ({r.get('source', '')})]\n"
-                        f"{r.get('snippet', '')[:200]}"
-                    )
+                    snippets.append(f"[Web: {r.get('title', 'Unknown')} ({r.get('source', '')})]\n{r.get('snippet', '')[:200]}")
                 if snippets:
                     parts.append("\n\n".join(snippets))
 
@@ -263,15 +244,11 @@ def run_prefetch_pipeline(
     if deep_research_master:
         web_results_count = len(vetted_results)
         footer_parts.append(
-            f"[Recall: {rl_results_count} RL, {pm_results_count} PM"
-            f"{', ' + str(web_results_count) + ' web' if web_results_count else ''}]"
+            f"[Recall: {rl_results_count} RL, {pm_results_count} PM{', ' + str(web_results_count) + ' web' if web_results_count else ''}]"
         )
         footer_parts.append(f"[Topic: {stability}]")
         if gaps_detected and not web_results_count:
-            footer_parts.append(
-                "[Gap detected — local recall insufficient. "
-                "Consider web research for current/external data.]"
-            )
+            footer_parts.append("[Gap detected — local recall insufficient. Consider web research for current/external data.]")
 
     result_text += "\n\n" + " ".join(footer_parts)
     return result_text
@@ -291,9 +268,7 @@ def format_recent_context(db: Any, max_turns: int = 15) -> str:
             if recency > 0.3:
                 role_label = msg.get("role", "unknown").upper()
                 content = msg.get("content", "")[:200]
-                parts.append(
-                    f"[Recent ({role_label}, recency: {recency:.2f})] {content}"
-                )
+                parts.append(f"[Recent ({role_label}, recency: {recency:.2f})] {content}")
         if parts:
             return "\n\n---\n\n".join(parts)
         return ""

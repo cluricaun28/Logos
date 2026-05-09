@@ -16,14 +16,13 @@ NO data leaves the local system. All inference runs on Patrick's machine.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
-import re as _re
 import time
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -31,12 +30,13 @@ logger = logging.getLogger(__name__)
 # Configuration constants — LOCAL INFERENCE ONLY
 # Reads active provider from Hermes config; defaults to vLLM on localhost:8000
 # ---------------------------------------------------------------------------
-SYNTHESIS_PASS_TIMEOUT = 30        # Seconds per inference pass
-CONTEXT_BUDGET_KB_DEFAULT = 6      # Default KB budget for context block (4-8 recommended)
-MAX_SYNTHESIS_PASSES = 4           # Hard cap on refinement passes
+SYNTHESIS_PASS_TIMEOUT = 30  # Seconds per inference pass
+CONTEXT_BUDGET_KB_DEFAULT = 6  # Default KB budget for context block (4-8 recommended)
+MAX_SYNTHESIS_PASSES = 4  # Hard cap on refinement passes
 INFERENCE_URL_DEFAULT = "http://localhost:8000/v1"  # vLLM (not LM Studio)
 SYNTHESIS_MODEL_DEFAULT = ""  # Empty = use whatever model the provider has loaded
-RL_CONTRADICTION_THRESHOLD = 3      # Min term overlap to flag potential contradiction
+RL_CONTRADICTION_THRESHOLD = 3  # Min term overlap to flag potential contradiction
+
 
 def get_active_model() -> dict[str, Any]:
     """Read the active model from Hermes config.
@@ -66,6 +66,7 @@ def get_active_model() -> dict[str, Any]:
             "base_url": INFERENCE_URL_DEFAULT,
         }
 
+
 class SynthesisEngine:
     """Multi-pass synthesis engine using local inference (vLLM).
 
@@ -88,9 +89,9 @@ class SynthesisEngine:
         self._max_passes: int = min(cfg.get("synthesis_passes", 3), MAX_SYNTHESIS_PASSES)
         self._context_budget_kb: int = cfg.get("context_budget_kb", CONTEXT_BUDGET_KB_DEFAULT)
 
-    def synthesize(self, facts: list[dict[str, Any]], query: str,
-                   sensitivity: str = "low",
-                   progress_callback: Callable | None = None) -> dict[str, Any]:
+    def synthesize(
+        self, facts: list[dict[str, Any]], query: str, sensitivity: str = "low", progress_callback: Callable | None = None
+    ) -> dict[str, Any]:
         """Perform multi-pass synthesis of vetted facts.
 
         Returns dict with:
@@ -268,11 +269,7 @@ class SynthesisEngine:
                     lines.append(f"  - Bias note: {note}")
 
             # Flag narrative deviations across all facts for this source
-            deviations = [
-                f.get("_narrative_flag")
-                for f in src_facts
-                if f.get("_narrative_flag")
-            ]
+            deviations = [f.get("_narrative_flag") for f in src_facts if f.get("_narrative_flag")]
             if deviations:
                 lines.append(f"  - ⚠ {deviations[0]}")
 
@@ -309,7 +306,7 @@ class SynthesisEngine:
                             {"role": "user", "content": user_message},
                         ],
                         "temperature": 0.3,  # Low temperature for consistency
-                        "max_tokens": 2048,   # Keep responses compact
+                        "max_tokens": 2048,  # Keep responses compact
                     },
                 )
 
@@ -356,14 +353,14 @@ class SynthesisEngine:
 
         return prompts.get(pass_number, prompts[2])
 
+
 class ContextBlockFormatter:
     """Formats synthesized facts into hidden context blocks for injection."""
 
     def __init__(self, budget_kb: int = CONTEXT_BUDGET_KB_DEFAULT) -> None:
         self._budget_bytes = budget_kb * 1024
 
-    def format(self, synthesized_text: str, sources: list[dict[str, Any]],
-               metadata: dict[str, Any]) -> str:
+    def format(self, synthesized_text: str, sources: list[dict[str, Any]], metadata: dict[str, Any]) -> str:
         """Format synthesis output into a structured context block.
 
         Enforces hard cap at context_budget_kb. Truncates from bottom if needed.
@@ -375,10 +372,7 @@ class ContextBlockFormatter:
 
         # Build header
         source_count = len(set(s.get("source", "unknown") for s in sources)) if sources else 0
-        header = (
-            f"[Synthesized Context — {source_count} sources, sensitivity: {sensitivity}, "
-            f"passes: {pass_count}, generated: {timestamp[:16]}]\n\n"
-        )
+        header = f"[Synthesized Context — {source_count} sources, sensitivity: {sensitivity}, passes: {pass_count}, generated: {timestamp[:16]}]\n\n"
 
         # Combine header + content
         full_block = header + synthesized_text
@@ -399,7 +393,6 @@ class ContextBlockFormatter:
         # Strategy 1: Remove sections marked as uncertain or low confidence
         lines = text.split("\n")
         filtered_lines = []
-        skip_section = False
 
         for line in lines:
             if "[UNCERTAIN]" in line or "confidence: low" in line.lower():
@@ -424,14 +417,14 @@ class ContextBlockFormatter:
 
         return full
 
+
 class RLUpdateDetector:
     """Detects stale or contradictory RL pages that should be updated."""
 
     def __init__(self, rl_dir: str = "~/.hermes/reference-library/") -> None:
         self._rl_dir = Path(os.path.expanduser(rl_dir))
 
-    def check_for_updates(self, new_facts: list[dict[str, Any]],
-                          rl_dir: str | None = None) -> list[dict[str, Any]]:
+    def check_for_updates(self, new_facts: list[dict[str, Any]], rl_dir: str | None = None) -> list[dict[str, Any]]:
         """Compare new facts against existing RL pages.
 
         For each fact, checks if any RL page covers the same topic with outdated info.
@@ -487,13 +480,15 @@ class RLUpdateDetector:
                             # Potential match — check for contradictions or outdated info
                             reason = self._determine_update_reason(fact, content_lower, md_file)
                             if reason:
-                                recommendations.append({
-                                    "page": str(md_file),
-                                    "reason": reason,
-                                    "new_content_summary": (fact.get("snippet") or "")[:200],
-                                    "source_url": source_url,
-                                    "overlap_terms": list(overlap)[:5],
-                                })
+                                recommendations.append(
+                                    {
+                                        "page": str(md_file),
+                                        "reason": reason,
+                                        "new_content_summary": (fact.get("snippet") or "")[:200],
+                                        "source_url": source_url,
+                                        "overlap_terms": list(overlap)[:5],
+                                    }
+                                )
                     except Exception as e:
                         logger.debug("Failed to check RL page %s: %s", md_file.name, e)
 
@@ -510,8 +505,7 @@ class RLUpdateDetector:
 
         return unique_recs
 
-    def _determine_update_reason(self, fact: dict[str, Any], rl_content: str,
-                                  md_file: Path) -> str | None:
+    def _determine_update_reason(self, fact: dict[str, Any], rl_content: str, md_file: Path) -> str | None:
         """Determine why an RL page might need updating."""
         snippet = (fact.get("snippet") or "").lower()
         title = (fact.get("title") or "").lower()
@@ -525,9 +519,8 @@ class RLUpdateDetector:
                 return f"New information from {indicator} may update existing content"
 
         # Check for contradictory claims (simple heuristic)
-        if "not" in title or "no longer" in title or "changed" in title:
-            if any(word in rl_lower for word in title.split()[:5]):
-                return "Fact suggests change to previously documented information"
+        if ("not" in title or "no longer" in title or "changed" in title) and any(word in rl_lower for word in title.split()[:5]):
+            return "Fact suggests change to previously documented information"
 
         # Check for significant new data not covered by existing page
         snippet_words = set(snippet.split())
@@ -539,12 +532,13 @@ class RLUpdateDetector:
 
         return None
 
+
 # ---------------------------------------------------------------------------
 # Module-level convenience function
 # ---------------------------------------------------------------------------
 
-def synthesize_research(facts: list[dict[str, Any]], query: str,
-                        sensitivity: str = "low", config: dict | None = None) -> dict[str, Any]:
+
+def synthesize_research(facts: list[dict[str, Any]], query: str, sensitivity: str = "low", config: dict | None = None) -> dict[str, Any]:
     """Convenience wrapper for the full synthesis pipeline.
 
     Usage:
@@ -553,4 +547,3 @@ def synthesize_research(facts: list[dict[str, Any]], query: str,
     """
     engine = SynthesisEngine(config)
     return engine.synthesize(facts, query, sensitivity=sensitivity)
-

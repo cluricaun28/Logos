@@ -26,14 +26,17 @@ import threading
 import time
 from datetime import datetime
 from typing import Any
+
 from agent.memory_provider import MemoryProvider
 from agent.perpetual_context_db import RECALL_OUTPUT_MAX_CHARS
+
+from . import prefetch_pipeline
+from . import schemas as _schemas
+
 # Import split modules (SRP compliance)
 from .extraction_engine import _STOPWORDS
 from .injection_router import classify_injection_intent
-from . import prefetch_pipeline
 from .session_end_extractor import extract_topics_from_messages
-from . import schemas as _schemas
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +96,7 @@ class PerpetualContextProvider(MemoryProvider):
             with self._lock:
                 if self._factory is None:
                     from .component_factory import ComponentFactory  # noqa: PLC0415
+
                     self._factory = ComponentFactory(
                         db=self._db,
                         session_id=self._session_id or "",
@@ -110,7 +114,8 @@ class PerpetualContextProvider(MemoryProvider):
 
     def is_available(self) -> bool:
         try:
-            import sqlite3
+            import sqlite3  # noqa: F401
+
             return True
         except Exception as e:
             logger.error("PerpetualContext availability check failed: %s", e)
@@ -120,34 +125,28 @@ class PerpetualContextProvider(MemoryProvider):
         self._session_id = session_id
 
         config = kwargs.get("config", {})
-        pc_config = (config.get("perpetual_context", {})
-                     if isinstance(config, dict) else {})
+        pc_config = config.get("perpetual_context", {}) if isinstance(config, dict) else {}
 
         self._prefetch_enabled = bool(pc_config.get("prefetch_enabled", False))
         recall_cfg = pc_config.get("recall_injection", {})
         self._recall_past_enabled = (
-            bool(recall_cfg.get("enabled", False))
-            if isinstance(recall_cfg, dict)
-            else bool(pc_config.get("recall_injection", False))
+            bool(recall_cfg.get("enabled", False)) if isinstance(recall_cfg, dict) else bool(pc_config.get("recall_injection", False))
         )
         self._periodic_enabled = bool(pc_config.get("pre_response_recall", False))
         self._deep_research_enabled = DEEP_RESEARCH_ENABLED
 
         db_path = pc_config.get("db_path")
-        if not db_path:
-            db_path = os.path.join(os.path.expanduser("~/.hermes"),
-                                   "perpetual_context.db")
+        if not db_path:  # noqa: SIM108
+            db_path = os.path.join(os.path.expanduser("~/.hermes"), "perpetual_context.db")
         else:
             db_path = os.path.expanduser(db_path)
 
         from agent.perpetual_context_db import PerpetualContextDB  # noqa: PLC0415
+
         self._db = PerpetualContextDB(db_path=db_path)
 
         if not self._db.initialize():
-            logger.warning(
-                "PerpetualContextDB failed to initialize — provider will be "
-                "read-only"
-            )
+            logger.warning("PerpetualContextDB failed to initialize — provider will be read-only")
             return
 
         stats = self._db.get_stats()
@@ -167,10 +166,7 @@ class PerpetualContextProvider(MemoryProvider):
             db = self._db
             depth = self._current_depth
         stats = db.get_stats()
-        current_time = (
-            datetime.now().astimezone()
-            .strftime('%A, %B %d, %Y %-I:%M %p (%Z)')
-        )
+        current_time = datetime.now().astimezone().strftime("%A, %B %d, %Y %-I:%M %p (%Z)")
         return (
             f"[Current Time: {current_time}]\n"
             f"[Perpetual Context Memory: {stats.get('message_count', 0)} messages "
@@ -186,11 +182,13 @@ class PerpetualContextProvider(MemoryProvider):
     # -- Prefetch (delegates to prefetch_pipeline) ---------------------------
 
     def prefetch(self, query: str, *, session_id: str = "") -> str:
-        if not any([
-            self._prefetch_enabled,
-            self._recall_past_enabled,
-            self._deep_research_enabled,
-        ]):
+        if not any(
+            [
+                self._prefetch_enabled,
+                self._recall_past_enabled,
+                self._deep_research_enabled,
+            ]
+        ):
             return ""
 
         routing = classify_injection_intent(query)
@@ -261,13 +259,17 @@ class PerpetualContextProvider(MemoryProvider):
 
     def queue_prefetch(self, query: str, *, session_id: str = "") -> None:
         with self._lock:
-            self._prefetch_queue.append({
-                "query": query,
-                "session_id": session_id or self._session_id or "",
-            })
+            self._prefetch_queue.append(
+                {
+                    "query": query,
+                    "session_id": session_id or self._session_id or "",
+                }
+            )
 
     def recall_past_discussions(
-        self, query: str, exclude_session_id: str,
+        self,
+        query: str,
+        exclude_session_id: str,
         max_chars: int = RECALL_OUTPUT_MAX_CHARS,
     ) -> str:
         if not self._recall_past_enabled:
@@ -289,8 +291,11 @@ class PerpetualContextProvider(MemoryProvider):
     # -- Turn lifecycle ------------------------------------------------------
 
     def sync_turn(
-        self, user_content: str, assistant_content: str,
-        *, session_id: str = "",
+        self,
+        user_content: str,
+        assistant_content: str,
+        *,
+        session_id: str = "",
     ) -> None:
         with self._lock:
             if not self._db or not self._db._initialized:
@@ -304,11 +309,14 @@ class PerpetualContextProvider(MemoryProvider):
 
         try:
             db.add_message(
-                session_id=effective_session, role="user",
-                content=user_content, metadata={"synced_at": time.time()},
+                session_id=effective_session,
+                role="user",
+                content=user_content,
+                metadata={"synced_at": time.time()},
             )
             db.add_message(
-                session_id=effective_session, role="assistant",
+                session_id=effective_session,
+                role="assistant",
                 content=assistant_content,
                 metadata={"synced_at": time.time()},
             )
@@ -321,13 +329,14 @@ class PerpetualContextProvider(MemoryProvider):
         return list(_schemas.TOOL_SCHEMAS)
 
     def handle_tool_call(
-        self, tool_name: str, args: dict[str, Any], **kwargs,
+        self,
+        tool_name: str,
+        args: dict[str, Any],
+        **kwargs,
     ) -> str:
         with self._lock:
             if not self._db or not self._db._initialized:
-                return (
-                    '{"error": "Perpetual context database not initialized"}'
-                )
+                return '{"error": "Perpetual context database not initialized"}'
             factory = self._get_factory()
             factory.ensure_core()
             if not factory.tools:
@@ -337,7 +346,8 @@ class PerpetualContextProvider(MemoryProvider):
         try:
             if tool_name == "smart_retrieve":
                 return tools.handle_smart_retrieve(
-                    args, smart_retrieve_fn=self.smart_retrieve,
+                    args,
+                    smart_retrieve_fn=self.smart_retrieve,
                 )
             return tools.dispatch(tool_name, args)
         except Exception as e:
@@ -366,7 +376,8 @@ class PerpetualContextProvider(MemoryProvider):
                 db.optimize()
             except Exception as e:
                 logger.debug(
-                    "optimize() failed during on_turn_start: %s", e,
+                    "optimize() failed during on_turn_start: %s",
+                    e,
                 )
 
         self._last_turn_number = turn_number
@@ -401,13 +412,14 @@ class PerpetualContextProvider(MemoryProvider):
             return bridge.build_bridge(messages, correction_params)
         except Exception as e:
             logger.warning("Context Bridge generation failed: %s", e)
-            return (
-                "## Context Bridge\n"
-                "- Error generating retrieval index. See logs for details."
-            )
+            return "## Context Bridge\n- Error generating retrieval index. See logs for details."
 
     def on_memory_write(
-        self, action: str, target: str, content: str, metadata=None,
+        self,
+        action: str,
+        target: str,
+        content: str,
+        metadata=None,
     ) -> None:
         with self._lock:
             if not self._db or not self._db._initialized:
@@ -446,26 +458,27 @@ class PerpetualContextProvider(MemoryProvider):
             for r in results[:2]:
                 role = r.get("role", "assistant").title()
                 sid = r.get("session_id", "")[:12]
-                snippet = (
-                    (r.get("content") or "")
-                    [:PERIODIC_INJECTION_MAX_CHARS // 2].strip()
-                )
+                snippet = (r.get("content") or "")[: PERIODIC_INJECTION_MAX_CHARS // 2].strip()
                 parts.append(f"[{role} | Session {sid}] {snippet}")
 
             injected_text = "\n".join(parts)
             if len(injected_text) > PERIODIC_INJECTION_MAX_CHARS:
-                injected_text = injected_text[:PERIODIC_INJECTION_MAX_CHARS - 3] + "..."
+                injected_text = injected_text[: PERIODIC_INJECTION_MAX_CHARS - 3] + "..."
             return f"\n[Periodic Context Injection]\n{injected_text}\n"
         except Exception as e:
             logger.debug(
-                "Periodic injection failed (turn %d): %s", turn_number, e,
+                "Periodic injection failed (turn %d): %s",
+                turn_number,
+                e,
             )
             return None
 
     # -- Smart retrieve ------------------------------------------------------
 
     def smart_retrieve(
-        self, query_type: str, query_text: str,
+        self,
+        query_type: str,
+        query_text: str,
     ) -> list[dict[str, Any]]:
         with self._lock:
             if not self._db or not self._db._initialized:
@@ -485,15 +498,17 @@ class PerpetualContextProvider(MemoryProvider):
                 logger.warning("Unknown retrieval type: %s", query_type)
                 return []
             return retriever.retrieve(strategy, query_text)
-        except Exception as e:
+        except Exception:  # noqa: BLE001
             logger.exception(
-                "Smart retrieve failed for type '%s'", query_type,
+                "Smart retrieve failed for type '%s'",
+                query_type,
             )
             return []
 
     @staticmethod
     def _classify_query_intent(query_text: str) -> str:
         from .retrieval_engine import classify_query_intent  # noqa: PLC0415
+
         return classify_query_intent(query_text)
 
     def _get_depth_limit(self) -> int:
@@ -509,6 +524,7 @@ class PerpetualContextProvider(MemoryProvider):
 
 
 # -- Plugin registration ---------------------------------------------------
+
 
 def register(collector):
     collector.register_memory_provider(PerpetualContextProvider())

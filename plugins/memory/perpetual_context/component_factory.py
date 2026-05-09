@@ -101,8 +101,9 @@ class ComponentFactory:
         """Ensure extraction engine, bridge builder, and tool handler are ready."""
         with self._lock:
             if self._extraction is None:
-                from .extraction_engine import ExtractionEngine  # noqa: PLC0415
                 from .context_bridge_builder import ContextBridgeBuilder  # noqa: PLC0415
+                from .extraction_engine import ExtractionEngine  # noqa: PLC0415
+
                 self._extraction = ExtractionEngine()
                 self._bridge_builder = ContextBridgeBuilder(
                     extraction_engine=self._extraction,
@@ -111,6 +112,7 @@ class ComponentFactory:
                 )
             if self._tools is None:
                 from .tool_handler import ToolHandler  # noqa: PLC0415
+
                 self._tools = ToolHandler(
                     db=self._db,
                     session_id=self._session_id,
@@ -130,27 +132,30 @@ class ComponentFactory:
         with self._lock:
             if self._web_research is None:
                 from .web_research import (  # noqa: PLC0415
-                    CAMOFOX_URL_DEFAULT, CAMOFOX_URL_ENV,
-                    FIRECRAWL_API_URL_ENV, FIRECRAWL_URL_ENV,
-                    SEARXNG_URL_ENV, WebResearchClient,
+                    CAMOFOX_URL_DEFAULT,
+                    CAMOFOX_URL_ENV,
+                    FIRECRAWL_API_URL_ENV,
+                    FIRECRAWL_URL_ENV,
+                    SEARXNG_URL_ENV,
+                    WebResearchClient,
                 )
+
                 searxng_url = os.environ.get(SEARXNG_URL_ENV, "").strip() or "http://localhost:8080"
-                firecrawl_url = (
-                    os.environ.get(FIRECRAWL_URL_ENV, "").strip()
-                    or os.environ.get(FIRECRAWL_API_URL_ENV, "").strip()
-                    or ""
-                )
+                firecrawl_url = os.environ.get(FIRECRAWL_URL_ENV, "").strip() or os.environ.get(FIRECRAWL_API_URL_ENV, "").strip() or ""
                 camofox_url = os.environ.get(CAMOFOX_URL_ENV, "").strip() or CAMOFOX_URL_DEFAULT
-                self._web_research = WebResearchClient({
-                    "searxng_url": searxng_url,
-                    "firecrawl_url": firecrawl_url,
-                    "camofox_url": camofox_url,
-                })
+                self._web_research = WebResearchClient(
+                    {
+                        "searxng_url": searxng_url,
+                        "firecrawl_url": firecrawl_url,
+                        "camofox_url": camofox_url,
+                    }
+                )
 
     def ensure_scrutiny_gate(self) -> None:
         with self._lock:
             if self._scrutiny_gate is None:
                 from .scrutiny_gate import ScrutinyGate  # noqa: PLC0415
+
                 self._scrutiny_gate = ScrutinyGate()
 
     def ensure_source_analyzer(self) -> None:
@@ -161,12 +166,14 @@ class ComponentFactory:
         with self._lock:
             if self._source_analyzer is None:
                 from agent.source_analysis import SourceAnalyzer  # noqa: PLC0415
+
                 self._source_analyzer = SourceAnalyzer()
 
     def ensure_synthesis_engine(self) -> None:
         with self._lock:
             if self._synthesis_engine is None:
                 from .synthesis_engine import SynthesisEngine  # noqa: PLC0415
+
                 self._synthesis_engine = SynthesisEngine()
 
     def ensure_feedback(self) -> None:
@@ -174,9 +181,11 @@ class ComponentFactory:
         with self._lock:
             if self._scorer is None:
                 from .quality_scorer import BridgeQualityScorer  # noqa: PLC0415
+
                 self._scorer = BridgeQualityScorer()
             if self._feedback is None:
                 from .feedback_state import FeedbackState  # noqa: PLC0415
+
                 self._feedback = FeedbackState()
 
     def ensure_retriever(self) -> None:
@@ -184,4 +193,5 @@ class ComponentFactory:
         with self._lock:
             if self._retriever is None:
                 from .retrieval_engine import SmartRetriever  # noqa: PLC0415
+
                 self._retriever = SmartRetriever(self._db)
