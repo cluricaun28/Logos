@@ -54,11 +54,11 @@ UNIFIED_SCORE_WEIGHTS: dict[str, float] = {
     "rl": 0.40,
     "web": 0.25,
 }
-WORLDVIEW_BLOCKED_DOMAINS: set[str] = {
+WORLDVIEW_BLOCKED_DOMAINS = frozenset({
     "reddit.com",
     "quora.com",
     "medium.com",
-}
+})
 
 
 class PerpetualContextProvider(MemoryProvider):

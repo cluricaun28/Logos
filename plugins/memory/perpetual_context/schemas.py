@@ -9,7 +9,10 @@ Aggregated in TOOL_SCHEMAS for convenient bulk access.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 PERPETUAL_SEARCH_SCHEMA: dict[str, Any] = {
     "name": "perpetual_search",
@@ -351,4 +354,18 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     REFERENCE_LIBRARY_SEARCH_SCHEMA,
     SESSION_SEARCH_SCHEMA,
     SOURCE_ANALYZE_SCHEMA,
+]
+
+__all__ = [
+    "PERPETUAL_SEARCH_SCHEMA",
+    "TOPIC_FLOW_SCHEMA",
+    "CONTEXT_DEPTH_SCHEMA",
+    "GET_MESSAGES_SCHEMA",
+    "RECENT_MESSAGES_SCHEMA",
+    "QUERY_MESSAGES_SCHEMA",
+    "SMART_RETRIEVE_SCHEMA",
+    "REFERENCE_LIBRARY_SEARCH_SCHEMA",
+    "SESSION_SEARCH_SCHEMA",
+    "SOURCE_ANALYZE_SCHEMA",
+    "TOOL_SCHEMAS",
 ]

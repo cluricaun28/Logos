@@ -486,8 +486,8 @@ def _handle_source_analyze(
 
     try:
         results = json.loads(results_raw)
-    except Exception as e:
-        return f'{{"error": "Invalid JSON for results: {e}"}}'
+    except (json.JSONDecodeError, TypeError) as e:
+        return json.dumps({"error": f"Invalid JSON for results: {e}"})
 
     if not isinstance(results, list):
         results = [results]
