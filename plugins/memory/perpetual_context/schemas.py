@@ -418,7 +418,7 @@ SOURCE_ANALYZE_SCHEMA: dict[str, Any] = {
                 "description": (
                     "JSON string of search results (from web_search). "
                     "Each result should have 'url' and optionally 'content', "
-                    "'snippet', 'title'.",
+                    "'snippet', 'title'."
                 ),
             },
             "query": {
