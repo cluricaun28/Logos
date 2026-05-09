@@ -67,6 +67,7 @@ def distill_cluster(cluster_id_str: str, turn_ids: list, topic: str) -> dict:
     """Run full distillation pipeline on a single cluster."""
     import sys
     sys.path.insert(0, str(PROJECT_DIR))
+    sys.path.insert(0, str(PROJECT_DIR / "plugins" / "memory" / "perpetual_context"))
 
     from agent.logos_orchestrator import LogosOrchestrator
     from synthesis_engine import get_active_model
