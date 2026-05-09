@@ -525,8 +525,8 @@ class _RLWriter:
             # Find the dossier file for this domain
             dossier_path = self._find_dossier(domain)
             if not dossier_path:
-                logger.debug("No dossier file found for %s, skipping write-back", domain)
-                continue
+                logger.info("No dossier for %s — creating one with unknown markers", domain)
+                dossier_path = self._create_dossier(domain)
 
             try:
                 content = dossier_path.read_text(encoding="utf-8")
@@ -576,6 +576,95 @@ class _RLWriter:
                 return f
 
         return None
+
+    def _create_dossier(self, domain: str) -> Path:
+        """Create a new dossier file for an unknown domain and register it.
+
+        The template admits what it doesn't know — cluster, alignment, motive,
+        reliability are all marked 'needs research'. This gives the system a
+        starting point that can be enriched over time.
+
+        Also updates domain-index.json so future lookups find it.
+        """
+        safe_name = domain.replace(".", "-") + "-v1.md"
+        dossier_path = self._entities_dir / safe_name
+
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%d")  # noqa: UP017
+
+        template = (
+            f"# Source Intelligence Dossier: {domain}\n"
+            f"\n"
+            f"## I. Epistemic Profile\n"
+            f"- **Domain:** {domain}\n"
+            f"- **Ideological Cluster:** unknown *(needs research)*\n"
+            f"- **Sovereignty Alignment:** unknown *(needs research)*\n"
+            f"- **Primary Motive:** unknown *(needs research)*\n"
+            f"- **Reliability Rating:** unknown *(needs research)*\n"
+            f"\n"
+            f"## II. Ownership & Power Map\n"
+            f"- **Parent Organization:** unknown *(needs research)*\n"
+            f"- **Key Figures/Owners:** unknown *(needs research)*\n"
+            f"- **Funding Streams:** unknown *(needs research)*\n"
+            f"- **Institutional Capture:** unknown *(needs research)*\n"
+            f"\n"
+            f"## III. Linguistic Intelligence (The Shibboleth Map)\n"
+            f"\n"
+            f"### 1. Key Shibboleths\n"
+            f"- **Positive Markers:** *(not yet identified)*\n"
+            f"- **Negative Markers:** *(not yet identified)*\n"
+            f"\n"
+            f"### 2. Framing & Rhetorical Patterns\n"
+            f"*(not yet identified)*\n"
+            f"\n"
+            f"## IV. Verification Protocol\n"
+            f"- **Triangulation Partners:** *(not yet identified)*\n"
+            f"- **Red Flag Indicators:** *(not yet identified)*\n"
+            f"\n"
+            f"---\n"
+            f"**Auto-created:** {now} by source_analyze tool\n"
+            f"**Status:** Unresearched — human review needed to fill in cluster, "
+            f"alignment, motive, and behavioral patterns.\n"
+        )
+
+        dossier_path.write_text(template, encoding="utf-8")
+        logger.info("Created new dossier for %s: %s", domain, dossier_path.name)
+
+        # Register in domain-index.json
+        self._update_index(domain, safe_name)
+
+        return dossier_path
+
+    def _update_index(self, domain: str, file_name: str) -> None:
+        """Add a domain entry to domain-index.json."""
+        index_path = self._entities_dir / "domain-index.json"
+
+        try:
+            if index_path.exists():
+                with open(index_path, encoding="utf-8") as f:
+                    data = json.load(f)
+            else:
+                data = {"domains": {}}
+        except (json.JSONDecodeError, OSError):
+            data = {"domains": {}}
+
+        # Don't overwrite existing entry
+        if domain in data.get("domains", {}):
+            return
+
+        data.setdefault("domains", {})[domain] = {
+            "file": file_name,
+            "path": str(self._entities_dir / file_name),
+            "cluster": "unknown *(needs research)*",
+            "alignment": "unknown *(needs research)*",
+            "reliability": "unknown *(needs research)*",
+        }
+
+        try:
+            with open(index_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=4)
+            logger.debug("Added %s to domain-index.json", domain)
+        except OSError as e:
+            logger.error("Failed to update domain-index.json: %s", e)
 
     def _append_patterns(
         self,
