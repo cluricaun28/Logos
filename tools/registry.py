@@ -16,6 +16,7 @@ Import chain (circular-import safe):
 
 import ast
 import importlib
+import inspect
 import json
 import logging
 import threading
@@ -344,6 +345,33 @@ class ToolRegistry:
     # Dispatch
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _bind_kwargs(handler, kwargs: dict) -> dict:
+        """Filter *kwargs* to only the parameters the handler accepts.
+
+        Prevents ``TypeError: got an unexpected keyword argument`` when
+        dispatch introduces new kwargs (e.g. *task_id*, *user_task*) that
+        some older or third-party handler lambdas don't declare.
+        """
+        try:
+            sig = inspect.signature(handler)
+        except (ValueError, TypeError):
+            # Can't introspect — pass through as-is (preserves old behavior).
+            return kwargs
+        allowed = {
+            name for name, param in sig.parameters.items()
+            if param.kind in (inspect.Parameter.VAR_KEYWORD,)
+            or param.default is inspect.Parameter.empty
+            or param.default is not inspect.Parameter.empty
+        }
+        # If handler has VAR_KEYWORD (**kwargs equivalent), everything passes.
+        if any(
+            p.kind == inspect.Parameter.VAR_KEYWORD
+            for p in sig.parameters.values()
+        ):
+            return kwargs
+        return {k: v for k, v in kwargs.items() if k in allowed}
+
     def dispatch(self, name: str, args: dict, **kwargs) -> str:
         """Execute a tool handler by name.
 
@@ -354,11 +382,14 @@ class ToolRegistry:
         entry = self.get_entry(name)
         if not entry:
             return json.dumps({"error": f"Unknown tool: {name}"})
+        # Filter kwargs to what the handler actually accepts, preventing
+        # TypeError on handlers that don't declare task_id / user_task.
+        safe_kwargs = self._bind_kwargs(entry.handler, kwargs)
         try:
             if entry.is_async:
                 from model_tools import _run_async
-                return _run_async(entry.handler(args, **kwargs))
-            return entry.handler(args, **kwargs)
+                return _run_async(entry.handler(args, **safe_kwargs))
+            return entry.handler(args, **safe_kwargs)
         except Exception as e:
             logger.exception("Tool %s dispatch error: %s", name, e)
             return json.dumps({"error": f"Tool execution failed: {type(e).__name__}: {e}"})

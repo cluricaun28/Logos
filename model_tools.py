@@ -285,23 +285,6 @@ def _run_async(coro):
 
 discover_builtin_tools()
 
-# Force-map core web tools to ensure they aren't stripped by registry gaps
-from tools.registry import registry
-core_mappings = {
-    "web_search": "web",
-    "web_extract": "web",
-    "browser_navigate": "browser",
-}
-for tool, ts in core_mappings.items():
-    # We use a dummy register call to ensure the mapping is set without 
-    # overwriting the actual handler/schema logic.
-    registry.register(
-        name=tool,
-        toolset=ts,
-        schema={}, # Registry usually merges or ignores empty schemas on re-reg
-        handler=lambda x: x, # Placeholder
-    )
-
 # MCP tool discovery (external MCP servers from config) used to run here as
 # a module-level side effect.  It was removed because discover_mcp_tools()
 # internally uses a blocking future.result(timeout=120) wait, and the

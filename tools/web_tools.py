@@ -1074,7 +1074,7 @@ async def _parallel_extract(urls: List[str]) -> List[Dict[str, Any]]:
     return results
 
 
-def web_search_tool(query: str, limit: int = 5) -> str:
+def web_search_tool(query: str, limit: int = 5, **kwargs) -> str:
     """
     Search the web for information using available search API backend.
 
@@ -1215,7 +1215,8 @@ async def web_extract_tool(
     format: str = None,
     use_llm_processing: bool = True,
     model: Optional[str] = None,
-    min_length: int = DEFAULT_MIN_LENGTH_FOR_SUMMARIZATION
+    min_length: int = DEFAULT_MIN_LENGTH_FOR_SUMMARIZATION,
+    **kwargs,
 ) -> str:
     """
     Extract content from specific web pages using available extraction API backend.
@@ -1544,7 +1545,8 @@ async def web_crawl_tool(
     depth: str = "basic", 
     use_llm_processing: bool = True,
     model: Optional[str] = None,
-    min_length: int = DEFAULT_MIN_LENGTH_FOR_SUMMARIZATION
+    min_length: int = DEFAULT_MIN_LENGTH_FOR_SUMMARIZATION,
+    **kwargs,
 ) -> str:
     """
     Crawl a website with specific instructions using available crawling API backend.
