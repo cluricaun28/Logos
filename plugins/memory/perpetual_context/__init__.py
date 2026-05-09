@@ -19,6 +19,7 @@ from __future__ import annotations
 
 __version__ = "0.12.0"
 
+import json
 import logging
 import os
 import sqlite3
@@ -358,7 +359,7 @@ class PerpetualContextProvider(MemoryProvider):
             return tools.dispatch(tool_name, args)
         except Exception as e:
             logger.exception("Perpetual context tool error (%s)", tool_name)
-            return f'{{"error": "{e}"}}'
+            return json.dumps({"error": str(e)})
 
     def shutdown(self) -> None:
         with self._lock:
@@ -504,7 +505,7 @@ class PerpetualContextProvider(MemoryProvider):
                 logger.warning("Unknown retrieval type: %s", query_type)
                 return []
             return retriever.retrieve(strategy, query_text)
-        except Exception:  # noqa: BLE001
+        except Exception as e:
             logger.exception(
                 "Smart retrieve failed for type '%s'",
                 query_type,

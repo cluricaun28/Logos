@@ -196,7 +196,7 @@ class _DossierLookup:
         try:
             parsed = urlparse(url)
             return parsed.netloc.lower().replace("www.", "") or None
-        except Exception:
+        except ValueError:
             return None
 
     @staticmethod

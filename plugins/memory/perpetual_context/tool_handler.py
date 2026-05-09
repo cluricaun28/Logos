@@ -481,13 +481,11 @@ def _handle_source_analyze(
     Takes a JSON string of search results and returns source intelligence
     for each: alignment, known omissions, deviation flags, bias analysis.
     """
-    import json as _json  # noqa: PLC0415
-
     results_raw = args.get("results", "[]")
     query = args.get("query", "")
 
     try:
-        results = _json.loads(results_raw)
+        results = json.loads(results_raw)
     except Exception as e:
         return f'{{"error": "Invalid JSON for results: {e}"}}'
 
@@ -495,7 +493,7 @@ def _handle_source_analyze(
         results = [results]
 
     if not results:
-        return '{"results": [], "count": 0}'
+        return json.dumps({"results": [], "count": 0})
 
     try:
         from agent.source_analysis import SourceAnalyzer  # noqa: PLC0415
@@ -525,10 +523,10 @@ def _handle_source_analyze(
             if report.findings:
                 analyzer.write_findings(report)
 
-        return _json.dumps({"results": output_results, "count": len(output_results)})
+        return json.dumps({"results": output_results, "count": len(output_results)})
     except Exception as e:
         logger.debug("source_analyze failed: %s", e)
-        return f'{{"error": "Source analysis failed: {e}", "advice": "Use the raw search results as-is"}}'
+        return json.dumps({"error": f"Source analysis failed: {e}", "advice": "Use the raw search results as-is"})
 
 
 # ---------------------------------------------------------------------------
