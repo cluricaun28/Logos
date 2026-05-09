@@ -231,6 +231,7 @@ class PerpetualContextProvider(MemoryProvider):
             tools = factory.tools
             web_research = factory.web_research
             scrutiny_gate = factory.scrutiny_gate
+            source_analyzer = factory.source_analyzer
             synthesis_engine = factory.synthesis_engine
 
         return prefetch_pipeline.run_prefetch_pipeline(
@@ -240,6 +241,7 @@ class PerpetualContextProvider(MemoryProvider):
             tools=tools,
             web_research=web_research,
             scrutiny_gate=scrutiny_gate,
+            source_analyzer=source_analyzer,
             synthesis_engine=synthesis_engine,
             session_id=effective_session,
             depth_limit=self._get_depth_limit(),

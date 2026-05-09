@@ -27,6 +27,7 @@ def run_prefetch_pipeline(
     tools: Any,
     web_research: Any,
     scrutiny_gate: Any,
+    source_analyzer: Any,
     synthesis_engine: Any,
     session_id: str,
     depth_limit: int,
@@ -194,6 +195,13 @@ def run_prefetch_pipeline(
         except Exception as e:
             logger.debug("Phase 3 scrutiny failed: %s", e)
             vetted_results = web_results  # Fallback: use unvetted
+
+    # Phase 3.5: Source Analysis enrichment
+    if vetted_results and source_analyzer is not None:
+        try:
+            vetted_results = source_analyzer.enrich_results(vetted_results, query)
+        except Exception as e:
+            logger.debug("Phase 3.5 source analysis failed: %s", e)
 
     # Phase 4: Synthesis
     footer_parts: list[str] = []

@@ -41,6 +41,7 @@ class ComponentFactory:
         self._feedback: Any = None
         self._web_research: Any = None
         self._scrutiny_gate: Any = None
+        self._source_analyzer: Any = None
         self._synthesis_engine: Any = None
         self._retriever: Any = None
 
@@ -73,6 +74,10 @@ class ComponentFactory:
     @property
     def scrutiny_gate(self) -> Any:
         return self._scrutiny_gate
+
+    @property
+    def source_analyzer(self) -> Any:
+        return self._source_analyzer
 
     @property
     def synthesis_engine(self) -> Any:
@@ -114,10 +119,11 @@ class ComponentFactory:
                 )
 
     def ensure_deep_research(self) -> None:
-        """Ensure web research, scrutiny gate, and synthesis engine are ready."""
+        """Ensure web research, scrutiny gate, source analyzer, and synthesis engine are ready."""
         with self._lock:
             self.ensure_web_research()
             self.ensure_scrutiny_gate()
+            self.ensure_source_analyzer()
             self.ensure_synthesis_engine()
 
     def ensure_web_research(self) -> None:
@@ -146,6 +152,16 @@ class ComponentFactory:
             if self._scrutiny_gate is None:
                 from .scrutiny_gate import ScrutinyGate  # noqa: PLC0415
                 self._scrutiny_gate = ScrutinyGate()
+
+    def ensure_source_analyzer(self) -> None:
+        """Ensure the SourceAnalyzer is initialized.
+
+        Lives in agent/ — not a plugin file. Standard Python import works fine.
+        """
+        with self._lock:
+            if self._source_analyzer is None:
+                from agent.source_analysis import SourceAnalyzer  # noqa: PLC0415
+                self._source_analyzer = SourceAnalyzer()
 
     def ensure_synthesis_engine(self) -> None:
         with self._lock:
