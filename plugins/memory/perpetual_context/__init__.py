@@ -176,7 +176,7 @@ class PerpetualContextProvider(MemoryProvider):
             f"`reference_library_search` for curated knowledge. "
             f"Reference library at `~/.hermes/reference-library/` — read with "
             f"`read_file`. Check RL before answering factual questions; use web "
-            f"search only if RL has no entry.\\n"
+            f"search only if RL has no entry.\n"
             "After using web_search on substantive topics (politics, religion, "
             "economics, culture, current events, human affairs), call "
             "source_analyze with the results before answering. Use deep=true "
