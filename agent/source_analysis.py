@@ -146,8 +146,10 @@ class _DossierLookup:
         entry = self._index.get(domain)
         if not entry:
             # Try partial match (subdomains, www prefix)
+            # Require the index domain to appear as a right-aligned suffix
+            # of the extracted domain to avoid "the" matching "thelancet.com".
             for idx_domain, idx_entry in self._index.items():
-                if idx_domain in domain or domain in idx_domain:
+                if domain.endswith(idx_domain) or idx_domain.endswith(domain):
                     entry = idx_entry
                     domain = idx_domain
                     break
