@@ -176,17 +176,13 @@ class PerpetualContextProvider(MemoryProvider):
             f"`reference_library_search` for curated knowledge. "
             f"Reference library at `~/.hermes/reference-library/` — read with "
             f"`read_file`. Check RL before answering factual questions; use web "
-            f"search only if RL has no entry.\\n"
-            "After using web_search on substantive topics (politics, religion, "
-            "economics, culture, current events, human affairs), call "
-            "source_analyze with the results before answering. Use deep=true "
-            "for important topics to extract and analyze full article content. "
-            "For simple factual/utility queries (weather, recipes, code docs), "
-            "you may skip source_analyze. source_analyze tells you each source's "
-            "ideological alignment, what they're truthful about, what they "
-            "consistently omit, and whether their coverage deviates from "
+            f"search only if RL has no entry.\n"
+            "After using web_search, call source_analyze with the results "
+            "before answering. This is mandatory — source_analyze tells you each "
+            "source's ideological alignment, what they're truthful about, what "
+            "they consistently omit, and whether their coverage deviates from "
             "known patterns. Use this intelligence to present information through "
-            "the user's worldview rather than the source's frame.",
+            "the user's worldview rather than the source's frame."
         )
 
     # -- Prefetch (delegates to prefetch_pipeline) ---------------------------

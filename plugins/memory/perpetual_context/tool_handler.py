@@ -38,7 +38,9 @@ def _format_msg(msg: dict[str, Any], content_limit: int | None = None) -> dict[s
     }
 
 
-def _msg_list_to_json(msgs: list[dict[str, Any]], content_limit: int | None = None) -> list[dict[str, Any]]:
+def _msg_list_to_json(
+    msgs: list[dict[str, Any]], content_limit: int | None = None
+) -> list[dict[str, Any]]:
     """Format a list of DB message dicts into JSON-friendly dicts."""
     return [_format_msg(m, content_limit) for m in msgs]
 
@@ -57,32 +59,26 @@ def _handle_perpetual_search(tool_handler: ToolHandler, args: dict[str, Any]) ->
     top_k = min(args.get("top_k", 5), 20)
 
     results = tool_handler._db.hybrid_search(
-        query=query,
-        session_id=session_id,
-        top_k=top_k,
+        query=query, session_id=session_id, top_k=top_k,
     )
     if not results:
         return json.dumps({"results": [], "message": f"No matches for '{query}'"})
 
     formatted = []
     for i, msg in enumerate(results):
-        formatted.append(
-            {
-                "rank": i + 1,
-                "session_id": msg.get("session_id"),
-                "role": msg.get("role"),
-                "content": msg.get("content", "")[:500],
-                "score": msg.get("_score", 0),
-            }
-        )
+        formatted.append({
+            "rank": i + 1,
+            "session_id": msg.get("session_id"),
+            "role": msg.get("role"),
+            "content": msg.get("content", "")[:500],
+            "score": msg.get("_score", 0),
+        })
 
-    return json.dumps(
-        {
-            "query": query,
-            "results": formatted,
-            "total_found": len(results),
-        }
-    )
+    return json.dumps({
+        "query": query,
+        "results": formatted,
+        "total_found": len(results),
+    })
 
 
 def _handle_session_search(tool_handler: ToolHandler, args: dict[str, Any]) -> str:
@@ -97,9 +93,7 @@ def _handle_session_search(tool_handler: ToolHandler, args: dict[str, Any]) -> s
 def _handle_session_recent(tool_handler: ToolHandler, limit: int) -> str:
     try:
         recent_msgs = tool_handler._db.get_recent_messages(
-            n=limit * 10,
-            session_id=None,
-            role=None,
+            n=limit * 10, session_id=None, role=None,
         )
 
         seen: set[str] = set()
@@ -132,30 +126,28 @@ def _handle_session_recent(tool_handler: ToolHandler, limit: int) -> str:
 
             preview = ""
             try:
-                first_user = tool_handler._db.get_recent_messages(n=1, session_id=sid, role="user")
+                first_user = tool_handler._db.get_recent_messages(
+                    n=1, session_id=sid, role="user"
+                )
                 if first_user:
                     preview = (first_user[0].get("content") or "")[:200]
             except Exception as e:
                 logger.debug("Session preview query failed: %s", e)
 
-            sessions.append(
-                {
-                    "session_id": sid,
-                    "message_count": msg_count,
-                    "topic_count": topic_count,
-                    "created_at": created_at or 0,
-                    "last_updated": last_updated or 0,
-                    "preview": preview,
-                }
-            )
+            sessions.append({
+                "session_id": sid,
+                "message_count": msg_count,
+                "topic_count": topic_count,
+                "created_at": created_at or 0,
+                "last_updated": last_updated or 0,
+                "preview": preview,
+            })
 
-        return json.dumps(
-            {
-                "mode": "recent",
-                "sessions": sessions,
-                "total_returned": len(sessions),
-            }
-        )
+        return json.dumps({
+            "mode": "recent",
+            "sessions": sessions,
+            "total_returned": len(sessions),
+        })
 
     except Exception as e:
         logger.error("Session search (recent) failed: %s", e)
@@ -167,14 +159,12 @@ def _handle_session_query(tool_handler: ToolHandler, query: str, limit: int) -> 
         results = tool_handler._db.fts_search(query=query, top_k=min(limit * 5, 30))
 
         if not results:
-            return json.dumps(
-                {
-                    "mode": "search",
-                    "query": query,
-                    "sessions": [],
-                    "message": f"No sessions found matching '{query}'",
-                }
-            )
+            return json.dumps({
+                "mode": "search",
+                "query": query,
+                "sessions": [],
+                "message": f"No sessions found matching '{query}'",
+            })
 
         session_map: dict[str, dict[str, Any]] = {}
         for msg in results:
@@ -195,27 +185,23 @@ def _handle_session_query(tool_handler: ToolHandler, query: str, limit: int) -> 
             previews = [m.get("content", "")[:150] for m in msgs[:3] if m.get("content")]
             preview = "\n".join(previews) if previews else "No preview available"
 
-            sessions.append(
-                {
-                    "session_id": sid,
-                    "message_count": msg_count,
-                    "matching_messages": len(msgs),
-                    "score": data["max_score"],
-                    "last_updated": last_updated,
-                    "preview": preview,
-                }
-            )
+            sessions.append({
+                "session_id": sid,
+                "message_count": msg_count,
+                "matching_messages": len(msgs),
+                "score": data["max_score"],
+                "last_updated": last_updated,
+                "preview": preview,
+            })
             if len(sessions) >= limit:
                 break
 
-        return json.dumps(
-            {
-                "mode": "search",
-                "query": query,
-                "sessions": sessions,
-                "total_returned": len(sessions),
-            }
-        )
+        return json.dumps({
+            "mode": "search",
+            "query": query,
+            "sessions": sessions,
+            "total_returned": len(sessions),
+        })
 
     except Exception as e:
         logger.error("Session search (query) failed: %s", e)
@@ -237,7 +223,9 @@ def _handle_smart_retrieve(tool_handler: ToolHandler, args: dict[str, Any], **kw
 
     valid_types = ("auto", "recent", "topic", "decision_trace", "file_history")
     if query_type not in valid_types:
-        return json.dumps({"error": f"Invalid query_type '{query_type}'. Must be one of: {', '.join(valid_types)}"})
+        return json.dumps({
+            "error": f"Invalid query_type '{query_type}'. Must be one of: {', '.join(valid_types)}"
+        })
 
     try:
         result = smart_retrieve_fn(query_type, query_text) if smart_retrieve_fn else []
@@ -245,26 +233,22 @@ def _handle_smart_retrieve(tool_handler: ToolHandler, args: dict[str, Any], **kw
         formatted: list[dict[str, Any] | str] = []
         for item in result[:20]:
             if isinstance(item, dict):
-                formatted.append(
-                    {
-                        "id": item.get("id"),
-                        "session_id": item.get("session_id"),
-                        "role": item.get("role"),
-                        "content": (item.get("content") or "")[:500],
-                        "_score": item.get("_score", 0),
-                    }
-                )
+                formatted.append({
+                    "id": item.get("id"),
+                    "session_id": item.get("session_id"),
+                    "role": item.get("role"),
+                    "content": (item.get("content") or "")[:500],
+                    "_score": item.get("_score", 0),
+                })
             else:
                 formatted.append(str(item)[:500])
 
-        return json.dumps(
-            {
-                "query_type": query_type,
-                "query_text": query_text,
-                "results": formatted,
-                "total_found": len(result),
-            }
-        )
+        return json.dumps({
+            "query_type": query_type,
+            "query_text": query_text,
+            "results": formatted,
+            "total_found": len(result),
+        })
 
     except Exception as e:
         logger.exception("Smart retrieve handler failed for type '%s'", query_type)
@@ -284,21 +268,17 @@ def _handle_get_messages(tool_handler: ToolHandler, args: dict[str, Any]) -> str
     )
 
     if not results:
-        return json.dumps(
-            {
-                "pattern": pattern,
-                "results": [],
-                "message": f"No messages matching pattern '{pattern}'",
-            }
-        )
-
-    return json.dumps(
-        {
+        return json.dumps({
             "pattern": pattern,
-            "results": _msg_list_to_json(results),
-            "total_found": len(results),
-        }
-    )
+            "results": [],
+            "message": f"No messages matching pattern '{pattern}'",
+        })
+
+    return json.dumps({
+        "pattern": pattern,
+        "results": _msg_list_to_json(results),
+        "total_found": len(results),
+    })
 
 
 def _handle_recent_messages(tool_handler: ToolHandler, args: dict[str, Any]) -> str:
@@ -313,13 +293,11 @@ def _handle_recent_messages(tool_handler: ToolHandler, args: dict[str, Any]) -> 
     if not results:
         return json.dumps({"n": n, "results": [], "message": "No recent messages found"})
 
-    return json.dumps(
-        {
-            "n_requested": n,
-            "results": _msg_list_to_json(results),
-            "total_returned": len(results),
-        }
-    )
+    return json.dumps({
+        "n_requested": n,
+        "results": _msg_list_to_json(results),
+        "total_returned": len(results),
+    })
 
 
 def _handle_query_messages(tool_handler: ToolHandler, args: dict[str, Any]) -> str:
@@ -376,13 +354,11 @@ def _handle_topic_flow(tool_handler: ToolHandler, args: dict[str, Any]) -> str:
 
     if action == "list":
         topics = tool_handler._db.get_topic_flow(session_id)
-        return json.dumps(
-            {
-                "session_id": session_id,
-                "topics": topics,
-                "total_topics": len(topics),
-            }
-        )
+        return json.dumps({
+            "session_id": session_id,
+            "topics": topics,
+            "total_topics": len(topics),
+        })
 
     elif action == "add":
         topic_name = args.get("topic_name", "")
@@ -397,26 +373,22 @@ def _handle_topic_flow(tool_handler: ToolHandler, args: dict[str, Any]) -> str:
         )
 
         if topic_id:
-            return json.dumps(
-                {
-                    "action": "added",
-                    "topic_name": topic_name,
-                    "topic_id": topic_id,
-                }
-            )
+            return json.dumps({
+                "action": "added",
+                "topic_name": topic_name,
+                "topic_id": topic_id,
+            })
         return json.dumps({"error": f"Topic '{topic_name}' already exists or failed to add"})
 
     elif action == "drift_check":
         drift = tool_handler._db.detect_topic_drift(session_id)
         topics = tool_handler._db.get_topic_flow(session_id)
-        return json.dumps(
-            {
-                "action": "drift_check",
-                "session_id": session_id,
-                "drift_detected": drift,
-                "topics": topics,
-            }
-        )
+        return json.dumps({
+            "action": "drift_check",
+            "session_id": session_id,
+            "drift_detected": drift,
+            "topics": topics,
+        })
 
     return json.dumps({"error": f"Unknown action: {action}. Use 'list', 'add', or 'drift_check'"})
 
@@ -425,29 +397,27 @@ def _handle_context_depth(tool_handler: ToolHandler, args: dict[str, Any]) -> st
     action = args.get("action", "get")
 
     if action == "get":
-        return json.dumps(
-            {
-                "current_depth": tool_handler._current_depth,
-                "available_levels": list(_DEPTH_LEVELS),
-            }
-        )
+        return json.dumps({
+            "current_depth": tool_handler._current_depth,
+            "available_levels": list(_DEPTH_LEVELS),
+        })
 
     elif action == "set":
         level = args.get("level", "")
         if level not in _DEPTH_LEVELS:
-            return json.dumps({"error": f"Invalid depth level. Choose from: {list(_DEPTH_LEVELS)}"})
+            return json.dumps({
+                "error": f"Invalid depth level. Choose from: {list(_DEPTH_LEVELS)}"
+            })
         tool_handler._current_depth = level
         return json.dumps({"action": "set", "new_depth": level})
 
     elif action == "status":
         stats = tool_handler._db.get_stats() if tool_handler._db else {}
-        return json.dumps(
-            {
-                "depth_level": tool_handler._current_depth,
-                "database_stats": stats,
-                "prefetch_queue_size": len(tool_handler._prefetch_queue),
-            }
-        )
+        return json.dumps({
+            "depth_level": tool_handler._current_depth,
+            "database_stats": stats,
+            "prefetch_queue_size": len(tool_handler._prefetch_queue),
+        })
 
     return json.dumps({"error": f"Unknown action: {action}. Use 'get', 'set', or 'status'"})
 
@@ -487,17 +457,15 @@ def _handle_reference_library_search(tool_handler: ToolHandler, args: dict[str, 
                             break
 
                 snippet_start = max(0, content.lower().find(query_lower) - 100)
-                snippet = content[snippet_start : snippet_start + 300].replace("\n", " ").strip()
+                snippet = content[snippet_start:snippet_start + 300].replace("\n", " ").strip()
 
-                results.append(
-                    {
-                        "file": str(md_file.name),
-                        "directory": subdir,
-                        "name": entity_name,
-                        "score": score,
-                        "snippet": snippet + "...",
-                    }
-                )
+                results.append({
+                    "file": str(md_file.name),
+                    "directory": subdir,
+                    "name": entity_name,
+                    "score": score,
+                    "snippet": snippet + "...",
+                })
             except Exception as e:
                 logger.debug("Ref library search failed for %s: %s", md_file.name, e)
 
@@ -505,20 +473,18 @@ def _handle_reference_library_search(tool_handler: ToolHandler, args: dict[str, 
     return json.dumps({"results": results[:top_k], "count": len(results[:top_k])})
 
 
-def _handle_source_analyze(tool_handler: ToolHandler, args: dict[str, Any], **kwargs: Any) -> str:
+def _handle_source_analyze(
+    tool_handler: ToolHandler, args: dict[str, Any], **kwargs: Any
+) -> str:
     """Handle source_analyze tool — delegate to SourceAnalyzer from agent/.
 
     Takes a JSON string of search results and returns source intelligence
     for each: alignment, known omissions, deviation flags, bias analysis.
-
-    When deep=True, first extracts full article content via web_extract
-    before analyzing, producing richer results.
     """
     import json as _json  # noqa: PLC0415
 
     results_raw = args.get("results", "[]")
     query = args.get("query", "")
-    deep = args.get("deep", False)
 
     try:
         results = _json.loads(results_raw)
@@ -535,47 +501,6 @@ def _handle_source_analyze(tool_handler: ToolHandler, args: dict[str, Any], **kw
         from agent.source_analysis import SourceAnalyzer  # noqa: PLC0415
 
         analyzer = SourceAnalyzer()
-
-        # If deep=True, extract full content before analyzing
-        if deep:
-            urls = [r.get("url", "") for r in results if r.get("url")]
-            if urls:
-                try:
-                    import asyncio as _asyncio  # noqa: PLC0415, I001
-                    from tools.web_tools import web_extract_tool  # noqa: PLC0415, I001
-
-                    logger.info(
-                        "Deep mode: extracting content from %d URL(s) for %s",
-                        len(urls),
-                        query[:50],
-                    )
-                    extract_result = _asyncio.get_event_loop().run_until_complete(web_extract_tool(urls))
-                    extract_data = (  # noqa: SIM108
-                        _json.loads(extract_result) if isinstance(extract_result, str) else extract_result
-                    )
-
-                    # Build a url->content map from extraction results
-                    content_map: dict[str, str] = {}
-                    for ext in extract_data.get("results", []):
-                        ext_url = ext.get("url", "")
-                        ext_content = ext.get("content", "") or ext.get("raw_content", "")
-                        if ext_url and ext_content:
-                            content_map[ext_url] = ext_content
-
-                    # Merge extracted content back into results
-                    for r in results:
-                        url = r.get("url", "")
-                        if url in content_map and not r.get("content"):
-                            r["content"] = content_map[url]
-                            logger.info(
-                                "Deep mode: enriched %s with %d chars",
-                                url[:80],
-                                len(content_map[url]),
-                            )
-
-                except Exception as e:
-                    logger.warning("Deep mode extraction failed: %s — continuing with snippets", e)
-
         reports = analyzer.analyze_batch(results, query_context=query)
 
         # Build output
@@ -593,7 +518,6 @@ def _handle_source_analyze(tool_handler: ToolHandler, args: dict[str, Any], **kw
                 "markers": report.content.markers[:5],
                 "deviation": report.narrative.deviation,
                 "coordination": report.narrative.coordination,
-                "content_analyzed": len(report.query_context) > 0 or bool(report.url),
             }
             output_results.append(entry)
 
@@ -673,4 +597,6 @@ class ToolHandler:
 
     def get_depth_limit(self) -> int:
         """Get the result limit based on current depth level."""
-        return {"broad_overview": 3, "moderate": 5, "deep": 10, "expert": 20}.get(self._current_depth, 5)
+        return {"broad_overview": 3, "moderate": 5, "deep": 10, "expert": 20}.get(
+            self._current_depth, 5
+        )
