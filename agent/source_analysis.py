@@ -84,6 +84,7 @@ class AnalysisReport:
     content: ContentAnalysis
     narrative: NarrativeSignal
     query_context: str = ""
+    url: str = ""  # original URL for tool output
     findings: list[NewFinding] = field(default_factory=list)
 
 
@@ -702,6 +703,7 @@ class SourceAnalyzer:
             content=content_result,
             narrative=narrative,
             query_context=query_context,
+            url=url,
             findings=findings,
         )
 

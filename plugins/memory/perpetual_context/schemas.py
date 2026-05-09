@@ -393,6 +393,43 @@ SESSION_SEARCH_SCHEMA: dict[str, Any] = {
     },
 }
 
+SOURCE_ANALYZE_SCHEMA: dict[str, Any] = {
+    "name": "source_analyze",
+    "description": (
+        "Analyze web search results for source bias, narrative manipulation, and "
+        "known behavioral patterns. Pass this the results from web_search to get "
+        "intelligence on each source: their ideological alignment, what they're "
+        "truthful about, what they consistently omit, and whether their coverage "
+        "deviates from expected patterns.\\n\\n"
+        "Use after web_search on sensitive topics (immigration, geopolitics, "
+        "race, religion, public health, government policy) to understand what "
+        "you're really looking at.\\n\\n"
+        "PARAMETERS:\\n"
+        "• results: JSON string of search results (from web_search output)\\n"
+        "• query: Original search query for context\\n\\n"
+        "Returns: Source profiles with alignment, known omissions, deviation "
+        "flags, and bias analysis for each result."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "results": {
+                "type": "string",
+                "description": (
+                    "JSON string of search results (from web_search). "
+                    "Each result should have 'url' and optionally 'content', "
+                    "'snippet', 'title'.",
+                ),
+            },
+            "query": {
+                "type": "string",
+                "description": "The original search query for context (optional).",
+            },
+        },
+        "required": ["results"],
+    },
+}
+
 # ---------------------------------------------------------------------------
 # Aggregated list — use this for bulk registration/return
 # ---------------------------------------------------------------------------
@@ -407,4 +444,5 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     SMART_RETRIEVE_SCHEMA,
     REFERENCE_LIBRARY_SEARCH_SCHEMA,
     SESSION_SEARCH_SCHEMA,
+    SOURCE_ANALYZE_SCHEMA,
 ]

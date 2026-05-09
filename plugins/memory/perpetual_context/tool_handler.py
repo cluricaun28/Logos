@@ -11,8 +11,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,7 @@ def _msg_list_to_json(
 # ---------------------------------------------------------------------------
 
 
-def _handle_perpetual_search(tool_handler: "ToolHandler", args: dict[str, Any]) -> str:
+def _handle_perpetual_search(tool_handler: ToolHandler, args: dict[str, Any]) -> str:
     query = args.get("query", "")
     if not query:
         return json.dumps({"error": "Query is required"})
@@ -80,7 +81,7 @@ def _handle_perpetual_search(tool_handler: "ToolHandler", args: dict[str, Any]) 
     })
 
 
-def _handle_session_search(tool_handler: "ToolHandler", args: dict[str, Any]) -> str:
+def _handle_session_search(tool_handler: ToolHandler, args: dict[str, Any]) -> str:
     query = args.get("query")
     limit = min(args.get("limit", 3), 5)
 
@@ -89,7 +90,7 @@ def _handle_session_search(tool_handler: "ToolHandler", args: dict[str, Any]) ->
     return _handle_session_query(tool_handler, query, limit)
 
 
-def _handle_session_recent(tool_handler: "ToolHandler", limit: int) -> str:
+def _handle_session_recent(tool_handler: ToolHandler, limit: int) -> str:
     try:
         recent_msgs = tool_handler._db.get_recent_messages(
             n=limit * 10, session_id=None, role=None,
@@ -153,7 +154,7 @@ def _handle_session_recent(tool_handler: "ToolHandler", limit: int) -> str:
         return json.dumps({"error": str(e), "sessions": []})
 
 
-def _handle_session_query(tool_handler: "ToolHandler", query: str, limit: int) -> str:
+def _handle_session_query(tool_handler: ToolHandler, query: str, limit: int) -> str:
     try:
         results = tool_handler._db.fts_search(query=query, top_k=min(limit * 5, 30))
 
@@ -212,7 +213,7 @@ def _handle_session_query(tool_handler: "ToolHandler", query: str, limit: int) -
 # ---------------------------------------------------------------------------
 
 
-def _handle_smart_retrieve(tool_handler: "ToolHandler", args: dict[str, Any], **kwargs: Any) -> str:
+def _handle_smart_retrieve(tool_handler: ToolHandler, args: dict[str, Any], **kwargs: Any) -> str:
     query_type = args.get("query_type", "")
     query_text = args.get("query_text", "")
     smart_retrieve_fn: Callable | None = kwargs.get("smart_retrieve_fn")
@@ -254,7 +255,7 @@ def _handle_smart_retrieve(tool_handler: "ToolHandler", args: dict[str, Any], **
         return json.dumps({"error": str(e)})
 
 
-def _handle_get_messages(tool_handler: "ToolHandler", args: dict[str, Any]) -> str:
+def _handle_get_messages(tool_handler: ToolHandler, args: dict[str, Any]) -> str:
     pattern = args.get("pattern", "")
     if not pattern:
         return json.dumps({"error": "pattern is required"})
@@ -280,7 +281,7 @@ def _handle_get_messages(tool_handler: "ToolHandler", args: dict[str, Any]) -> s
     })
 
 
-def _handle_recent_messages(tool_handler: "ToolHandler", args: dict[str, Any]) -> str:
+def _handle_recent_messages(tool_handler: ToolHandler, args: dict[str, Any]) -> str:
     n = min(args.get("n", 10), 50)
 
     results = tool_handler._db.get_recent_messages(
@@ -299,7 +300,7 @@ def _handle_recent_messages(tool_handler: "ToolHandler", args: dict[str, Any]) -
     })
 
 
-def _handle_query_messages(tool_handler: "ToolHandler", args: dict[str, Any]) -> str:
+def _handle_query_messages(tool_handler: ToolHandler, args: dict[str, Any]) -> str:
     try:
         ids_arg = args.get("ids")
         if isinstance(ids_arg, str):
@@ -347,7 +348,7 @@ def _handle_query_messages(tool_handler: "ToolHandler", args: dict[str, Any]) ->
 _DEPTH_LEVELS = ("broad_overview", "moderate", "deep", "expert")
 
 
-def _handle_topic_flow(tool_handler: "ToolHandler", args: dict[str, Any]) -> str:
+def _handle_topic_flow(tool_handler: ToolHandler, args: dict[str, Any]) -> str:
     action = args.get("action", "list")
     session_id = args.get("session_id") or tool_handler._session_id or ""
 
@@ -392,7 +393,7 @@ def _handle_topic_flow(tool_handler: "ToolHandler", args: dict[str, Any]) -> str
     return json.dumps({"error": f"Unknown action: {action}. Use 'list', 'add', or 'drift_check'"})
 
 
-def _handle_context_depth(tool_handler: "ToolHandler", args: dict[str, Any]) -> str:
+def _handle_context_depth(tool_handler: ToolHandler, args: dict[str, Any]) -> str:
     action = args.get("action", "get")
 
     if action == "get":
@@ -426,7 +427,7 @@ def _handle_context_depth(tool_handler: "ToolHandler", args: dict[str, Any]) -> 
 # ---------------------------------------------------------------------------
 
 
-def _handle_reference_library_search(tool_handler: "ToolHandler", args: dict[str, Any]) -> str:
+def _handle_reference_library_search(tool_handler: ToolHandler, args: dict[str, Any]) -> str:
     query = args.get("query", "")
     if not query:
         return json.dumps({"error": "query is required"})
@@ -472,6 +473,64 @@ def _handle_reference_library_search(tool_handler: "ToolHandler", args: dict[str
     return json.dumps({"results": results[:top_k], "count": len(results[:top_k])})
 
 
+def _handle_source_analyze(
+    tool_handler: ToolHandler, args: dict[str, Any], **kwargs: Any
+) -> str:
+    """Handle source_analyze tool — delegate to SourceAnalyzer from agent/.
+
+    Takes a JSON string of search results and returns source intelligence
+    for each: alignment, known omissions, deviation flags, bias analysis.
+    """
+    import json as _json  # noqa: PLC0415
+
+    results_raw = args.get("results", "[]")
+    query = args.get("query", "")
+
+    try:
+        results = _json.loads(results_raw)
+    except Exception as e:
+        return f'{{"error": "Invalid JSON for results: {e}"}}'
+
+    if not isinstance(results, list):
+        results = [results]
+
+    if not results:
+        return '{"results": [], "count": 0}'
+
+    try:
+        from agent.source_analysis import SourceAnalyzer  # noqa: PLC0415
+
+        analyzer = SourceAnalyzer()
+        reports = analyzer.analyze_batch(results, query_context=query)
+
+        # Build output
+        output_results = []
+        for report in reports:
+            entry = {
+                "url": report.source.url,
+                "domain": report.source.domain,
+                "cluster": report.source.cluster,
+                "alignment": report.source.alignment,
+                "reliability": report.source.reliability,
+                "truthful_on": report.source.truthful_on,
+                "omits": report.source.omits,
+                "bias_score": report.content.bias_score,
+                "markers": report.content.markers[:5],
+                "deviation": report.narrative.deviation,
+                "coordination": report.narrative.coordination,
+            }
+            output_results.append(entry)
+
+            # Write findings back to RL
+            if report.findings:
+                analyzer.write_findings(report)
+
+        return _json.dumps({"results": output_results, "count": len(output_results)})
+    except Exception as e:
+        logger.debug("source_analyze failed: %s", e)
+        return f'{{"error": "Source analysis failed: {e}", "advice": "Use the raw search results as-is"}}'
+
+
 # ---------------------------------------------------------------------------
 # Dispatch table — built after all handlers are defined
 # ---------------------------------------------------------------------------
@@ -485,6 +544,7 @@ _DISPATCH: dict[str, Callable] = {
     "query_messages": _handle_query_messages,
     "reference_library_search": _handle_reference_library_search,
     "session_search": _handle_session_search,
+    "source_analyze": _handle_source_analyze,
 }
 
 
