@@ -507,7 +507,7 @@ def _handle_source_analyze(
         output_results = []
         for report in reports:
             entry = {
-                "url": report.source.url,
+                "url": report.url,
                 "domain": report.source.domain,
                 "cluster": report.source.cluster,
                 "alignment": report.source.alignment,

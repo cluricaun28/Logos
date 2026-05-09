@@ -749,6 +749,7 @@ class SourceAnalyzer:
                         content=ContentAnalysis(framing_notes=[f"Analysis error: {e}"]),
                         narrative=NarrativeSignal(),
                         query_context=query_context,
+                        url=url,
                     )
                 )
 
