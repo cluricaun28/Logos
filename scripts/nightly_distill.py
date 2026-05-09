@@ -67,10 +67,9 @@ def distill_cluster(cluster_id_str: str, turn_ids: list, topic: str) -> dict:
     """Run full distillation pipeline on a single cluster."""
     import sys
     sys.path.insert(0, str(PROJECT_DIR))
-    sys.path.insert(0, str(PROJECT_DIR / "plugins" / "memory" / "perpetual_context"))
 
     from agent.logos_orchestrator import LogosOrchestrator
-    from synthesis_engine import get_active_model
+    from plugins.memory.perpetual_context.synthesis_engine import get_active_model
 
     orchestrator = LogosOrchestrator()
 
@@ -87,7 +86,7 @@ def distill_cluster(cluster_id_str: str, turn_ids: list, topic: str) -> dict:
         elapsed = (datetime.now() - start).total_seconds()
         success = result.get("success", False)
         rl_path = result.get("rl_path", "") or ""
-        error = result.get("error", "")
+        error = result.get("error") or ""
 
         status_str = "COMMITTED" if success else f"FAILED: {error}"
 
