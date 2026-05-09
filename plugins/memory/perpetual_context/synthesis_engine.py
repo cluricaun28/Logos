@@ -216,6 +216,26 @@ class SynthesisEngine:
                 # Clean up whitespace for compact display
                 clean_snippet = " ".join(snippet.split())[:150]
                 lines.append(f"   {clean_snippet}")
+
+            # Surface source intelligence if available
+            profile = fact.get("_source_profile")
+            if profile:
+                alignment = profile.get("alignment", "")
+                if alignment and alignment != "unknown":
+                    lines.append(f"   [Source: {alignment}]")
+                truthful = profile.get("truthful_on", [])
+                omits = profile.get("omits", [])
+                if truthful:
+                    lines.append(f"   [Reliable on: {', '.join(truthful[:2])}]")
+                if omits:
+                    lines.append(f"   [Consistently omits: {', '.join(omits[:2])}]")
+
+            # Surface narrative deviation (strong signal)
+            narrative = fact.get("_narrative_signal", {})
+            deviation = narrative.get("deviation")
+            if deviation:
+                lines.append(f"   [⚠ {deviation}]")
+
             lines.append("")
 
         # Add source analysis section
@@ -225,9 +245,37 @@ class SynthesisEngine:
             stance = src_facts[0].get("_source_stance", "unknown") if src_facts else "unknown"
             bias_notes = src_facts[0].get("_bias_notes", []) if src_facts else []
             lines.append(f"- **{src}** ({len(src_facts)} results, stance: {stance})")
+
+            # Pull source profile from SourceAnalyzer if available
+            profile = src_facts[0].get("_source_profile", {})
+            if profile:
+                cluster = profile.get("cluster", "")
+                if cluster and cluster != "unknown":
+                    lines.append(f"  - Cluster: {cluster}")
+                omits = profile.get("omits", [])
+                if omits:
+                    lines.append(f"  - Known omissions: {', '.join(omits[:3])}")
+
+            # Bias analysis markers
+            bias_analysis = src_facts[0].get("_bias_analysis", {})
+            if bias_analysis.get("markers"):
+                marker_str = ", ".join(bias_analysis["markers"][:3])
+                score = bias_analysis.get("score", 0)
+                lines.append(f"  - Bias markers ({score:.2f}): {marker_str}")
+
             if bias_notes:
                 for note in bias_notes[:2]:  # Limit to first 2 notes per source
                     lines.append(f"  - Bias note: {note}")
+
+            # Flag narrative deviations across all facts for this source
+            deviations = [
+                f.get("_narrative_flag")
+                for f in src_facts
+                if f.get("_narrative_flag")
+            ]
+            if deviations:
+                lines.append(f"  - ⚠ {deviations[0]}")
+
         lines.append("")
 
         return "\n".join(lines)
