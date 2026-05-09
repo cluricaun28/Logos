@@ -66,7 +66,7 @@ QUERY_LOG_MAX_CHARS = 50           # Max chars for query in log messages
 # Pre-compiled regex for URL extraction from text
 _URL_PATTERN = _re.compile(
     r'https?://[^\s<>"\')]+',
-    re.IGNORECASE,
+    _re.IGNORECASE,
 )
 
 @dataclass
