@@ -396,25 +396,24 @@ SESSION_SEARCH_SCHEMA: dict[str, Any] = {
 SOURCE_ANALYZE_SCHEMA: dict[str, Any] = {
     "name": "source_analyze",
     "description": (
-        "After using web_search on substantive topics (politics, religion, "
-        "economics, culture, current events, human affairs), pass the results "
-        "here to get source intelligence before you answer. This tells you each "
-        "source's ideological alignment, what they're truthful about, what they "
-        "consistently omit, and whether their coverage deviates from known "
-        "patterns.\n\n"
-        "For substantive topics, set deep=true to first extract full article "
-        "content via web_extract before analyzing. This produces significantly "
-        "richer results than analyzing snippets alone.\n\n"
-        "For simple factual/utility queries (weather, recipes, code docs), "
-        "you may skip this step.\n\n"
-        "Use this intelligence to present information through the user's "
+        "Mandatory post-web_search step. After using web_search on ANY topic, "
+        "pass the results here to get source intelligence before you answer. "
+        "This tells you each source's ideological alignment, what they're "
+        "truthful about, what they consistently omit, and whether their "
+        "coverage deviates from known patterns.\n\n"
+        "For substantive topics (politics, religion, economics, culture, "
+        "current events), set deep=true to first extract full article content "
+        "via web_extract before analyzing. This produces significantly richer "
+        "results than analyzing snippets alone.\n\n"
+        "This is NOT optional — you should call source_analyze after every "
+        "web_search call so you can present information through the user's "
         "worldview rather than the source's frame.\n\n"
         "PARAMETERS:\n"
         "• results: JSON string of search results (from web_search output)\n"
         "• query: Original search query for context\n"
         "• deep: When true, extracts full article content first for deeper analysis\n\n"
         "Returns: Source profiles with alignment, known omissions, deviation "
-        "flags, and bias analysis for each result.",
+        "flags, and bias analysis for each result."
     ),
     "parameters": {
         "type": "object",
