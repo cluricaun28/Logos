@@ -12,7 +12,6 @@ import json
 import logging
 import os
 from collections.abc import Callable
-from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -336,8 +335,10 @@ def _handle_query_messages(tool_handler: ToolHandler, args: dict[str, Any]) -> s
 
         meta_val = args.get("metadata_value")
         if isinstance(meta_val, str):
-            with suppress(json.JSONDecodeError, TypeError):
+            try:
                 meta_val = json.loads(meta_val)
+            except (json.JSONDecodeError, TypeError):
+                pass
 
         result = tool_handler._db.query_messages(
             pattern=args.get("pattern"),
