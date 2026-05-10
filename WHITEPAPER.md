@@ -546,6 +546,4 @@ The system is not perfect — it is a work in progress maintained by one person 
 
 ---
 
-*This white paper was compiled from the live codebase, Reference Library documentation, and Perpetual Memory records of a custom Hermes Agent fork. Last updated 2026-05-09.*
-
-See also: [[System White Paper (arXiv-style)]](topics/hermes-agent/system-white-paper-arxiv.md) — formal prose format with abstract, numbered sections, and references.
+*This white paper was compiled from the live codebase, Reference Library documentation, and Perpetual Memory records of a custom Hermes Agent fork. Last updated 2026-05-10.*
