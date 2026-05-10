@@ -31,7 +31,7 @@ def _win_path_to_wsl(path: str) -> str | None:
         return None
     # Basic translation for common drives; in production this would use wslpath
     drive = path[0].lower()
-    rest = path[2:].replace('\', '/')
+    rest = path[2:].replace('\\', '/')
     if rest.startswith('/'):
         rest = rest[1:]
     return f"/mnt/{drive}/{rest}"

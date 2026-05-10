@@ -11,8 +11,6 @@ from gateway.session import (
     build_session_context,
     build_session_context_prompt,
     build_session_key,
-    canonical_whatsapp_identifier,
-    normalize_whatsapp_identifier,
 )
 
 

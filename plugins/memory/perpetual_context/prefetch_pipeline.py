@@ -115,7 +115,7 @@ def run_prefetch_pipeline(
                     pm_formatted.append(f"[PM: {role_label} (relevance: {score:.2f})]\n{content}")
                 parts.append("\n\n---\n\n".join(pm_formatted))
                 pm_results_count = len(pm_results)
-        except Exception as e:
+        except (sqlite3.OperationalError, KeyError, TypeError, AttributeError) as e:
             logger.exception("Phase 1b PM hybrid search failed: %s", e)
             failures.append(f"PM search: {type(e).__name__}")
 
@@ -176,7 +176,7 @@ def run_prefetch_pipeline(
                         "extracted_content": sr.extracted_content,
                     }
                 )
-        except Exception as e:
+        except (ConnectionError, TimeoutError, KeyError, AttributeError) as e:
             logger.exception("Phase 2 web research failed: %s", e)
             failures.append(f"Web search: {type(e).__name__}")
 
@@ -190,7 +190,7 @@ def run_prefetch_pipeline(
             flagged = scrutiny.get("rejected_results", [])
             if flagged:
                 logger.debug("Scrutiny flagged %d results: %s", len(flagged), [f.get("reason", "") for f in flagged[:3]])
-        except Exception as e:
+        except (KeyError, TypeError, AttributeError) as e:
             logger.exception("Phase 3 scrutiny gate failed, using unvetted results: %s", e)
             failures.append(f"Scrutiny gate: {type(e).__name__}")
             vetted_results = web_results  # Fallback: use unvetted
@@ -199,7 +199,7 @@ def run_prefetch_pipeline(
     if vetted_results and source_analyzer is not None:
         try:
             vetted_results = source_analyzer.enrich_results(vetted_results, query)
-        except Exception as e:
+        except (KeyError, TypeError, AttributeError) as e:
             logger.exception("Phase 3.5 source analysis failed: %s", e)
             failures.append(f"Source analysis: {type(e).__name__}")
 
@@ -232,7 +232,7 @@ def run_prefetch_pipeline(
                     )
                     for flag in relevant_flags:
                         footer_parts.append(f"[RL Update: {flag.get('page', '').split('/')[-1]} — {flag.get('reason', '')[:120]}]")
-        except Exception as e:
+        except (AttributeError, KeyError, TypeError, ValueError) as e:
             logger.exception("Phase 4 synthesis failed: %s", e)
             failures.append(f"Synthesis: {type(e).__name__}")
             if vetted_results:
@@ -281,6 +281,6 @@ def format_recent_context(db: Any, max_turns: int = 15) -> str:
         if parts:
             return "\n\n---\n\n".join(parts)
         return ""
-    except Exception as e:
+    except (sqlite3.Error, KeyError, TypeError, AttributeError) as e:
         logger.exception("Recent context fetch failed: %s", e)
         return ""
