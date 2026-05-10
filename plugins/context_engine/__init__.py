@@ -184,7 +184,12 @@ def _load_engine_from_dir(engine_dir: Path, config: dict | None = None) -> "Cont
     if hasattr(mod, "register"):
         collector = _EngineCollector()
         try:
-            mod.register(collector)
+            import inspect as _inspect
+            _sig = _inspect.signature(mod.register)
+            if 'config' in _sig.parameters or len(_sig.parameters) > 1:
+                mod.register(collector, config=config)
+            else:
+                mod.register(collector)
             if collector.engine:
                 return collector.engine
         except Exception as e:

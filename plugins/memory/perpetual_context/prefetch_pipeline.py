@@ -67,6 +67,7 @@ def run_prefetch_pipeline(
 
     # --- Full pipeline ---
     parts: list[str] = []
+    failures: list[str] = []  # Track which phases failed for user-visible summary
     rl_results_count = 0
     pm_results_count = 0
     gaps_detected = False
@@ -93,8 +94,9 @@ def run_prefetch_pipeline(
                     rl_parts.append(f"[RL: {name} (score: {score})]\n{snippet}")
                 parts.append("\n\n---\n\n".join(rl_parts))
                 rl_results_count = len(rl_results)
-        except Exception as e:
-            logger.debug("Reference library search failed in prefetch: %s", e)
+        except (json.JSONDecodeError, KeyError, TypeError) as e:
+            logger.exception("Phase 1a RL search failed: %s", e)
+            failures.append(f"RL search: {type(e).__name__}")
 
     # Phase 1b: Perpetual Memory Hybrid Search
     if routing.get("fire_prefetch") and prefetch_enabled:
@@ -114,7 +116,8 @@ def run_prefetch_pipeline(
                 parts.append("\n\n---\n\n".join(pm_formatted))
                 pm_results_count = len(pm_results)
         except Exception as e:
-            logger.debug("Perpetual memory search failed in prefetch: %s", e)
+            logger.exception("Phase 1b PM hybrid search failed: %s", e)
+            failures.append(f"PM search: {type(e).__name__}")
 
     # Phase 1c: Stability-Aware Gap Detection
     stability, half_life, web_threshold = _classify_topic_stability(query)
@@ -174,7 +177,8 @@ def run_prefetch_pipeline(
                     }
                 )
         except Exception as e:
-            logger.debug("Phase 2 web research failed: %s", e)
+            logger.exception("Phase 2 web research failed: %s", e)
+            failures.append(f"Web search: {type(e).__name__}")
 
     # Phase 3: Scrutiny Gate
     vetted_results: list[dict] = []
@@ -187,7 +191,8 @@ def run_prefetch_pipeline(
             if flagged:
                 logger.debug("Scrutiny flagged %d results: %s", len(flagged), [f.get("reason", "") for f in flagged[:3]])
         except Exception as e:
-            logger.debug("Phase 3 scrutiny failed: %s", e)
+            logger.exception("Phase 3 scrutiny gate failed, using unvetted results: %s", e)
+            failures.append(f"Scrutiny gate: {type(e).__name__}")
             vetted_results = web_results  # Fallback: use unvetted
 
     # Phase 3.5: Source Analysis enrichment
@@ -195,7 +200,8 @@ def run_prefetch_pipeline(
         try:
             vetted_results = source_analyzer.enrich_results(vetted_results, query)
         except Exception as e:
-            logger.debug("Phase 3.5 source analysis failed: %s", e)
+            logger.exception("Phase 3.5 source analysis failed: %s", e)
+            failures.append(f"Source analysis: {type(e).__name__}")
 
     # Phase 4: Synthesis
     footer_parts: list[str] = []
@@ -227,7 +233,8 @@ def run_prefetch_pipeline(
                     for flag in relevant_flags:
                         footer_parts.append(f"[RL Update: {flag.get('page', '').split('/')[-1]} — {flag.get('reason', '')[:120]}]")
         except Exception as e:
-            logger.debug("Phase 4 synthesis failed: %s", e)
+            logger.exception("Phase 4 synthesis failed: %s", e)
+            failures.append(f"Synthesis: {type(e).__name__}")
             if vetted_results:
                 snippets = []
                 for r in vetted_results[:3]:
@@ -249,6 +256,8 @@ def run_prefetch_pipeline(
         footer_parts.append(f"[Topic: {stability}]")
         if gaps_detected and not web_results_count:
             footer_parts.append("[Gap detected — local recall insufficient. Consider web research for current/external data.]")
+        if failures:
+            footer_parts.append(f"[Pipeline failures: {', '.join(failures[:3])}]")
 
     result_text += "\n\n" + " ".join(footer_parts)
     return result_text
@@ -273,5 +282,5 @@ def format_recent_context(db: Any, max_turns: int = 15) -> str:
             return "\n\n---\n\n".join(parts)
         return ""
     except Exception as e:
-        logger.debug("Recent context fetch failed: %s", e)
+        logger.exception("Recent context fetch failed: %s", e)
         return ""

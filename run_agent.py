@@ -4478,8 +4478,8 @@ class AIAgent:
         try:
             self._memory_manager.sync_all(original_user_message, final_response)
             self._memory_manager.queue_prefetch_all(original_user_message)
-        except Exception:
-            pass
+        except Exception as _e:
+            logger.warning("Memory sync/queue_prefetch failed (non-fatal): %s", _e)
 
     def release_clients(self) -> None:
         """Release LLM client resources WITHOUT tearing down session tool state.
@@ -10408,8 +10408,8 @@ class AIAgent:
             try:
                 _query = original_user_message if isinstance(original_user_message, str) else ""
                 _ext_prefetch_cache = self._memory_manager.prefetch_all(_query) or ""
-            except Exception:
-                pass
+            except Exception as _e:
+                logger.warning("Prefetch failed (non-fatal): %s", _e, exc_info=True)
 
         while (api_call_count < self.max_iterations and self.iteration_budget.remaining > 0) or self._budget_grace_call:
             # Reset per-turn checkpoint dedup so each iteration can take one snapshot

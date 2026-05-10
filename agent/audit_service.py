@@ -66,7 +66,7 @@ class AuditService:
             logger.warning(f"No raw turns found for IDs {turn_ids} — cannot audit")
             return self._fail_report("No source transcripts available for verification")
 
-        # Build audit prompt
+        # Build audit prompt (pass full raw turns, not truncated)
         prompt = self._build_audit_prompt(draft_content, raw_turns)
 
         # Call LLM Critic
@@ -76,7 +76,7 @@ class AuditService:
             call_kwargs = {
                 "task": "archiving",
                 "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": 4096,   # Enough for thorough audit report with corrections
+                "max_tokens": 8192,   # Full context needs more output room for corrections
                 "timeout": 600.0,     # 10 min — overnight runs don't need to be fast
             }
             if main_runtime:
@@ -133,9 +133,13 @@ class AuditService:
 
     def _build_audit_prompt(self, draft_content: str, raw_turns: List[Dict[str, Any]]) -> str:
         """Build the LLM prompt for auditing a synthesized draft."""
+        # Build audit prompt — feed full raw turns, not truncated
         raw_text = "\n\n".join(
-            f"[{t['role'].upper()}]: {t['content'][:1500]}" for t in raw_turns
+            f"[{t['role'].upper()}]: {t['content']}" for t in raw_turns
         )
+        # Cap total at ~32K to stay within reasonable context
+        if len(raw_text) > 32000:
+            raw_text = raw_text[:31000] + "\n\n[... remaining turns truncated for length ...]\n"
 
         return f"""You are the CRITIC in a knowledge distillation pipeline. Your job is to perform a FIDELITY CHECK on a synthesized Reference Library draft against raw conversation transcripts.
 
@@ -148,30 +152,39 @@ RAW SOURCE TRANSCRIPTS:
 AUDIT DIMENSIONS (check each):
 
 1. HALLUCINATIONS: Claims in the draft that are NOT supported by the raw turns.
-   - Any file path, command, error message, or technical detail must appear in source
-   - If the draft says "X caused Y" but transcripts only say "X happened", flag it
+   - Each factual bullet claims a source turn ID (e.g., [turn_47]). Verify that the cited turn actually contains that fact.
+   - If a bullet cites [turn_N] but turn N doesn't contain that information, flag it.
+   - Any specific value (model name, version, price, file path, port, command) must appear in the cited turn.
+   - If the draft says the user chose X, but the cited turn shows the user saying "I don't need X" or "let's not do X", flag it as a directional inversion.
 
 2. NUANCE LOSS: Critical details smoothed over during summarization.
-   - Caveats, warnings, or conditional logic that was dropped
-   - Specific values (ports, timeouts, versions) that were generalized
+   - If both sides of a decision were discussed but only one appears, flag it.
+   - If important caveats or conditions were dropped, flag them.
 
-3. WORLDVIEW DRIFT: Ensure output aligns with these baseline principles:
+3. CITATION COVERAGE: Are all bullets properly cited?
+   - Every factual claim should have a [turn_N] citation. Uncited claims are unverifiable.
+   - If a bullet has no citation, flag it.
+
+4. WORLDVIEW DRIFT: Ensure output aligns with these baseline principles:
    - Truth is declarative, not relativistic
    - Technical accuracy over social comfort
    - No false equivalence between verified facts and opinions
    - Epistemic humility — don't claim certainty where transcripts show uncertainty
 
+5. NARRATIVE INVENTION: Did the synthesizer write connecting prose between facts that isn't in the source?
+   - If paragraphs of connecting narrative appear that aren't backed by source turns, flag them.
+
 OUTPUT FORMAT (JSON only, no preamble):
 {{
   "passed": true/false,
-  "hallucinations": ["claim not in source", ...],
-  "nuance_loss": ["detail smoothed over", ...],
-  "worldview_drift": ["alignment issue", ...],
-  "corrections": ["Specific fix required: ...", ...],
+  "hallucinations": ["Specific claim in draft not supported by source: ...", ...],
+  "nuance_loss": ["Detail that was smoothed over: ...", ...],
+  "worldview_drift": ["Alignment issue: ...", ...],
+  "corrections": ["Specific actionable fix: change X to Y, remove unsupported claim about Z", ...],
   "verdict": "PASS or FAIL with one-sentence reasoning"
 }}
 
-Be strict. If the draft contains ANY hallucination, mark passed=false and list it."""
+CRITICAL: Each entry in "corrections" must be specific enough that a reviser can implement it without re-reading the entire source. Describe what to change and what to change it to. Be strict. If the draft contains ANY hallucination, mark passed=false and list it."""
 
     def _parse_audit_response(self, text: str) -> Dict[str, Any]:
         """Parse the JSON audit response from LLM."""

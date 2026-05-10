@@ -36,7 +36,7 @@ from . import schemas as _schemas
 
 # Import split modules (SRP compliance)
 from .extraction_engine import _STOPWORDS
-from .injection_router import classify_injection_intent
+from .semantic_intent_router import classify_injection_intent
 from .session_end_extractor import extract_topics_from_messages
 
 logger = logging.getLogger(__name__)
@@ -388,7 +388,7 @@ class PerpetualContextProvider(MemoryProvider):
             try:
                 db.optimize()
             except Exception as e:
-                logger.debug(
+                logger.warning(
                     "optimize() failed during on_turn_start: %s",
                     e,
                 )
@@ -408,7 +408,7 @@ class PerpetualContextProvider(MemoryProvider):
             for topic in topics:
                 db.add_topic(session_id=sid, topic_name=topic, confidence=0.6)
         except Exception as e:
-            logger.debug("on_session_end extraction failed: %s", e)
+            logger.warning("on_session_end extraction failed: %s", e)
 
     def on_pre_compress(self, messages: list[dict[str, Any]]) -> str:
         factory = self._get_factory()
@@ -446,7 +446,7 @@ class PerpetualContextProvider(MemoryProvider):
                 metadata={"mirror": True, "original_action": action},
             )
         except Exception as e:
-            logger.debug("on_memory_write failed: %s", e)
+            logger.warning("on_memory_write failed: %s", e)
 
     # -- Periodic injection --------------------------------------------------
 
@@ -455,8 +455,26 @@ class PerpetualContextProvider(MemoryProvider):
             return None
         turn_number = self._last_turn_number
         message = self._last_user_message
+
+        # Graceful degradation: if on_turn_start didn't fire, use DB to estimate
+        # turn count and fetch recent user message as fallback.
         if not turn_number or not message:
-            return None
+            with self._lock:
+                if not self._db or not self._db._initialized:
+                    return None
+                db = self._db
+            try:
+                recent = db.get_recent_messages(n=3)
+                user_msgs = [m for m in recent if m.get("role") == "user"]
+                if user_msgs:
+                    message = user_msgs[-1].get("content", "")
+                    # Estimate turn number from message count
+                    turn_number = len(recent)
+                else:
+                    return None
+            except Exception as e:
+                logger.warning("Periodic injection DB fallback failed: %s", e)
+                return None
 
         if turn_number % PERIODIC_INJECTION_INTERVAL != 0:
             return None
@@ -479,10 +497,9 @@ class PerpetualContextProvider(MemoryProvider):
                 injected_text = injected_text[: PERIODIC_INJECTION_MAX_CHARS - 3] + "..."
             return f"\n[Periodic Context Injection]\n{injected_text}\n"
         except Exception as e:
-            logger.debug(
+            logger.exception(
                 "Periodic injection failed (turn %d): %s",
                 turn_number,
-                e,
             )
             return None
 
@@ -511,7 +528,7 @@ class PerpetualContextProvider(MemoryProvider):
                 logger.warning("Unknown retrieval type: %s", query_type)
                 return []
             return retriever.retrieve(strategy, query_text)
-        except Exception:
+        except Exception as e:
             logger.exception(
                 "Smart retrieve failed for type '%s'",
                 query_type,

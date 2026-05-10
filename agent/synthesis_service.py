@@ -101,11 +101,17 @@ class SynthesisService:
         # Fetch raw turns if samples not provided
         if not samples:
             turns = self.fetch_raw_turns(turn_ids)
+            # Feed full turn content — no per-turn truncation.
+            # Cap total input at ~32K chars to stay within reasonable context.
+            # IMPORTANT: Include turn_id in the text so the synthesizer can cite it.
             content_text = "\n\n---\n\n".join(
-                f"[{t['role'].upper()}]: {t['content'][:500]}" for t in turns[:20]  # Limit to first 20 turns, 500 chars each
+                f"[turn_{t['id']} [{t['role'].upper()}]]: {t['content']}" for t in turns
             )
+            # If still too large, trim from the end (oldest turns first after sort)
+            if len(content_text) > 32000:
+                content_text = content_text[:31000] + "\n\n[... remaining turns truncated for length ...]\n"
         else:
-            content_text = "\n\n---\n\n".join(s[:300] for s in (samples or []))  # Truncate samples
+            content_text = "\n\n---\n\n".join(s for s in (samples or []))
 
         # Build synthesis prompt following Frontier Lab standards
         prompt = self._build_synthesis_prompt(cluster_id, turn_ids, content_text)
@@ -165,47 +171,153 @@ class SynthesisService:
 
         logger.info(f"Synthesis complete: cluster {cluster_id} → {draft_path} "
                      f"({metadata['word_count']} words)")
+        # Store content_text on self for use by revise_draft in orchestrator retry
+        self._last_content_text = content_text
         return draft_path, metadata
 
     def _build_synthesis_prompt(
         self, cluster_id: int, turn_ids: List[int], content_text: str
     ) -> str:
-        """Build the LLM prompt for synthesizing a structured Markdown entry."""
-        return f"""You are creating a Reference Library entry from raw conversation transcripts.
+        """Build the LLM prompt for synthesizing a structured Markdown entry.
+
+        Produces structured factual notes with source turn citations, not prose.
+        This prevents the model from inventing connecting narrative.
+        """
+        return f"""You are extracting factual information from raw conversation transcripts into a Reference Library entry.
 
 CLUSTER ID: {cluster_id}
 SOURCE TURN IDs: {turn_ids}
 
-RAW TRANSCRIPTS:
+RAW TRANSCRIPTS (use these as your ONLY source of facts):
 {content_text}
 
-SYNTHESIS INSTRUCTIONS (Frontier Lab Standards):
-1. Write declarative facts, not instructions to yourself
-2. Be specific with file paths, commands, error messages, and decisions
-3. Include technical details that would be lost without explicit preservation
-4. Structure as a standalone Markdown page suitable for the Reference Library
-5. Use this exact format:
+YOUR OUTPUT FORMAT — EXACTLY THIS STRUCTURE:
 
 # [Title]
 
 ## Summary
-[One paragraph overview of what this cluster contains]
+[2-3 sentences describing what this conversation cluster is about. Only state what is clearly evident from the transcripts.]
 
-## Key Facts
-- [Declarative fact 1]
-- [Declarative fact 2]
+## Factual Notes
+Each bullet must be a single, verifiable fact. Every bullet MUST end with its source turn ID in square brackets.
 
-## Technical Details
-[Any code snippets, commands, file paths, or specific values]
+Format: `- Fact statement [turn_N]`
 
-## Decisions & Rationale
-[Why certain approaches were chosen]
+Example:
+- System defaults to `all-MiniLM-L6-v2` (384-dim) via local CPU inference [turn_47]
+- User stated they did not need to switch to LM Studio unless a problem existed [turn_46]
+- LM Studio embedding support remains as optional manual configuration [turn_47]
+
+RULES FOR EACH BULLET:
+- Only include information that appears EXPLICITLY in the cited turn
+- If a fact spans multiple turns, cite the most relevant one
+- If two turns contradict, include both with their respective turn IDs and note the contradiction
+- DO NOT combine information from multiple turns into one bullet unless you cite all relevant turns
+- DO NOT infer conclusions not stated in the source
+- DO NOT write narrative prose between bullets
+
+## Code & Commands
+[Any exact code snippets, commands, or config values shown in the transcripts. Cite turn ID after each block.]
+
+## Decisions & Their Direction
+State what was decided AND the user's reasoning in their own words where possible. Cite turn ID.
+- What was DECIDED: ...
+- What was REJECTED or SET ASIDE: ...
+- User's stated reasoning: ...
+
+## Open Questions / Unresolved Items
+[Any issues the conversation left unresolved or marked for later. Cite turn ID.]
 
 ## Provenance
 Source: Perpetual Memory turns {turn_ids}
 Cluster ID: {cluster_id}
 
-Write only the Markdown entry. Do not include preamble or explanation."""
+NEGATIVE CONSTRAINTS — VIOLATING ANY OF THESE IS A FAILURE:
+- NEVER invent a specific value (model name, version, price, file path, port, command flag) not in the source
+- NEVER claim causation unless the source explicitly states it
+- NEVER smooth over contradictions — present both sides
+- NEVER invert the direction of a user's decision ("I don't need X" means rejection, not adoption)
+- NEVER write connecting narrative between facts
+- If a detail is genuinely absent from all turns, write "[not in source]" rather than guessing
+
+Write only the Markdown entry. No preamble. No explanation. No meta-commentary."""
+
+    def revise_draft(
+        self,
+        cluster_id: int,
+        turn_ids: List[int],
+        content_text: str,
+        draft_content: str,
+        corrections: List[str],
+        main_runtime: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """Revise a draft based on audit corrections.
+
+        Args:
+            cluster_id: Cluster identifier.
+            turn_ids: Source PM turn IDs.
+            content_text: Raw transcript text (same as original synthesis).
+            draft_content: The draft that failed audit.
+            corrections: List of specific corrections from the audit.
+            main_runtime: LLM runtime config.
+
+        Returns:
+            Revised draft content as a string.
+        """
+        correction_text = "\n".join(f"- {c}" for c in corrections)
+
+        prompt = f"""You are revising a Reference Library entry based on audit feedback.
+
+CLUSTER ID: {cluster_id}
+SOURCE TURN IDs: {turn_ids}
+
+RAW TRANSCRIPTS (use these as your ONLY source of facts):
+{content_text}
+
+DRAFT THAT FAILED AUDIT:
+{draft_content}
+
+AUDIT CORRECTIONS (fix each one):
+{correction_text}
+
+INSTRUCTIONS:
+- Fix every issue listed in the corrections.
+- Every factual bullet MUST end with its source turn ID in [turn_N] format.
+- DO NOT invent new specific values to fix the corrections. If the source doesn't contain the detail, write "[not specified in source]" instead.
+- Preserve all correct, properly-cited bullets from the draft. Only change what the audit flagged.
+- Maintain the same structure: Summary, Factual Notes (with citations), Code & Commands, Decisions & Their Direction, Open Questions, Provenance.
+- NO connecting narrative between facts.
+
+Write only the revised Markdown entry. Do not include preamble or explanation."""
+
+        try:
+            from agent.auxiliary_client import call_llm
+
+            call_kwargs = {
+                "task": "archiving",
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 8192,
+                "timeout": 600.0,
+            }
+            if main_runtime:
+                call_kwargs["main_runtime"] = main_runtime
+
+            response = call_llm(**call_kwargs)
+            msg = response.choices[0].message
+            revised = (msg.content or "").strip()
+
+            if not revised and hasattr(msg, 'reasoning_content') and msg.reasoning_content:
+                revised = msg.reasoning_content.strip()
+
+            if len(revised) < 100:
+                logger.warning(f"Revision returned minimal content ({len(revised)} chars), returning original draft")
+                return draft_content
+
+            return revised
+
+        except Exception as e:
+            logger.warning(f"Revision LLM call failed (returning original draft): {e}")
+            return draft_content
 
     def _fallback_draft(
         self, cluster_id: int, turn_ids: List[int], content_text: str

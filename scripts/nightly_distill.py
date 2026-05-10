@@ -90,16 +90,30 @@ def distill_cluster(cluster_id_str: str, turn_ids: list, topic: str) -> dict:
 
         status_str = "COMMITTED" if success else f"FAILED: {error}"
 
-        # Mark as distilled only on success, or on non-LLM errors
-        # If LLM was unavailable, mark as undistilled so it retries next run
+        # Mark as distilled only on success.
+        # On audit failure (hallucinations), do NOT mark distilled — retry next run.
+        # On LLM unavailable errors, do NOT mark distilled — retry next run.
+        # On genuine terminal errors (DB missing, file corruption), mark distilled to avoid infinite loops.
         llm_error = "does not exist" in error or "LLM unavailable" in error or "Auxiliary LLM" in error
-        if success or (error and not llm_error):
+        audit_error = "Audit failed" in error or "hallucination" in error.lower() or "verdict" in error.lower()
+        terminal_error = "no such file" in error.lower() or "permission denied" in error.lower()
+
+        if success:
             for s in load_queue():
                 if s["cluster_id"] == cluster_id_str:
                     s["distilled"] = True
                     s["distilled_at"] = datetime.now().isoformat()
                     break
             save_queue(load_queue())
+        elif terminal_error:
+            # Terminal error — mark as distilled to prevent infinite retry
+            for s in load_queue():
+                if s["cluster_id"] == cluster_id_str:
+                    s["distilled"] = True
+                    s["distilled_at"] = datetime.now().isoformat()
+                    break
+            save_queue(load_queue())
+        # else: audit_error or llm_error — leave undistilled for next run
 
         return {
             "cluster_id": cluster_id_str,

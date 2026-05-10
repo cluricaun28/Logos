@@ -116,9 +116,69 @@ class LogosOrchestrator:
             result["audit_report"] = audit_report
 
             if not audit_report.get("passed", False):
-                result["error"] = f"Audit failed: {audit_report['verdict']}"
-                logger.warning(f"Distillation aborted: cluster {cluster_id} — {result['error']}")
-                return result
+                # RETRY WITH CORRECTION: feed audit corrections back to synthesis for a revision pass
+                corrections = audit_report.get("corrections", [])
+                hallucinations = audit_report.get("hallucinations", [])
+                all_issues = corrections + hallucinations
+
+                if all_issues:
+                    logger.info(f"Distillation pipeline: cluster {cluster_id} → REVISION (fixing {len(all_issues)} issues)")
+
+                    revised_content = self.synthesis.revise_draft(
+                        cluster_id=cluster_id,
+                        turn_ids=turn_ids,
+                        content_text=self.synthesis._last_content_text,
+                        draft_content=draft_path.read_text(),
+                        corrections=all_issues,
+                        main_runtime=main_runtime,
+                    )
+
+                    # Write revised draft back to staging
+                    draft_path.write_text(revised_content)
+
+                    # Re-audit the revised draft
+                    logger.info(f"Distillation pipeline: cluster {cluster_id} → RE-AUDIT")
+                    audit_report = self.audit.audit_draft(
+                        draft_path=draft_path,
+                        turn_ids=turn_ids,
+                        main_runtime=main_runtime,
+                    )
+                    result["audit_report"] = audit_report
+
+                if not audit_report.get("passed", False):
+                    # SECOND revision pass: try again with the re-audit's corrections
+                    corrections2 = audit_report.get("corrections", [])
+                    hallucinations2 = audit_report.get("hallucinations", [])
+                    all_issues2 = corrections2 + hallucinations2
+
+                    if all_issues2:
+                        logger.info(f"Distillation pipeline: cluster {cluster_id} → SECOND REVISION (fixing {len(all_issues2)} remaining issues)")
+
+                        revised_content2 = self.synthesis.revise_draft(
+                            cluster_id=cluster_id,
+                            turn_ids=turn_ids,
+                            content_text=self.synthesis._last_content_text,
+                            draft_content=draft_path.read_text(),
+                            corrections=all_issues2,
+                            main_runtime=main_runtime,
+                        )
+
+                        draft_path.write_text(revised_content2)
+
+                        logger.info(f"Distillation pipeline: cluster {cluster_id} → FINAL RE-AUDIT")
+                        audit_report = self.audit.audit_draft(
+                            draft_path=draft_path,
+                            turn_ids=turn_ids,
+                            main_runtime=main_runtime,
+                        )
+                        result["audit_report"] = audit_report
+
+                if not audit_report.get("passed", False):
+                    result["error"] = f"Audit failed after 2 revisions: {audit_report['verdict']}"
+                    logger.warning(f"Distillation aborted: cluster {cluster_id} — {result['error']}")
+                    return result
+
+                logger.info(f"Distillation pipeline: cluster {cluster_id} → audit passed")
 
             # STAGE 3: Commit to RL
             logger.info(f"Distillation pipeline: cluster {cluster_id} → COMMIT")
