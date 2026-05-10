@@ -480,9 +480,13 @@ def _handle_source_analyze(
 
     Takes a JSON string of search results and returns source intelligence
     for each: alignment, known omissions, deviation flags, bias analysis.
+
+    When deep=True, first extracts full article content via web_extract
+    before analyzing, producing richer results.
     """
     results_raw = args.get("results", "[]")
     query = args.get("query", "")
+    deep = args.get("deep", False)
 
     try:
         results = json.loads(results_raw)
@@ -499,6 +503,53 @@ def _handle_source_analyze(
         from agent.source_analysis import SourceAnalyzer  # noqa: PLC0415
 
         analyzer = SourceAnalyzer()
+
+        # If deep=True, extract full content before analyzing
+        if deep:
+            urls = [r.get("url", "") for r in results if r.get("url")]
+            if urls:
+                try:
+                    import asyncio as _asyncio  # noqa: PLC0415, I001
+                    from tools.web_tools import web_extract_tool  # noqa: PLC0415, I001
+
+                    logger.info(
+                        "Deep mode: extracting content from %d URL(s) for %s",
+                        len(urls),
+                        query[:50],
+                    )
+                    extract_result = _asyncio.get_event_loop().run_until_complete(
+                        web_extract_tool(urls)
+                    )
+                    extract_data = (
+                        json.loads(extract_result)
+                        if isinstance(extract_result, str)
+                        else extract_result
+                    )
+
+                    # Build a url->content map from extraction results
+                    content_map: dict[str, str] = {}
+                    for ext in extract_data.get("results", []):
+                        ext_url = ext.get("url", "")
+                        ext_content = ext.get("content", "") or ext.get("raw_content", "")
+                        if ext_url and ext_content:
+                            content_map[ext_url] = ext_content
+
+                    # Merge extracted content back into results
+                    for r in results:
+                        url = r.get("url", "")
+                        if url in content_map and not r.get("content"):
+                            r["content"] = content_map[url]
+                            logger.info(
+                                "Deep mode: enriched %s with %d chars",
+                                url[:80],
+                                len(content_map[url]),
+                            )
+
+                except Exception as e:
+                    logger.warning(
+                        "Deep mode extraction failed: %s — continuing with snippets", e
+                    )
+
         reports = analyzer.analyze_batch(results, query_context=query)
 
         # Build output
@@ -516,6 +567,7 @@ def _handle_source_analyze(
                 "markers": report.content.markers[:5],
                 "deviation": report.narrative.deviation,
                 "coordination": report.narrative.coordination,
+                "content_analyzed": len(report.query_context) > 0 or bool(report.url),
             }
             output_results.append(entry)
 
