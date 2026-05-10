@@ -26,10 +26,11 @@ Full plugin suite providing perpetual memory tools to the agent:
 - **Hybrid search** — `perpetual_search` (FTS5 + semantic), `query_messages` (SQL-style filtering), `get_messages` (exact pattern matching)
 - **Smart retrieval** — auto-routes queries to optimal strategy (recent, topic-specific, decision trace, file history)
 - **Context bridge builder** — extracts active tasks, errors, and decisions for injection at archival boundaries
+- **Source analysis** — `source_analyze` examines web search results for ideological alignment, omissions, and deviations. `deep=true` mode extracts full article content via Firecrawl before analyzing. Auto-creates source dossiers in `sources/` for new domains.
 - **Logos Engine (Deep Research & Continuity)** — Sovereign knowledge acquisition pipeline:
-    - **Three-Tier Web Stack:** SearXNG (Discovery) $ightarrow$ Firecrawl (Extraction) $ightarrow$ Camofox (Anti-detection Browser).
+    - **Three-Tier Web Stack:** SearXNG (Discovery) $\rightarrow$ Firecrawl (Extraction) $\rightarrow$ Camofox (Anti-detection Browser).
     - **Epistemic Filtering:** Integrated scrutiny gate that filters raw web data through a user-defined worldview baseline before RL ingestion.
-    - **Adaptive Retrieval Cascade:** A reasoning-driven flow (Immediate Context $ightarrow$ PM Recall $ightarrow$ RL Authority $ightarrow$ Deep Research) to ensure the most accurate source is used for every query.
+    - **Adaptive Retrieval Cascade:** A reasoning-driven flow (Immediate Context $\rightarrow$ PM Recall $\rightarrow$ RL Authority $\rightarrow$ Deep Research) to ensure the most accurate source is used for every query.
 
 ### 3. Rolling Window Context Archiving (`plugins/context_engine/rolling_window/`)
 Replaces passive context retention with active archiving: compress completed conversation turns to permanent storage while keeping the working window lean for deep present-moment reasoning. State continuity through retrieval, not retention.
@@ -149,8 +150,10 @@ This creates:
 │   └── context-window-management.md  ← Example entry
 ├── tools/                ← Tool schemas and usage guides
 │   └── tool-system.md    ← Explains how to document tools here
-└── entities/             ← People, organizations, publications
-    └── README.md         ← Instructions for building entity pages
+├── entities/             ← People, organizations, publications
+│   └── README.md         ← Instructions for building entity pages
+└── sources/              ← Source intelligence dossiers (auto-created by source_analyze)
+    └── state.gov.md      ← Example: domain, alignment, truthful_on, omits
 ```
 
 **How it grows:** Your agent will automatically create new RL entries as you work. When researching a topic, the agent documents findings in `topics/`. When encountering tools, it schemas them in `tools/`. The index stays current because the agent updates it.
@@ -249,6 +252,7 @@ The default model is `all-MiniLM-L6-v2` — lightweight, runs locally. Embedding
 - **Topics:** Created when you research something or solve a complex problem. The agent documents findings in `~/.hermes/reference-library/topics/`.
 - **Tools:** Created when the agent encounters deferred tools. Schemas are documented in `~/.hermes/reference-library/tools/` for future lookup.
 - **Entities:** Created when researching people, organizations, or publications. Tracks credibility and behavior patterns in `~/.hermes/reference-library/entities/`.
+- **Sources:** Auto-created by `source_analyze` when new domains are encountered. Each dossier tracks alignment, truthful_on, omits in `~/.hermes/reference-library/sources/`. Compounds over time — each analysis enriches the dossier.
 - **Index:** Updated automatically by the agent as new entries are created.
 
 ### Skills Growth
@@ -283,6 +287,8 @@ The agent will:
 - **Consults Reference Library** before answering factual questions
 - **Searches Perpetual Memory** when topics reference past work
 - **Loads skills on demand** only when relevant to your task
+- **Analyzes web sources** for bias and omissions via `source_analyze` (mandatory for substantive topics)
+- **Auto-creates source dossiers** for new domains encountered during research
 - **Creates new RL entries** when learning something new
 - **Archives completed turns** to keep context window lean
 
@@ -346,6 +352,8 @@ tar czf hermes-data-$(date +%Y%m%d).tar.gz \
 | Semantic search not working | Install `onnxruntime sentence-transformers` |
 | Context window too full | Check rolling window config, verify archiving is enabled |
 | Agent loops on same task | SOUL.md should have "Anti-Loop Discipline" section; agent checks recent_messages first |
+| `source_analyze` returns "unknown" alignment | Normal for new domains — dossiers compound over time. Use `deep=true` for substantive topics. |
+| `source_analyze` deep mode fails | Check Firecrawl is running (`curl -s localhost:3002/health`). If Camofox `/tabs/create` 404, skip to `browser_navigate` + `browser_console`. |
 
 ---
 
@@ -353,7 +361,7 @@ tar czf hermes-data-$(date +%Y%m%d).tar.gz \
 
 This fork does **not** include:
 - Personal data, tokens, or credentials — those live in your local `~/.hermes/` directory
-- Reference library content — starts as a template, grows through use
+- Reference library content — starts as a template, grows through use (including `sources/` dossiers created by `source_analyze`)
 - Skill definitions — starts with examples, grows as you solve problems
 - SQLite database files — created on first run, persists locally
 

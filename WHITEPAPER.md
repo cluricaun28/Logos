@@ -2,7 +2,7 @@
 type: topic
 topic: "Hermes Agent Fork — System White Paper"
 created: 2026-05-07
-last_updated: 2026-05-07
+last_updated: 2026-05-09
 confidence: high
 related_entries:
   - "Hermes Agent Architecture(topics/hermes-agent/architecture)"
@@ -21,7 +21,7 @@ description: "Comprehensive white paper documenting the purpose, architecture, a
 
 *A white paper on a sovereign agentic intelligence system built on the Hermes Agent framework*
 
-**Version:** 1.0  |  **Date:** May 2026  |  **Repository:** cluricaun28/hermes-agent
+**Version:** 1.1  |  **Date:** May 2026  |  **Repository:** cluricaun28/hermes-agent
 
 ---
 
@@ -228,9 +228,10 @@ The Reference Library (`~/.hermes/reference-library/`) is a structured knowledge
 - **`topics/`** — Subject matter entries (architecture, workflows, philosophical frameworks)
 - **`entities/`** — People, organizations, publications with credibility tracking, funding maps, and bias flags
 - **`tools/`** — Tool documentation for dynamic schema fetching
+- **`sources/`** — Source intelligence dossiers auto-created by `source_analyze`. Each tracks domain, alignment, reliability, `truthful_on` and `omits` lists. Compounds over time — each analysis enriches the dossier.
 - **`britannica/`** — Full 1911 Encyclopædia Britannica (32,169 entries)
 
-**Current scale:** 509 curated non-Britannica entries (297 entities, 56 topics, 85 tools) + 32,169 Britannica entries = 32,678 total entries indexed.
+**Current scale:** 509 curated non-Britannica entries (297 entities, 56 topics, 85 tools) + 4 source intelligence dossiers in `sources/` + 32,169 Britannica entries = 32,682 total entries indexed.
 
 **Hybrid search index (`rl_index.db`):**
 
@@ -307,11 +308,46 @@ Rather than asking the LLM to summarize old turns (which introduces errors and b
 **Task markers** (`[TASK_START: id]`, `[TASK_COMPLETE: id]`) are injected into the system prompt. Custom `task_aware_pruner.py` and `task_marker_injector.py` provide fine-grained control over which turns survive compression by tagging tasks as active or complete.
 
 
+### 4.8 Source Analysis — `source_analyze` Tool
+
+**Purpose:** Provide the agent with source intelligence during research — before it formulates its answer — so it can present information through the user's worldview rather than any single source's frame.
+
+The `source_analyze` tool was added as Phase 4 of the perpetual_context plugin (May 2026). It operates as a direct agent tool called after `web_search`, examining each result's domain against the Reference Library's source dossiers.
+
+**Operation:**
+
+- **Shallow mode (default):** Analyzes search result snippets/descriptions against existing source dossiers. Fast — no additional network calls. Returns domain, alignment, reliability, `truthful_on`, `omits`, and any deviation from known patterns.
+- **Deep mode (`deep=true`):** Before analyzing, calls `web_extract` on each URL to retrieve full article content. The expanded text gives the narrative engine enough material to detect specific omissions, loaded language, and framing patterns. Significantly more accurate but slower (requires Firecrawl or Camofox to be running).
+- **Auto-create dossiers:** When `source_analyze` encounters a domain with no existing dossier, it creates one automatically in `~/.hermes/reference-library/sources/` with "needs research" placeholders for alignment, truthful_on, and omits. The `domain-index.json` is updated so future lookups find it. Findings from the analysis are appended to the new dossier.
+- **Smart trigger:** System prompt instructs the model to call `source_analyze` after `web_search` for substantive topics (politics, religion, economics, culture, current events, human affairs) and skip it for utility queries (weather, recipes, code docs).
+
+**Key classes:** `SourceAnalyzer` (agent/source_analysis.py, 950 lines — shared by prefetch pipeline and direct tool), `_DossierLookup` (domain fragment matching with suffix-anchored regex), `_RLWriter` (dossier read/write with auto-create for new domains, integrated in tool_handler.py). The `source_analyze` tool handler in `tool_handler.py` dispatches to `SourceAnalyzer` and handles the `deep=true` path via `web_extract_tool()`.
+
+**Schema:** 11 tool schemas total in `schemas.py` (was 10 before `SOURCE_ANALYZE_SCHEMA` was added). The `source_analyze` schema uses `properties`-level parameters (not `parameters` block) for OpenRouter compatibility.
+
+**Dossier format (YAML frontmatter + markdown):**
+```yaml
+---
+type: source
+domain: state.gov
+alignment: partially aligned
+reliability: official-government
+truthful_on:
+  - Official U.S. diplomatic positions
+  - Statements from U.S. government officials
+omits:
+  - Internal dissent or conflicting assessments
+  - Full scope of coordination with Israel
+---
+```
+
+Each analysis enriches the dossier — appending new patterns to `truthful_on` and `omits` lists. Over time, the source intelligence compounds into a durable knowledge asset.
+
 ---
 
 ## 5. Codebase Organization
 
-### 5.1 Custom Plugin Modules (26 modules, ~8,070 lines)
+### 5.1 Custom Plugin Modules (39 modules, ~12,079 lines)
 
 All custom code lives in `hermes-agent/plugins/memory/perpetual_context/`:
 
@@ -319,31 +355,45 @@ All custom code lives in `hermes-agent/plugins/memory/perpetual_context/`:
 
 | Module | Lines | Purpose |
 |--------|-------|---------|
-| `__init__.py` | 512 | Thin orchestrator (was 1,735 — reduced 70% via refactoring) |
-| `component_factory.py` | 171 | Lazy-init factory for all sub-components |
-| `context_bridge_builder.py` | 292 | Builds Context Bridge content |
-| `extraction_engine.py` | 444 | Extracts structured data from conversation turns |
-| `retrieval_engine.py` | ~291 | SmartRetriever with auto-routing |
-| `schemas.py` | 409 | 9 tool schemas |
+| `__init__.py` | 543 | Thin orchestrator (was 1,735 — reduced 70% via refactoring) |
+| `component_factory.py` | 197 | Lazy-init factory for all sub-components |
+| `context_bridge_builder.py` | 286 | Builds Context Bridge content |
+| `extraction_engine.py` | 450 | Extracts structured data from conversation turns |
+| `retrieval_engine.py` | 250 | SmartRetriever with auto-routing |
+| `schemas.py` | 544 | 11 tool schemas (added `SOURCE_ANALYZE_SCHEMA` May 2026) |
 | `injection_router.py` | 322 | Data-driven injection strategy |
 | `topic_classifier.py` | 126 | Keyword sets + stability function |
-| `tool_handler.py` | 195 | Tool dispatch to DB operations |
+| `tool_handler.py` | 661 | Tool dispatch to DB operations + `source_analyze` handler with deep mode (delegates to `agent/source_analysis.py:SourceAnalyzer`) |
 | `quality_scorer.py` | 189 | Message relevance scoring |
 | `feedback_state.py` | 212 | Compression feedback tracking |
-| `prefetch_pipeline.py` | 293 | 4-phase Deep Research pipeline |
+| `prefetch_pipeline.py` | 277 | 4-phase Deep Research pipeline |
 | `decision_trace.py` | 116 | Decision trace retrieval |
 | `file_history.py` | 69 | File edit history |
 | `session_end_extractor.py` | 60 | Topic extraction from messages |
-| `utils.py` | ~40 | Shared utilities |
-| `retrieval_quality.py` | ~100 | Retrieval quality tracking |
+| `utils.py` | 35 | Shared utilities |
+| `retrieval_quality.py` | 429 | Retrieval quality tracking |
 
 **Deep Research Engine:**
 
 | Module | Lines | Purpose |
 |--------|-------|---------|
 | `web_research.py` | 435 | SearXNG/Firecrawl/Camofox client |
-| `scrutiny_gate.py` | 673 | Bias detection + worldview filtering |
-| `synthesis_engine.py` | 508 | Multi-pass synthesis |
+| `scrutiny_gate.py` | 222 | Facade for bias detection module family (split May 8, 2026) |
+| `bias_detector.py` | 248 | Linguistic marker detection |
+| `sensitivity_classifier.py` | 130 | Topic sensitivity classification |
+| `worldview_checker.py` | 292 | Worldview divergence checking |
+| `rl_ingestion_gate.py` | 162 | Controls what enters Reference Library |
+| `source_assessment.py` | 137 | Source quality assessment |
+| `synthesis_engine.py` | 549 | Multi-pass synthesis |
+
+**Reference Library integration:**
+
+| Module | Lines | Purpose |
+|--------|-------|---------|
+| `rl_search.py` | 340 | Hybrid RL search (FTS5 + embeddings) |
+| `rl_index.py` | 304 | RL index management |
+| `rl_schema.py` | 124 | RL entry schema definitions |
+| `rl_builder.py` | 385 | RL page builder for auto-create |
 
 **Test suite:** 289 tests, ~4,600 lines across 8 test files. All passing as of 2026-05-07.
 
@@ -465,6 +515,8 @@ The system runs several autonomous jobs that maintain and improve itself overnig
 | 2026-05-04 | Recall Engine with query classification integrated |
 | 2026-05-06 | RL index expanded to 32,676 entries, 7 of 12 signal clusters distilled |
 | 2026-05-08 | **Sovereign Sieve v2:** Source dossiers as YAML (`source_dossiers.yaml`, 284 entries), embedding-based semantic marker detection alongside regex, `WorldviewDivergenceChecker` wired into `ScrutinyGate`. FAISS vector index rebuilt (100% coverage, 6,716 vectors). `ExtractionEngine` split from `BridgeQualityScorer`. Test suite cleaned (stale duplicates removed). `scrutiny_gate.py` at 960 lines, full ruff compliance. |
+| 2026-05-08 | Scrutiny gate split into 6 SRP-compliant modules (967→221 lines facade + 5 submodules), all under 500 lines. Last god class eliminated. |
+| 2026-05-09 | **Phase 4 — `source_analyze` tool:** Direct agent tool for source intelligence during research. 11 tool schemas (added `SOURCE_ANALYZE_SCHEMA`). Deep mode (`deep=true`) extracts full article content via Firecrawl before analysis. Auto-creates source dossiers in `sources/` for new domains with `domain-index.json` auto-update. Smart trigger in system prompt: substantive topics get `source_analyze(deep=true)`, utility queries skip. 3 new skills (`factual-research-answer`, `tool-schema-validation-debug`, `political-research-and-entity-pages`), 3 updated skills (`web-source-bias-research`, `narrative-control-detection`, `pipeline-module-integration`). 10 new RL pages (5 entity, 4 source, 1 topic). Code audit: removed duplicate schemas, fixed f-string JSON construction, narrowed exception handling, `frozenset` for mutable globals, added `__all__` and `logger`. |
 
 ---
 
@@ -494,6 +546,6 @@ The system is not perfect — it is a work in progress maintained by one person 
 
 ---
 
-*This white paper was compiled from the live codebase, Reference Library documentation, and Perpetual Memory records of a custom Hermes Agent fork. Last updated 2026-05-08.*
+*This white paper was compiled from the live codebase, Reference Library documentation, and Perpetual Memory records of a custom Hermes Agent fork. Last updated 2026-05-09.*
 
 See also: [[System White Paper (arXiv-style)]](topics/hermes-agent/system-white-paper-arxiv.md) — formal prose format with abstract, numbered sections, and references.
