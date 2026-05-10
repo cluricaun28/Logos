@@ -131,7 +131,9 @@ class PerpetualContextProvider(MemoryProvider):
         self._prefetch_enabled = bool(pc_config.get("prefetch_enabled", False))
         recall_cfg = pc_config.get("recall_injection", {})
         self._recall_past_enabled = (
-            bool(recall_cfg.get("enabled", False)) if isinstance(recall_cfg, dict) else bool(pc_config.get("recall_injection", False))
+            bool(recall_cfg.get("enabled", False))
+            if isinstance(recall_cfg, dict)
+            else bool(pc_config.get("recall_injection", False))
         )
         self._periodic_enabled = bool(pc_config.get("pre_response_recall", False))
         self._deep_research_enabled = DEEP_RESEARCH_ENABLED
@@ -509,7 +511,7 @@ class PerpetualContextProvider(MemoryProvider):
                 logger.warning("Unknown retrieval type: %s", query_type)
                 return []
             return retriever.retrieve(strategy, query_text)
-        except Exception as e:
+        except Exception:
             logger.exception(
                 "Smart retrieve failed for type '%s'",
                 query_type,

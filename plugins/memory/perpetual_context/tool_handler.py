@@ -8,12 +8,16 @@ files, not sub-packages) can import it without missing submodules.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+
+# Minimum word length for reference library search tokens
+_MIN_SEARCH_WORD_LEN = 2
 
 logger = logging.getLogger(__name__)
 
@@ -118,8 +122,10 @@ def _handle_session_recent(tool_handler: ToolHandler, limit: int) -> str:
                 msg_count = len(session_msgs)
                 topic_count = 0
                 if session_msgs:
-                    created_at = session_msgs[-1].get("created_at") or session_msgs[-1].get("timestamp", 0)
-                    last_updated = session_msgs[0].get("created_at") or session_msgs[0].get("timestamp", 0)
+                    last = session_msgs[-1]
+                    first = session_msgs[0]
+                    created_at = last.get("created_at") or last.get("timestamp", 0)
+                    last_updated = first.get("created_at") or first.get("timestamp", 0)
                 else:
                     created_at = 0
                     last_updated = 0
@@ -313,10 +319,8 @@ def _handle_query_messages(tool_handler: ToolHandler, args: dict[str, Any]) -> s
 
         meta_val = args.get("metadata_value")
         if isinstance(meta_val, str):
-            try:
+            with contextlib.suppress(json.JSONDecodeError, TypeError):
                 meta_val = json.loads(meta_val)
-            except (json.JSONDecodeError, TypeError):
-                pass
 
         result = tool_handler._db.query_messages(
             pattern=args.get("pattern"),
@@ -435,7 +439,7 @@ def _handle_reference_library_search(tool_handler: ToolHandler, args: dict[str, 
     top_k = min(args.get("top_k", 5), 20)
     results: list[dict[str, Any]] = []
     query_lower = query.lower()
-    query_words = [w for w in query_lower.split() if len(w) > 2]
+    query_words = [w for w in query_lower.split() if len(w) > _MIN_SEARCH_WORD_LEN]
 
     for subdir in ("topics", "entities"):
         ref_dir = Path(os.path.expanduser(f"~/.hermes/reference-library/{subdir}"))
@@ -578,7 +582,12 @@ def _handle_source_analyze(
         return json.dumps({"results": output_results, "count": len(output_results)})
     except Exception as e:
         logger.debug("source_analyze failed: %s", e)
-        return json.dumps({"error": f"Source analysis failed: {e}", "advice": "Use the raw search results as-is"})
+        return json.dumps(
+            {
+                "error": f"Source analysis failed: {e}",
+                "advice": "Use the raw search results as-is",
+            }
+        )
 
 
 # ---------------------------------------------------------------------------
