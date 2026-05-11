@@ -89,6 +89,68 @@ This repository provides the **engine**, not the **knowledge**. To duplicate thi
 
 ---
 
+## For Agent Operators — Critical Setup Details
+
+**Before following the Quick Start, read this if you are an AI agent tasked with setting up Logos.** The infrastructure alone is not enough — the *prompt structure* is what makes the system work.
+
+### SOUL.md — The Most Critical File
+
+The code provides the plumbing. SOUL.md tells the agent *how to use it*. Without these specific sections in SOUL.md, the plugins load but the agent never calls them:
+
+1. **Knowledge Architecture section** — Must instruct the agent to:
+   - Check `reference_library_search` BEFORE `web_search` for any knowledge question
+   - Use `recent_messages` for immediate context before acting
+   - Use `perpetual_search` / `smart_retrieve` for cross-session recall
+   - Treat the Reference Library as *authoritative truth*, training data as *suggestion*
+
+2. **Worldview Baseline section** — Must define the user's epistemic framework:
+   - What truth is (not relativism)
+   - How to handle contradictory worldviews (state the difference, don't false-balance)
+   - Tone and style preferences
+
+3. **Operational Discipline section** — Must include:
+   - Anti-loop rules (check recent context before repeating work)
+   - Memory save rules (what to persist vs. what to discard)
+   - Skill loading protocol (scan available skills, load only relevant ones)
+   - Three-tier web escalation (SearXNG → Firecrawl → Camofox)
+
+4. **Active Retrieval section** — Must instruct the agent to:
+   - Call `source_analyze` after `web_search` for substantive topics (politics, religion, economics, culture)
+   - Skip `source_analyze` for utility queries (weather, code docs, recipes)
+   - Use `deep=true` when source analysis is critical
+
+**See [`extras/system-prompt-guide.md`](extras/system-prompt-guide.md) for the exact SOUL.md template with all required sections.**
+
+### Epistemic Hierarchy — The Truth Chain
+
+The agent must follow this order for every query:
+
+1. **Immediate context** — What the user just said
+2. **Perpetual Memory** — Past conversations on this topic
+3. **Reference Library** — Curated, verified knowledge (authoritative)
+4. **Web Research** — Only when local knowledge is insufficient
+5. **Training data** — Last resort, always suspect
+
+This is not optional. If the agent skips ahead to web search before checking the Reference Library, the system fails.
+
+### Nightly Automation
+
+The system runs autonomous jobs that maintain and improve itself. These are configured as cron jobs and should be set up after initial install:
+
+- **PM Signal Scanner** (2:00 AM) — Scans for high-signal conversation clusters
+- **Nightly Distillation** (3:00 AM) — Processes clusters through Synthesis → Audit → Commit
+- **RL Growth** (3:00 AM) — Expands Reference Library based on gaps
+- **Logos Intelligence Scout** (4:00 AM) — Builds source intelligence dossiers
+- **System Backup** (4:00 AM) — Backs up data to Windows host
+
+See [`WHITEPAPER.md`](WHITEPAPER.md) Section 4.6 and Section 8 for full details.
+
+### Read the White Paper
+
+The README gives you the structure. [`WHITEPAPER.md`](WHITEPAPER.md) gives you the *why*. Read it before configuring SOUL.md — it explains the epistemic framework, the Sovereign Sieve, and the design philosophy that makes everything work together.
+
+---
+
 ## Quick Start — Full Setup Guide
 
 Follow these steps to set up Logos with perpetual memory, reference library, and skills. Each step builds on the previous one.
