@@ -66,7 +66,7 @@ def _beeps_enabled() -> bool:
         voice_cfg = load_config().get("voice", {})
         if isinstance(voice_cfg, dict):
             return bool(voice_cfg.get("beep_enabled", True))
-    except Exception:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
         pass
     return True
 
@@ -85,7 +85,7 @@ def _play_beep(frequency: int, count: int = 1) -> None:
         from tools.voice_mode import play_beep
 
         play_beep(frequency=frequency, count=count)
-    except Exception as e:
+    except (ImportError, ModuleNotFoundError) as e:
         _debug(f"beep {frequency}Hz failed: {e}")
 
 # ── Push-to-talk state ───────────────────────────────────────────────
@@ -154,14 +154,14 @@ def stop_and_transcribe() -> Optional[str]:
 
     try:
         result = transcribe_recording(wav_path)
-    except Exception as e:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
         logger.warning("voice transcription failed: %s", e)
         return None
     finally:
         try:
             if os.path.isfile(wav_path):
                 os.unlink(wav_path)
-        except Exception:
+        except (OSError, PermissionError):
             pass
 
     # transcribe_recording returns {"success": bool, "transcript": str, ...}
@@ -229,7 +229,7 @@ def start_continuous(
 
     try:
         rec.start(on_silence_stop=_continuous_on_silence)
-    except Exception as e:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
         logger.error("failed to start continuous recording: %s", e)
         _debug(f"start_continuous: rec.start raised {type(e).__name__}: {e}")
         with _continuous_lock:
@@ -239,7 +239,7 @@ def start_continuous(
     if on_status:
         try:
             on_status("listening")
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             pass
 
 
@@ -270,7 +270,7 @@ def stop_continuous() -> None:
             # cancel() (not stop()) discards buffered frames — the loop
             # is over, we don't want to transcribe a half-captured turn.
             rec.cancel()
-        except Exception as e:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
             logger.warning("failed to cancel recorder: %s", e)
 
     # Audible "recording stopped" cue (CLI parity: same 660 Hz × 2 the
@@ -280,7 +280,7 @@ def stop_continuous() -> None:
     if on_status:
         try:
             on_status("idle")
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             pass
 
 
@@ -317,7 +317,7 @@ def _continuous_on_silence() -> None:
     if on_status:
         try:
             on_status("transcribing")
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             pass
 
     wav_path = rec.stop()
@@ -351,14 +351,14 @@ def _continuous_on_silence() -> None:
             )
             if success and text and not is_whisper_hallucination(text):
                 transcript = text
-        except Exception as e:
+        except (AttributeError, KeyError, TypeError) as e:
             logger.warning("continuous transcription failed: %s", e)
             _debug(f"_continuous_on_silence: transcribe raised {type(e).__name__}: {e}")
         finally:
             try:
                 if os.path.isfile(wav_path):
                     os.unlink(wav_path)
-            except Exception:
+            except (OSError, PermissionError):
                 pass
 
     with _continuous_lock:
@@ -376,7 +376,7 @@ def _continuous_on_silence() -> None:
     if transcript and on_transcript:
         try:
             on_transcript(transcript)
-        except Exception as e:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
             logger.warning("on_transcript callback raised: %s", e)
 
     if should_halt:
@@ -387,16 +387,16 @@ def _continuous_on_silence() -> None:
         if on_silent_limit:
             try:
                 on_silent_limit()
-            except Exception:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                 pass
         try:
             rec.cancel()
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             pass
         if on_status:
             try:
                 on_status("idle")
-            except Exception:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                 pass
         return
 
@@ -422,7 +422,7 @@ def _continuous_on_silence() -> None:
     _play_beep(frequency=880, count=1)
     try:
         rec.start(on_silence_stop=_continuous_on_silence)
-    except Exception as e:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
         logger.error("failed to restart continuous recording: %s", e)
         _debug(f"_continuous_on_silence: restart raised {type(e).__name__}: {e}")
         with _continuous_lock:
@@ -432,7 +432,7 @@ def _continuous_on_silence() -> None:
     if on_status:
         try:
             on_status("listening")
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             pass
 
 
@@ -474,7 +474,7 @@ def speak_text(text: str) -> None:
             try:
                 _continuous_recorder.cancel()
                 paused_recording = True
-            except Exception as e:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
                 logger.warning("failed to pause recorder for TTS: %s", e)
 
     _tts_playing.clear()
@@ -523,7 +523,7 @@ def speak_text(text: str) -> None:
                 pass
         else:
             _debug(f"speak_text: TTS tool produced no audio at {mp3_path}")
-    except Exception as e:
+    except (OSError, PermissionError) as e:
         logger.warning("Voice TTS playback failed: %s", e)
         _debug(f"speak_text raised {type(e).__name__}: {e}")
     finally:
@@ -542,7 +542,7 @@ def speak_text(text: str) -> None:
                             on_silence_stop=_continuous_on_silence
                         )
                         _debug("speak_text: recording resumed after TTS")
-                    except Exception as e:
+                    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
                         logger.warning(
                             "failed to resume recorder after TTS: %s", e
                         )

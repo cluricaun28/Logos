@@ -24,6 +24,7 @@ Lifecycle:
   6. on_session_end() called at real session boundaries (CLI exit, /reset,
      gateway session expiry) — NOT per-turn
 """
+from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Set, Optional
@@ -236,7 +237,7 @@ class SemanticVectorEngine(ContextEngine):
             try:
                 # Load directly from the sovereign local path; no network checks allowed
                 self.model = SentenceTransformer(self.model_path, device=self.device, local_files_only=True)
-            except Exception as e:
+            except (ImportError, ModuleNotFoundError) as e:
                 import logging
                 logging.getLogger(__name__).warning(
                     "SemanticVectorEngine embedder not found at %s (%s). Falling back to recency-only pruning.",
@@ -305,7 +306,7 @@ class SemanticVectorEngine(ContextEngine):
                 for idx, msg in enumerate(messages):
                     if msg.get("id") in pinned_pms:
                         pinned_indices.add(idx)
-        except Exception as e:
+        except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError) as e:
             logger.debug(f"SignalRegistry unavailable during archive: {e}")
 
         # 5. Filter Messages based on Vector Relevance and Recency

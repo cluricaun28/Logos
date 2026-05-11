@@ -353,7 +353,7 @@ def _main() -> int:
     try:
         from hermes_cli.env_loader import load_hermes_dotenv
         load_hermes_dotenv()
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         pass
 
     usage = (

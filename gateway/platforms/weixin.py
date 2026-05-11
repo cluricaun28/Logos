@@ -245,7 +245,7 @@ def load_weixin_account(hermes_home: str, account_id: str) -> Optional[Dict[str,
         return None
     try:
         return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
+    except (json.JSONDecodeError, OSError, PermissionError, ValueError):
         return None
 
 
@@ -268,7 +268,7 @@ class ContextTokenStore:
             return
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
-        except Exception as exc:
+        except (json.JSONDecodeError, OSError, PermissionError, ValueError) as exc:
             logger.warning("weixin: failed to restore context tokens for %s: %s", _safe_id(account_id), exc)
             return
         restored = 0
@@ -295,7 +295,7 @@ class ContextTokenStore:
         }
         try:
             atomic_json_write(self._path(account_id), payload)
-        except Exception as exc:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
             logger.warning("weixin: failed to persist context tokens for %s: %s", _safe_id(account_id), exc)
 
 
@@ -579,7 +579,7 @@ def _assert_weixin_cdn_url(url: str) -> None:
         parsed = urlparse(url)
         scheme = parsed.scheme.lower()
         host = parsed.hostname or ""
-    except Exception as exc:  # noqa: BLE001
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:  # noqa: BLE001:
         raise ValueError(f"Unparseable media URL: {url!r}") from exc
 
     if scheme not in ("http", "https"):
@@ -966,7 +966,7 @@ def _load_sync_buf(hermes_home: str, account_id: str) -> str:
         return ""
     try:
         return json.loads(path.read_text(encoding="utf-8")).get("get_updates_buf", "")
-    except Exception:
+    except (AttributeError, json.JSONDecodeError, KeyError, OSError, PermissionError, TypeError, ValueError):
         return ""
 
 
@@ -997,7 +997,7 @@ async def qr_login(
                 endpoint=f"{EP_GET_BOT_QR}?bot_type={bot_type}",
                 timeout_ms=QR_TIMEOUT_MS,
             )
-        except Exception as exc:
+        except (RuntimeError) as exc:
             logger.error("weixin: failed to fetch QR code: %s", exc)
             return None
 
@@ -1021,7 +1021,7 @@ async def qr_login(
             qr.add_data(qr_scan_data)
             qr.make(fit=True)
             qr.print_ascii(invert=True)
-        except Exception as _qr_exc:
+        except (ImportError, ModuleNotFoundError) as _qr_exc:
             print(f"（终端二维码渲染失败: {_qr_exc}，请直接打开上面的二维码链接）")
 
         deadline = time.time() + timeout_seconds
@@ -1039,7 +1039,7 @@ async def qr_login(
             except asyncio.TimeoutError:
                 await asyncio.sleep(1)
                 continue
-            except Exception as exc:
+            except (RuntimeError) as exc:
                 logger.warning("weixin: QR poll error: %s", exc)
                 await asyncio.sleep(1)
                 continue
@@ -1077,9 +1077,9 @@ async def qr_login(
                         qr.add_data(qr_scan_data)
                         qr.make(fit=True)
                         qr.print_ascii(invert=True)
-                    except Exception:
+                    except (ImportError, ModuleNotFoundError):
                         pass
-                except Exception as exc:
+                except (ImportError, ModuleNotFoundError) as exc:
                     logger.error("weixin: QR refresh failed: %s", exc)
                     return None
             elif status == "confirmed":
@@ -1199,7 +1199,7 @@ class WeixinAdapter(BasePlatformAdapter):
         try:
             if not self._acquire_platform_lock('weixin-bot-token', self._token, 'Weixin bot token'):
                 return False
-        except Exception as exc:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
             logger.debug("[%s] Token lock unavailable (non-fatal): %s", self.name, exc)
 
         self._poll_session = aiohttp.ClientSession(trust_env=True, connector=_make_ssl_connector())
@@ -1293,7 +1293,7 @@ class WeixinAdapter(BasePlatformAdapter):
     async def _process_message_safe(self, message: Dict[str, Any]) -> None:
         try:
             await self._process_message(message)
-        except Exception as exc:
+        except (RuntimeError) as exc:
             logger.error("[%s] unhandled inbound error from=%s: %s", self.name, _safe_id(message.get("from_user_id")), exc, exc_info=True)
 
     async def _process_message(self, message: Dict[str, Any]) -> None:
@@ -1400,7 +1400,7 @@ class WeixinAdapter(BasePlatformAdapter):
                 timeout_seconds=30.0,
             )
             return cache_image_from_bytes(data, ".jpg")
-        except Exception as exc:
+        except (AttributeError, KeyError, RuntimeError, TypeError) as exc:
             logger.warning("[%s] image download failed: %s", self.name, exc)
             return None
 
@@ -1416,7 +1416,7 @@ class WeixinAdapter(BasePlatformAdapter):
                 timeout_seconds=120.0,
             )
             return cache_document_from_bytes(data, "video.mp4")
-        except Exception as exc:
+        except (AttributeError, KeyError, RuntimeError, TypeError) as exc:
             logger.warning("[%s] video download failed: %s", self.name, exc)
             return None
 
@@ -1435,7 +1435,7 @@ class WeixinAdapter(BasePlatformAdapter):
                 timeout_seconds=60.0,
             )
             return cache_document_from_bytes(data, filename), mime
-        except Exception as exc:
+        except (AttributeError, KeyError, RuntimeError, TypeError) as exc:
             logger.warning("[%s] file download failed: %s", self.name, exc)
             return None, mime
 
@@ -1454,7 +1454,7 @@ class WeixinAdapter(BasePlatformAdapter):
                 timeout_seconds=60.0,
             )
             return cache_audio_from_bytes(data, ".silk")
-        except Exception as exc:
+        except (AttributeError, KeyError, RuntimeError, TypeError) as exc:
             logger.warning("[%s] voice download failed: %s", self.name, exc)
             return None
 
@@ -1474,7 +1474,7 @@ class WeixinAdapter(BasePlatformAdapter):
             typing_ticket = str(response.get("typing_ticket") or "")
             if typing_ticket:
                 self._typing_cache.set(user_id, typing_ticket)
-        except Exception as exc:
+        except (AttributeError, KeyError, RuntimeError, TypeError) as exc:
             logger.debug("[%s] getConfig failed for %s: %s", self.name, _safe_id(user_id), exc)
 
     def _split_text(self, content: str) -> List[str]:
@@ -1592,14 +1592,14 @@ class WeixinAdapter(BasePlatformAdapter):
             for media_path, is_voice in media_files:
                 try:
                     await _deliver_media(media_path, is_voice)
-                except Exception as exc:
+                except (RuntimeError) as exc:
                     logger.warning("[%s] media delivery failed for %s: %s", self.name, media_path, exc)
 
             # Deliver bare local file paths.
             for file_path in local_files:
                 try:
                     await _deliver_media(file_path, is_voice=False)
-                except Exception as exc:
+                except (RuntimeError) as exc:
                     logger.warning("[%s] local file delivery failed for %s: %s", self.name, file_path, exc)
 
             # Deliver text content.
@@ -1616,7 +1616,7 @@ class WeixinAdapter(BasePlatformAdapter):
                 if idx < len(chunks) - 1 and self._send_chunk_delay_seconds > 0:
                     await asyncio.sleep(self._send_chunk_delay_seconds)
             return SendResult(success=True, message_id=last_message_id)
-        except Exception as exc:
+        except (RuntimeError) as exc:
             logger.error("[%s] send failed to=%s: %s", self.name, _safe_id(chat_id), exc)
             return SendResult(success=False, error=str(exc))
 
@@ -1635,7 +1635,7 @@ class WeixinAdapter(BasePlatformAdapter):
                 typing_ticket=typing_ticket,
                 status=TYPING_START,
             )
-        except Exception as exc:
+        except (RuntimeError) as exc:
             logger.debug("[%s] typing start failed for %s: %s", self.name, _safe_id(chat_id), exc)
 
     async def stop_typing(self, chat_id: str) -> None:
@@ -1653,7 +1653,7 @@ class WeixinAdapter(BasePlatformAdapter):
                 typing_ticket=typing_ticket,
                 status=TYPING_STOP,
             )
-        except Exception as exc:
+        except (RuntimeError) as exc:
             logger.debug("[%s] typing stop failed for %s: %s", self.name, _safe_id(chat_id), exc)
 
     async def send_image(
@@ -1714,7 +1714,7 @@ class WeixinAdapter(BasePlatformAdapter):
         try:
             message_id = await self._send_file(chat_id, file_path, caption or "")
             return SendResult(success=True, message_id=message_id)
-        except Exception as exc:
+        except (RuntimeError) as exc:
             logger.error("[%s] send_document failed to=%s: %s", self.name, _safe_id(chat_id), exc)
             return SendResult(success=False, error=str(exc))
 
@@ -1731,7 +1731,7 @@ class WeixinAdapter(BasePlatformAdapter):
         try:
             message_id = await self._send_file(chat_id, video_path, caption or "")
             return SendResult(success=True, message_id=message_id)
-        except Exception as exc:
+        except (RuntimeError) as exc:
             logger.error("[%s] send_video failed to=%s: %s", self.name, _safe_id(chat_id), exc)
             return SendResult(success=False, error=str(exc))
 
@@ -1758,7 +1758,7 @@ class WeixinAdapter(BasePlatformAdapter):
                 force_file_attachment=True,
             )
             return SendResult(success=True, message_id=message_id)
-        except Exception as exc:
+        except (RuntimeError) as exc:
             logger.error("[%s] send_voice failed to=%s: %s", self.name, _safe_id(chat_id), exc)
             return SendResult(success=False, error=str(exc))
 

@@ -227,7 +227,7 @@ async def _expand_reference(
             if not content:
                 return f"{ref.raw}: no content extracted", None
             return None, f"🌐 {ref.raw} ({estimate_tokens_rough(content)} tokens)\n{content}"
-    except Exception as exc:
+    except (RuntimeError) as exc:
         return f"{ref.raw}: {exc}", None
 
     return f"{ref.raw}: unsupported reference type", None
@@ -496,7 +496,7 @@ def _file_metadata(path: Path) -> str:
         return f"{path.stat().st_size} bytes"
     try:
         line_count = path.read_text(encoding="utf-8").count("\n") + 1
-    except Exception:
+    except (OSError, PermissionError):
         return f"{path.stat().st_size} bytes"
     return f"{line_count} lines"
 

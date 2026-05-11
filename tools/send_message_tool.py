@@ -4,6 +4,7 @@ Sends a message to a user or channel on any connected messaging platform
 (Telegram, Discord, Slack). Supports listing available targets and resolving
 human-friendly channel names to IDs. Works in both CLI and gateway contexts.
 """
+from __future__ import annotations
 
 import asyncio
 import json
@@ -98,7 +99,7 @@ async def _send_telegram_message_with_retry(bot, *, attempts: int = 3, **kwargs)
     for attempt in range(attempts):
         try:
             return await bot.send_message(**kwargs)
-        except Exception as exc:
+        except (RuntimeError) as exc:
             delay = _telegram_retry_delay(exc, attempt)
             if delay is None or attempt >= attempts - 1:
                 raise
@@ -159,7 +160,7 @@ def _handle_list():
     try:
         from gateway.channel_directory import format_directory_for_display
         return json.dumps({"targets": format_directory_for_display()})
-    except Exception as e:
+    except (ImportError, json.JSONDecodeError, ModuleNotFoundError, ValueError) as e:
         return json.dumps(_error(f"Failed to load channel directory: {e}"))
 
 
@@ -193,7 +194,7 @@ def _handle_send(args):
                     "error": f"Could not resolve '{target_ref}' on {platform_name}. "
                     f"Use send_message(action='list') to see available targets."
                 })
-        except Exception:
+        except (ImportError, json.JSONDecodeError, ModuleNotFoundError, ValueError):
             return json.dumps({
                 "error": f"Could not resolve '{target_ref}' on {platform_name}. "
                 f"Try using a numeric channel ID instead."
@@ -206,7 +207,7 @@ def _handle_send(args):
     try:
         from gateway.config import load_gateway_config, Platform
         config = load_gateway_config()
-    except Exception as e:
+    except (ImportError, ModuleNotFoundError) as e:
         return json.dumps(_error(f"Failed to load gateway config: {e}"))
 
     platform_map = {
@@ -315,13 +316,13 @@ def _handle_send(args):
                     user_id=user_id,
                 ):
                     result["mirrored"] = True
-            except Exception:
+            except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
                 pass
 
         if isinstance(result, dict) and "error" in result:
             result["error"] = _sanitize_error_text(result["error"])
         return json.dumps(result)
-    except Exception as e:
+    except (AttributeError, ImportError, json.JSONDecodeError, KeyError, ModuleNotFoundError, TypeError, ValueError) as e:
         return json.dumps(_error(f"Send failed: {e}"))
 
 
@@ -465,7 +466,7 @@ async def _send_to_platform(platform, pconfig, chat_id, message, thread_id=None,
         try:
             slack_adapter = SlackAdapter.__new__(SlackAdapter)
             message = slack_adapter.format_message(message)
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             logger.debug("Failed to apply Slack mrkdwn formatting in _send_to_platform", exc_info=True)
 
     # Platform message length limits (from adapter class attributes)
@@ -642,7 +643,7 @@ async def _send_telegram(token, chat_id, message, media_files=None, thread_id=No
                 from gateway.platforms.telegram import TelegramAdapter
                 _adapter = TelegramAdapter.__new__(TelegramAdapter)
                 formatted = _adapter.format_message(message)
-            except Exception:
+            except (ImportError, ModuleNotFoundError):
                 # Fallback: send as-is if formatting unavailable
                 formatted = message
             send_parse_mode = ParseMode.MARKDOWN_V2
@@ -666,7 +667,7 @@ async def _send_telegram(token, chat_id, message, media_files=None, thread_id=No
                     chat_id=int_chat_id, text=formatted,
                     parse_mode=send_parse_mode, **thread_kwargs
                 )
-            except Exception as md_error:
+            except (RuntimeError) as md_error:
                 # Parse failed, fall back to plain text
                 if "parse" in str(md_error).lower() or "markdown" in str(md_error).lower() or "html" in str(md_error).lower():
                     logger.warning(
@@ -678,7 +679,7 @@ async def _send_telegram(token, chat_id, message, media_files=None, thread_id=No
                         try:
                             from gateway.platforms.telegram import _strip_mdv2
                             plain = _strip_mdv2(formatted)
-                        except Exception:
+                        except (ImportError, ModuleNotFoundError):
                             plain = message
                     else:
                         plain = message
@@ -720,7 +721,7 @@ async def _send_telegram(token, chat_id, message, media_files=None, thread_id=No
                         last_msg = await bot.send_document(
                             chat_id=int_chat_id, document=f, **thread_kwargs
                         )
-            except Exception as e:
+            except (OSError, PermissionError, RuntimeError) as e:
                 warning = _sanitize_error_text(f"Failed to send media {media_path}: {e}")
                 logger.error(warning)
                 warnings.append(warning)
@@ -815,7 +816,7 @@ async def _send_discord(token, chat_id, message, thread_id=None, media_files=Non
             try:
                 from gateway.channel_directory import lookup_channel_type
                 _channel_type = lookup_channel_type("discord", chat_id)
-            except Exception:
+            except (ImportError, ModuleNotFoundError):
                 pass
 
             if _channel_type == "forum":
@@ -836,7 +837,7 @@ async def _send_discord(token, chat_id, message, thread_id=None, media_files=Non
                                     info = await info_resp.json()
                                     is_forum = info.get("type") == 15
                                     _remember_channel_is_forum(chat_id, is_forum)
-                    except Exception:
+                    except (AttributeError, KeyError, RuntimeError, TypeError):
                         logger.debug("Failed to probe channel type for %s", chat_id, exc_info=True)
 
             if is_forum:
@@ -885,7 +886,7 @@ async def _send_discord(token, chat_id, message, thread_id=None, media_files=Non
                                     body = await resp.text()
                                     return _error(f"Discord forum thread creation error ({resp.status}): {body}")
                                 data = await resp.json()
-                        except Exception as e:
+                        except (OSError, PermissionError, RuntimeError) as e:
                             return _error(_sanitize_error_text(f"Discord forum thread upload failed: {e}"))
                     else:
                         # No media — simple JSON POST creates the thread with
@@ -948,7 +949,7 @@ async def _send_discord(token, chat_id, message, thread_id=None, media_files=Non
                                 warnings.append(warning)
                                 continue
                             last_data = await resp.json()
-                except Exception as e:
+                except (OSError, PermissionError, RuntimeError) as e:
                     warning = _sanitize_error_text(f"Failed to send media {media_path}: {e}")
                     logger.error(warning)
                     warnings.append(warning)
@@ -963,7 +964,7 @@ async def _send_discord(token, chat_id, message, thread_id=None, media_files=Non
         if warnings:
             result["warnings"] = warnings
         return result
-    except Exception as e:
+    except (AttributeError, KeyError, OSError, PermissionError, RuntimeError, TypeError) as e:
         return _error(f"Discord send failed: {e}")
 
 
@@ -986,7 +987,7 @@ async def _send_slack(token, chat_id, message):
                 if data.get("ok"):
                     return {"success": True, "platform": "slack", "chat_id": chat_id, "message_id": data.get("ts")}
                 return _error(f"Slack API error: {data.get('error', 'unknown')}")
-    except Exception as e:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, RuntimeError, TypeError) as e:
         return _error(f"Slack send failed: {e}")
 
 
@@ -1014,7 +1015,7 @@ async def _send_whatsapp(extra, chat_id, message):
                     }
                 body = await resp.text()
                 return _error(f"WhatsApp bridge error ({resp.status}): {body}")
-    except Exception as e:
+    except (AttributeError, KeyError, RuntimeError, TypeError) as e:
         return _error(f"WhatsApp send failed: {e}")
 
 
@@ -1105,7 +1106,7 @@ async def _send_email(extra, chat_id, message):
         server.send_message(msg)
         server.quit()
         return {"success": True, "platform": "email", "chat_id": chat_id}
-    except Exception as e:
+    except (AttributeError, KeyError, TypeError) as e:
         return _error(f"Email send failed: {e}")
 
 
@@ -1161,7 +1162,7 @@ async def _send_sms(auth_token, chat_id, message):
                     return _error(f"Twilio API error ({resp.status}): {error_msg}")
                 msg_sid = body.get("sid", "")
                 return {"success": True, "platform": "sms", "chat_id": chat_id, "message_id": msg_sid}
-    except Exception as e:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, RuntimeError, TypeError) as e:
         return _error(f"SMS send failed: {e}")
 
 
@@ -1185,7 +1186,7 @@ async def _send_mattermost(token, extra, chat_id, message):
                     return _error(f"Mattermost API error ({resp.status}): {body}")
                 data = await resp.json()
         return {"success": True, "platform": "mattermost", "chat_id": chat_id, "message_id": data.get("id")}
-    except Exception as e:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
         return _error(f"Mattermost send failed: {e}")
 
 
@@ -1229,7 +1230,7 @@ async def _send_matrix(token, extra, chat_id, message):
                     return _error(f"Matrix API error ({resp.status}): {body}")
                 data = await resp.json()
         return {"success": True, "platform": "matrix", "chat_id": chat_id, "message_id": data.get("event_id")}
-    except Exception as e:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, RuntimeError, TypeError) as e:
         return _error(f"Matrix send failed: {e}")
 
 
@@ -1289,7 +1290,7 @@ async def _send_matrix_via_adapter(pconfig, chat_id, message, media_files=None, 
     finally:
         try:
             await adapter.disconnect()
-        except Exception:
+        except (RuntimeError):
             pass
 
 
@@ -1312,7 +1313,7 @@ async def _send_homeassistant(token, extra, chat_id, message):
                     body = await resp.text()
                     return _error(f"Home Assistant API error ({resp.status}): {body}")
         return {"success": True, "platform": "homeassistant", "chat_id": chat_id}
-    except Exception as e:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
         return _error(f"Home Assistant send failed: {e}")
 
 
@@ -1343,7 +1344,7 @@ async def _send_dingtalk(extra, chat_id, message):
             if data.get("errcode", 0) != 0:
                 return _error(f"DingTalk API error: {data.get('errmsg', 'unknown')}")
         return {"success": True, "platform": "dingtalk", "chat_id": chat_id}
-    except Exception as e:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
         return _error(f"DingTalk send failed: {e}")
 
 
@@ -1370,7 +1371,7 @@ async def _send_wecom(extra, chat_id, message):
             return {"success": True, "platform": "wecom", "chat_id": chat_id, "message_id": result.message_id}
         finally:
             await adapter.disconnect()
-    except Exception as e:
+    except (RuntimeError) as e:
         return _error(f"WeCom send failed: {e}")
 
 
@@ -1391,7 +1392,7 @@ async def _send_weixin(pconfig, chat_id, message, media_files=None):
             message=message,
             media_files=media_files,
         )
-    except Exception as e:
+    except (RuntimeError) as e:
         return _error(f"Weixin send failed: {e}")
 
 
@@ -1418,7 +1419,7 @@ async def _send_bluebubbles(extra, chat_id, message):
             return {"success": True, "platform": "bluebubbles", "chat_id": chat_id, "message_id": result.message_id}
         finally:
             await adapter.disconnect()
-    except Exception as e:
+    except (RuntimeError) as e:
         return _error(f"BlueBubbles send failed: {e}")
 
 
@@ -1488,7 +1489,7 @@ def _check_send_message():
     try:
         from gateway.status import is_gateway_running
         return is_gateway_running()
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         return False
 
 
@@ -1540,7 +1541,7 @@ async def _send_qqbot(pconfig, chat_id, message):
                         "message_id": data.get("id")}
             else:
                 return _error(f"QQBot send failed: {resp.status_code} {resp.text}")
-    except Exception as e:
+    except (AttributeError, KeyError, RuntimeError, TypeError) as e:
         return _error(f"QQBot send failed: {e}")
 
 
@@ -1569,7 +1570,7 @@ async def _send_yuanbao(chat_id, message, media_files=None):
 
     try:
         return await send_yuanbao_direct(adapter, chat_id, message, media_files=media_files)
-    except Exception as e:
+    except (RuntimeError) as e:
         return _error(f"Yuanbao send failed: {e}")
 
 

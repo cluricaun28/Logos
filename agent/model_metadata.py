@@ -3,6 +3,7 @@
 Pure utility functions with no AIAgent dependency. Used by ContextCompressor
 and run_agent.py for pre-flight context checks.
 """
+from __future__ import annotations
 
 import ipaddress
 import logging
@@ -350,7 +351,7 @@ def is_local_endpoint(base_url: str) -> bool:
     try:
         parsed = urlparse(url)
         host = parsed.hostname or ""
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         return False
     if host in _LOCAL_HOSTS:
         return True
@@ -406,7 +407,7 @@ def detect_local_server_type(base_url: str, api_key: str = "") -> Optional[str]:
                 r = client.get(f"{server_url}/api/v1/models")
                 if r.status_code == 200:
                     return "lm-studio"
-            except Exception:
+            except (AttributeError, KeyError, TypeError):
                 pass
             # Ollama exposes /api/tags and responds with {"models": [...]}
             # LM Studio returns {"error": "Unexpected endpoint"} with status 200
@@ -418,9 +419,9 @@ def detect_local_server_type(base_url: str, api_key: str = "") -> Optional[str]:
                         data = r.json()
                         if "models" in data:
                             return "ollama"
-                    except Exception:
+                    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                         pass
-            except Exception:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                 pass
             # llama.cpp exposes /v1/props (older builds used /props without the /v1 prefix)
             try:
@@ -429,7 +430,7 @@ def detect_local_server_type(base_url: str, api_key: str = "") -> Optional[str]:
                     r = client.get(f"{server_url}/props")  # fallback for older builds
                 if r.status_code == 200 and "default_generation_settings" in r.text:
                     return "llamacpp"
-            except Exception:
+            except (AttributeError, KeyError, TypeError):
                 pass
             # vLLM: /version
             try:
@@ -438,9 +439,9 @@ def detect_local_server_type(base_url: str, api_key: str = "") -> Optional[str]:
                     data = r.json()
                     if "version" in data:
                         return "vllm"
-            except Exception:
+            except (AttributeError, KeyError, TypeError):
                 pass
-    except Exception:
+    except (AttributeError, KeyError, TypeError):
         pass
 
     return None
@@ -551,7 +552,7 @@ def fetch_model_metadata(force_refresh: bool = False) -> Dict[str, Dict[str, Any
         logger.debug("Fetched metadata for %s models from OpenRouter", len(cache))
         return cache
 
-    except Exception as e:
+    except (AttributeError, ConnectionError, ImportError, KeyError, ModuleNotFoundError, OSError, TimeoutError, TypeError) as e:
         logging.warning(f"Failed to fetch model metadata from OpenRouter: {e}")
         return _model_metadata_cache or {}
 
@@ -686,13 +687,13 @@ def fetch_endpoint_model_metadata(
                         model_alias = props.get("model_alias", "")
                         if n_ctx and model_alias and model_alias in cache:
                             cache[model_alias]["context_length"] = n_ctx
-                except Exception:
+                except (AttributeError, ConnectionError, KeyError, OSError, TimeoutError, TypeError):
                     pass
 
             _endpoint_model_metadata_cache[normalized] = cache
             _endpoint_model_metadata_cache_time[normalized] = time.time()
             return cache
-        except Exception as exc:
+        except (AttributeError, ConnectionError, KeyError, OSError, TimeoutError, TypeError) as exc:
             last_error = exc
 
     if last_error:
@@ -714,10 +715,9 @@ def _load_context_cache() -> Dict[str, int]:
     if not path.exists():
         return {}
     try:
-        with open(path) as f:
-            data = yaml.safe_load(f) or {}
+        with open(path, encoding='utf-8') as f:            data = yaml.safe_load(f) or {}
         return data.get("context_lengths", {})
-    except Exception as e:
+    except (AttributeError, KeyError, OSError, PermissionError, TypeError, yaml.YAMLError) as e:
         logger.debug("Failed to load context length cache: %s", e)
         return {}
 
@@ -736,10 +736,9 @@ def save_context_length(model: str, base_url: str, length: int) -> None:
     path = _get_context_cache_path()
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w") as f:
-            yaml.dump({"context_lengths": cache}, f, default_flow_style=False)
+        with open(path, "w", encoding='utf-8') as f:            yaml.dump({"context_lengths": cache}, f, default_flow_style=False)
         logger.info("Cached context length %s -> %s tokens", key, f"{length:,}")
-    except Exception as e:
+    except (OSError, PermissionError, yaml.YAMLError) as e:
         logger.debug("Failed to save context length cache: %s", e)
 
 
@@ -760,9 +759,8 @@ def _invalidate_cached_context_length(model: str, base_url: str) -> None:
     path = _get_context_cache_path()
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w") as f:
-            yaml.dump({"context_lengths": cache}, f, default_flow_style=False)
-    except Exception as e:
+        with open(path, "w", encoding='utf-8') as f:            yaml.dump({"context_lengths": cache}, f, default_flow_style=False)
+    except (OSError, PermissionError, yaml.YAMLError) as e:
         logger.debug("Failed to invalidate context length cache entry %s: %s", key, e)
 
 
@@ -883,7 +881,7 @@ def query_ollama_num_ctx(model: str, base_url: str, api_key: str = "") -> Option
 
     try:
         server_type = detect_local_server_type(base_url, api_key=api_key)
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         return None
     if server_type != "ollama":
         return None
@@ -914,7 +912,7 @@ def query_ollama_num_ctx(model: str, base_url: str, api_key: str = "") -> Option
             for key, value in model_info.items():
                 if "context_length" in key and isinstance(value, (int, float)):
                     return int(value)
-    except Exception:
+    except (AttributeError, KeyError, TypeError):
         pass
     return None
 
@@ -936,7 +934,7 @@ def _query_local_context_length(model: str, base_url: str, api_key: str = "") ->
 
     try:
         server_type = detect_local_server_type(base_url, api_key=api_key)
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         server_type = None
 
     try:
@@ -1052,7 +1050,7 @@ def _query_anthropic_context_length(model: str, base_url: str, api_key: str) -> 
                 ctx = m.get("max_input_tokens")
                 if isinstance(ctx, int) and ctx > 0:
                     return ctx
-    except Exception as e:
+    except (AttributeError, ConnectionError, KeyError, OSError, TimeoutError, TypeError) as e:
         logger.debug("Anthropic /v1/models query failed: %s", e)
     return None
 
@@ -1114,7 +1112,7 @@ def _fetch_codex_oauth_context_lengths(access_token: str) -> Dict[str, int]:
             )
             return {}
         data = resp.json()
-    except Exception as exc:
+    except (AttributeError, ConnectionError, KeyError, OSError, TimeoutError, TypeError) as exc:
         logger.debug("Codex /models probe failed: %s", exc)
         return {}
 
@@ -1241,7 +1239,7 @@ def get_model_context_length(
             )
             if cp_ctx:
                 return cp_ctx
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             pass  # fall through to probing
 
     # Normalise provider-prefixed model names (e.g. "local:model-name" →
@@ -1362,7 +1360,7 @@ def get_model_context_length(
             ctx = get_copilot_model_context(model, api_key=api_key)
             if ctx:
                 return ctx
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             pass  # Fall through to models.dev
 
     if effective_provider == "nous":

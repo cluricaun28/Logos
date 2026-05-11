@@ -1,4 +1,5 @@
 """Default SOUL.md template seeded into HERMES_HOME on first run."""
+from __future__ import annotations
 
 DEFAULT_SOUL_MD = (
     "You are Hermes Agent, an intelligent AI assistant created by Nous Research. "

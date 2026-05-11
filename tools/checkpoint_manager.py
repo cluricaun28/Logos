@@ -17,6 +17,7 @@ Architecture:
 The shadow repo uses GIT_DIR + GIT_WORK_TREE so no git state leaks
 into the user's project directory.
 """
+from __future__ import annotations
 
 import hashlib
 import logging
@@ -338,7 +339,7 @@ class CheckpointManager:
 
         try:
             return self._take(abs_dir, reason)
-        except Exception as e:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
             logger.debug("Checkpoint failed (non-fatal): %s", e)
             return False
 
@@ -846,7 +847,7 @@ def maybe_auto_prune_checkpoints(
                 result["deleted_stale"],
                 result["bytes_freed"] / (1024 * 1024),
             )
-    except Exception as exc:
+    except (AttributeError, KeyError, OSError, PermissionError, TypeError) as exc:
         logger.warning("checkpoint auto-maintenance failed: %s", exc)
         out["error"] = str(exc)
 

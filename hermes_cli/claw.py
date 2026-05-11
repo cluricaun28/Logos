@@ -8,6 +8,7 @@ Usage:
     hermes claw cleanup              # Archive leftover OpenClaw directories
     hermes claw cleanup --dry-run    # Preview what would be archived
 """
+from __future__ import annotations
 
 import importlib.util
 import logging
@@ -97,7 +98,7 @@ def _detect_openclaw_processes() -> list[str]:
             )
             if result.stdout.strip():
                 found.append(f"node.exe process with openclaw in command line (PID {result.stdout.strip()})")
-        except Exception:
+        except (FileNotFoundError, subprocess.CalledProcessError):
             pass
     else:
         try:
@@ -210,7 +211,7 @@ def _load_migration_module(script_path: Path):
     sys.modules[spec.name] = mod
     try:
         spec.loader.exec_module(mod)
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         sys.modules.pop(spec.name, None)
         raise
     return mod
@@ -399,7 +400,7 @@ def _cmd_migrate(args):
         if mod is None:
             print_error("Could not load migration script.")
             return
-    except Exception as e:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
         print()
         print_error(f"Could not load migration script: {e}")
         logger.debug("OpenClaw migration error", exc_info=True)
@@ -423,7 +424,7 @@ def _cmd_migrate(args):
             skill_conflict_mode=skill_conflict,
         )
         preview_report = preview.migrate()
-    except Exception as e:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
         print()
         print_error(f"Migration preview failed: {e}")
         logger.debug("OpenClaw migration preview error", exc_info=True)
@@ -472,7 +473,7 @@ def _cmd_migrate(args):
             skill_conflict_mode=skill_conflict,
         )
         report = migrator.migrate()
-    except Exception as e:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
         print()
         print_error(f"Migration failed: {e}")
         logger.debug("OpenClaw migration error", exc_info=True)

@@ -381,7 +381,7 @@ def get_provider(name: str) -> Optional[ProviderDef]:
     try:
         from agent.models_dev import get_provider_info as _mdev_provider
         mdev_info = _mdev_provider(canonical)
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         mdev_info = None
 
     overlay = HERMES_OVERLAYS.get(canonical)
@@ -670,7 +670,7 @@ def resolve_provider_full(
                 base_url=mdev_info.api,
                 source="models.dev",
             )
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         pass
 
     return None

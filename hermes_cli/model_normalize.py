@@ -218,7 +218,7 @@ def _normalize_provider_alias(provider_name: str) -> str:
         from hermes_cli.models import normalize_provider
 
         return normalize_provider(raw)
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         return raw
 
 
@@ -421,7 +421,7 @@ def normalize_model_for_provider(model_input: str, target_provider: str) -> str:
             normalized = normalize_copilot_model_id(name)
             if normalized:
                 return normalized
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             # Fall through to the generic strip-vendor behaviour below
             # if the Copilot-specific path is unavailable for any reason.
             pass

@@ -1,4 +1,5 @@
 """Browserbase cloud browser provider (direct credentials only)."""
+from __future__ import annotations
 
 import logging
 import os

@@ -22,6 +22,7 @@ Limitations (documented, not fixable at pre-flight level):
     media cache helpers. Web tools use third-party SDKs (Firecrawl/Tavily)
     where redirect handling is on their servers.
 """
+from __future__ import annotations
 
 import ipaddress
 import logging

@@ -10,6 +10,7 @@ Design principles:
   - Explicit tagging by ideological cluster, not just "bias"
   - Triangulation requirement: no external claim promoted without cross-referencing
 """
+from __future__ import annotations
 
 import json
 import logging
@@ -39,8 +40,7 @@ class SovereignSieve:
             return
 
         try:
-            with open(self.dossiers_path, "r") as f:
-                self._dossiers = json.load(f)
+            with open(self.dossiers_path, "r", encoding='utf-8') as f:                self._dossiers = json.load(f)
             logger.info(f"Loaded {len(self._dossiers)} source dossiers")
         except (json.JSONDecodeError, IOError) as e:
             logger.warning(f"Failed to load source dossiers: {e}")
@@ -92,7 +92,7 @@ class SovereignSieve:
             )
             analysis_text = response.choices[0].message.content.strip()
 
-        except Exception as e:
+        except (ImportError, ModuleNotFoundError) as e:
             logger.warning(f"SovereignSieve LLM call failed (using dossier fallback): {e}")
             return self._dossier_fallback(domain, dossier)
 

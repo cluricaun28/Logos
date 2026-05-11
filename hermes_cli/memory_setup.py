@@ -69,9 +69,8 @@ def _install_dependencies(provider_name: str) -> None:
 
     try:
         import yaml
-        with open(yaml_path) as f:
-            meta = yaml.safe_load(f) or {}
-    except Exception:
+        with open(yaml_path, encoding='utf-8') as f:            meta = yaml.safe_load(f) or {}
+    except (ImportError, ModuleNotFoundError, OSError, PermissionError, yaml.YAMLError):
         return
 
     pip_deps = meta.get("pip_dependencies", [])
@@ -121,7 +120,7 @@ def _install_dependencies(provider_name: str) -> None:
         if stderr:
             print(f"    {stderr}")
         print(f"  Run manually: uv pip install --python {sys.executable} {' '.join(missing)}")
-    except Exception as e:
+    except (FileNotFoundError, subprocess.CalledProcessError) as e:
         print(f"  ⚠ Install failed: {e}")
         print(f"  Run manually: uv pip install --python {sys.executable} {' '.join(missing)}")
 
@@ -136,7 +135,7 @@ def _install_dependencies(provider_name: str) -> None:
                 subprocess.run(
                     check_cmd, shell=True, capture_output=True, timeout=5
                 )
-            except Exception:
+            except (FileNotFoundError, subprocess.CalledProcessError):
                 if install_cmd:
                     print(f"\n  ⚠ '{dep_name}' not found. Install with:")
                     print(f"    {install_cmd}")
@@ -150,7 +149,7 @@ def _get_available_providers() -> list:
     try:
         from plugins.memory import discover_memory_providers, load_memory_provider
         raw = discover_memory_providers()
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         raw = []
 
     results = []
@@ -159,7 +158,7 @@ def _get_available_providers() -> list:
             provider = load_memory_provider(name)
             if not provider:
                 continue
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             continue
 
         schema = provider.get_config_schema() if hasattr(provider, "get_config_schema") else []
@@ -339,7 +338,7 @@ def cmd_setup(args) -> None:
     if provider_config and hasattr(provider, "save_config"):
         try:
             provider.save_config(provider_config, hermes_home)
-        except Exception as e:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
             print(f"  Failed to write provider config: {e}")
 
     # Write secrets to .env

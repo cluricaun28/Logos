@@ -16,6 +16,7 @@ Improvements over v2:
   - Scaled summary budget (proportional to compressed content)
   - Richer tool call/result detail in summarizer input
 """
+from __future__ import annotations
 
 import hashlib
 import json

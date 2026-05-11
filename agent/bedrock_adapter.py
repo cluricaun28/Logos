@@ -26,6 +26,7 @@ the same Converse API integration in TypeScript via ``@aws-sdk/client-bedrock``.
 
 Requires: ``boto3`` (optional dependency — only needed when using the Bedrock provider).
 """
+from __future__ import annotations
 
 import json
 import logging
@@ -252,7 +253,7 @@ def resolve_aws_auth_env_var(env: Optional[Dict[str, str]] = None) -> Optional[s
             resolved = credentials.get_frozen_credentials()
             if resolved and resolved.access_key:
                 return "iam-role"
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         pass
     return None
 
@@ -283,7 +284,7 @@ def has_aws_credentials(env: Optional[Dict[str, str]] = None) -> bool:
             resolved = credentials.get_frozen_credentials()
             if resolved and resolved.access_key:
                 return True
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         pass
     return False
 
@@ -314,7 +315,7 @@ def resolve_bedrock_region(env: Optional[Dict[str, str]] = None) -> str:
         region = botocore.session.get_session().get_config_variable("region")
         if region:
             return region
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         pass
     return "us-east-1"
 
@@ -334,7 +335,7 @@ def bedrock_model_ids_or_none() -> Optional[List[str]]:
         discovered = discover_bedrock_models(resolve_bedrock_region())
         if discovered:
             return [m["id"] for m in discovered]
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         pass
     return None
 
@@ -935,7 +936,7 @@ def call_converse(
 
     try:
         response = client.converse(**kwargs)
-    except Exception as exc:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
         if is_stale_connection_error(exc):
             logger.warning(
                 "bedrock: stale-connection error on converse(region=%s, model=%s): "
@@ -977,7 +978,7 @@ def call_converse_stream(
 
     try:
         response = client.converse_stream(**kwargs)
-    except Exception as exc:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
         if is_stale_connection_error(exc):
             logger.warning(
                 "bedrock: stale-connection error on converse_stream(region=%s, "
@@ -1030,7 +1031,7 @@ def discover_bedrock_models(
 
     try:
         client = _get_bedrock_control_client(region)
-    except Exception as e:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
         logger.warning("Failed to create Bedrock client for model discovery: %s", e)
         return []
 

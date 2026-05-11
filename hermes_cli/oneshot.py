@@ -81,7 +81,7 @@ def run_oneshot(
     finally:
         try:
             devnull.close()
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             pass
 
     if response:

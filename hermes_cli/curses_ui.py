@@ -4,6 +4,7 @@ Used by `hermes tools` and `hermes skills` for interactive checklists.
 Provides a curses multi-select with keyboard navigation, plus a
 text-based numbered fallback for terminals without curses support.
 """
+from __future__ import annotations
 import sys
 from typing import Callable, List, Optional, Set
 
@@ -28,7 +29,7 @@ def flush_stdin() -> None:
             return
         import termios
         termios.tcflush(sys.stdin, termios.TCIFLUSH)
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         pass
 
 
@@ -278,7 +279,7 @@ def curses_radiolist(
         flush_stdin()
         return result_holder[0] if result_holder[0] is not None else cancel_returns
 
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         return _radio_numbered_fallback(title, items, selected, cancel_returns)
 
 
@@ -401,7 +402,7 @@ def curses_single_select(
             return None
         return result_holder[0]
 
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         all_items = list(items) + [cancel_label]
         cancel_idx = len(items)
         return _numbered_single_fallback(title, all_items, cancel_idx)

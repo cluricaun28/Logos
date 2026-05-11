@@ -21,6 +21,7 @@ Defense against context-window overflow operates at three levels:
    spilled to disk until the aggregate is under budget. This catches cases
    where many medium-sized results combine to overflow context.
 """
+from __future__ import annotations
 
 import logging
 import os

@@ -87,7 +87,7 @@ def _load_catalog_config() -> dict[str, Any]:
     try:
         from hermes_cli.config import load_config
         cfg = load_config() or {}
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         cfg = {}
 
     raw = cfg.get("model_catalog")
@@ -128,7 +128,7 @@ def _fetch_manifest(url: str, timeout: float) -> dict[str, Any] | None:
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:
         logger.info("model catalog fetch failed (%s): %s", url, exc)
         return None
-    except Exception as exc:  # pragma: no cover — defensive
+    except (json.JSONDecodeError, OSError, PermissionError, ValueError) as exc:  # pragma: no cover — defensive:
         logger.info("model catalog fetch errored (%s): %s", url, exc)
         return None
 

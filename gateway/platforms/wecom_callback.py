@@ -137,13 +137,13 @@ class WecomCallbackAdapter(BasePlatformAdapter):
             for app in self._apps:
                 try:
                     await self._refresh_access_token(app)
-                except Exception as exc:
+                except (RuntimeError) as exc:
                     logger.warning(
                         "[WecomCallback] Initial token refresh failed for app '%s': %s",
                         app.get("name", "default"), exc,
                     )
             return True
-        except Exception:
+        except (AttributeError, KeyError, RuntimeError, TypeError):
             await self._cleanup()
             logger.exception("[WecomCallback] Failed to start")
             return False
@@ -205,7 +205,7 @@ class WecomCallbackAdapter(BasePlatformAdapter):
                 message_id=str(data.get("msgid", "")),
                 raw_response=data,
             )
-        except Exception as exc:
+        except (AttributeError, ConnectionError, KeyError, OSError, RuntimeError, TimeoutError, TypeError) as exc:
             return SendResult(success=False, error=str(exc))
 
     def _resolve_app_for_chat(self, chat_id: str) -> Dict[str, Any]:
@@ -240,7 +240,7 @@ class WecomCallbackAdapter(BasePlatformAdapter):
                 crypt = self._crypt_for_app(app)
                 plain = crypt.verify_url(msg_signature, timestamp, nonce, echostr)
                 return web.Response(text=plain, content_type="text/plain")
-            except Exception:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                 continue
         return web.Response(status=403, text="signature verification failed")
 
@@ -297,7 +297,7 @@ class WecomCallbackAdapter(BasePlatformAdapter):
                 task = asyncio.create_task(self.handle_message(event))
                 self._background_tasks.add(task)
                 task.add_done_callback(self._background_tasks.discard)
-            except Exception:
+            except (RuntimeError):
                 logger.exception("[WecomCallback] Failed to enqueue event")
 
     # ------------------------------------------------------------------

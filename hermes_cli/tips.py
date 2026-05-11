@@ -1,4 +1,5 @@
 """Random tips shown at CLI session start to help users discover features."""
+from __future__ import annotations
 
 import random
 

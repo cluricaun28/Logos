@@ -213,7 +213,7 @@ class WeComAdapter(BasePlatformAdapter):
             self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
             logger.info("[%s] Connected to %s", self.name, self._ws_url)
             return True
-        except Exception as exc:
+        except (ConnectionError, OSError, RuntimeError, TimeoutError) as exc:
             message = f"WeCom startup failed: {exc}"
             self._set_fatal_error("wecom_connect_error", message, retryable=True)
             logger.error("[%s] Failed to connect: %s", self.name, exc, exc_info=True)
@@ -326,7 +326,7 @@ class WeComAdapter(BasePlatformAdapter):
                 backoff_idx = 0
             except asyncio.CancelledError:
                 return
-            except Exception as exc:
+            except (RuntimeError) as exc:
                 if not self._running:
                     return
                 logger.warning("[%s] WebSocket error: %s", self.name, exc)
@@ -340,7 +340,7 @@ class WeComAdapter(BasePlatformAdapter):
                     await self._open_connection()
                     backoff_idx = 0
                     logger.info("[%s] Reconnected", self.name)
-                except Exception as reconnect_exc:
+                except (RuntimeError) as reconnect_exc:
                     logger.warning("[%s] Reconnect failed: %s", self.name, reconnect_exc)
 
     async def _read_events(self) -> None:
@@ -372,7 +372,7 @@ class WeComAdapter(BasePlatformAdapter):
                             "body": {},
                         }
                     )
-                except Exception as exc:
+                except (RuntimeError) as exc:
                     logger.debug("[%s] Heartbeat send failed: %s", self.name, exc)
         except asyncio.CancelledError:
             pass
@@ -465,7 +465,7 @@ class WeComAdapter(BasePlatformAdapter):
     def _parse_json(raw: Any) -> Optional[Dict[str, Any]]:
         try:
             payload = json.loads(raw)
-        except Exception:
+        except (json.JSONDecodeError, ValueError):
             logger.debug("Failed to parse WeCom payload: %r", raw)
             return None
         return payload if isinstance(payload, dict) else None
@@ -724,7 +724,7 @@ class WeComAdapter(BasePlatformAdapter):
         if "base64" in media and media.get("base64"):
             try:
                 raw = self._decode_base64(media["base64"])
-            except Exception as exc:
+            except (AttributeError, KeyError, TypeError) as exc:
                 logger.debug("[%s] Failed to decode %s base64 media: %s", self.name, kind, exc)
                 return None
 
@@ -745,7 +745,7 @@ class WeComAdapter(BasePlatformAdapter):
 
         try:
             raw, headers = await self._download_remote_bytes(url, max_bytes=ABSOLUTE_MAX_BYTES)
-        except Exception as exc:
+        except (RuntimeError) as exc:
             logger.debug("[%s] Failed to download %s from %s: %s", self.name, kind, url, exc)
             return None
 
@@ -753,7 +753,7 @@ class WeComAdapter(BasePlatformAdapter):
         if aes_key:
             try:
                 raw = self._decrypt_file_bytes(raw, aes_key)
-            except Exception as exc:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
                 logger.debug("[%s] Failed to decrypt %s from %s: %s", self.name, kind, url, exc)
                 return None
 
@@ -1256,7 +1256,7 @@ class WeComAdapter(BasePlatformAdapter):
             prepared = await self._prepare_outbound_media(media_source, file_name=file_name)
         except FileNotFoundError as exc:
             return SendResult(success=False, error=str(exc))
-        except Exception as exc:
+        except (RuntimeError) as exc:
             logger.error("[%s] Failed to prepare outbound media %s: %s", self.name, media_source, exc)
             return SendResult(success=False, error=str(exc))
 
@@ -1292,7 +1292,7 @@ class WeComAdapter(BasePlatformAdapter):
                 )
         except asyncio.TimeoutError:
             return SendResult(success=False, error="Timeout sending media to WeCom")
-        except Exception as exc:
+        except (AttributeError, KeyError, RuntimeError, TypeError) as exc:
             logger.error("[%s] Failed to send media %s: %s", self.name, media_source, exc)
             return SendResult(success=False, error=str(exc))
 
@@ -1356,7 +1356,7 @@ class WeComAdapter(BasePlatformAdapter):
                 )
         except asyncio.TimeoutError:
             return SendResult(success=False, error="Timeout sending message to WeCom")
-        except Exception as exc:
+        except (RuntimeError) as exc:
             logger.error("[%s] Send failed: %s", self.name, exc)
             return SendResult(success=False, error=str(exc))
 
@@ -1514,7 +1514,7 @@ def qr_scan_for_bot_info(
         req = urllib.request.Request(generate_url, headers={"User-Agent": "HermesAgent/1.0"})
         with urllib.request.urlopen(req, timeout=15) as resp:
             raw = json.loads(resp.read().decode("utf-8"))
-    except Exception as exc:
+    except (json.JSONDecodeError, OSError, PermissionError, ValueError) as exc:
         logger.error("WeCom QR: failed to fetch QR code: %s", exc)
         print(f" failed: {exc}")
         return None
@@ -1542,7 +1542,7 @@ def qr_scan_for_bot_info(
         qr_rendered = True
     except ImportError:
         pass
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         pass
 
     page_url = f"{_QR_CODE_PAGE}{urllib.parse.quote(scode)}"
@@ -1565,7 +1565,7 @@ def qr_scan_for_bot_info(
             req = urllib.request.Request(query_url, headers={"User-Agent": "HermesAgent/1.0"})
             with urllib.request.urlopen(req, timeout=10) as resp:
                 result = json.loads(resp.read().decode("utf-8"))
-        except Exception as exc:
+        except (json.JSONDecodeError, OSError, PermissionError, ValueError) as exc:
             logger.debug("WeCom QR poll error: %s", exc)
             time.sleep(_QR_POLL_INTERVAL)
             continue

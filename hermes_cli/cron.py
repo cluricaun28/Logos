@@ -4,6 +4,7 @@ Cron subcommand for hermes CLI.
 Handles standalone cron management commands like list, create, edit,
 pause/resume/run/remove, status, and tick.
 """
+from __future__ import annotations
 
 import json
 import sys

@@ -11,6 +11,7 @@ This module provides:
 - hermes config set      - Set a specific value
 - hermes config wizard   - Re-run setup wizard
 """
+from __future__ import annotations
 
 import copy
 import logging
@@ -2234,7 +2235,7 @@ def get_missing_skill_config_vars() -> List[Dict[str, Any]]:
     """
     try:
         from agent.skill_utils import discover_all_skill_config_vars, SKILL_CONFIG_PREFIX
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         return []
 
     all_vars = discover_all_skill_config_vars()
@@ -2478,7 +2479,7 @@ def get_custom_provider_context_length(
     if custom_providers is None:
         try:
             custom_providers = get_compatible_custom_providers(config)
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             if config is None:
                 return None
             raw = config.get("custom_providers")
@@ -2572,7 +2573,7 @@ def validate_config_structure(config: Optional[Dict[str, Any]] = None) -> List["
     if config is None:
         try:
             config = load_config()
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             return [ConfigIssue("error", "Could not load config.yaml", "Run 'hermes setup' to create a valid config")]
 
     issues: List[ConfigIssue] = []
@@ -2714,7 +2715,7 @@ def print_config_warnings(config: Optional[Dict[str, Any]] = None) -> None:
     """
     try:
         issues = validate_config_structure(config)
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         return
     if not issues:
         return
@@ -2739,7 +2740,7 @@ def warn_deprecated_cwd_env_vars(config: Optional[Dict[str, Any]] = None) -> Non
     if config is None:
         try:
             config = load_config()
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             return
 
     terminal_cfg = config.get("terminal", {})
@@ -2790,7 +2791,7 @@ def migrate_config(interactive: bool = True, quiet: bool = False) -> Dict[str, A
         fixes = sanitize_env_file()
         if fixes and not quiet:
             print(f"  ✓ Repaired .env file ({fixes} corrupted entries fixed)")
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         pass  # best-effort; don't block migration on sanitize failure
 
     # Check config version
@@ -2844,7 +2845,7 @@ def migrate_config(interactive: bool = True, quiet: bool = False) -> Dict[str, A
                 save_env_value("ANTHROPIC_TOKEN", "")
                 if not quiet:
                     print("  ✓ Cleared ANTHROPIC_TOKEN from .env (no longer used)")
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             pass
 
     # ── Version 11 → 12: migrate custom_providers list → providers dict ──
@@ -2877,7 +2878,7 @@ def migrate_config(interactive: bool = True, quiet: bool = False) -> Dict[str, A
                         from urllib.parse import urlparse
                         parsed = urlparse(old_url)
                         key = (parsed.hostname or "endpoint").replace(".", "-")
-                    except Exception:
+                    except (ImportError, ModuleNotFoundError):
                         key = f"endpoint-{migrated_count}"
 
                 # Don't overwrite existing entries
@@ -2922,7 +2923,7 @@ def migrate_config(interactive: bool = True, quiet: bool = False) -> Dict[str, A
                     save_env_value(dead_var, "")
                     if not quiet:
                         print(f"  ✓ Cleared {dead_var} from .env (no longer used — config.yaml is source of truth)")
-            except Exception:
+            except (ImportError, ModuleNotFoundError, yaml.YAMLError):
                 pass
 
     # ── Version 13 → 14: migrate legacy flat stt.model to provider section ──
@@ -3091,13 +3092,13 @@ def migrate_config(interactive: bool = True, quiet: bool = False) -> Dict[str, A
                         try:
                             with open(manifest_file) as _mf:
                                 manifest = yaml.safe_load(_mf) or {}
-                        except Exception:
+                        except (OSError, PermissionError, yaml.YAMLError):
                             manifest = {}
                         name = manifest.get("name") or child.name
                         if name in disabled_set:
                             continue
                         grandfathered.append(name)
-            except Exception:
+            except (AttributeError, KeyError, OSError, PermissionError, TypeError, yaml.YAMLError):
                 grandfathered = []
 
             plugins_cfg["enabled"] = grandfathered
@@ -3137,7 +3138,7 @@ def migrate_config(interactive: bool = True, quiet: bool = False) -> Dict[str, A
                     )
                     if not quiet:
                         print("  ✓ Added placeholder LM_API_KEY for LM Studio (no-auth default)")
-        except Exception:
+        except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
             pass
 
     if current_ver < latest_ver and not quiet:
@@ -3267,7 +3268,7 @@ def migrate_config(interactive: bool = True, quiet: bool = False) -> Dict[str, A
             config = load_config()
             try:
                 from agent.skill_utils import SKILL_CONFIG_PREFIX
-            except Exception:
+            except (ImportError, ModuleNotFoundError):
                 SKILL_CONFIG_PREFIX = "skills.config"
             for var in missing_skill_config:
                 default = var.get("default", "")
@@ -3485,7 +3486,7 @@ def read_raw_config() -> Dict[str, Any]:
     try:
         with open(config_path, encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
-    except Exception:
+    except (OSError, PermissionError, yaml.YAMLError):
         return {}
 
     if not isinstance(data, dict):
@@ -3533,7 +3534,7 @@ def load_config() -> Dict[str, Any]:
                 user_config.pop("max_turns", None)
 
             config = _deep_merge(config, user_config)
-        except Exception as e:
+        except (AttributeError, KeyError, OSError, PermissionError, TypeError, yaml.YAMLError) as e:
             print(f"Warning: Failed to load config: {e}")
 
     normalized = _normalize_root_model_keys(_normalize_max_turns_config(config))
@@ -4185,7 +4186,7 @@ def show_config():
                 skill_name = var.get("skill", "")
                 display_val = str(value) if value else color("(not set)", Colors.DIM)
                 print(f"  {key:<20s} {display_val}  {color(f'[{skill_name}]', Colors.DIM)}")
-    except Exception:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
         pass
 
     print()
@@ -4261,7 +4262,7 @@ def set_config_value(key: str, value: str):
         try:
             with open(config_path, encoding="utf-8") as f:
                 user_config = yaml.safe_load(f) or {}
-        except Exception:
+        except (OSError, PermissionError, yaml.YAMLError):
             user_config = {}
     
     # Handle nested keys (e.g., "tts.provider") including numeric list

@@ -39,6 +39,7 @@ Usage:
     # Crawl a website
     crawl_data = web_crawl_tool("example.com", "Find contact information")
 """
+from __future__ import annotations
 
 import json
 import logging
@@ -183,14 +184,14 @@ def _is_local_stack_available() -> bool:
             resp = client.get(f"{LOCAL_SEARXNG_URL}/", follow_redirects=True)
             if resp.status_code == 200:
                 return True
-    except Exception:
+    except (AttributeError, KeyError, TypeError):
         pass
     try:
         with _httpx.Client(timeout=5) as client:
             resp = client.get(f"{LOCAL_FIRECRAWL_URL}/")
             if resp.status_code in (200, 404, 405):
                 return True
-    except Exception:
+    except (AttributeError, KeyError, TypeError):
         pass
     return False
 
@@ -255,7 +256,7 @@ def _camofox_scrape(url: str) -> dict[str, Any]:
         health = _httpx.get(f"{LOCAL_CAMOFOX_URL}/health", timeout=5)
         if health.status_code != 200:
             raise ConnectionError("Camofox unhealthy")
-    except Exception as e:
+    except (AttributeError, KeyError, TypeError) as e:
         raise ConnectionError(f"Camofox not available: {e}") from e
 
     # Create a new tab, navigate, extract, and close
@@ -306,7 +307,7 @@ def _camofox_scrape(url: str) -> dict[str, Any]:
                     json={"tabId": tab_id, "key": "extract"},
                     timeout=5,
                 )
-            except Exception:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                 pass
 
 
@@ -321,13 +322,13 @@ def _local_extract_with_fallback(url: str) -> dict[str, Any]:
         if result.get("success") and result.get("markdown"):
             return result
         logger.info("Firecrawl returned empty for %s, trying Camofox", url)
-    except Exception as e:
+    except (AttributeError, KeyError, TypeError) as e:
         logger.debug("Firecrawl scrape failed for %s: %s, trying Camofox", url, e)
 
     # Camofox fallback
     try:
         return _camofox_scrape(url)
-    except Exception as e:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
         logger.debug("Camofox also failed for %s: %s", url, e)
         return {"success": False, "error": str(e), "markdown": ""}
 
@@ -587,13 +588,13 @@ def _to_plain_object(value: Any) -> Any:
     if hasattr(value, "model_dump"):
         try:
             return value.model_dump()
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             pass
 
     if hasattr(value, "__dict__"):
         try:
             return {k: v for k, v in value.__dict__.items() if not k.startswith("_")}
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             pass
 
     return value
@@ -931,7 +932,7 @@ async def _process_large_content_chunked(
             if summary:
                 logger.info("Chunk %d/%d summarized: %d -> %d chars", chunk_idx + 1, len(chunks), len(chunk_content), len(summary))
             return chunk_idx, summary
-        except Exception as e:
+        except (RuntimeError) as e:
             logger.warning("Chunk %d/%d failed: %s", chunk_idx + 1, len(chunks), str(e)[:50])
             return chunk_idx, None
 
@@ -1998,7 +1999,7 @@ async def web_crawl_tool(
 
         try:
             crawl_result = _get_firecrawl_client().crawl(url=url, **crawl_params)
-        except Exception as e:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
             logger.debug("Crawl API call failed: %s", e)
             raise
 

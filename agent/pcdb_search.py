@@ -242,13 +242,13 @@ class _SearchEngine:
                 faiss_results = vi.search(query_vector, top_k=top_k * 2)
                 if faiss_results:
                     return self._apply_semantic_filters(faiss_results, session_id, exclude_session_id, top_k, engine)
-            except Exception as e:
+            except (ImportError, ModuleNotFoundError) as e:
                 logger.debug("FAISS search unavailable (%s), falling back to DB scan", e)
 
             # Fallback: full-table scan with Python cosine
             return self._semantic_search_fallback(query_vector, session_id, exclude_session_id, top_k, engine)
 
-        except Exception as e:
+        except (ImportError, ModuleNotFoundError) as e:
             logger.error("Semantic search failed: %s", e)
             return []
 

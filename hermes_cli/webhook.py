@@ -9,6 +9,7 @@ Usage:
 Subscriptions persist to ~/.hermes/webhook_subscriptions.json and are
 hot-reloaded by the webhook adapter without a gateway restart.
 """
+from __future__ import annotations
 
 import json
 import re
@@ -40,7 +41,7 @@ def _load_subscriptions() -> Dict[str, dict]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
         return data if isinstance(data, dict) else {}
-    except Exception:
+    except (json.JSONDecodeError, OSError, PermissionError, ValueError):
         return {}
 
 
@@ -61,7 +62,7 @@ def _get_webhook_config() -> dict:
         from hermes_cli.config import load_config
         cfg = load_config()
         return cfg.get("platforms", {}).get("webhook", {})
-    except Exception:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
         return {}
 
 
@@ -268,6 +269,6 @@ def _cmd_test(args):
         with urllib.request.urlopen(req, timeout=10) as resp:
             body = resp.read().decode()
             print(f"  Response ({resp.status}): {body}")
-    except Exception as e:
+    except (ImportError, ModuleNotFoundError, OSError, PermissionError) as e:
         print(f"  Error: {e}")
         print("  Is the gateway running? (hermes gateway run)")

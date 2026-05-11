@@ -49,8 +49,7 @@ class FeedbackState:
         """Load feedback state from disk. Graceful on failure."""
         try:
             if os.path.exists(self._state_file):
-                with open(self._state_file, "r") as f:
-                    data = json.load(f)
+                with open(self._state_file, "r", encoding='utf-8') as f:                    data = json.load(f)
                 self._entries = data.get("compressions", [])[:_MAX_ENTRIES]
 
                 # Validate entries — drop any corrupt ones
@@ -70,8 +69,7 @@ class FeedbackState:
             data = {"compressions": self._entries}
             # Atomic write pattern — write to temp, then rename
             tmp_path = self._state_file + ".tmp"
-            with open(tmp_path, "w") as f:
-                json.dump(data, f, indent=2)
+            with open(tmp_path, "w", encoding='utf-8') as f:                json.dump(data, f, indent=2)
             os.replace(tmp_path, self._state_file)
         except (IOError, OSError) as e:
             logger.debug("Failed to save feedback state: %s", e)

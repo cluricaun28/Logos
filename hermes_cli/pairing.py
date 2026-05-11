@@ -7,6 +7,7 @@ Usage:
     hermes pairing revoke <platform> <user_id> # Revoke user access
     hermes pairing clear-pending     # Clear all expired/pending codes
 """
+from __future__ import annotations
 
 def pairing_command(args):
     """Handle hermes pairing subcommands."""

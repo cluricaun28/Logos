@@ -210,7 +210,7 @@ def _cmd_test(args) -> None:
                 payload.update(custom)
             else:
                 print(f"Warning: {args.payload_file} is not a JSON object; ignoring")
-        except Exception as exc:
+        except (json.JSONDecodeError, OSError, PermissionError, ValueError) as exc:
             print(f"Error reading payload file: {exc}")
             return
 

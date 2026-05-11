@@ -151,7 +151,7 @@ def mark_seen(config_path: Path, flag: str) -> bool:
     try:
         import yaml
         from utils import atomic_yaml_write
-    except Exception as e:  # pragma: no cover — dependency issue
+    except (ImportError, ModuleNotFoundError, yaml.YAMLError) as e:  # pragma: no cover — dependency issue:
         logger.debug("onboarding: failed to import yaml/utils: %s", e)
         return False
 
@@ -171,7 +171,7 @@ def mark_seen(config_path: Path, flag: str) -> bool:
         seen[flag] = True
         atomic_yaml_write(config_path, cfg)
         return True
-    except Exception as e:
+    except (AttributeError, KeyError, OSError, PermissionError, TypeError, yaml.YAMLError) as e:
         logger.debug("onboarding: failed to mark flag %s: %s", flag, e)
         return False
 

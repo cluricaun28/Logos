@@ -8,6 +8,7 @@ to various messaging platforms (Telegram, Discord, WhatsApp) with:
 - Delivery routing (cron job outputs to appropriate channels)
 - Platform-specific toolsets (different capabilities per platform)
 """
+from __future__ import annotations
 
 from .config import GatewayConfig, PlatformConfig, HomeChannel, load_gateway_config
 from .session import (

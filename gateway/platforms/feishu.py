@@ -1256,7 +1256,7 @@ def _run_official_feishu_ws_client(ws_client: Any, adapter: Any) -> None:
             setattr(ws_client, "_reconnect_interval", adapter._ws_reconnect_interval)
             if adapter._ws_ping_interval is not None:
                 setattr(ws_client, "_ping_interval", adapter._ws_ping_interval)
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             logger.debug("[Feishu] Failed to apply websocket runtime overrides", exc_info=True)
 
     async def _connect_with_overrides(*args: Any, **kwargs: Any) -> Any:
@@ -1279,7 +1279,7 @@ def _run_official_feishu_ws_client(ws_client: Any, adapter: Any) -> None:
     _apply_runtime_ws_overrides()
     try:
         ws_client.start()
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         pass
     finally:
         ws_client_module.websockets.connect = original_connect
@@ -1292,11 +1292,11 @@ def _run_official_feishu_ws_client(ws_client: Any, adapter: Any) -> None:
             loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
         try:
             loop.stop()
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             pass
         try:
             loop.close()
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             pass
         adapter._ws_thread_loop = None
 
@@ -1543,7 +1543,7 @@ class FeishuAdapter(BasePlatformAdapter):
             self._mark_connected()
             logger.info("[Feishu] Connected in %s mode (%s)", self._connection_mode, self._domain_name)
             return True
-        except Exception as exc:
+        except (AttributeError, KeyError, RuntimeError, TypeError) as exc:
             await self._release_app_lock()
             message = f"Feishu startup failed: {exc}"
             self._set_fatal_error("feishu_connect_error", message, retryable=True)
@@ -1582,7 +1582,7 @@ class FeishuAdapter(BasePlatformAdapter):
                 logger.warning("[Feishu] Websocket thread did not exit within 10s - may be stuck")
             except asyncio.CancelledError:
                 logger.debug("[Feishu] Websocket thread cancelled during disconnect")
-            except Exception as exc:
+            except (RuntimeError) as exc:
                 logger.debug("[Feishu] Websocket thread exited with error: %s", exc, exc_info=True)
 
         self._ws_future = None
@@ -1613,7 +1613,7 @@ class FeishuAdapter(BasePlatformAdapter):
             return
         try:
             setattr(self._ws_client, "_auto_reconnect", False)
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             pass
         finally:
             self._ws_client = None
@@ -1657,7 +1657,7 @@ class FeishuAdapter(BasePlatformAdapter):
                         reply_to=reply_to,
                         metadata=metadata,
                     )
-                except Exception as exc:
+                except (RuntimeError) as exc:
                     if msg_type != "post" or not _POST_CONTENT_INVALID_RE.search(str(exc)):
                         raise
                     logger.warning("[Feishu] Invalid post payload rejected by API; falling back to plain text")
@@ -1719,7 +1719,7 @@ class FeishuAdapter(BasePlatformAdapter):
             if result.success:
                 result.message_id = message_id
             return result
-        except Exception as exc:
+        except (json.JSONDecodeError, RuntimeError, ValueError) as exc:
             logger.error("[Feishu] Failed to edit message %s: %s", message_id, exc, exc_info=True)
             return SendResult(success=False, error=str(exc))
 
@@ -1946,7 +1946,7 @@ class FeishuAdapter(BasePlatformAdapter):
         """Download a remote image then send it through the native Feishu image flow."""
         try:
             image_path = await self._download_remote_image(image_url)
-        except Exception as exc:
+        except (RuntimeError) as exc:
             logger.error("[Feishu] Failed to download image %s: %s", image_url, exc, exc_info=True)
             return await super().send_image(
                 chat_id=chat_id,
@@ -1978,7 +1978,7 @@ class FeishuAdapter(BasePlatformAdapter):
                 default_ext=".gif",
                 preferred_name="animation.gif",
             )
-        except Exception as exc:
+        except (RuntimeError) as exc:
             logger.error("[Feishu] Failed to download animation %s: %s", animation_url, exc, exc_info=True)
             return await super().send_animation(
                 chat_id=chat_id,
@@ -2030,7 +2030,7 @@ class FeishuAdapter(BasePlatformAdapter):
             }
             self._chat_info_cache[chat_id] = info
             return dict(info)
-        except Exception:
+        except (RuntimeError):
             logger.warning("[Feishu] Failed to get chat info for %s", chat_id, exc_info=True)
             return fallback
 
@@ -2083,7 +2083,7 @@ class FeishuAdapter(BasePlatformAdapter):
                     event = getattr(dropped, "event", None)
                     message = getattr(event, "message", None)
                     message_id = str(getattr(message, "message_id", "") or "unknown")
-                except Exception:
+                except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                     message_id = "unknown"
                 logger.error(
                     "[Feishu] Pending-inbound queue full (%d); dropped oldest event %s",
@@ -2367,7 +2367,7 @@ class FeishuAdapter(BasePlatformAdapter):
                 "Feishu button resolved %d approval(s) for session %s (choice=%s, user=%s)",
                 count, state["session_key"], choice, user_name,
             )
-        except Exception as exc:
+        except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError) as exc:
             logger.error("Failed to resolve gateway approval from Feishu button: %s", exc)
 
     async def _handle_reaction_event(self, event_type: str, data: Any) -> None:
@@ -2397,7 +2397,7 @@ class FeishuAdapter(BasePlatformAdapter):
             chat_type_raw = str(getattr(msg, "chat_type", "p2p") or "p2p")
             if not chat_id:
                 return
-        except Exception:
+        except (RuntimeError):
             logger.debug("[Feishu] Failed to fetch message for reaction routing", exc_info=True)
             return
 
@@ -2465,7 +2465,7 @@ class FeishuAdapter(BasePlatformAdapter):
         if action_value:
             try:
                 synthetic_text += f" {json.dumps(action_value, ensure_ascii=False)}"
-            except Exception:
+            except (json.JSONDecodeError, ValueError):
                 pass
 
         sender_id = SimpleNamespace(open_id=open_id, user_id=None, union_id=None)
@@ -2553,7 +2553,7 @@ class FeishuAdapter(BasePlatformAdapter):
                 getattr(response, "code", None),
                 getattr(response, "msg", None),
             )
-        except Exception:
+        except (ImportError, ModuleNotFoundError, RuntimeError):
             logger.warning(
                 "[Feishu] Add reaction %s on %s raised",
                 emoji_type,
@@ -2583,7 +2583,7 @@ class FeishuAdapter(BasePlatformAdapter):
                 getattr(response, "code", None),
                 getattr(response, "msg", None),
             )
-        except Exception:
+        except (ImportError, ModuleNotFoundError, RuntimeError):
             logger.warning(
                 "[Feishu] Remove reaction %s on %s raised",
                 reaction_id,
@@ -2918,7 +2918,7 @@ class FeishuAdapter(BasePlatformAdapter):
             logger.warning("[Feishu] Webhook body read timed out after %ds from %s", _FEISHU_WEBHOOK_BODY_TIMEOUT_SECONDS, remote_ip)
             self._record_webhook_anomaly(remote_ip, "408")
             return web.Response(status=408, text="Request Timeout")
-        except Exception:
+        except (ImportError, ModuleNotFoundError, OSError, PermissionError, RuntimeError):
             self._record_webhook_anomaly(remote_ip, "400")
             return web.json_response({"code": 400, "msg": "failed to read body"}, status=400)
 
@@ -2997,7 +2997,7 @@ class FeishuAdapter(BasePlatformAdapter):
             content = f"{timestamp}{nonce}{self._encrypt_key}{body_str}"
             computed = hashlib.sha256(content.encode("utf-8")).hexdigest()
             return hmac.compare_digest(computed, signature)
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             logger.debug("[Feishu] Signature verification raised an exception", exc_info=True)
             return False
 
@@ -3285,7 +3285,7 @@ class FeishuAdapter(BasePlatformAdapter):
             cached_path = cache_image_from_bytes(raw_bytes, ext=ext)
             media_type = self._normalize_media_type(content_type, default=self._default_image_media_type(ext))
             return cached_path, media_type
-        except Exception:
+        except (RuntimeError):
             logger.warning("[Feishu] Failed to cache image resource %s", image_key, exc_info=True)
             return "", ""
 
@@ -3523,7 +3523,7 @@ class FeishuAdapter(BasePlatformAdapter):
                 if name:
                     self._sender_name_cache[trimmed] = (name, now + _FEISHU_SENDER_NAME_TTL_SECONDS)
                     return name
-        except Exception:
+        except (ImportError, ModuleNotFoundError, RuntimeError):
             logger.debug("[Feishu] Failed to resolve sender name for %s", sender_id, exc_info=True)
         return None
 
@@ -3553,7 +3553,7 @@ class FeishuAdapter(BasePlatformAdapter):
             )
             self._message_text_cache[message_id] = text
             return text
-        except Exception:
+        except (RuntimeError):
             logger.warning("[Feishu] Failed to fetch parent message %s", message_id, exc_info=True)
             return None
 
@@ -3586,7 +3586,7 @@ class FeishuAdapter(BasePlatformAdapter):
     def _log_background_failure(future: Any) -> None:
         try:
             future.result()
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             logger.exception("[Feishu] Background inbound processing failed")
 
     # =========================================================================
@@ -3735,7 +3735,7 @@ class FeishuAdapter(BasePlatformAdapter):
                         self._bot_open_id = open_id
                     if bot_name and not self._bot_name:
                         self._bot_name = bot_name
-            except Exception:
+            except (AttributeError, ConnectionError, json.JSONDecodeError, KeyError, OSError, RuntimeError, TimeoutError, TypeError, ValueError):
                 logger.debug(
                     "[Feishu] /bot/v3/info probe failed during hydration",
                     exc_info=True,
@@ -3762,7 +3762,7 @@ class FeishuAdapter(BasePlatformAdapter):
             app_name = (getattr(app, "app_name", None) or "").strip()
             if app_name and not self._bot_name:
                 self._bot_name = app_name
-        except Exception:
+        except (ImportError, ModuleNotFoundError, RuntimeError):
             logger.debug("[Feishu] Failed to hydrate bot name from application info", exc_info=True)
 
     # =========================================================================
@@ -3972,7 +3972,7 @@ class FeishuAdapter(BasePlatformAdapter):
                 else:
                     await self._connect_webhook()
                 return
-            except Exception as exc:
+            except (RuntimeError) as exc:
                 self._running = False
                 self._disable_websocket_auto_reconnect()
                 self._ws_future = None
@@ -4082,7 +4082,7 @@ class FeishuAdapter(BasePlatformAdapter):
                             metadata=metadata,
                         )
                 return response
-            except Exception as exc:
+            except (RuntimeError) as exc:
                 last_error = exc
                 if msg_type == "post" and _POST_CONTENT_INVALID_RE.search(str(exc)):
                     raise
@@ -4105,7 +4105,7 @@ class FeishuAdapter(BasePlatformAdapter):
             return
         try:
             release_scoped_lock(_FEISHU_APP_LOCK_SCOPE, self._app_lock_identity)
-        except Exception as exc:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
             logger.warning("[Feishu] Failed to release app lock: %s", exc, exc_info=True)
         finally:
             self._app_lock_identity = None
@@ -4464,7 +4464,7 @@ def _render_qr(url: str) -> bool:
         qr.make(fit=True)
         qr.print_ascii(invert=True)
         return True
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         return False
 
 
@@ -4522,7 +4522,7 @@ def _probe_bot_sdk(app_id: str, app_secret: str, domain: str) -> Optional[dict]:
         if content is None:
             return None
         return _parse_bot_response(json.loads(content))
-    except Exception as exc:
+    except (ConnectionError, json.JSONDecodeError, OSError, TimeoutError, ValueError) as exc:
         logger.debug("[Feishu onboard] SDK probe failed: %s", exc)
         return None
 

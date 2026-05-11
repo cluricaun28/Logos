@@ -117,7 +117,7 @@ def _get_disabled_plugins() -> set:
         config = load_config()
         disabled = config.get("plugins", {}).get("disabled", [])
         return set(disabled) if isinstance(disabled, list) else set()
-    except Exception:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
         return set()
 
 
@@ -147,7 +147,7 @@ def _get_enabled_plugins() -> Optional[set]:
         if not isinstance(enabled, list):
             return None
         return set(enabled)
-    except Exception:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
         return None
 
 
@@ -343,7 +343,7 @@ class PluginContext:
                     self.manifest.name, clean,
                 )
                 return
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             pass  # If commands module isn't available, skip the check
 
         self._manager._plugin_commands[clean] = {
@@ -799,7 +799,7 @@ class PluginManager:
                                 "treating as kind='exclusive'",
                                 key,
                             )
-                    except Exception:
+                    except (OSError, PermissionError):
                         pass
 
             return PluginManifest(
@@ -815,7 +815,7 @@ class PluginManager:
                 kind=kind,
                 key=key,
             )
-        except Exception as exc:
+        except (AttributeError, KeyError, OSError, PermissionError, TypeError) as exc:
             logger.warning("Failed to parse %s: %s", manifest_file, exc)
             return None
 
@@ -844,7 +844,7 @@ class PluginManager:
                     key=ep.name,
                 )
                 manifests.append(manifest)
-        except Exception as exc:
+        except (AttributeError, KeyError, TypeError) as exc:
             logger.debug("Entry-point scan failed: %s", exc)
 
         return manifests
@@ -992,7 +992,7 @@ class PluginManager:
                 ret = cb(**kwargs)
                 if ret is not None:
                     results.append(ret)
-            except Exception as exc:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
                 logger.warning(
                     "Hook '%s' callback %s raised: %s",
                     hook_name,
@@ -1163,7 +1163,7 @@ def get_plugin_toolsets() -> List[tuple]:
 
     try:
         from tools.registry import registry
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         return []
 
     # Group plugin tool names by their toolset

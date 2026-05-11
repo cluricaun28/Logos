@@ -180,7 +180,7 @@ class VoiceReceiver:
         self._running = False
         try:
             self._vc._connection.remove_socket_listener(self._on_packet)
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             pass
         with self._lock:
             self._buffers.clear()
@@ -233,7 +233,7 @@ class VoiceReceiver:
             if hasattr(conn, 'ws') and conn.ws is not MISSING:
                 conn.ws._hook = wrapped_hook
                 logger.info("Speaking hook installed on live websocket")
-        except Exception as e:
+        except (ImportError, ModuleNotFoundError) as e:
             logger.warning("Could not install hook on live ws: %s", e)
 
     # ------------------------------------------------------------------
@@ -308,7 +308,7 @@ class VoiceReceiver:
             import nacl.secret  # noqa: E402 — delayed import, only in voice path
             box = nacl.secret.Aead(self._secret_key)
             decrypted = box.decrypt(encrypted, header, bytes(nonce))
-        except Exception as e:
+        except (ImportError, ModuleNotFoundError) as e:
             if self._packet_debug_count <= 10:
                 logger.warning("NaCl decrypt failed: %s (hdr=%d, enc=%d)", e, header_size, len(encrypted))
             return
@@ -352,7 +352,7 @@ class VoiceReceiver:
                     decrypted = self._dave_session.decrypt(
                         user_id, davey.MediaType.audio, decrypted
                     )
-                except Exception as e:
+                except (ImportError, ModuleNotFoundError) as e:
                     # Unencrypted passthrough — use NaCl-decrypted data as-is
                     if "Unencrypted" not in str(e):
                         if self._packet_debug_count <= 10:
@@ -370,7 +370,7 @@ class VoiceReceiver:
             with self._lock:
                 self._buffers[ssrc].extend(pcm)
                 self._last_packet_time[ssrc] = time.monotonic()
-        except Exception as e:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
             logger.debug("Opus decode error for SSRC %s: %s", ssrc, e)
             return
 
@@ -400,7 +400,7 @@ class VoiceReceiver:
                 self._ssrc_to_user[ssrc] = uid
                 logger.info("Auto-mapped ssrc=%d -> user=%d (sole allowed member)", ssrc, uid)
                 return uid
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             pass
         return 0
 
@@ -555,7 +555,7 @@ class DiscordAdapter(BasePlatformAdapter):
             if opus_path:
                 try:
                     discord.opus.load_opus(opus_path)
-                except Exception:
+                except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                     logger.warning("Opus codec found at %s but failed to load", opus_path)
             if not discord.opus.is_loaded():
                 logger.warning("Opus codec not found — voice channel playback disabled")
@@ -773,13 +773,13 @@ class DiscordAdapter(BasePlatformAdapter):
         for guild_id in list(self._voice_clients.keys()):
             try:
                 await self.leave_voice_channel(guild_id)
-            except Exception as e:  # pragma: no cover - defensive logging
+            except (RuntimeError) as e:  # pragma: no cover - defensive logging:
                 logger.debug("[%s] Error leaving voice channel %s: %s", self.name, guild_id, e)
 
         if self._client:
             try:
                 await self._client.close()
-            except Exception as e:  # pragma: no cover - defensive logging
+            except (RuntimeError) as e:  # pragma: no cover - defensive logging:
                 logger.warning("[%s] Error during disconnect: %s", self.name, e, exc_info=True)
 
         if self._post_connect_task and not self._post_connect_task.done():
@@ -1026,7 +1026,7 @@ class DiscordAdapter(BasePlatformAdapter):
         try:
             await message.add_reaction(emoji)
             return True
-        except Exception as e:
+        except (RuntimeError) as e:
             logger.debug("[%s] add_reaction failed (%s): %s", self.name, emoji, e)
             return False
 
@@ -1037,7 +1037,7 @@ class DiscordAdapter(BasePlatformAdapter):
         try:
             await message.remove_reaction(emoji, self._client.user)
             return True
-        except Exception as e:
+        except (RuntimeError) as e:
             logger.debug("[%s] remove_reaction failed (%s): %s", self.name, emoji, e)
             return False
 
@@ -1122,7 +1122,7 @@ class DiscordAdapter(BasePlatformAdapter):
                         reference = ref_msg.to_reference(fail_if_not_exists=False)
                     else:
                         reference = ref_msg
-                except Exception as e:
+                except (RuntimeError) as e:
                     logger.debug("Could not fetch reply-to message: %s", e)
 
             for i, chunk in enumerate(chunks):
@@ -1135,7 +1135,7 @@ class DiscordAdapter(BasePlatformAdapter):
                         content=chunk,
                         reference=chunk_reference,
                     )
-                except Exception as e:
+                except (RuntimeError) as e:
                     err_text = str(e)
                     if (
                         chunk_reference is not None
@@ -1194,7 +1194,7 @@ class DiscordAdapter(BasePlatformAdapter):
                 name=thread_name,
                 content=starter_content,
             )
-        except Exception as e:
+        except (RuntimeError) as e:
             logger.error("[%s] Failed to create forum thread in %s: %s", self.name, forum_channel.id, e)
             return SendResult(success=False, error=f"Forum thread creation failed: {e}")
 
@@ -1211,7 +1211,7 @@ class DiscordAdapter(BasePlatformAdapter):
             try:
                 msg = await thread_channel.send(content=chunk)
                 message_ids.append(str(msg.id))
-            except Exception as e:
+            except (RuntimeError) as e:
                 warning = f"Failed to send follow-up chunk to forum thread {thread_id}: {e}"
                 logger.warning("[%s] %s", self.name, warning)
                 warnings.append(warning)
@@ -1265,7 +1265,7 @@ class DiscordAdapter(BasePlatformAdapter):
 
         try:
             thread = await forum_channel.create_thread(**kwargs)
-        except Exception as e:
+        except (RuntimeError) as e:
             logger.error(
                 "[%s] Failed to create forum thread with file in %s: %s",
                 self.name,
@@ -1306,7 +1306,7 @@ class DiscordAdapter(BasePlatformAdapter):
                 formatted = formatted[:self.MAX_MESSAGE_LENGTH - 3] + "..."
             await msg.edit(content=formatted)
             return SendResult(success=True, message_id=message_id)
-        except Exception as e:  # pragma: no cover - defensive logging
+        except (RuntimeError) as e:  # pragma: no cover - defensive logging:
             logger.error("[%s] Failed to edit Discord message %s: %s", self.name, message_id, e, exc_info=True)
             return SendResult(success=False, error=str(e))
 
@@ -1368,7 +1368,7 @@ class DiscordAdapter(BasePlatformAdapter):
             import discord as _discord_mod
             import io as _io
             from urllib.parse import unquote as _unquote
-        except Exception:  # pragma: no cover
+        except (ImportError, ModuleNotFoundError):
             await super().send_multiple_images(chat_id, images, metadata, human_delay)
             return
 
@@ -1379,7 +1379,7 @@ class DiscordAdapter(BasePlatformAdapter):
             if not channel:
                 logger.warning("[%s] Channel %s not found for multi-image send", self.name, chat_id)
                 return
-        except Exception as e:
+        except (RuntimeError) as e:
             logger.warning("[%s] Failed to resolve channel for multi-image send: %s", self.name, e)
             await super().send_multiple_images(chat_id, images, metadata, human_delay)
             return
@@ -1435,7 +1435,7 @@ class DiscordAdapter(BasePlatformAdapter):
                                 elif "webp" in ct:
                                     ext = "webp"
                                 files.append(_discord_mod.File(_io.BytesIO(data), filename=f"image_{len(files)}.{ext}"))
-                        except Exception as dl_err:
+                        except (AttributeError, ConnectionError, ImportError, KeyError, ModuleNotFoundError, OSError, PermissionError, RuntimeError, TimeoutError, TypeError) as dl_err:
                             logger.warning("[%s] Download failed for %s: %s", self.name, image_url[:80], dl_err)
                             continue
 
@@ -1468,7 +1468,7 @@ class DiscordAdapter(BasePlatformAdapter):
                 if aiohttp_session is not None:
                     try:
                         await aiohttp_session.close()
-                    except Exception:
+                    except (ConnectionError, OSError, RuntimeError, TimeoutError):
                         pass
 
     async def play_tts(
@@ -1537,7 +1537,7 @@ class DiscordAdapter(BasePlatformAdapter):
                     from mutagen.oggopus import OggOpus
                     info = OggOpus(audio_path)
                     duration_secs = info.info.length
-                except Exception:
+                except (ImportError, ModuleNotFoundError):
                     duration_secs = max(1.0, len(file_data) / 2000.0)
 
                 waveform_bytes = bytes([128] * 256)
@@ -1609,7 +1609,7 @@ class DiscordAdapter(BasePlatformAdapter):
                 self._voice_listen_tasks[guild_id] = asyncio.ensure_future(
                     self._voice_listen_loop(guild_id)
                 )
-            except Exception as e:
+            except (RuntimeError) as e:
                 logger.warning("Voice receiver failed to start: %s", e)
 
             return True
@@ -1713,14 +1713,14 @@ class DiscordAdapter(BasePlatformAdapter):
         if self._on_voice_disconnect and text_ch_id:
             try:
                 self._on_voice_disconnect(str(text_ch_id))
-            except Exception:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                 pass
         if text_ch_id and self._client:
             ch = self._client.get_channel(text_ch_id)
             if ch:
                 try:
                     await ch.send("Left voice channel (inactivity timeout).")
-                except Exception:
+                except (RuntimeError):
                     pass
 
     def is_in_voice_channel(self, guild_id: int) -> bool:
@@ -1823,7 +1823,7 @@ class DiscordAdapter(BasePlatformAdapter):
                         vc = self._voice_clients.get(guild_id)
                         if vc and vc.is_connected():
                             vc._connection.send_packet(b'\xf8\xff\xfe')
-                    except Exception:
+                    except (AttributeError, KeyError, TypeError):
                         pass
 
                 completed = receiver.check_silence()
@@ -1833,7 +1833,7 @@ class DiscordAdapter(BasePlatformAdapter):
                     await self._process_voice_input(guild_id, user_id, pcm_data)
         except asyncio.CancelledError:
             pass
-        except Exception as e:
+        except (AttributeError, KeyError, RuntimeError, TypeError) as e:
             logger.error("Voice listen loop error: %s", e, exc_info=True)
 
     async def _process_voice_input(self, guild_id: int, user_id: int, pcm_data: bytes):
@@ -1863,7 +1863,7 @@ class DiscordAdapter(BasePlatformAdapter):
                     user_id=user_id,
                     transcript=transcript,
                 )
-        except Exception as e:
+        except (AttributeError, ImportError, KeyError, ModuleNotFoundError, RuntimeError, TypeError) as e:
             logger.warning("Voice input processing failed: %s", e, exc_info=True)
         finally:
             try:
@@ -1927,7 +1927,7 @@ class DiscordAdapter(BasePlatformAdapter):
             return await self._send_file_attachment(chat_id, image_path, caption)
         except FileNotFoundError:
             return SendResult(success=False, error=f"Image file not found: {image_path}")
-        except Exception as e:  # pragma: no cover - defensive logging
+        except (RuntimeError) as e:  # pragma: no cover - defensive logging:
             logger.error("[%s] Failed to send local image, falling back to base adapter: %s", self.name, e, exc_info=True)
             return await super().send_image_file(chat_id, image_path, caption, reply_to, metadata=metadata)
 
@@ -2092,7 +2092,7 @@ class DiscordAdapter(BasePlatformAdapter):
             return await self._send_file_attachment(chat_id, video_path, caption)
         except FileNotFoundError:
             return SendResult(success=False, error=f"Video file not found: {video_path}")
-        except Exception as e:  # pragma: no cover - defensive logging
+        except (RuntimeError) as e:  # pragma: no cover - defensive logging:
             logger.error("[%s] Failed to send local video, falling back to base adapter: %s", self.name, e, exc_info=True)
             return await super().send_video(chat_id, video_path, caption, reply_to, metadata=metadata)
 
@@ -2110,7 +2110,7 @@ class DiscordAdapter(BasePlatformAdapter):
             return await self._send_file_attachment(chat_id, file_path, caption, file_name=file_name)
         except FileNotFoundError:
             return SendResult(success=False, error=f"File not found: {file_path}")
-        except Exception as e:  # pragma: no cover - defensive logging
+        except (RuntimeError) as e:  # pragma: no cover - defensive logging:
             logger.error("[%s] Failed to send document, falling back to base adapter: %s", self.name, e, exc_info=True)
             return await super().send_document(chat_id, file_path, caption, file_name, reply_to, metadata=metadata)
 
@@ -2139,7 +2139,7 @@ class DiscordAdapter(BasePlatformAdapter):
                         await self._client.http.request(route)
                     except asyncio.CancelledError:
                         return
-                    except Exception as e:
+                    except (ConnectionError, OSError, RuntimeError, TimeoutError) as e:
                         logger.debug("Discord typing indicator failed for %s: %s", chat_id, e)
                         return
                     await asyncio.sleep(8)
@@ -2229,7 +2229,7 @@ class DiscordAdapter(BasePlatformAdapter):
                 members = guild.members
                 if len(members) < guild.member_count:
                     members = [m async for m in guild.fetch_members(limit=None)]
-            except Exception as e:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
                 logger.warning("Failed to fetch members for guild %s: %s", guild.name, e)
                 continue
 
@@ -2298,7 +2298,7 @@ class DiscordAdapter(BasePlatformAdapter):
                 _chan_id,
                 getattr(interaction, "guild_id", None),
             )
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             pass  # logging must never block command dispatch
 
         await interaction.response.defer(ephemeral=True)
@@ -2309,7 +2309,7 @@ class DiscordAdapter(BasePlatformAdapter):
                 await interaction.edit_original_response(content=followup_msg)
             else:
                 await interaction.delete_original_response()
-        except Exception as e:
+        except (RuntimeError) as e:
             logger.debug("Discord interaction cleanup failed: %s", e)
 
     def _register_slash_commands(self) -> None:
@@ -2496,7 +2496,7 @@ class DiscordAdapter(BasePlatformAdapter):
 
             try:
                 already_registered = {cmd.name for cmd in tree.get_commands()}
-            except Exception:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                 pass
 
             config_overrides = _resolve_config_gates()
@@ -2516,7 +2516,7 @@ class DiscordAdapter(BasePlatformAdapter):
                 try:
                     tree.add_command(auto_cmd)
                     already_registered.add(discord_name)
-                except Exception:
+                except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                     # Silently skip commands that fail registration (e.g.
                     # name conflict with a subcommand group).
                     pass
@@ -2525,7 +2525,7 @@ class DiscordAdapter(BasePlatformAdapter):
                 "Discord auto-registered %d commands from COMMAND_REGISTRY",
                 len(already_registered),
             )
-        except Exception as e:
+        except (ImportError, ModuleNotFoundError) as e:
             logger.warning("Discord auto-register from COMMAND_REGISTRY failed: %s", e)
 
         # ── Plugin-registered slash commands ──
@@ -2548,11 +2548,11 @@ class DiscordAdapter(BasePlatformAdapter):
                 try:
                     tree.add_command(auto_cmd)
                     already_registered.add(discord_name)
-                except Exception:
+                except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                     # Silently skip commands that fail registration (e.g.
                     # name conflict with a subcommand group).
                     pass
-        except Exception as e:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
             logger.warning(
                 "Discord auto-register from plugin commands failed: %s", e
             )
@@ -2587,7 +2587,7 @@ class DiscordAdapter(BasePlatformAdapter):
             existing_names = set()
             try:
                 existing_names = {cmd.name for cmd in tree.get_commands()}
-            except Exception:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                 pass
 
             # Reuse the existing collector for consistent filtering
@@ -2870,7 +2870,7 @@ class DiscordAdapter(BasePlatformAdapter):
             return channel
         try:
             return await self._client.fetch_channel(int(channel_id))
-        except Exception:
+        except (RuntimeError):
             return None
 
     async def _create_thread(
@@ -2922,7 +2922,7 @@ class DiscordAdapter(BasePlatformAdapter):
                 "thread_id": str(thread.id),
                 "thread_name": getattr(thread, "name", None) or name,
             }
-        except Exception as direct_error:
+        except (RuntimeError) as direct_error:
             try:
                 seed_content = starter_message or f"\U0001f9f5 Thread created by Hermes: **{name}**"
                 seed_msg = await parent_channel.send(seed_content)
@@ -2936,7 +2936,7 @@ class DiscordAdapter(BasePlatformAdapter):
                     "thread_id": str(thread.id),
                     "thread_name": getattr(thread, "name", None) or name,
                 }
-            except Exception as fallback_error:
+            except (RuntimeError) as fallback_error:
                 return {
                     "error": (
                         "Discord rejected direct thread creation and the fallback also failed. "
@@ -2969,7 +2969,7 @@ class DiscordAdapter(BasePlatformAdapter):
         try:
             thread = await message.create_thread(name=thread_name, auto_archive_duration=1440)
             return thread
-        except Exception as direct_error:
+        except (RuntimeError) as direct_error:
             display_name = getattr(getattr(message, "author", None), "display_name", None) or "unknown user"
             reason = f"Auto-threaded from mention by {display_name}"
             try:
@@ -2980,7 +2980,7 @@ class DiscordAdapter(BasePlatformAdapter):
                     reason=reason,
                 )
                 return thread
-            except Exception as fallback_error:
+            except (RuntimeError) as fallback_error:
                 logger.warning(
                     "[%s] Auto-thread creation failed. Direct error: %s. Fallback error: %s",
                     self.name,
@@ -3031,7 +3031,7 @@ class DiscordAdapter(BasePlatformAdapter):
             msg = await channel.send(embed=embed, view=view)
             return SendResult(success=True, message_id=str(msg.id))
 
-        except Exception as e:
+        except (AttributeError, ImportError, KeyError, ModuleNotFoundError, RuntimeError, TypeError) as e:
             return SendResult(success=False, error=str(e))
 
     async def send_update_prompt(
@@ -3062,7 +3062,7 @@ class DiscordAdapter(BasePlatformAdapter):
             )
             msg = await channel.send(embed=embed, view=view)
             return SendResult(success=True, message_id=str(msg.id))
-        except Exception as e:
+        except (RuntimeError) as e:
             return SendResult(success=False, error=str(e))
 
     async def send_model_picker(
@@ -3096,7 +3096,7 @@ class DiscordAdapter(BasePlatformAdapter):
             try:
                 from hermes_cli.providers import get_label
                 provider_label = get_label(current_provider)
-            except Exception:
+            except (ImportError, ModuleNotFoundError):
                 provider_label = current_provider
 
             embed = discord.Embed(
@@ -3121,7 +3121,7 @@ class DiscordAdapter(BasePlatformAdapter):
             msg = await channel.send(embed=embed, view=view)
             return SendResult(success=True, message_id=str(msg.id))
 
-        except Exception as e:
+        except (ImportError, ModuleNotFoundError, RuntimeError) as e:
             logger.warning("[%s] send_model_picker failed: %s", self.name, e)
             return SendResult(success=False, error=str(e))
 
@@ -3212,7 +3212,7 @@ class DiscordAdapter(BasePlatformAdapter):
             return None
         try:
             return await reader()
-        except Exception as e:
+        except (RuntimeError) as e:
             logger.warning(
                 "[Discord] Authenticated attachment read failed for %s: %s",
                 getattr(att, "filename", None) or getattr(att, "url", "<unknown>"),
@@ -3232,7 +3232,7 @@ class DiscordAdapter(BasePlatformAdapter):
         if raw_bytes is not None:
             try:
                 return cache_image_from_bytes(raw_bytes, ext=ext)
-            except Exception as e:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
                 logger.debug(
                     "[Discord] cache_image_from_bytes rejected att.read() data; falling back to URL: %s",
                     e,
@@ -3251,7 +3251,7 @@ class DiscordAdapter(BasePlatformAdapter):
         if raw_bytes is not None:
             try:
                 return cache_audio_from_bytes(raw_bytes, ext=ext)
-            except Exception as e:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
                 logger.debug(
                     "[Discord] cache_audio_from_bytes failed; falling back to URL: %s",
                     e,
@@ -3464,7 +3464,7 @@ class DiscordAdapter(BasePlatformAdapter):
                     media_urls.append(cached_path)
                     media_types.append(content_type)
                     print(f"[Discord] Cached user image: {cached_path}", flush=True)
-                except Exception as e:
+                except (ImportError, ModuleNotFoundError, RuntimeError) as e:
                     print(f"[Discord] Failed to cache image attachment: {e}", flush=True)
                     # Fall back to the CDN URL if caching fails
                     media_urls.append(att.url)
@@ -3478,7 +3478,7 @@ class DiscordAdapter(BasePlatformAdapter):
                     media_urls.append(cached_path)
                     media_types.append(content_type)
                     print(f"[Discord] Cached user audio: {cached_path}", flush=True)
-                except Exception as e:
+                except (RuntimeError) as e:
                     print(f"[Discord] Failed to cache audio attachment: {e}", flush=True)
                     media_urls.append(att.url)
                     media_types.append(content_type)
@@ -3527,7 +3527,7 @@ class DiscordAdapter(BasePlatformAdapter):
                                         pending_text_injection = injection
                                 except UnicodeDecodeError:
                                     pass
-                        except Exception as e:
+                        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
                             logger.warning(
                                 "[Discord] Failed to cache document %s: %s",
                                 att.filename, e, exc_info=True,
@@ -3733,7 +3733,7 @@ if DISCORD_AVAILABLE:
                     "Discord button resolved %d approval(s) for session %s (choice=%s, user=%s)",
                     count, self.session_key, choice, interaction.user.display_name,
                 )
-            except Exception as exc:
+            except (ImportError, ModuleNotFoundError) as exc:
                 logger.error("Failed to resolve gateway approval from button: %s", exc)
 
         @discord.ui.button(label="Allow Once", style=discord.ButtonStyle.green)
@@ -3825,7 +3825,7 @@ if DISCORD_AVAILABLE:
                     "Discord update prompt answered '%s' by %s",
                     answer, interaction.user.display_name,
                 )
-            except Exception as exc:
+            except (ImportError, ModuleNotFoundError, OSError, PermissionError) as exc:
                 logger.error("Failed to write update response: %s", exc)
 
         @discord.ui.button(label="Yes", style=discord.ButtonStyle.green, emoji="✓")
@@ -4012,7 +4012,7 @@ if DISCORD_AVAILABLE:
                     model_id,
                     self._selected_provider,
                 )
-            except Exception as exc:
+            except (RuntimeError) as exc:
                 result_text = f"Error switching model: {exc}"
 
             await interaction.edit_original_response(
@@ -4036,7 +4036,7 @@ if DISCORD_AVAILABLE:
             try:
                 from hermes_cli.providers import get_label
                 provider_label = get_label(self.current_provider)
-            except Exception:
+            except (ImportError, ModuleNotFoundError):
                 provider_label = self.current_provider
 
             await interaction.response.edit_message(

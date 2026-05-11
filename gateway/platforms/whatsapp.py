@@ -14,6 +14,7 @@ This adapter supports multiple backends:
 For simplicity, we'll implement a generic interface that can work
 with different backends via a bridge pattern.
 """
+from __future__ import annotations
 
 import asyncio
 import json
@@ -63,7 +64,7 @@ def _kill_port_process(port: int) -> None:
                     ["fuser", "-k", f"{port}/tcp"],
                     capture_output=True, timeout=5,
                 )
-    except Exception:
+    except (AttributeError, FileNotFoundError, KeyError, subprocess.CalledProcessError, TypeError):
         pass
 
 
@@ -127,7 +128,7 @@ def check_whatsapp_requirements() -> bool:
             timeout=5
         )
         return result.returncode == 0
-    except Exception:
+    except (AttributeError, FileNotFoundError, KeyError, subprocess.CalledProcessError, TypeError):
         return False
 
 
@@ -236,7 +237,7 @@ class WhatsAppAdapter(BasePlatformAdapter):
             if raw:
                 try:
                     patterns = json.loads(raw)
-                except Exception:
+                except (json.JSONDecodeError, ValueError):
                     patterns = [part.strip() for part in raw.splitlines() if part.strip()]
                     if not patterns:
                         patterns = [part.strip() for part in raw.split(",") if part.strip()]
@@ -370,7 +371,7 @@ class WhatsAppAdapter(BasePlatformAdapter):
             if not self._acquire_platform_lock('whatsapp-session', str(self._session_path), 'WhatsApp session'):
                 return False
             lock_acquired = True
-        except Exception as e:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
             logger.warning("[%s] Could not acquire session lock (non-fatal): %s", self.name, e)
 
         try:
@@ -390,7 +391,7 @@ class WhatsAppAdapter(BasePlatformAdapter):
                         print(f"[{self.name}] npm install failed: {install_result.stderr}")
                         return False
                     print(f"[{self.name}] Dependencies installed")
-                except Exception as e:
+                except (AttributeError, FileNotFoundError, KeyError, subprocess.CalledProcessError, TypeError) as e:
                     print(f"[{self.name}] Failed to install dependencies: {e}")
                     return False
 
@@ -417,7 +418,7 @@ class WhatsAppAdapter(BasePlatformAdapter):
                                 return True
                             else:
                                 print(f"[{self.name}] Bridge found but not connected (status: {bridge_status}), restarting")
-            except Exception:
+            except (AttributeError, ConnectionError, KeyError, OSError, RuntimeError, TimeoutError, TypeError):
                 pass  # Bridge not running, start a new one
             
             # Kill any orphaned bridge from a previous gateway run
@@ -478,7 +479,7 @@ class WhatsAppAdapter(BasePlatformAdapter):
                                 if data.get("status") == "connected":
                                     print(f"[{self.name}] Bridge ready (status: connected)")
                                     break
-                except Exception:
+                except (AttributeError, ConnectionError, KeyError, OSError, RuntimeError, TimeoutError, TypeError):
                     continue
 
             if not http_ready:
@@ -509,7 +510,7 @@ class WhatsAppAdapter(BasePlatformAdapter):
                                     if data.get("status") == "connected":
                                         print(f"[{self.name}] Bridge ready (status: connected)")
                                         break
-                    except Exception:
+                    except (AttributeError, ConnectionError, KeyError, OSError, RuntimeError, TimeoutError, TypeError):
                         continue
                 else:
                     # Still not connected — warn but proceed (bridge may
@@ -542,7 +543,7 @@ class WhatsAppAdapter(BasePlatformAdapter):
         if self._bridge_log_fh:
             try:
                 self._bridge_log_fh.close()
-            except Exception:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                 pass
             self._bridge_log_fh = None
 
@@ -577,7 +578,7 @@ class WhatsAppAdapter(BasePlatformAdapter):
                         _terminate_bridge_process(self._bridge_process, force=True)
                     except (ProcessLookupError, PermissionError):
                         self._bridge_process.kill()
-            except Exception as e:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
                 print(f"[{self.name}] Error stopping bridge: {e}")
         else:
             # Bridge was not started by us, don't kill it
@@ -752,7 +753,7 @@ class WhatsAppAdapter(BasePlatformAdapter):
                 else:
                     error = await resp.text()
                     return SendResult(success=False, error=error)
-        except Exception as e:
+        except (ConnectionError, ImportError, ModuleNotFoundError, OSError, RuntimeError, TimeoutError) as e:
             return SendResult(success=False, error=str(e))
 
     async def _send_media_to_bridge(
@@ -815,7 +816,7 @@ class WhatsAppAdapter(BasePlatformAdapter):
         try:
             local_path = await cache_image_from_url(image_url)
             return await self._send_media_to_bridge(chat_id, local_path, "image", caption)
-        except Exception:
+        except (RuntimeError):
             return await super().send_image(chat_id, image_url, caption, reply_to)
 
     async def send_image_file(
@@ -881,7 +882,7 @@ class WhatsAppAdapter(BasePlatformAdapter):
                 json={"chatId": chat_id},
                 timeout=aiohttp.ClientTimeout(total=5)
             )
-        except Exception:
+        except (ConnectionError, ImportError, ModuleNotFoundError, OSError, RuntimeError, TimeoutError):
             pass  # Ignore typing indicator failures
     
     async def get_chat_info(self, chat_id: str) -> Dict[str, Any]:
@@ -905,7 +906,7 @@ class WhatsAppAdapter(BasePlatformAdapter):
                         "type": "group" if data.get("isGroup") else "dm",
                         "participants": data.get("participants", []),
                     }
-        except Exception as e:
+        except (AttributeError, ConnectionError, ImportError, KeyError, ModuleNotFoundError, OSError, RuntimeError, TimeoutError, TypeError) as e:
             logger.debug("Could not get WhatsApp chat info for %s: %s", chat_id, e)
         
         return {"name": chat_id, "type": "dm"}
@@ -934,7 +935,7 @@ class WhatsAppAdapter(BasePlatformAdapter):
                                 await self.handle_message(event)
             except asyncio.CancelledError:
                 break
-            except Exception as e:
+            except (AttributeError, ConnectionError, KeyError, OSError, RuntimeError, TimeoutError, TypeError) as e:
                 bridge_exit = await self._check_managed_bridge_exit()
                 if bridge_exit:
                     print(f"[{self.name}] {bridge_exit}")
@@ -988,7 +989,7 @@ class WhatsAppAdapter(BasePlatformAdapter):
                         cached_urls.append(cached_path)
                         media_types.append("image/jpeg")
                         print(f"[{self.name}] Cached user image: {cached_path}", flush=True)
-                    except Exception as e:
+                    except (RuntimeError) as e:
                         print(f"[{self.name}] Failed to cache image: {e}", flush=True)
                         cached_urls.append(url)
                         media_types.append("image/jpeg")
@@ -1003,7 +1004,7 @@ class WhatsAppAdapter(BasePlatformAdapter):
                         cached_urls.append(cached_path)
                         media_types.append("audio/ogg")
                         print(f"[{self.name}] Cached user voice: {cached_path}", flush=True)
-                    except Exception as e:
+                    except (RuntimeError) as e:
                         print(f"[{self.name}] Failed to cache voice: {e}", flush=True)
                         cached_urls.append(url)
                         media_types.append("audio/ogg")
@@ -1057,7 +1058,7 @@ class WhatsAppAdapter(BasePlatformAdapter):
                             else:
                                 body = injection
                             print(f"[{self.name}] Injected text content from: {doc_path}", flush=True)
-                        except Exception as e:
+                        except (OSError, PermissionError) as e:
                             print(f"[{self.name}] Failed to read document text: {e}", flush=True)
 
             return MessageEvent(

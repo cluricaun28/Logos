@@ -12,7 +12,7 @@ def _hermes_home_path() -> Path:
     try:
         from hermes_constants import get_hermes_home  # local import to avoid cycles
         return get_hermes_home()
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         return Path(os.path.expanduser("~/.hermes"))
 
 
@@ -68,7 +68,7 @@ def get_safe_write_root() -> Optional[str]:
         return None
     try:
         return os.path.realpath(os.path.expanduser(root))
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         return None
 
 

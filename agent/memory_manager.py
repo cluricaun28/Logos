@@ -363,7 +363,7 @@ class MemoryManager:
                 block = provider.system_prompt_block()
                 if block and block.strip():
                     blocks.append(block)
-            except Exception as e:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
                 logger.warning(
                     "Memory provider '%s' system_prompt_block() failed: %s",
                     provider.name, e,
@@ -384,7 +384,7 @@ class MemoryManager:
                 result = provider.prefetch(query, session_id=session_id)
                 if result and result.strip():
                     parts.append(result)
-            except Exception as e:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
                 logger.debug(
                     "Memory provider '%s' prefetch failed (non-fatal): %s",
                     provider.name, e,
@@ -396,7 +396,7 @@ class MemoryManager:
         for provider in self._providers:
             try:
                 provider.queue_prefetch(query, session_id=session_id)
-            except Exception as e:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
                 logger.debug(
                     "Memory provider '%s' queue_prefetch failed (non-fatal): %s",
                     provider.name, e,
@@ -409,7 +409,7 @@ class MemoryManager:
         for provider in self._providers:
             try:
                 provider.sync_turn(user_content, assistant_content, session_id=session_id)
-            except Exception as e:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
                 logger.warning(
                     "Memory provider '%s' sync_turn failed: %s",
                     provider.name, e,
@@ -428,7 +428,7 @@ class MemoryManager:
                     if name and name not in seen:
                         schemas.append(schema)
                         seen.add(name)
-            except Exception as e:
+            except (AttributeError, KeyError, TypeError) as e:
                 logger.warning(
                     "Memory provider '%s' get_tool_schemas() failed: %s",
                     provider.name, e,
@@ -456,7 +456,7 @@ class MemoryManager:
             return tool_error(f"No memory provider handles tool '{tool_name}'")
         try:
             return provider.handle_tool_call(tool_name, args, **kwargs)
-        except Exception as e:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
             logger.error(
                 "Memory provider '%s' handle_tool_call(%s) failed: %s",
                 provider.name, tool_name, e,
@@ -473,7 +473,7 @@ class MemoryManager:
         for provider in self._providers:
             try:
                 provider.on_turn_start(turn_number, message, **kwargs)
-            except Exception as e:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
                 logger.debug(
                     "Memory provider '%s' on_turn_start failed: %s",
                     provider.name, e,
@@ -484,7 +484,7 @@ class MemoryManager:
         for provider in self._providers:
             try:
                 provider.on_session_end(messages)
-            except Exception as e:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
                 logger.debug(
                     "Memory provider '%s' on_session_end failed: %s",
                     provider.name, e,
@@ -502,7 +502,7 @@ class MemoryManager:
                 result = provider.on_pre_compress(messages)
                 if result and result.strip():
                     parts.append(result)
-            except Exception as e:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
                 logger.debug(
                     "Memory provider '%s' on_pre_compress failed: %s",
                     provider.name, e,
@@ -559,7 +559,7 @@ class MemoryManager:
                     provider.on_memory_write(action, target, content, dict(metadata or {}))
                 else:
                     provider.on_memory_write(action, target, content)
-            except Exception as e:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
                 logger.debug(
                     "Memory provider '%s' on_memory_write failed: %s",
                     provider.name, e,
@@ -573,7 +573,7 @@ class MemoryManager:
                 provider.on_delegation(
                     task, result, child_session_id=child_session_id, **kwargs
                 )
-            except Exception as e:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
                 logger.debug(
                     "Memory provider '%s' on_delegation failed: %s",
                     provider.name, e,
@@ -584,7 +584,7 @@ class MemoryManager:
         for provider in reversed(self._providers):
             try:
                 provider.shutdown()
-            except Exception as e:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
                 logger.warning(
                     "Memory provider '%s' shutdown failed: %s",
                     provider.name, e,
@@ -603,7 +603,7 @@ class MemoryManager:
         for provider in self._providers:
             try:
                 provider.initialize(session_id=session_id, **kwargs)
-            except Exception as e:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
                 logger.warning(
                     "Memory provider '%s' initialize failed: %s",
                     provider.name, e,

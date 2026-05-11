@@ -5,6 +5,7 @@ Built on gateway startup, refreshed periodically (every 5 min), and saved to
 ~/.hermes/channel_directory.json.  The send_message tool reads this file for
 action="list" and for resolving human-friendly channel names to numeric IDs.
 """
+from __future__ import annotations
 
 import json
 import logging
@@ -73,7 +74,7 @@ async def build_channel_directory(adapters: Dict[Any, Any]) -> Dict[str, Any]:
                 platforms["discord"] = _build_discord(adapter)
             elif platform == Platform.SLACK:
                 platforms["slack"] = await _build_slack(adapter)
-        except Exception as e:
+        except (AttributeError, KeyError, RuntimeError, TypeError) as e:
             logger.warning("Channel directory: failed to build %s: %s", platform.value, e)
 
     # Platforms that don't support direct channel enumeration get session-based
@@ -93,7 +94,7 @@ async def build_channel_directory(adapters: Dict[Any, Any]) -> Dict[str, Any]:
 
     try:
         atomic_json_write(DIRECTORY_PATH, directory)
-    except Exception as e:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
         logger.warning("Channel directory: failed to write: %s", e)
 
     return directory
@@ -224,7 +225,7 @@ def _build_from_sessions(platform_name: str) -> List[Dict[str, str]]:
                 "type": session.get("chat_type", "dm"),
                 "thread_id": origin.get("thread_id"),
             })
-    except Exception as e:
+    except (AttributeError, json.JSONDecodeError, KeyError, OSError, PermissionError, TypeError, ValueError) as e:
         logger.debug("Channel directory: failed to read sessions for %s: %s", platform_name, e)
 
     return entries
@@ -241,7 +242,7 @@ def load_directory() -> Dict[str, Any]:
     try:
         with open(DIRECTORY_PATH, encoding="utf-8") as f:
             return json.load(f)
-    except Exception:
+    except (json.JSONDecodeError, OSError, PermissionError, ValueError):
         return {"updated_at": None, "platforms": {}}
 
 

@@ -4,6 +4,7 @@ _convert_to_trajectory_format stays as an AIAgent method (batch_runner.py
 calls agent._convert_to_trajectory_format). Only the static helpers and
 the file-write logic live here.
 """
+from __future__ import annotations
 
 import json
 import logging
@@ -52,5 +53,5 @@ def save_trajectory(trajectory: List[Dict[str, Any]], model: str,
         with open(filename, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
         logger.info("Trajectory saved to %s", filename)
-    except Exception as e:
+    except (json.JSONDecodeError, OSError, PermissionError, ValueError) as e:
         logger.warning("Failed to save trajectory: %s", e)

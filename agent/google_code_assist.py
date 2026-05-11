@@ -161,7 +161,7 @@ def _post_json(
         detail = ""
         try:
             detail = exc.read().decode("utf-8", errors="replace")
-        except Exception:
+        except (OSError, PermissionError):
             pass
         # Special case: VPC-SC violation should be distinguishable
         if _is_vpc_sc_violation(detail):

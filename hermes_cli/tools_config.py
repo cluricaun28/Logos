@@ -8,6 +8,7 @@ that need API keys, run through provider-aware configuration.
 Saves per-platform tool configuration to ~/.hermes/config.yaml under
 the `platform_toolsets` key.
 """
+from __future__ import annotations
 
 import json as _json
 import logging
@@ -122,7 +123,7 @@ def _get_effective_configurable_toolsets():
                 continue
             seen.add(entry[0])
             result.append(entry)
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         pass
     return result
 
@@ -133,7 +134,7 @@ def _get_plugin_toolset_keys() -> set:
         from hermes_cli.plugins import discover_plugins, get_plugin_toolsets
         discover_plugins()  # idempotent — ensures plugins are loaded
         return {ts_key for ts_key, _, _ in get_plugin_toolsets()}
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         return set()
 
 # Platform display config — derived from the canonical registry so every
@@ -489,7 +490,7 @@ def _run_post_setup(post_setup_key: str):
                 _chromium_installed,
                 _running_in_docker,
             )
-        except Exception as exc:  # pragma: no cover — defensive
+        except (ImportError, ModuleNotFoundError) as exc:  # pragma: no cover — defensive:
             _print_warning(f"    Could not check Chromium status: {exc}")
             return
 
@@ -550,7 +551,7 @@ def _run_post_setup(post_setup_key: str):
         except subprocess.TimeoutExpired:
             _print_warning("    Chromium install timed out (>10min)")
             _print_info("    Run manually: npx agent-browser install --with-deps")
-        except Exception as exc:
+        except (FileNotFoundError, ImportError, ModuleNotFoundError, subprocess.CalledProcessError) as exc:
             _print_warning(f"    Chromium install failed: {exc}")
             _print_info("    Run manually: npx agent-browser install --with-deps")
 
@@ -642,7 +643,7 @@ def _run_post_setup(post_setup_key: str):
         from types import SimpleNamespace
         try:
             from hermes_cli.auth import login_spotify_command
-        except Exception as exc:
+        except (ImportError, ModuleNotFoundError) as exc:
             _print_warning(f"    Could not load Spotify auth: {exc}")
             _print_info("    Run manually: hermes auth spotify")
             return
@@ -658,7 +659,7 @@ def _run_post_setup(post_setup_key: str):
             # toolset enable; they can retry with `hermes auth spotify`.
             _print_warning(f"    Spotify login did not complete: {exc}")
             _print_info("    Run later: hermes auth spotify")
-        except Exception as exc:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
             _print_warning(f"    Spotify login failed: {exc}")
             _print_info("    Run manually: hermes auth spotify")
 
@@ -981,7 +982,7 @@ def _toolset_has_keys(ts_key: str, config: dict = None) -> bool:
 
             _provider, client, _model = resolve_vision_provider_client()
             return client is not None
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             return False
 
     if ts_key in {"web", "image_gen", "tts", "browser"}:
@@ -1038,7 +1039,7 @@ def _estimate_tool_tokens() -> Dict[str, int]:
     try:
         import tiktoken
         enc = tiktoken.get_encoding("cl100k_base")
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         logger.debug("tiktoken unavailable; skipping tool token estimation")
         _tool_token_cache = {}
         return _tool_token_cache
@@ -1047,7 +1048,7 @@ def _estimate_tool_tokens() -> Dict[str, int]:
         # Trigger full tool discovery (imports all tool modules).
         import model_tools  # noqa: F401
         from tools.registry import registry
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         logger.debug("Tool registry unavailable; skipping token estimation")
         _tool_token_cache = {}
         return _tool_token_cache
@@ -1152,7 +1153,7 @@ def _plugin_image_gen_providers() -> list[dict]:
 
         _ensure_plugins_discovered()
         providers = list_providers()
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         return []
 
     rows: list[dict] = []
@@ -1162,7 +1163,7 @@ def _plugin_image_gen_providers() -> list[dict]:
             continue
         try:
             schema = provider.get_setup_schema()
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             continue
         if not isinstance(schema, dict):
             continue
@@ -1226,9 +1227,9 @@ def _toolset_needs_configuration_prompt(ts_key: str, config: dict) -> bool:
                 try:
                     if provider.is_available():
                         return False
-                except Exception:
+                except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                     continue
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             pass
         return True
 
@@ -1485,14 +1486,14 @@ def _plugin_image_gen_catalog(plugin_name: str):
 
         _ensure_plugins_discovered()
         provider = get_provider(plugin_name)
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         return {}, None
     if provider is None:
         return {}, None
     try:
         models = provider.list_models() or []
         default = provider.default_model()
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         return {}, None
     catalog = {m["id"]: m for m in models if isinstance(m, dict) and "id" in m}
     return catalog, default
@@ -2209,7 +2210,7 @@ def _configure_mcp_tools_interactive(config: dict):
     try:
         from tools.mcp_tool import probe_mcp_server_tools
         server_tools = probe_mcp_server_tools()
-    except Exception as exc:
+    except (ImportError, ModuleNotFoundError) as exc:
         _print_error(f"Failed to probe MCP servers: {exc}")
         return
 

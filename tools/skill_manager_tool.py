@@ -31,6 +31,7 @@ Directory layout for user skills:
         └── another-skill/
             └── SKILL.md
 """
+from __future__ import annotations
 
 import json
 import logging

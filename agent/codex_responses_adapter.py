@@ -132,7 +132,7 @@ def _summarize_user_message_for_log(content: Any) -> str:
         return summary
     try:
         return str(content)
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         return ""
 
 

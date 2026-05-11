@@ -22,6 +22,7 @@ Design:
 - Behavioral guidance lives in the tool schema description
 - Frozen snapshot pattern: system prompt is stable, tool responses show live state
 """
+from __future__ import annotations
 
 import json
 import logging

@@ -7,6 +7,7 @@ Handles loading and validating configuration for:
 - Session reset policies
 - Delivery preferences
 """
+from __future__ import annotations
 
 import logging
 import os
@@ -496,7 +497,7 @@ def load_gateway_config() -> GatewayConfig:
                 "Loaded legacy %s — consider moving settings to config.yaml",
                 gateway_json_path,
             )
-        except Exception as e:
+        except (json.JSONDecodeError, OSError, PermissionError, ValueError, yaml.YAMLError) as e:
             logger.warning("Failed to load %s: %s", gateway_json_path, e)
 
     # Primary source: config.yaml

@@ -3,6 +3,7 @@ Gateway subcommand for hermes CLI.
 
 Handles: hermes gateway [run|start|stop|restart|status|install|uninstall|setup]
 """
+from __future__ import annotations
 
 import asyncio
 import os
@@ -360,7 +361,7 @@ def find_gateway_pids(exclude_pids: set | None = None, all_profiles: bool = Fals
             from gateway.status import get_running_pid
 
             _append_unique_pid(pids, get_running_pid(), _exclude)
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             pass
     for pid in _get_service_pids():
         _append_unique_pid(pids, pid, _exclude)
@@ -449,7 +450,7 @@ def _wait_for_systemd_service_restart(
             from gateway.status import get_running_pid
 
             new_pid = get_running_pid()
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             new_pid = None
 
         if active_state == "active":
@@ -482,7 +483,7 @@ def _recover_pending_systemd_restart(system: bool = False, previous_pid: int | N
 
     try:
         from gateway.status import read_runtime_status
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         return False
 
     runtime_state = read_runtime_status() or {}
@@ -919,7 +920,7 @@ def _preflight_user_systemd(*, auto_enable_linger: bool = True) -> None:
                 check=False,
                 timeout=30,
             )
-        except Exception as exc:
+        except (FileNotFoundError, subprocess.CalledProcessError) as exc:
             _raise_user_systemd_unavailable(
                 username,
                 reason=f"loginctl enable-linger failed ({exc}).",
@@ -1333,7 +1334,7 @@ def get_systemd_linger_status() -> tuple[bool | None, str]:
         try:
             import pwd
             username = pwd.getpwuid(os.getuid()).pw_name
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             return None, "could not determine current user"
 
     try:
@@ -1344,7 +1345,7 @@ def get_systemd_linger_status() -> tuple[bool | None, str]:
             check=False,
             timeout=10,
         )
-    except Exception as e:
+    except (FileNotFoundError, subprocess.CalledProcessError) as e:
         return None, str(e)
 
     if result.returncode != 0:
@@ -1708,7 +1709,7 @@ def _ensure_linger_enabled() -> None:
             check=False,
             timeout=30,
         )
-    except Exception as e:
+    except (FileNotFoundError, subprocess.CalledProcessError) as e:
         _print_linger_enable_warning(username, str(e))
         return
 
@@ -2806,7 +2807,7 @@ def _runtime_health_lines() -> list[str]:
     """Summarize the latest persisted gateway runtime health state."""
     try:
         from gateway.status import read_runtime_status
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         return []
 
     state = read_runtime_status()
@@ -3041,7 +3042,7 @@ def _setup_wecom():
         # ── QR scan flow ──
         try:
             from gateway.platforms.wecom import qr_scan_for_bot_info
-        except Exception as exc:
+        except (ImportError, ModuleNotFoundError) as exc:
             print_error(f"  WeCom QR scan import failed: {exc}")
             qr_scan_for_bot_info = None
 
@@ -3052,7 +3053,7 @@ def _setup_wecom():
                 print()
                 print_warning("  WeCom setup cancelled.")
                 return
-            except Exception as exc:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
                 print_warning(f"  QR scan failed: {exc}")
                 credentials = None
             if credentials:
@@ -3207,7 +3208,7 @@ def _setup_weixin():
 
     try:
         from gateway.platforms.weixin import check_weixin_requirements, qr_login
-    except Exception as exc:
+    except (ImportError, ModuleNotFoundError) as exc:
         print_error(f"  Weixin adapter import failed: {exc}")
         print_info("  Install gateway dependencies first, then retry.")
         return
@@ -3229,7 +3230,7 @@ def _setup_weixin():
         print()
         print_warning("  Weixin setup cancelled.")
         return
-    except Exception as exc:
+    except (FileNotFoundError, RuntimeError, subprocess.CalledProcessError) as exc:
         print_error(f"  QR login failed: {exc}")
         return
 
@@ -3342,7 +3343,7 @@ def _setup_feishu():
         # ── QR scan-to-create ──
         try:
             from gateway.platforms.feishu import qr_register
-        except Exception as exc:
+        except (ImportError, ModuleNotFoundError) as exc:
             print_error(f"  Feishu / Lark onboard import failed: {exc}")
             qr_register = None
 
@@ -3353,7 +3354,7 @@ def _setup_feishu():
                 print()
                 print_warning("  Feishu / Lark setup cancelled.")
                 return
-            except Exception as exc:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
                 print_warning(f"  QR registration failed: {exc}")
         if credentials:
             used_qr = True
@@ -3389,7 +3390,7 @@ def _setup_feishu():
                 print_success(f"  Credentials verified — bot: {bot_name or 'unnamed'}")
             else:
                 print_warning("  Could not verify bot connection. Credentials saved anyway.")
-        except Exception as exc:
+        except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError) as exc:
             print_warning(f"  Credential verification skipped: {exc}")
 
         credentials = {
@@ -3646,7 +3647,7 @@ def _setup_signal():
             print_warning(f"  signal-cli responded with status {resp.status_code}.")
             if not prompt_yes_no("  Continue anyway?", False):
                 return
-    except Exception as e:
+    except (AttributeError, ConnectionError, ImportError, KeyError, ModuleNotFoundError, OSError, TimeoutError, TypeError) as e:
         print_warning(f"  Could not reach signal-cli at {url}: {e}")
         if not prompt_yes_no("  Save this URL anyway? (you can start signal-cli later)", True):
             return

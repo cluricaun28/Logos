@@ -50,8 +50,7 @@ def get_active_model() -> dict[str, Any]:
 
     config_path = Path(os.path.expanduser("~/.hermes/config.yaml"))
     try:
-        with open(config_path) as f:
-            config = _yaml.safe_load(f) or {}
+        with open(config_path, encoding='utf-8') as f:            config = _yaml.safe_load(f) or {}
         model_cfg = config.get("model", {})
         return {
             "model": model_cfg.get("default", SYNTHESIS_MODEL_DEFAULT),

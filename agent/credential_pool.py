@@ -41,7 +41,7 @@ def _load_config_safe() -> Optional[dict]:
         from hermes_cli.config import load_config
 
         return load_config()
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         return None
 
 
@@ -291,7 +291,7 @@ def _iter_custom_providers(config: Optional[dict] = None):
             from hermes_cli.config import get_compatible_custom_providers
 
             custom_providers = get_compatible_custom_providers(config)
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             return
     if not custom_providers:
         return
@@ -451,7 +451,7 @@ class CredentialPool:
                 self._replace_entry(entry, updated)
                 self._persist()
                 return updated
-        except Exception as exc:
+        except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError) as exc:
             logger.debug("Failed to sync from credentials file: %s", exc)
         return entry
 
@@ -666,7 +666,7 @@ class CredentialPool:
                             refreshed["refresh_token"],
                             refreshed["expires_at_ms"],
                         )
-                    except Exception as wexc:
+                    except (ImportError, ModuleNotFoundError) as wexc:
                         logger.debug("Failed to write refreshed token to credentials file: %s", wexc)
             elif self.provider == "openai-codex":
                 refreshed = auth_mod.refresh_codex_oauth_pure(
@@ -748,10 +748,10 @@ class CredentialPool:
                                 refreshed["refresh_token"],
                                 refreshed["expires_at_ms"],
                             )
-                        except Exception as wexc:
+                        except (ImportError, ModuleNotFoundError) as wexc:
                             logger.debug("Failed to write refreshed token to credentials file (retry path): %s", wexc)
                         return updated
-                    except Exception as retry_exc:
+                    except (ImportError, ModuleNotFoundError) as retry_exc:
                         logger.debug("Retry refresh also failed: %s", retry_exc)
                 elif not self._entry_needs_refresh(synced):
                     # Credentials file had a valid (non-expired) token — use it directly
@@ -1266,7 +1266,7 @@ def _seed_from_singletons(provider: str, entries: List[PooledCredential]) -> Tup
                             "label": source,
                         },
                     )
-        except Exception as exc:
+        except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError) as exc:
             logger.debug("Copilot token seed failed: %s", exc)
 
     elif provider == "qwen-oauth":
@@ -1296,7 +1296,7 @@ def _seed_from_singletons(provider: str, entries: List[PooledCredential]) -> Tup
                             "label": creds.get("auth_file", source_name),
                         },
                     )
-        except Exception as exc:
+        except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError) as exc:
             logger.debug("Qwen OAuth token seed failed: %s", exc)
 
     elif provider == "openai-codex":

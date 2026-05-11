@@ -3,6 +3,7 @@
 Delegates to the existing adapter functions in agent/anthropic_adapter.py.
 This transport owns format conversion and normalization — NOT client lifecycle.
 """
+from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 

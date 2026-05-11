@@ -3,6 +3,7 @@
 Pure display functions and classes with no AIAgent dependency.
 Used by AIAgent._execute_tool_calls for CLI feedback.
 """
+from __future__ import annotations
 
 import logging
 import os
@@ -67,7 +68,7 @@ def _diff_ansi() -> dict[str, str]:
         if ok_h and len(ok_h) == 7:
             or_, og, ob = int(ok_h[1:3], 16), int(ok_h[3:5], 16), int(ok_h[5:7], 16)
             plus = f"\033[38;2;255;255;255;48;2;{max(or_//4,10)};{max(og//2,20)};{max(ob//4,10)}m"
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         pass
 
     _diff_colors_cached = {
@@ -120,7 +121,7 @@ def _get_skin():
     try:
         from hermes_cli.skin_engine import get_active_skin
         return get_active_skin()
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         return None
 
 
@@ -152,7 +153,7 @@ def get_tool_emoji(tool_name: str, default: str = "⚡") -> str:
         emoji = registry.get_emoji(tool_name, default="")
         if emoji:
             return emoji
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         pass
     # 3. Hardcoded fallback
     return default
@@ -300,7 +301,7 @@ def _display_diff_path(path: Path) -> str:
     """Prefer cwd-relative paths in diffs when available."""
     try:
         return str(path.resolve().relative_to(Path.cwd().resolve()))
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         return str(path)
 
 
@@ -441,7 +442,7 @@ def _emit_inline_diff(diff_text: str, print_fn) -> bool:
         for line in diff_text.rstrip("\n").splitlines():
             print_fn(line)
         return True
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         return False
 
 
@@ -560,7 +561,7 @@ def render_edit_diff_with_delta(
         return False
     try:
         rendered_lines = _summarize_rendered_diff_sections(diff)
-    except Exception as exc:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
         logger.debug("Could not render inline diff: %s", exc)
         return False
     return _emit_inline_diff("\n".join(rendered_lines), print_fn)
@@ -611,7 +612,7 @@ class KawaiiSpinner:
                 faces = skin.spinner.get("waiting_faces", [])
                 if faces:
                     return faces
-        except Exception:
+        except (AttributeError, KeyError, TypeError):
             pass
         return cls.KAWAII_WAITING
 
@@ -624,7 +625,7 @@ class KawaiiSpinner:
                 faces = skin.spinner.get("thinking_faces", [])
                 if faces:
                     return faces
-        except Exception:
+        except (AttributeError, KeyError, TypeError):
             pass
         return cls.KAWAII_THINKING
 
@@ -637,7 +638,7 @@ class KawaiiSpinner:
                 verbs = skin.spinner.get("thinking_verbs", [])
                 if verbs:
                     return verbs
-        except Exception:
+        except (AttributeError, KeyError, TypeError):
             pass
         return cls.THINKING_VERBS
 
@@ -666,7 +667,7 @@ class KawaiiSpinner:
         if self._print_fn is not None:
             try:
                 self._print_fn(text)
-            except Exception:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                 pass
             return
         try:

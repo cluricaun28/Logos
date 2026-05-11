@@ -53,8 +53,7 @@ def discover_context_engines() -> list[tuple[str, str, bool]]:
         if yaml_file.exists():
             try:
                 import yaml
-                with open(yaml_file) as f:
-                    meta = yaml.safe_load(f) or {}
+                with open(yaml_file, encoding='utf-8') as f:                    meta = yaml.safe_load(f) or {}
                 desc = meta.get("description", "")
             except Exception as e:
                 logger.debug("Silently handled: %s", e)

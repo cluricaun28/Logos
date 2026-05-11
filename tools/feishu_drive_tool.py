@@ -4,6 +4,7 @@ Provides tools for listing, replying to, and adding document comments.
 Uses the same lazy-import + BaseRequest pattern as feishu_comment.py.
 The lark client is injected per-thread by the comment event handler.
 """
+from __future__ import annotations
 
 import json
 import logging

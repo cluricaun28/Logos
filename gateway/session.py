@@ -7,6 +7,7 @@ Handles:
 - Reset policy evaluation (when to start fresh)
 - Dynamic system prompt injection (agent knows its context)
 """
+from __future__ import annotations
 
 import hashlib
 import logging
@@ -223,7 +224,7 @@ def _discord_tools_loaded() -> bool:
         cfg = load_config()
         enabled = _get_platform_tools(cfg, "discord", include_default_mcp_servers=False)
         return "discord" in enabled or "discord_admin" in enabled
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         return False
 
 
@@ -659,7 +660,7 @@ class SessionStore:
         try:
             from hermes_state import SessionDB
             self._db = SessionDB()
-        except Exception as e:
+        except (ImportError, ModuleNotFoundError) as e:
             print(f"[gateway] Warning: SQLite session store unavailable, falling back to JSONL: {e}")
     
     def _ensure_loaded(self) -> None:
@@ -685,7 +686,7 @@ class SessionStore:
                         except (ValueError, KeyError):
                             # Skip entries with unknown/removed platform values
                             continue
-            except Exception as e:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
                 print(f"[gateway] Warning: Failed to load sessions: {e}")
 
         self._loaded = True
@@ -817,7 +818,7 @@ class SessionStore:
         if self._db:
             try:
                 return self._db.session_count() > 1
-            except Exception:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                 pass  # fall through to heuristic
         # Fallback: check if sessions.json was loaded with existing data.
         # This covers the rare case where the DB is unavailable.
@@ -915,13 +916,13 @@ class SessionStore:
         if self._db and db_end_session_id:
             try:
                 self._db.end_session(db_end_session_id, "session_reset")
-            except Exception as e:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
                 logger.debug("Session DB operation failed: %s", e)
 
         if self._db and db_create_kwargs:
             try:
                 self._db.create_session(**db_create_kwargs)
-            except Exception as e:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
                 print(f"[gateway] Warning: Failed to create SQLite session: {e}")
 
         return entry
@@ -1044,7 +1045,7 @@ class SessionStore:
                     try:
                         if self._has_active_processes_fn(entry.session_key):
                             continue
-                    except Exception as exc:
+                    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
                         logger.debug(
                             "has_active_processes_fn raised during prune for %s: %s",
                             entry.session_key, exc,
@@ -1134,13 +1135,13 @@ class SessionStore:
         if self._db and db_end_session_id:
             try:
                 self._db.end_session(db_end_session_id, "session_reset")
-            except Exception as e:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
                 logger.debug("Session DB operation failed: %s", e)
 
         if self._db and db_create_kwargs:
             try:
                 self._db.create_session(**db_create_kwargs)
-            except Exception as e:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
                 logger.debug("Session DB operation failed: %s", e)
 
         return new_entry
@@ -1189,13 +1190,13 @@ class SessionStore:
         if self._db and db_end_session_id:
             try:
                 self._db.end_session(db_end_session_id, "session_switch")
-            except Exception as e:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
                 logger.debug("Session DB end_session failed: %s", e)
 
         if self._db:
             try:
                 self._db.reopen_session(target_session_id)
-            except Exception as e:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
                 logger.debug("Session DB reopen_session failed: %s", e)
 
         return new_entry
@@ -1243,7 +1244,7 @@ class SessionStore:
                     codex_reasoning_items=message.get("codex_reasoning_items") if message.get("role") == "assistant" else None,
                     codex_message_items=message.get("codex_message_items") if message.get("role") == "assistant" else None,
                 )
-            except Exception as e:
+            except (AttributeError, KeyError, TypeError) as e:
                 logger.debug("Session DB operation failed: %s", e)
         
         # Also write legacy JSONL (keeps existing tooling working during transition)
@@ -1263,7 +1264,7 @@ class SessionStore:
         if self._db:
             try:
                 self._db.replace_messages(session_id, messages)
-            except Exception as e:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
                 logger.debug("Failed to rewrite transcript in DB: %s", e)
         
         # JSONL: overwrite the file
@@ -1279,7 +1280,7 @@ class SessionStore:
         if self._db:
             try:
                 db_messages = self._db.get_messages_as_conversation(session_id)
-            except Exception as e:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
                 logger.debug("Could not load messages from DB: %s", e)
 
         # Load legacy JSONL transcript (may contain more history than SQLite

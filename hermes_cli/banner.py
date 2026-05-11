@@ -2,6 +2,7 @@
 
 Pure display functions with no HermesCLI state dependency.
 """
+from __future__ import annotations
 
 import json
 import logging
@@ -47,7 +48,7 @@ def _skin_color(key: str, fallback: str) -> str:
     try:
         from hermes_cli.skin_engine import get_active_skin
         return get_active_skin().get_color(key, fallback)
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         return fallback
 
 
@@ -56,7 +57,7 @@ def _skin_branding(key: str, fallback: str) -> str:
     try:
         from hermes_cli.skin_engine import get_active_skin
         return get_active_skin().get_branding(key, fallback)
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         return fallback
 
 
@@ -105,7 +106,7 @@ def get_available_skills() -> Dict[str, List[str]]:
     try:
         from tools.skills_tool import _find_all_skills
         all_skills = _find_all_skills()  # already filtered
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         return {}
 
     skills_by_category: Dict[str, List[str]] = {}
@@ -147,7 +148,7 @@ def check_for_updates() -> Optional[int]:
             cached = json.loads(cache_file.read_text())
             if now - cached.get("ts", 0) < _UPDATE_CHECK_CACHE_SECONDS:
                 return cached.get("behind")
-    except Exception:
+    except (AttributeError, json.JSONDecodeError, KeyError, OSError, PermissionError, TypeError, ValueError):
         pass
 
     # Fetch latest refs (fast — only downloads ref metadata, no files)
@@ -157,7 +158,7 @@ def check_for_updates() -> Optional[int]:
             capture_output=True, timeout=10,
             cwd=str(repo_dir),
         )
-    except Exception:
+    except (FileNotFoundError, subprocess.CalledProcessError):
         pass  # Offline or timeout — use stale refs, that's fine
 
     # Count commits behind
@@ -171,13 +172,13 @@ def check_for_updates() -> Optional[int]:
             behind = int(result.stdout.strip())
         else:
             behind = None
-    except Exception:
+    except (FileNotFoundError, subprocess.CalledProcessError):
         behind = None
 
     # Write cache
     try:
         cache_file.write_text(json.dumps({"ts": now, "behind": behind}))
-    except Exception:
+    except (json.JSONDecodeError, OSError, PermissionError, ValueError):
         pass
 
     return behind
@@ -202,7 +203,7 @@ def _git_short_hash(repo_dir: Path, rev: str) -> Optional[str]:
             timeout=5,
             cwd=str(repo_dir),
         )
-    except Exception:
+    except (FileNotFoundError, subprocess.CalledProcessError):
         return None
     if result.returncode != 0:
         return None
@@ -232,7 +233,7 @@ def get_git_banner_state(repo_dir: Optional[Path] = None) -> Optional[dict]:
         )
         if result.returncode == 0:
             ahead = int((result.stdout or "0").strip() or "0")
-    except Exception:
+    except (FileNotFoundError, subprocess.CalledProcessError):
         ahead = 0
 
     return {"upstream": upstream, "local": local, "ahead": max(ahead, 0)}
@@ -266,7 +267,7 @@ def get_latest_release_tag(repo_dir: Optional[Path] = None) -> Optional[tuple]:
             timeout=3,
             cwd=str(repo_dir),
         )
-    except Exception:
+    except (FileNotFoundError, subprocess.CalledProcessError):
         _latest_release_cache = ()
         return None
 
@@ -413,7 +414,7 @@ def build_welcome_banner(console: Console, model: str, cwd: str,
         from hermes_cli.skin_engine import get_active_skin
         _bskin = get_active_skin()
         _hero = _bskin.banner_hero if hasattr(_bskin, 'banner_hero') and _bskin.banner_hero else HERMES_CADUCEUS
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         _bskin = None
         _hero = HERMES_CADUCEUS
     left_lines = ["", _hero, ""]
@@ -492,7 +493,7 @@ def build_welcome_banner(console: Console, model: str, cwd: str,
     try:
         from tools.mcp_tool import get_mcp_status
         mcp_status = get_mcp_status()
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         mcp_status = []
 
     if mcp_status:
@@ -541,7 +542,7 @@ def build_welcome_banner(console: Console, model: str, cwd: str,
         _profile_name = get_active_profile_name()
         if _profile_name and _profile_name != "default":
             right_lines.append(f"[bold {accent}]Profile:[/] [{text}]{_profile_name}[/]")
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         pass  # Never break the banner over a profiles.py bug
 
     right_lines.append(f"[dim {dim}]{' · '.join(summary_parts)}[/]")
@@ -556,7 +557,7 @@ def build_welcome_banner(console: Console, model: str, cwd: str,
                 f"[bold yellow]⚠ {behind} {commits_word} behind[/]"
                 f"[dim yellow] — run [bold]{recommended_update_command()}[/bold] to update[/]"
             )
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         pass  # Never break the banner over an update check
 
     right_content = "\n".join(right_lines)

@@ -15,6 +15,7 @@ Each child gets:
 The parent's context only sees the delegation call and the summary result,
 never the child's intermediate tool calls or reasoning.
 """
+from __future__ import annotations
 
 import enum
 import json

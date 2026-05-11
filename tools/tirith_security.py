@@ -19,6 +19,7 @@ verification only — still secure via HTTPS + checksum, just without supply
 chain provenance proof.  Installation runs in a background thread so startup
 never blocks.
 """
+from __future__ import annotations
 
 import hashlib
 import json

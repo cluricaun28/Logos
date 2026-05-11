@@ -127,7 +127,7 @@ def slack_manifest_command(args) -> int:
                 from hermes_constants import get_hermes_home
 
                 target = Path(get_hermes_home()) / "slack-manifest.json"
-            except Exception:
+            except (ImportError, ModuleNotFoundError, OSError, PermissionError):
                 target = Path.home() / ".hermes" / "slack-manifest.json"
         else:
             target = Path(write_target).expanduser()

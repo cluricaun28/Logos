@@ -4,6 +4,7 @@ Base platform adapter interface.
 All platform adapters (Telegram, Discord, WhatsApp) inherit from this
 and implement the required methods.
 """
+from __future__ import annotations
 
 import asyncio
 import inspect
@@ -164,7 +165,7 @@ def _detect_macos_system_proxy() -> str | None:
         out = subprocess.check_output(
             ["scutil", "--proxy"], timeout=3, text=True, stderr=subprocess.DEVNULL,
         )
-    except Exception:
+    except (AttributeError, FileNotFoundError, KeyError, subprocess.CalledProcessError, TypeError):
         return None
 
     props: dict[str, str] = {}
@@ -442,7 +443,7 @@ def safe_url_for_log(url: str, max_len: int = 80) -> str:
 
     try:
         parsed = urlsplit(raw)
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         return raw[:max_len]
 
     if parsed.scheme and parsed.netloc:
@@ -972,7 +973,7 @@ def coerce_plaintext_gateway_command(event: "MessageEvent") -> None:
             if pattern.match(text):
                 event.text = "/restart"
                 return
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         return
 
 
@@ -1256,7 +1257,7 @@ class BasePlatformAdapter(ABC):
         try:
             from gateway.status import write_runtime_status
             write_runtime_status(platform=self.platform.value, platform_state="connected", error_code=None, error_message=None)
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             pass
 
     def _mark_disconnected(self) -> None:
@@ -1266,7 +1267,7 @@ class BasePlatformAdapter(ABC):
         try:
             from gateway.status import write_runtime_status
             write_runtime_status(platform=self.platform.value, platform_state="disconnected", error_code=None, error_message=None)
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             pass
 
     def _set_fatal_error(self, code: str, message: str, *, retryable: bool) -> None:
@@ -1282,7 +1283,7 @@ class BasePlatformAdapter(ABC):
                 error_code=code,
                 error_message=message,
             )
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             pass
 
     async def _notify_fatal_error(self) -> None:
@@ -1806,7 +1807,7 @@ class BasePlatformAdapter(ABC):
                         pass
                     except asyncio.CancelledError:
                         raise
-                    except Exception as typing_err:
+                    except (RuntimeError) as typing_err:
                         logger.debug(
                             "[%s] send_typing error (non-fatal): %s",
                             self.name, typing_err,
@@ -1829,7 +1830,7 @@ class BasePlatformAdapter(ABC):
             if hasattr(self, "stop_typing"):
                 try:
                     await self.stop_typing(chat_id)
-                except Exception:
+                except (RuntimeError):
                     pass
             self._typing_paused.discard(chat_id)
 
@@ -1853,7 +1854,7 @@ class BasePlatformAdapter(ABC):
                 interrupt_event.set()
         try:
             await self.stop_typing(chat_id)
-        except Exception:
+        except (RuntimeError):
             pass
 
     def register_post_delivery_callback(
@@ -1915,7 +1916,7 @@ class BasePlatformAdapter(ABC):
             return
         try:
             await hook(*args, **kwargs)
-        except Exception as e:
+        except (RuntimeError) as e:
             logger.warning("[%s] %s hook failed: %s", self.name, hook_name, e)
 
     @staticmethod
@@ -2004,7 +2005,7 @@ class BasePlatformAdapter(ABC):
                 )
                 try:
                     await self.send(chat_id=chat_id, content=notice, reply_to=reply_to, metadata=metadata)
-                except Exception as notify_err:
+                except (RuntimeError) as notify_err:
                     logger.debug("[%s] Could not send delivery-failure notice: %s", self.name, notify_err)
                 return result
 
@@ -2165,7 +2166,7 @@ class BasePlatformAdapter(ABC):
                 await task
             except asyncio.CancelledError:
                 pass
-            except Exception:
+            except (RuntimeError):
                 logger.debug(
                     "[%s] Session cancellation raised while unwinding %s",
                     self.name,
@@ -2240,7 +2241,7 @@ class BasePlatformAdapter(ABC):
                     reply_to=event.message_id,
                     metadata=thread_meta,
                 )
-        except Exception:
+        except (RuntimeError):
             # On failure, restore the original guard if one still exists so
             # we don't leave the session in a half-reset state.
             if self._active_sessions.get(session_key) is command_guard:
@@ -2302,7 +2303,7 @@ class BasePlatformAdapter(ABC):
                 if cmd in ("stop", "new", "reset"):
                     try:
                         await self._dispatch_active_session_command(event, session_key, cmd)
-                    except Exception as e:
+                    except (RuntimeError) as e:
                         logger.error(
                             "[%s] Command '/%s' dispatch failed: %s",
                             self.name, cmd, e, exc_info=True,
@@ -2326,7 +2327,7 @@ class BasePlatformAdapter(ABC):
                             reply_to=event.message_id,
                             metadata=_thread_meta,
                         )
-                except Exception as e:
+                except (RuntimeError) as e:
                     logger.error("[%s] Command '/%s' dispatch failed: %s", self.name, cmd, e, exc_info=True)
                 return
 
@@ -2334,7 +2335,7 @@ class BasePlatformAdapter(ABC):
                 try:
                     if await self._busy_session_handler(event, session_key):
                         return
-                except Exception as e:
+                except (RuntimeError) as e:
                     logger.error("[%s] Busy-session handler failed: %s", self.name, e, exc_info=True)
 
             # Special case: photo bursts/albums frequently arrive as multiple near-
@@ -2483,7 +2484,7 @@ class BasePlatformAdapter(ABC):
                             )
                             tts_data = _json.loads(tts_result_str)
                             _tts_path = tts_data.get("file_path")
-                    except Exception as tts_err:
+                    except (AttributeError, ImportError, json.JSONDecodeError, KeyError, ModuleNotFoundError, RuntimeError, TypeError, ValueError) as tts_err:
                         logger.warning("[%s] Auto-TTS failed: %s", self.name, tts_err)
 
                 # Play TTS audio before text (voice-first experience)
@@ -2544,7 +2545,7 @@ class BasePlatformAdapter(ABC):
                             )
                         if not img_result.success:
                             logger.error("[%s] Failed to send image: %s", self.name, img_result.error)
-                    except Exception as img_err:
+                    except (RuntimeError) as img_err:
                         logger.error("[%s] Error sending image: %s", self.name, img_err, exc_info=True)
 
                 # Send extracted media files — route by file type
@@ -2583,7 +2584,7 @@ class BasePlatformAdapter(ABC):
 
                         if not media_result.success:
                             logger.warning("[%s] Failed to send media (%s): %s", self.name, ext, media_result.error)
-                    except Exception as media_err:
+                    except (OSError, PermissionError, RuntimeError) as media_err:
                         logger.warning("[%s] Error sending media: %s", self.name, media_err)
 
                 # Send auto-detected local files as native attachments
@@ -2610,7 +2611,7 @@ class BasePlatformAdapter(ABC):
                                 file_path=file_path,
                                 metadata=_thread_metadata,
                             )
-                    except Exception as file_err:
+                    except (OSError, PermissionError, RuntimeError) as file_err:
                         logger.error("[%s] Error sending local file %s: %s", self.name, file_path, file_err)
 
             # Determine overall success for the processing hook
@@ -2653,7 +2654,7 @@ class BasePlatformAdapter(ABC):
                 outcome = ProcessingOutcome.FAILURE
             await self._run_processing_hook("on_processing_complete", event, outcome)
             raise
-        except Exception as e:
+        except (RuntimeError) as e:
             await self._run_processing_hook("on_processing_complete", event, ProcessingOutcome.FAILURE)
             logger.error("[%s] Error handling message: %s", self.name, e, exc_info=True)
             # Send the error to the user so they aren't left with radio silence
@@ -2670,7 +2671,7 @@ class BasePlatformAdapter(ABC):
                     ),
                     metadata=_thread_metadata,
                 )
-            except Exception:
+            except (RuntimeError):
                 pass  # Last resort — don't let error reporting crash the handler
         finally:
             # Fire any one-shot post-delivery callback registered for this
@@ -2686,7 +2687,7 @@ class BasePlatformAdapter(ABC):
             if callable(_post_cb):
                 try:
                     _post_cb()
-                except Exception:
+                except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                     pass
             # Stop typing indicator
             typing_task.cancel()
@@ -2699,7 +2700,7 @@ class BasePlatformAdapter(ABC):
             try:
                 if hasattr(self, "stop_typing"):
                     await self.stop_typing(event.source.chat_id)
-            except Exception:
+            except (RuntimeError):
                 pass
             # Late-arrival drain: a message may have arrived during the
             # cleanup awaits above (typing_task cancel, stop_typing).  Such

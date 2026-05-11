@@ -5,6 +5,7 @@ syncs to remote environments transactionally.  Used by SSH, Modal,
 and Daytona.  Docker and Singularity use bind mounts (live host FS
 view) and don't need this.
 """
+from __future__ import annotations
 
 import hashlib
 import logging

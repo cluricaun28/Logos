@@ -9,6 +9,7 @@ Design principles:
   - Staging area isolation (~/.hermes/staging/) — nothing touches RL until approved
   - Provenance tracking: every draft includes source turn IDs in frontmatter
 """
+from __future__ import annotations
 
 import json
 import logging
@@ -75,7 +76,7 @@ class SynthesisService:
             logger.info(f"Fetched {len(turns)} raw turns from PM (requested {len(turn_ids)})")
             return turns
 
-        except Exception as e:
+        except (ImportError, json.JSONDecodeError, ModuleNotFoundError, sqlite3.Error, ValueError) as e:
             logger.error(f"Failed to fetch turns from PM: {e}")
             return []
 
@@ -143,7 +144,7 @@ class SynthesisService:
                 logger.warning(f"LLM returned minimal content ({len(draft_content)} chars), using fallback")
                 draft_content = self._fallback_draft(cluster_id, turn_ids, content_text)
 
-        except Exception as e:
+        except (ImportError, ModuleNotFoundError) as e:
             logger.warning(f"Synthesis LLM call failed (using fallback): {e}")
             # Fallback to static summary if LLM unavailable
             draft_content = self._fallback_draft(cluster_id, turn_ids, content_text)
@@ -164,7 +165,7 @@ class SynthesisService:
             with os.fdopen(fd, "w") as f:
                 f.write(draft_content)
             os.replace(tmp_path, draft_path)
-        except Exception:
+        except (OSError, PermissionError):
             if os.path.exists(tmp_path):
                 os.unlink(tmp_path)
             raise
@@ -315,7 +316,7 @@ Write only the revised Markdown entry. Do not include preamble or explanation.""
 
             return revised
 
-        except Exception as e:
+        except (ImportError, ModuleNotFoundError) as e:
             logger.warning(f"Revision LLM call failed (returning original draft): {e}")
             return draft_content
 

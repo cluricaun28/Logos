@@ -11,6 +11,7 @@ Requires:
 - HASS_TOKEN env var (Long-Lived Access Token)
 - HASS_URL env var (default: http://homeassistant.local:8123)
 """
+from __future__ import annotations
 
 import asyncio
 import json
@@ -133,7 +134,7 @@ class HomeAssistantAdapter(BasePlatformAdapter):
             logger.info("[%s] Connected to %s", self.name, self._hass_url)
             return True
 
-        except Exception as e:
+        except (ConnectionError, OSError, RuntimeError, TimeoutError) as e:
             logger.error("[%s] Failed to connect: %s", self.name, e)
             return False
 
@@ -223,7 +224,7 @@ class HomeAssistantAdapter(BasePlatformAdapter):
                 await self._read_events()
             except asyncio.CancelledError:
                 return
-            except Exception as e:
+            except (RuntimeError) as e:
                 logger.warning("[%s] WebSocket error: %s", self.name, e)
 
             if not self._running:
@@ -241,7 +242,7 @@ class HomeAssistantAdapter(BasePlatformAdapter):
                 if success:
                     backoff_idx = 0  # Reset on successful reconnect
                     logger.info("[%s] Reconnected", self.name)
-            except Exception as e:
+            except (RuntimeError) as e:
                 logger.warning("[%s] Reconnection failed: %s", self.name, e)
 
     async def _read_events(self) -> None:
@@ -434,7 +435,7 @@ class HomeAssistantAdapter(BasePlatformAdapter):
 
         except asyncio.TimeoutError:
             return SendResult(success=False, error="Timeout sending notification to HA")
-        except Exception as e:
+        except (ConnectionError, OSError, RuntimeError, TimeoutError) as e:
             return SendResult(success=False, error=str(e))
 
     async def send_typing(self, chat_id: str, metadata=None) -> None:

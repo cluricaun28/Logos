@@ -3,6 +3,7 @@
 These files can't be meaningfully compared as text and are often large.
 Ported from free-code src/constants/files.ts.
 """
+from __future__ import annotations
 
 BINARY_EXTENSIONS = frozenset({
     # Images

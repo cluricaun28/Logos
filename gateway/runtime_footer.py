@@ -43,7 +43,7 @@ def _home_relative_cwd(cwd: str) -> str:
         if home and (p == home or p.startswith(home + os.sep)):
             return "~" + p[len(home):]
         return p
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         return cwd
 
 

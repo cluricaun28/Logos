@@ -5,6 +5,7 @@ Usage:
     transport = get_transport("anthropic_messages")
     result = transport.normalize_response(raw_response)
 """
+from __future__ import annotations
 
 from agent.transports.types import NormalizedResponse, ToolCall, Usage, build_tool_call, map_finish_reason  # noqa: F401
 

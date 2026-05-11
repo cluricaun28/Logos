@@ -28,6 +28,7 @@ Usage:
         replace_all=False
     )
 """
+from __future__ import annotations
 
 import re
 from typing import Tuple, Optional, List, Callable

@@ -27,6 +27,7 @@ Usage:
         user_prompt="What architectural style is this building?"
     )
 """
+from __future__ import annotations
 
 import base64
 import json
@@ -61,7 +62,7 @@ def _resolve_download_timeout() -> float:
         val = cfg.get("auxiliary", {}).get("vision", {}).get("download_timeout")
         if val is not None:
             return float(val)
-    except Exception:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
         pass
     return 30.0
 
@@ -339,7 +340,7 @@ def _resize_image_for_vision(image_path: Path, mime_type: Optional[str] = None,
 
     try:
         img = Image.open(image_path)
-    except Exception as exc:
+    except (OSError, PermissionError) as exc:
         logger.info("Pillow cannot open image for resizing: %s", exc)
         if data_url is None:
             data_url = _image_to_base64_data_url(image_path, mime_type=mime_type)
@@ -564,7 +565,7 @@ async def vision_analyze_tool(
             _vtemp = _vision_cfg.get("temperature")
             if _vtemp is not None:
                 vision_temperature = float(_vtemp)
-        except Exception:
+        except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
             pass
         call_kwargs = {
             "task": "vision",
@@ -578,7 +579,7 @@ async def vision_analyze_tool(
         # Try full-size image first; on size-related rejection, downscale and retry.
         try:
             response = await async_call_llm(**call_kwargs)
-        except Exception as _api_err:
+        except (RuntimeError) as _api_err:
             if (_is_image_size_error(_api_err)
                     and len(image_data_url) > _RESIZE_TARGET_BYTES):
                 logger.info(
@@ -677,7 +678,7 @@ async def vision_analyze_tool(
             try:
                 temp_image_path.unlink()
                 logger.debug("Cleaned up temporary image file")
-            except Exception as cleanup_error:
+            except (OSError, PermissionError) as cleanup_error:
                 logger.warning(
                     "Could not delete temporary file: %s", cleanup_error, exc_info=True
                 )
@@ -690,7 +691,7 @@ def check_vision_requirements() -> bool:
 
         _provider, client, _model = resolve_vision_provider_client()
         return client is not None
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         return False
 
 

@@ -6,6 +6,7 @@ before they reach log files, verbose output, or gateway logs.
 Short tokens (< 18 chars) are fully masked. Longer tokens preserve
 the first 6 and last 4 characters for debuggability.
 """
+from __future__ import annotations
 
 import logging
 import os

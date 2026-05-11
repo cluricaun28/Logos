@@ -9,6 +9,7 @@ Auth supports:
   - OAuth setup-tokens (sk-ant-oat*) → Bearer auth + beta header
   - Claude Code credentials (~/.claude.json or ~/.claude/.credentials.json) → Bearer auth
 """
+from __future__ import annotations
 
 import copy
 import json
@@ -153,7 +154,7 @@ def _resolve_positive_anthropic_max_tokens(value) -> Optional[int]:
         import math
         if not math.isfinite(value):
             return None
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         return None
     floored = int(value)  # truncates toward zero for floats
     return floored if floored > 0 else None
@@ -286,7 +287,7 @@ def _detect_claude_code_version() -> str:
                 version = result.stdout.strip().split()[0]
                 if version and version[0].isdigit():
                     return version
-        except Exception:
+        except (FileNotFoundError, subprocess.CalledProcessError):
             pass
     return _CLAUDE_CODE_VERSION_FALLBACK
 
@@ -697,7 +698,7 @@ def refresh_anthropic_oauth_pure(refresh_token: str, *, use_json: bool = False) 
         try:
             with urllib.request.urlopen(req, timeout=10) as resp:
                 result = json.loads(resp.read().decode())
-        except Exception as exc:
+        except (json.JSONDecodeError, OSError, PermissionError, ValueError) as exc:
             last_error = exc
             logger.debug("Anthropic token refresh failed at %s: %s", endpoint, exc)
             continue
@@ -734,7 +735,7 @@ def _refresh_oauth_token(creds: Dict[str, Any]) -> Optional[str]:
         )
         logger.debug("Successfully refreshed Claude Code OAuth token")
         return refreshed["access_token"]
-    except Exception as e:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
         logger.debug("Failed to refresh Claude Code token: %s", e)
         return None
 
@@ -855,7 +856,7 @@ def resolve_anthropic_token() -> Optional[str]:
         entry = pool.select()
         if entry and entry.access_token and not entry.source.startswith("env:"):
             return entry.access_token
-    except Exception as exc:
+    except (ImportError, ModuleNotFoundError) as exc:
         # Pool lookup is best-effort — fall through to env/file sources
         # if anything goes wrong (e.g. auth.json corruption during a
         # concurrent write).
@@ -992,7 +993,7 @@ def run_hermes_oauth_login_pure() -> Optional[Dict[str, Any]]:
     try:
         webbrowser.open(auth_url)
         print("  (Browser opened automatically)")
-    except Exception:
+    except (OSError, PermissionError):
         pass
 
     print()
@@ -1035,7 +1036,7 @@ def run_hermes_oauth_login_pure() -> Optional[Dict[str, Any]]:
 
         with urllib.request.urlopen(req, timeout=15) as resp:
             result = json.loads(resp.read().decode())
-    except Exception as e:
+    except (ImportError, json.JSONDecodeError, ModuleNotFoundError, OSError, PermissionError, ValueError) as e:
         print(f"Token exchange failed: {e}")
         return None
 

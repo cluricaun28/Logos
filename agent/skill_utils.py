@@ -4,6 +4,7 @@ This module intentionally avoids importing the tool registry, CLI config, or any
 heavy dependency chain.  It is safe to import at module level without triggering
 tool registration or provider resolution.
 """
+from __future__ import annotations
 
 import logging
 import os
@@ -75,7 +76,7 @@ def parse_frontmatter(content: str) -> Tuple[Dict[str, Any], str]:
         parsed = yaml_load(yaml_content)
         if isinstance(parsed, dict):
             frontmatter = parsed
-    except Exception:
+    except (yaml.YAMLError):
         # Fallback: simple key:value parsing for malformed YAML
         for line in yaml_content.strip().split("\n"):
             if ":" not in line:
@@ -135,7 +136,7 @@ def get_disabled_skill_names(platform: str | None = None) -> Set[str]:
         return set()
     try:
         parsed = yaml_load(config_path.read_text(encoding="utf-8"))
-    except Exception as e:
+    except (OSError, PermissionError, yaml.YAMLError) as e:
         logger.debug("Could not read skill config %s: %s", config_path, e)
         return set()
     if not isinstance(parsed, dict):
@@ -183,7 +184,7 @@ def get_external_skills_dirs() -> List[Path]:
         return []
     try:
         parsed = yaml_load(config_path.read_text(encoding="utf-8"))
-    except Exception:
+    except (OSError, PermissionError, yaml.YAMLError):
         return []
     if not isinstance(parsed, dict):
         return []
@@ -337,7 +338,7 @@ def discover_all_skill_config_vars() -> List[Dict[str, Any]]:
             try:
                 raw = skill_file.read_text(encoding="utf-8")
                 frontmatter, _ = parse_frontmatter(raw)
-            except Exception:
+            except (OSError, PermissionError):
                 continue
 
             skill_name = frontmatter.get("name") or skill_file.parent.name
@@ -391,7 +392,7 @@ def resolve_skill_config_values(
             parsed = yaml_load(config_path.read_text(encoding="utf-8"))
             if isinstance(parsed, dict):
                 config = parsed
-        except Exception:
+        except (OSError, PermissionError, yaml.YAMLError):
             pass
 
     resolved: Dict[str, Any] = {}

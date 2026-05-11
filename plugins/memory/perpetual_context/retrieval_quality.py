@@ -79,8 +79,7 @@ class RetrievalQualityScorer:
         """Load quality history from disk. Graceful on failure."""
         try:
             if os.path.exists(self._state_file):
-                with open(self._state_file, "r") as f:
-                    data = json.load(f)
+                with open(self._state_file, "r", encoding='utf-8') as f:                    data = json.load(f)
                 self._entries = data.get("events", [])[:_MAX_ENTRIES]
                 # Validate entries — drop corrupt ones
                 validated = []
@@ -97,8 +96,7 @@ class RetrievalQualityScorer:
         try:
             data = {"events": self._entries}
             tmp_path = self._state_file + ".tmp"
-            with open(tmp_path, "w") as f:
-                json.dump(data, f, indent=2)
+            with open(tmp_path, "w", encoding='utf-8') as f:                json.dump(data, f, indent=2)
             os.replace(tmp_path, self._state_file)
         except (IOError, OSError) as e:
             logger.debug("Failed to save retrieval quality state: %s", e)

@@ -4,6 +4,7 @@ Cron job storage and management.
 Jobs are stored in ~/.hermes/cron/jobs.json
 Output is saved to ~/.hermes/cron/output/{job_id}/{timestamp}.md
 """
+from __future__ import annotations
 
 import copy
 import json
@@ -164,7 +165,7 @@ def parse_schedule(schedule: str) -> Dict[str, Any]:
         # Validate cron expression
         try:
             croniter(schedule)
-        except Exception as e:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
             raise ValueError(f"Invalid cron expression '{schedule}': {e}")
         return {
             "kind": "cron",
@@ -282,7 +283,7 @@ def _compute_grace_seconds(schedule: dict) -> int:
             period_seconds = int((second - first).total_seconds())
             grace = period_seconds // 2
             return max(MIN_GRACE, min(grace, MAX_GRACE))
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             pass
 
     return MIN_GRACE
@@ -351,7 +352,7 @@ def load_jobs() -> List[Dict[str, Any]]:
                     save_jobs(jobs)
                     logger.warning("Auto-repaired jobs.json (had invalid control characters)")
                 return jobs
-        except Exception as e:
+        except (AttributeError, json.JSONDecodeError, KeyError, OSError, PermissionError, TypeError, ValueError) as e:
             logger.error("Failed to auto-repair jobs.json: %s", e)
             raise RuntimeError(f"Cron database corrupted and unrepairable: {e}") from e
     except IOError as e:

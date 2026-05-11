@@ -11,6 +11,7 @@ Config stored in ~/.hermes/config.yaml under:
       telegram: [skill-c]
       cli: []
 """
+from __future__ import annotations
 from typing import List, Optional, Set
 
 from hermes_cli.config import load_config, save_config
@@ -54,7 +55,7 @@ def _list_all_skills() -> List[dict]:
     try:
         from tools.skills_tool import _find_all_skills
         return _find_all_skills(skip_disabled=True)
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         return []
 
 

@@ -10,6 +10,7 @@ colon-separated params, intermediate bytes), OSC (BEL and ST terminators),
 DCS/SOS/PM/APC string sequences, nF multi-byte escapes, Fp/Fe/Fs
 single-byte escapes, and 8-bit C1 control characters.
 """
+from __future__ import annotations
 
 import re
 

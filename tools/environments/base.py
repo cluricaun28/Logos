@@ -5,6 +5,7 @@ A session snapshot (env vars, functions, aliases) is captured once at init and
 re-sourced before each command. CWD persists via in-band stdout markers (remote)
 or a temp file (local).
 """
+from __future__ import annotations
 
 import codecs
 import json

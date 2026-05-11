@@ -190,7 +190,7 @@ def copilot_device_code_login(
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
             device_data = json.loads(resp.read().decode())
-    except Exception as exc:
+    except (json.JSONDecodeError, OSError, PermissionError, ValueError) as exc:
         logger.error("Failed to initiate device authorization: %s", exc)
         print(f"  ✗ Failed to start device authorization: {exc}")
         return None
@@ -236,7 +236,7 @@ def copilot_device_code_login(
         try:
             with urllib.request.urlopen(poll_req, timeout=10) as resp:
                 result = json.loads(resp.read().decode())
-        except Exception:
+        except (json.JSONDecodeError, OSError, PermissionError, ValueError):
             print(".", end="", flush=True)
             continue
 
@@ -331,7 +331,7 @@ def exchange_copilot_token(raw_token: str, *, timeout: float = 10.0) -> tuple[st
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read().decode())
-    except Exception as exc:
+    except (json.JSONDecodeError, OSError, PermissionError, ValueError) as exc:
         raise ValueError(f"Copilot token exchange failed: {exc}") from exc
 
     api_token = data.get("token", "")
@@ -363,7 +363,7 @@ def get_copilot_api_token(raw_token: str) -> str:
     try:
         api_token, _ = exchange_copilot_token(raw_token)
         return api_token
-    except Exception as exc:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
         logger.debug("Copilot token exchange failed, using raw token: %s", exc)
         return raw_token
 

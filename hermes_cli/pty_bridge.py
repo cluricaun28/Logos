@@ -128,7 +128,7 @@ class PtyBridge:
             return False
         try:
             return bool(self._proc.isalive())
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             return False
 
     # -- I/O --------------------------------------------------------------
@@ -210,7 +210,7 @@ class PtyBridge:
                 break
             try:
                 self._proc.kill(sig)
-            except Exception:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                 pass
             deadline = time.monotonic() + 0.5
             while self._proc.isalive() and time.monotonic() < deadline:
@@ -218,7 +218,7 @@ class PtyBridge:
 
         try:
             self._proc.close(force=True)
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             pass
 
     # Context-manager sugar — handy in tests and ad-hoc scripts.

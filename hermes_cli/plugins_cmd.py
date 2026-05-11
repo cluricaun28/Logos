@@ -121,9 +121,8 @@ def _read_manifest(plugin_dir: Path) -> dict:
     try:
         import yaml
 
-        with open(manifest_file) as f:
-            return yaml.safe_load(f) or {}
-    except Exception as e:
+        with open(manifest_file, encoding='utf-8') as f:            return yaml.safe_load(f) or {}
+    except (ImportError, ModuleNotFoundError, OSError, PermissionError, yaml.YAMLError) as e:
         logger.warning("Failed to read plugin.yaml in %s: %s", plugin_dir, e)
         return {}
 
@@ -521,7 +520,7 @@ def _get_disabled_set() -> set:
         config = load_config()
         disabled = config.get("plugins", {}).get("disabled", [])
         return set(disabled) if isinstance(disabled, list) else set()
-    except Exception:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
         return set()
 
 
@@ -549,7 +548,7 @@ def _get_enabled_set() -> set:
             return set()
         enabled = plugins_cfg.get("enabled", [])
         return set(enabled) if isinstance(enabled, list) else set()
-    except Exception:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
         return set()
 
 
@@ -679,12 +678,11 @@ def _discover_all_plugins() -> list:
             description = ""
             if yaml:
                 try:
-                    with open(manifest_file) as f:
-                        manifest = yaml.safe_load(f) or {}
+                    with open(manifest_file, encoding='utf-8') as f:                        manifest = yaml.safe_load(f) or {}
                     name = manifest.get("name", d.name)
                     version = manifest.get("version", "")
                     description = manifest.get("description", "")
-                except Exception:
+                except (AttributeError, KeyError, OSError, PermissionError, TypeError, yaml.YAMLError):
                     pass
             # User plugins override bundled on name collision.
             if name in seen and source == "bundled":
@@ -745,7 +743,7 @@ def _discover_memory_providers() -> list[tuple[str, str]]:
     try:
         from plugins.memory import discover_memory_providers
         return [(name, desc) for name, desc, _avail in discover_memory_providers()]
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         return []
 
 
@@ -754,7 +752,7 @@ def _discover_context_engines() -> list[tuple[str, str]]:
     try:
         from plugins.context_engine import discover_context_engines
         return [(name, desc) for name, desc, _avail in discover_context_engines()]
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         return []
 
 
@@ -764,7 +762,7 @@ def _get_current_memory_provider() -> str:
         from hermes_cli.config import load_config
         config = load_config()
         return config.get("memory", {}).get("provider", "") or ""
-    except Exception:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
         return ""
 
 
@@ -774,7 +772,7 @@ def _get_current_context_engine() -> str:
         from hermes_cli.config import load_config
         config = load_config()
         return config.get("context", {}).get("engine", "compressor") or "compressor"
-    except Exception:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
         return "compressor"
 
 

@@ -25,6 +25,7 @@ Configuration in config.yaml:
           client_id: "your-app-key"      # or DINGTALK_CLIENT_ID env var
           client_secret: "your-secret"   # or DINGTALK_CLIENT_SECRET env var
 """
+from __future__ import annotations
 
 import asyncio
 import json
@@ -279,7 +280,7 @@ class DingTalkAdapter(BasePlatformAdapter):
                 await self._stream_client.start()
             except asyncio.CancelledError:
                 return
-            except Exception as e:
+            except (RuntimeError) as e:
                 if not self._running:
                     return
                 logger.warning("[%s] Stream client error: %s", self.name, e)
@@ -304,7 +305,7 @@ class DingTalkAdapter(BasePlatformAdapter):
         if websocket is not None:
             try:
                 await websocket.close()
-            except Exception as e:
+            except (RuntimeError) as e:
                 logger.debug("[%s] websocket close during disconnect failed: %s", self.name, e)
 
         if self._stream_task:
@@ -313,7 +314,7 @@ class DingTalkAdapter(BasePlatformAdapter):
             if hasattr(self._stream_client, "close"):
                 try:
                     await asyncio.to_thread(self._stream_client.close)
-                except Exception:
+                except (RuntimeError):
                     pass
 
             self._stream_task.cancel()
@@ -369,7 +370,7 @@ class DingTalkAdapter(BasePlatformAdapter):
             if raw:
                 try:
                     loaded = json.loads(raw)
-                except Exception:
+                except (json.JSONDecodeError, ValueError):
                     loaded = [part.strip() for part in raw.splitlines() if part.strip()]
                     if not loaded:
                         loaded = [part.strip() for part in raw.split(",") if part.strip()]
@@ -486,7 +487,7 @@ class DingTalkAdapter(BasePlatformAdapter):
                     "[%s] AI Card sibling closed: %s",
                     self.name, out_track_id,
                 )
-            except Exception as e:
+            except (RuntimeError) as e:
                 logger.debug(
                     "[%s] Sibling close failed for %s: %s",
                     self.name, out_track_id, e,
@@ -852,7 +853,7 @@ class DingTalkAdapter(BasePlatformAdapter):
             return SendResult(
                 success=False, error="Timeout sending message to DingTalk"
             )
-        except Exception as e:
+        except (ConnectionError, OSError, RuntimeError, TimeoutError) as e:
             logger.error("[%s] Send error: %s", self.name, e)
             return SendResult(success=False, error=str(e))
 
@@ -1046,7 +1047,7 @@ class DingTalkAdapter(BasePlatformAdapter):
                 # sibling.
                 self._streaming_cards.setdefault(chat_id, {})[message_id] = content
             return SendResult(success=True, message_id=message_id)
-        except Exception as e:
+        except (AttributeError, ImportError, KeyError, ModuleNotFoundError, RuntimeError, TypeError) as e:
             logger.warning("[%s] Card edit failed: %s", self.name, e)
             return SendResult(success=False, error=str(e))
 
@@ -1085,7 +1086,7 @@ class DingTalkAdapter(BasePlatformAdapter):
             # SDK's get_access_token is sync and uses requests
             token = await asyncio.to_thread(self._stream_client.get_access_token)
             return token
-        except Exception as e:
+        except (ConnectionError, OSError, RuntimeError, TimeoutError) as e:
             logger.error("[%s] Failed to get access token: %s", self.name, e)
             return None
 
@@ -1235,7 +1236,7 @@ class DingTalkAdapter(BasePlatformAdapter):
                     self.name,
                     code,
                 )
-        except Exception as e:
+        except (RuntimeError) as e:
             logger.error("[%s] Error resolving media code %s: %s", self.name, code, e)
 
     @staticmethod
@@ -1356,7 +1357,7 @@ class _IncomingHandler(
         """Wrapper that catches exceptions from _on_message."""
         try:
             await self._adapter._on_message(chatbot_msg)
-        except Exception:
+        except (RuntimeError):
             logger.exception(
                 "[%s] Error processing incoming message", self._adapter.name
             )

@@ -4,6 +4,7 @@ Extracts common patterns that were duplicated across 5-7 adapters:
 message deduplication, text batch aggregation, markdown stripping,
 and thread participation tracking.
 """
+from __future__ import annotations
 
 import asyncio
 import json
@@ -146,7 +147,7 @@ class TextBatchAggregator:
         if event:
             try:
                 await self._handler(event)
-            except Exception:
+            except (RuntimeError):
                 logger.exception("[TextBatchAggregator] Error dispatching batched event for %s", key)
 
         if self._pending_tasks.get(key) is current_task:
@@ -231,7 +232,7 @@ class ThreadParticipationTracker:
         if path.exists():
             try:
                 return set(json.loads(path.read_text(encoding="utf-8")))
-            except Exception:
+            except (json.JSONDecodeError, OSError, PermissionError, ValueError):
                 pass
         return set()
 

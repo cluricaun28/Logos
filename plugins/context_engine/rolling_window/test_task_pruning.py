@@ -2,6 +2,7 @@
 
 Run standalone: python3 plugins/context_engine/rolling_window/test_task_pruning.py
 """
+from __future__ import annotations
 
 import sys
 import os

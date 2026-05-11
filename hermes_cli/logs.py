@@ -16,6 +16,7 @@ Usage examples::
     hermes logs --since 1h         # lines from the last hour
     hermes logs --since 30m -f     # follow, starting 30 min ago
 """
+from __future__ import annotations
 
 import re
 import sys
@@ -320,11 +321,11 @@ def _read_last_n_lines(path: Path, n: int) -> list:
                     continue
                 try:
                     decoded.append(raw.decode("utf-8", errors="replace") + "\n")
-                except Exception:
+                except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                     decoded.append(raw.decode("latin-1") + "\n")
             return decoded[-n:]
 
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         # Fallback: read entire file
         with open(path, "r", encoding="utf-8", errors="replace") as f:
             all_lines = f.readlines()

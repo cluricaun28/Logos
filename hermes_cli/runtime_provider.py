@@ -102,7 +102,7 @@ def _auto_detect_local_model(base_url: str) -> str:
                 model_id = models[0].get("id", "")
                 if model_id:
                     return model_id
-    except Exception:
+    except (AttributeError, ConnectionError, ImportError, KeyError, ModuleNotFoundError, OSError, TimeoutError, TypeError):
         pass
     return ""
 
@@ -160,7 +160,7 @@ def _copilot_runtime_api_mode(model_cfg: Dict[str, Any], api_key: str) -> str:
         from hermes_cli.models import copilot_model_api_mode
 
         return copilot_model_api_mode(model_name, api_key=api_key)
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         return "chat_completions"
 
 
@@ -240,7 +240,7 @@ def _resolve_runtime_from_pool_entry(
                 from hermes_cli.models import azure_foundry_model_api_mode
 
                 inferred = azure_foundry_model_api_mode(effective_model)
-            except Exception:
+            except (ImportError, ModuleNotFoundError):
                 inferred = None
             if inferred:
                 api_mode = inferred
@@ -342,7 +342,7 @@ def _try_resolve_from_custom_pool(
             "source": f"pool:{pool_key}",
             "credential_pool": pool,
         }
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         return None
 
 
@@ -665,7 +665,7 @@ def _resolve_azure_foundry_runtime(
             from hermes_cli.models import azure_foundry_model_api_mode
 
             inferred = azure_foundry_model_api_mode(effective_model)
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             inferred = None
         if inferred:
             cfg_api_mode = inferred
@@ -683,7 +683,7 @@ def _resolve_azure_foundry_runtime(
         try:
             from hermes_cli.config import get_env_value
             api_key = get_env_value("AZURE_FOUNDRY_API_KEY") or ""
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             api_key = ""
     if not api_key:
         api_key = os.getenv("AZURE_FOUNDRY_API_KEY", "").strip()
@@ -957,7 +957,7 @@ def resolve_runtime_provider(
 
     try:
         pool = load_pool(provider) if should_use_pool else None
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         pool = None
     if pool and pool.has_credentials():
         entry = pool.select()

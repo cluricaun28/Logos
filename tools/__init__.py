@@ -13,6 +13,7 @@ Callers should import concrete submodules directly, for example:
 Python will resolve those submodules via the package path without needing them
 to be re-exported here.
 """
+from __future__ import annotations
 
 
 def check_file_requirements():

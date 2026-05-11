@@ -17,6 +17,7 @@ Data resolution order (like TypeScript OpenCode):
 Other modules should import the dataclasses and query functions from here
 rather than parsing the raw JSON themselves.
 """
+from __future__ import annotations
 
 import json
 import logging
@@ -191,7 +192,7 @@ def _load_disk_cache() -> Dict[str, Any]:
         if cache_path.exists():
             with open(cache_path, encoding="utf-8") as f:
                 return json.load(f)
-    except Exception as e:
+    except (json.JSONDecodeError, OSError, PermissionError, ValueError) as e:
         logger.debug("Failed to load models.dev disk cache: %s", e)
     return {}
 
@@ -201,7 +202,7 @@ def _save_disk_cache(data: Dict[str, Any]) -> None:
     try:
         cache_path = _get_cache_path()
         atomic_json_write(cache_path, data, indent=None, separators=(",", ":"))
-    except Exception as e:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
         logger.debug("Failed to save models.dev disk cache: %s", e)
 
 
@@ -235,7 +236,7 @@ def fetch_models_dev(force_refresh: bool = False) -> Dict[str, Any]:
                 sum(len(p.get("models", {})) for p in data.values() if isinstance(p, dict)),
             )
             return data
-    except Exception as e:
+    except (AttributeError, ConnectionError, KeyError, OSError, TimeoutError, TypeError) as e:
         logger.debug("Failed to fetch models.dev: %s", e)
 
     # Fall back to disk cache — use a short TTL (5 min) so we retry

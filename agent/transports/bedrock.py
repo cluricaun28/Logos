@@ -5,6 +5,7 @@ Bedrock uses its own boto3 client (not the OpenAI SDK), so the transport
 owns format conversion and normalization, while client construction and
 boto3 calls stay on AIAgent.
 """
+from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 

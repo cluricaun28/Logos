@@ -6,6 +6,7 @@ skills_config (label display) and tools_config (default toolset
 resolution).  Import ``PLATFORMS`` from here instead of maintaining
 duplicate dicts in each module.
 """
+from __future__ import annotations
 
 from collections import OrderedDict
 from typing import NamedTuple

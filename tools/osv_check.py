@@ -9,6 +9,7 @@ Fail-open: network errors allow the package to proceed.
 
 Inspired by Block/goose's extension malware check.
 """
+from __future__ import annotations
 
 import json
 import logging

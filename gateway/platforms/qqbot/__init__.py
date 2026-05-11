@@ -13,6 +13,7 @@ New modules:
     - ``crypto`` — AES-256-GCM key generation and decryption
     - ``onboard`` — QR-code scan-to-configure flow
 """
+from __future__ import annotations
 
 # -- Adapter (original qqbot.py) ------------------------------------------
 from .adapter import (  # noqa: F401

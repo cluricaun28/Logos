@@ -545,7 +545,7 @@ def _post_form(url: str, data: Dict[str, str], timeout: float) -> Dict[str, Any]
         detail = ""
         try:
             detail = exc.read().decode("utf-8", errors="replace")
-        except Exception:
+        except (OSError, PermissionError):
             pass
         # Detect invalid_grant to signal credential revocation
         code = "google_oauth_token_http_error"
@@ -622,7 +622,7 @@ def _fetch_user_email(access_token: str, timeout: float = TOKEN_REQUEST_TIMEOUT_
             raw = response.read().decode("utf-8", errors="replace")
         data = json.loads(raw)
         return str(data.get("email", "") or "")
-    except Exception as exc:
+    except (AttributeError, json.JSONDecodeError, KeyError, OSError, PermissionError, TypeError, ValueError) as exc:
         logger.debug("Userinfo fetch failed (non-fatal): %s", exc)
         return ""
 
@@ -889,7 +889,7 @@ def start_oauth_flow(
             import webbrowser
 
             webbrowser.open(auth_url, new=1, autoraise=True)
-        except Exception as exc:
+        except (ImportError, ModuleNotFoundError, OSError, PermissionError) as exc:
             logger.debug("webbrowser.open failed: %s", exc)
 
     code: Optional[str] = None
@@ -908,11 +908,11 @@ def start_oauth_flow(
     finally:
         try:
             server.shutdown()
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             pass
         try:
             server.server_close()
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             pass
         server_thread.join(timeout=2.0)
 

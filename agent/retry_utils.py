@@ -4,6 +4,7 @@ Replaces fixed exponential backoff with jittered delays to prevent
 thundering-herd retry spikes when multiple sessions hit the same
 rate-limited provider concurrently.
 """
+from __future__ import annotations
 
 import random
 import threading

@@ -66,7 +66,7 @@ def _fetch_models_from_api(access_token: str) -> List[str]:
             return []
         data = resp.json()
         entries = data.get("models", []) if isinstance(data, dict) else []
-    except Exception as exc:
+    except (AttributeError, ConnectionError, ImportError, KeyError, ModuleNotFoundError, OSError, TimeoutError, TypeError) as exc:
         logger.debug("Failed to fetch Codex models from API: %s", exc)
         return []
 
@@ -97,11 +97,11 @@ def _read_default_model(codex_home: Path) -> Optional[str]:
         return None
     try:
         import tomllib
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         return None
     try:
         payload = tomllib.loads(config_path.read_text(encoding="utf-8"))
-    except Exception:
+    except (OSError, PermissionError):
         return None
     model = payload.get("model") if isinstance(payload, dict) else None
     if isinstance(model, str) and model.strip():
@@ -115,7 +115,7 @@ def _read_cache_models(codex_home: Path) -> List[str]:
         return []
     try:
         raw = json.loads(cache_path.read_text(encoding="utf-8"))
-    except Exception:
+    except (json.JSONDecodeError, OSError, PermissionError, ValueError):
         return []
 
     entries = raw.get("models") if isinstance(raw, dict) else None

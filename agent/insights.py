@@ -15,6 +15,7 @@ Usage:
     report = engine.generate(days=30)
     print(engine.format_terminal(report))
 """
+from __future__ import annotations
 
 import json
 import time

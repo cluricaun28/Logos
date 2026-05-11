@@ -94,14 +94,14 @@ def _http_get_json(url: str, api_key: str, timeout: float = 6.0) -> tuple[int, O
             body = resp.read()
             try:
                 return resp.status, json.loads(body.decode("utf-8", errors="replace"))
-            except Exception:
+            except (json.JSONDecodeError, ValueError):
                 return resp.status, None
     except HTTPError as exc:
         return exc.code, None
     except (URLError, TimeoutError, OSError) as exc:
         logger.debug("azure_detect: GET %s failed: %s", url, exc)
         return 0, None
-    except Exception as exc:  # pragma: no cover — defensive
+    except (json.JSONDecodeError, ValueError) as exc:  # pragma: no cover — defensive:
         logger.debug("azure_detect: GET %s unexpected error: %s", url, exc)
         return 0, None
 
@@ -119,7 +119,7 @@ def _looks_like_anthropic_path(url: str) -> bool:
         parsed = urlparse(url)
         path = (parsed.path or "").lower().rstrip("/")
         return path.endswith("/anthropic") or "/anthropic/" in path + "/"
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         return False
 
 
@@ -210,11 +210,11 @@ def _probe_anthropic_messages(base_url: str, api_key: str) -> bool:
             if exc.code == 400 and ("messages" in lowered or "model" in lowered):
                 return True
             return False
-        except Exception:
+        except (OSError, PermissionError):
             return False
     except (URLError, TimeoutError, OSError):
         return False
-    except Exception:  # pragma: no cover
+    except (OSError, PermissionError):
         return False
 
 
@@ -231,7 +231,7 @@ def detect(base_url: str, api_key: str) -> DetectionResult:
     try:
         parsed = urlparse(base_url)
         result.hostname = (parsed.hostname or "").lower()
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         result.hostname = ""
 
     # 1. Path sniff.  Azure Foundry exposes Anthropic-style deployments
@@ -283,12 +283,12 @@ def lookup_context_length(model: str, base_url: str, api_key: str) -> Optional[i
             DEFAULT_FALLBACK_CONTEXT,
             get_model_context_length,
         )
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         return None
 
     try:
         n = get_model_context_length(model, base_url=base_url, api_key=api_key)
-    except Exception as exc:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
         logger.debug("azure_detect: context length lookup failed: %s", exc)
         return None
 

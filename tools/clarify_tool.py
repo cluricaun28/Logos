@@ -10,6 +10,7 @@ The actual user-interaction logic lives in the platform layer (cli.py for CLI,
 gateway/run.py for messaging). This module defines the schema, validation, and
 a thin dispatcher that delegates to a platform-provided callback.
 """
+from __future__ import annotations
 
 import json
 from typing import List, Optional, Callable

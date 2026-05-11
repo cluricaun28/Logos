@@ -88,7 +88,7 @@ def get_active_provider() -> Optional[ImageGenProvider]:
             raw = section.get("provider")
             if isinstance(raw, str) and raw.strip():
                 configured = raw.strip()
-    except Exception as exc:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError) as exc:
         logger.debug("Could not read image_gen.provider from config: %s", exc)
 
     with _lock:

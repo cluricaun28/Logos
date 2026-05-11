@@ -110,6 +110,7 @@ USER SKINS
 Drop a YAML file in ``~/.hermes/skins/<name>.yaml`` following the schema above.
 Activate with ``/skin <name>`` in the CLI or ``display.skin: <name>`` in config.yaml.
 """
+from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
@@ -660,7 +661,7 @@ def _load_skin_from_yaml(path: Path) -> Optional[Dict[str, Any]]:
             data = yaml.safe_load(f)
         if isinstance(data, dict) and "name" in data:
             return data
-    except Exception as e:
+    except (ImportError, ModuleNotFoundError, OSError, PermissionError, yaml.YAMLError) as e:
         logger.debug("Failed to load skin from %s: %s", path, e)
     return None
 
@@ -784,7 +785,7 @@ def get_active_prompt_symbol(fallback: str = "❯ ") -> str:
     """Get the interactive prompt symbol from the active skin."""
     try:
         return get_active_skin().get_branding("prompt_symbol", fallback)
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         return fallback
 
 
@@ -793,7 +794,7 @@ def get_active_help_header(fallback: str = "(^_^)? Available Commands") -> str:
     """Get the /help header from the active skin."""
     try:
         return get_active_skin().get_branding("help_header", fallback)
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         return fallback
 
 
@@ -802,7 +803,7 @@ def get_active_goodbye(fallback: str = "Goodbye! ⚕") -> str:
     """Get the goodbye line from the active skin."""
     try:
         return get_active_skin().get_branding("goodbye", fallback)
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         return fallback
 
 
@@ -815,7 +816,7 @@ def get_prompt_toolkit_style_overrides() -> Dict[str, str]:
     """
     try:
         skin = get_active_skin()
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         return {}
 
     prompt = skin.get_color("prompt", "#FFF8DC")

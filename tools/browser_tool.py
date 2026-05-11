@@ -48,6 +48,7 @@ Usage:
     # Click an element
     browser_click("@e5", task_id="task_123")
 """
+from __future__ import annotations
 
 import atexit
 import functools
@@ -195,7 +196,7 @@ def _get_command_timeout() -> int:
         val = cfg.get("browser", {}).get("command_timeout")
         if val is not None:
             result = max(int(val), 5)  # Floor at 5s to avoid instant kills
-    except Exception as e:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError) as e:
         logger.debug("Could not read command_timeout from config: %s", e)
     _cached_command_timeout = result
     return result
@@ -247,7 +248,7 @@ def _resolve_cdp_override(cdp_url: str) -> str:
         response = requests.get(version_url, timeout=10)
         response.raise_for_status()
         payload = response.json()
-    except Exception as exc:
+    except (AttributeError, KeyError, TypeError) as exc:
         logger.warning("Failed to resolve CDP endpoint %s via %s: %s", raw, version_url, exc)
         return raw
 
@@ -282,7 +283,7 @@ def _get_cdp_override() -> str:
         browser_cfg = cfg.get("browser", {})
         if isinstance(browser_cfg, dict):
             return _resolve_cdp_override(str(browser_cfg.get("cdp_url", "") or ""))
-    except Exception as e:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError) as e:
         logger.debug("Could not read browser.cdp_url from config: %s", e)
 
     return ""
@@ -320,7 +321,7 @@ def _get_dialog_policy_config() -> Tuple[str, float]:
         except (TypeError, ValueError):
             timeout_s = DEFAULT_DIALOG_TIMEOUT_S
         return policy, timeout_s
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         return DEFAULT_DIALOG_POLICY, DEFAULT_DIALOG_TIMEOUT_S
 
 
@@ -364,7 +365,7 @@ def _ensure_cdp_supervisor(task_id: str) -> None:
             dialog_policy=policy,
             dialog_timeout_s=timeout_s,
         )
-    except Exception as exc:
+    except (ImportError, ModuleNotFoundError) as exc:
         logger.debug(
             "CDP supervisor attach for task=%s failed (non-fatal): %s",
             task_id,
@@ -378,7 +379,7 @@ def _stop_cdp_supervisor(task_id: str) -> None:
         from tools.browser_supervisor import SUPERVISOR_REGISTRY  # type: ignore[import-not-found]
 
         SUPERVISOR_REGISTRY.stop(task_id)
-    except Exception as exc:
+    except (ImportError, ModuleNotFoundError) as exc:
         logger.debug("CDP supervisor stop for task=%s failed (non-fatal): %s", task_id, exc)
 
 
@@ -427,7 +428,7 @@ def _get_cloud_provider() -> Optional[CloudBrowserProvider]:
                 return None
         if provider_key and provider_key in _PROVIDER_REGISTRY:
             _cached_cloud_provider = _PROVIDER_REGISTRY[provider_key]()
-    except Exception as e:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError) as e:
         logger.debug("Could not read cloud_provider from config: %s", e)
 
     if _cached_cloud_provider is None:
@@ -512,7 +513,7 @@ def _auto_local_for_private_urls() -> bool:
             _cached_auto_local_for_private_urls = bool(
                 browser_cfg.get("auto_local_for_private_urls")
             )
-    except Exception as e:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError) as e:
         logger.debug("Could not read auto_local_for_private_urls from config: %s", e)
     return _cached_auto_local_for_private_urls
 
@@ -571,7 +572,7 @@ def _url_is_private(url: str) -> bool:
             ):
                 return True
         return False
-    except Exception as exc:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
         logger.debug("URL-privacy check failed for %s: %s", url, exc)
         return False
 
@@ -644,7 +645,7 @@ def _allow_private_urls() -> bool:
             _cached_allow_private_urls = is_truthy_value(
                 browser_cfg.get("allow_private_urls"), default=False
             )
-    except Exception as e:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError) as e:
         logger.debug("Could not read allow_private_urls from config: %s", e)
     return _cached_allow_private_urls
 
@@ -730,7 +731,7 @@ def _emergency_cleanup_all_sessions():
                     len(_active_sessions))
         try:
             cleanup_all_browsers()
-        except Exception as e:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
             logger.error("Emergency cleanup error: %s", e)
         finally:
             with _cleanup_lock:
@@ -743,7 +744,7 @@ def _emergency_cleanup_all_sessions():
     # daemons owned by other live hermes processes.
     try:
         _reap_orphaned_browser_sessions()
-    except Exception as e:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
         logger.debug("Orphan reap on exit failed: %s", e)
 
 
@@ -784,7 +785,7 @@ def _cleanup_inactive_browser_sessions():
             with _cleanup_lock:
                 if task_id in _session_last_activity:
                     del _session_last_activity[task_id]
-        except Exception as e:
+        except (AttributeError, KeyError, TypeError) as e:
             logger.warning("Error cleaning up inactive session %s: %s", task_id, e)
 
 
@@ -937,13 +938,13 @@ def _browser_cleanup_thread_worker():
     # One-time orphan reap on startup
     try:
         _reap_orphaned_browser_sessions()
-    except Exception as e:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
         logger.warning("Orphan reap error: %s", e)
 
     while _cleanup_running:
         try:
             _cleanup_inactive_browser_sessions()
-        except Exception as e:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
             logger.warning("Cleanup thread error: %s", e)
         
         # Sleep in 1-second intervals so we can stop quickly if needed
@@ -1231,7 +1232,7 @@ def _get_session_info(task_id: Optional[str] = None) -> Dict[str, str]:
                     # CDP discovery URL instead of a raw websocket endpoint.
                     session_info = dict(session_info)
                     session_info["cdp_url"] = _resolve_cdp_override(str(session_info["cdp_url"]))
-            except Exception as e:
+            except (AttributeError, KeyError, TypeError) as e:
                 provider_name = type(provider).__name__
                 logger.warning(
                     "Cloud provider %s failed (%s); attempting fallback to local "
@@ -1241,7 +1242,7 @@ def _get_session_info(task_id: Optional[str] = None) -> Dict[str, str]:
                 )
                 try:
                     session_info = _create_local_session(task_id)
-                except Exception as local_error:
+                except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as local_error:
                     raise RuntimeError(
                         f"Cloud provider {provider_name} failed ({e}) and local "
                         f"fallback also failed ({local_error})"
@@ -1425,7 +1426,7 @@ def _run_browser_command(
     # Get session info (creates Browserbase session with proxies if needed)
     try:
         session_info = _get_session_info(task_id)
-    except Exception as e:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
         logger.warning("Failed to create browser session for task=%s: %s", task_id, e)
         return {"success": False, "error": f"Failed to create browser session: {str(e)}"}
     
@@ -1673,7 +1674,7 @@ def _extract_relevant_content(
         extracted = (response.choices[0].message.content or "").strip() or _truncate_snapshot(snapshot_text)
         # Redact any secrets the auxiliary LLM may have echoed back.
         return redact_sensitive_text(extracted)
-    except Exception:
+    except (AttributeError, KeyError, TypeError):
         return _truncate_snapshot(snapshot_text)
 
 
@@ -1871,7 +1872,7 @@ def browser_navigate(url: str, task_id: Optional[str] = None) -> str:
                     snapshot_text = _truncate_snapshot(snapshot_text)
                 response["snapshot"] = snapshot_text
                 response["element_count"] = len(refs) if refs else 0
-        except Exception as e:
+        except (AttributeError, KeyError, TypeError) as e:
             logger.debug("Auto-snapshot after navigate failed: %s", e)
 
         return json.dumps(response, ensure_ascii=False)
@@ -1938,7 +1939,7 @@ def browser_snapshot(
                 _sv_snap = _supervisor.snapshot()
                 if _sv_snap.active:
                     response.update(_sv_snap.to_dict())
-        except Exception as _sv_exc:
+        except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError) as _sv_exc:
             logger.debug("supervisor snapshot merge failed: %s", _sv_exc)
 
         return json.dumps(response, ensure_ascii=False)
@@ -2252,7 +2253,7 @@ def _camofox_eval(expression: str, task_id: Optional[str] = None) -> str:
             "result": parsed,
             "result_type": type(parsed).__name__,
         }, ensure_ascii=False, default=str)
-    except Exception as e:
+    except (json.JSONDecodeError, ValueError) as e:
         error_msg = str(e)
         # Graceful degradation — server may not support eval
         if any(code in error_msg for code in ("404", "405", "501")):
@@ -2292,7 +2293,7 @@ def _maybe_start_recording(task_id: str):
             logger.info("Auto-recording browser session %s to %s", task_id, recording_path)
         else:
             logger.debug("Could not start auto-recording: %s", result.get("error"))
-    except Exception as e:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError) as e:
         logger.debug("Auto-recording setup failed: %s", e)
 
 
@@ -2306,7 +2307,7 @@ def _maybe_stop_recording(task_id: str):
         if result.get("success"):
             path = result.get("data", {}).get("path", "")
             logger.info("Saved browser recording for session %s: %s", task_id, path)
-    except Exception as e:
+    except (AttributeError, KeyError, TypeError) as e:
         logger.debug("Could not stop recording for %s: %s", task_id, e)
     finally:
         with _cleanup_lock:
@@ -2483,7 +2484,7 @@ def browser_vision(question: str, annotate: bool = False, task_id: Optional[str]
             _vtemp = _vision_cfg.get("temperature")
             if _vtemp is not None:
                 vision_temperature = float(_vtemp)
-        except Exception:
+        except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
             pass
 
         call_kwargs = {
@@ -2506,7 +2507,7 @@ def browser_vision(question: str, annotate: bool = False, task_id: Optional[str]
         # Try full-size screenshot; on size-related rejection, downscale and retry.
         try:
             response = call_llm(**call_kwargs)
-        except Exception as _api_err:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as _api_err:
             from tools.vision_tools import (
                 _is_image_size_error, _resize_image_for_vision, _RESIZE_TARGET_BYTES,
             )
@@ -2570,9 +2571,9 @@ def _cleanup_old_screenshots(screenshots_dir, max_age_hours=24):
             try:
                 if f.stat().st_mtime < cutoff:
                     f.unlink()
-            except Exception as e:
+            except (OSError, PermissionError) as e:
                 logger.debug("Failed to clean old screenshot %s: %s", f, e)
-    except Exception as e:
+    except (OSError, PermissionError) as e:
         logger.debug("Screenshot cleanup error (non-critical): %s", e)
 
 
@@ -2588,9 +2589,9 @@ def _cleanup_old_recordings(max_age_hours=72):
             try:
                 if f.stat().st_mtime < cutoff:
                     f.unlink()
-            except Exception as e:
+            except (OSError, PermissionError) as e:
                 logger.debug("Failed to clean old recording %s: %s", f, e)
-    except Exception as e:
+    except (OSError, PermissionError) as e:
         logger.debug("Recording cleanup error (non-critical): %s", e)
 
 
@@ -2654,7 +2655,7 @@ def _cleanup_single_browser_session(task_id: str) -> None:
             from tools.browser_camofox import camofox_close, camofox_soft_cleanup
             if not camofox_soft_cleanup(task_id):
                 camofox_close(task_id)
-        except Exception as e:
+        except (ImportError, ModuleNotFoundError) as e:
             logger.debug("Camofox cleanup for task %s: %s", task_id, e)
 
     logger.debug("cleanup_browser called for task_id: %s", task_id)
@@ -2676,7 +2677,7 @@ def _cleanup_single_browser_session(task_id: str) -> None:
         try:
             _run_browser_command(task_id, "close", [], timeout=10)
             logger.debug("agent-browser close command completed for task %s", task_id)
-        except Exception as e:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
             logger.warning("agent-browser close failed for task %s: %s", task_id, e)
 
         # Now remove from tracking under lock
@@ -2691,7 +2692,7 @@ def _cleanup_single_browser_session(task_id: str) -> None:
             if provider is not None:
                 try:
                     provider.close_session(bb_session_id)
-                except Exception as e:
+                except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
                     logger.warning("Could not close cloud browser session: %s", e)
         
         # Kill the daemon process and clean up socket directory
@@ -2730,7 +2731,7 @@ def cleanup_all_browsers() -> None:
     try:
         from tools.browser_supervisor import SUPERVISOR_REGISTRY  # type: ignore[import-not-found]
         SUPERVISOR_REGISTRY.stop_all()
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         pass
 
     # Reset cached lookups so they are re-evaluated on next use.

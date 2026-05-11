@@ -7,6 +7,7 @@ Uses slack-bolt (Python) with Socket Mode for:
 - Handling slash commands
 - Thread support
 """
+from __future__ import annotations
 
 import asyncio
 import json
@@ -210,7 +211,7 @@ def _serialize_slack_blocks_for_agent(blocks: list, max_chars: int = 6000) -> st
 
     try:
         payload = json.dumps(_sanitize(blocks), ensure_ascii=False, indent=2)
-    except Exception:
+    except (json.JSONDecodeError, ValueError):
         payload = repr(blocks)
 
     if len(payload) > max_chars:
@@ -348,7 +349,7 @@ class SlackAdapter(BasePlatformAdapter):
 
         try:
             import httpx
-        except Exception:  # pragma: no cover
+        except (ConnectionError, ImportError, ModuleNotFoundError, OSError, TimeoutError):
             httpx = None
 
         if httpx is not None and isinstance(exc, httpx.HTTPStatusError):
@@ -405,7 +406,7 @@ class SlackAdapter(BasePlatformAdapter):
                         bot_tokens.append(tok)
                         team_label = entry.get("team_name", team_id) if isinstance(entry, dict) else team_id
                         logger.info("[Slack] Loaded saved token for workspace %s", team_label)
-            except Exception as e:
+            except (AttributeError, json.JSONDecodeError, KeyError, OSError, PermissionError, TypeError, ValueError) as e:
                 logger.warning("[Slack] Failed to read %s: %s", tokens_file, e)
 
         lock_acquired = False
@@ -538,7 +539,7 @@ class SlackAdapter(BasePlatformAdapter):
         if self._handler:
             try:
                 await self._handler.close_async()
-            except Exception as e:  # pragma: no cover - defensive logging
+            except (RuntimeError) as e:  # pragma: no cover - defensive logging:
                 logger.warning("[Slack] Error while closing Socket Mode handler: %s", e, exc_info=True)
         self._running = False
 
@@ -634,7 +635,7 @@ class SlackAdapter(BasePlatformAdapter):
                 text=formatted,
             )
             return SendResult(success=True, message_id=message_id)
-        except Exception as e:  # pragma: no cover - defensive logging
+        except (RuntimeError) as e:  # pragma: no cover - defensive logging:
             logger.error(
                 "[Slack] Failed to edit message %s in channel %s: %s",
                 message_id,
@@ -668,7 +669,7 @@ class SlackAdapter(BasePlatformAdapter):
                 thread_ts=thread_ts,
                 status="is thinking...",
             )
-        except Exception as e:
+        except (RuntimeError) as e:
             # Silently ignore — may lack assistant:write scope or not be
             # in an assistant-enabled context. Falls back to reactions.
             logger.debug("[Slack] assistant.threads.setStatus failed: %s", e)
@@ -686,7 +687,7 @@ class SlackAdapter(BasePlatformAdapter):
                 thread_ts=thread_ts,
                 status="",
             )
-        except Exception as e:
+        except (RuntimeError) as e:
             logger.debug("[Slack] assistant.threads.setStatus clear failed: %s", e)
 
     def _dm_top_level_threads_as_sessions(self) -> bool:
@@ -769,7 +770,7 @@ class SlackAdapter(BasePlatformAdapter):
                 )
                 self._record_uploaded_file_thread(chat_id, thread_ts)
                 return SendResult(success=True, raw_response=result)
-            except Exception as exc:
+            except (RuntimeError) as exc:
                 last_exc = exc
                 if not self._is_retryable_upload_error(exc) or attempt >= 2:
                     raise
@@ -808,7 +809,7 @@ class SlackAdapter(BasePlatformAdapter):
             import httpx as _httpx
             from urllib.parse import unquote as _unquote
             from tools.url_safety import is_safe_url as _is_safe_url
-        except Exception:
+        except (ConnectionError, ImportError, ModuleNotFoundError, OSError, TimeoutError):
             await super().send_multiple_images(chat_id, images, metadata, human_delay)
             return
 
@@ -857,7 +858,7 @@ class SlackAdapter(BasePlatformAdapter):
                                     "content": response.content,
                                     "filename": f"image_{len(file_uploads)}.{ext}",
                                 })
-                            except Exception as dl_err:
+                            except (AttributeError, ConnectionError, KeyError, OSError, RuntimeError, TimeoutError, TypeError) as dl_err:
                                 logger.warning(
                                     "[Slack] Download failed for %s: %s",
                                     safe_url_for_log(image_url), dl_err,
@@ -1042,7 +1043,7 @@ class SlackAdapter(BasePlatformAdapter):
                 channel=channel, timestamp=timestamp, name=emoji
             )
             return True
-        except Exception as e:
+        except (RuntimeError) as e:
             # Don't log as error — may fail if already reacted or missing scope
             logger.debug("[Slack] reactions.add failed (%s): %s", emoji, e)
             return False
@@ -1058,7 +1059,7 @@ class SlackAdapter(BasePlatformAdapter):
                 channel=channel, timestamp=timestamp, name=emoji
             )
             return True
-        except Exception as e:
+        except (RuntimeError) as e:
             logger.debug("[Slack] reactions.remove failed (%s): %s", emoji, e)
             return False
 
@@ -1121,7 +1122,7 @@ class SlackAdapter(BasePlatformAdapter):
             )
             self._user_name_cache[user_id] = name
             return name
-        except Exception as e:
+        except (AttributeError, KeyError, RuntimeError, TypeError) as e:
             logger.debug("[Slack] users.info failed for %s: %s", user_id, e)
             self._user_name_cache[user_id] = user_id
             return user_id
@@ -1139,7 +1140,7 @@ class SlackAdapter(BasePlatformAdapter):
             return await self._upload_file(chat_id, image_path, caption, reply_to, metadata)
         except FileNotFoundError:
             return SendResult(success=False, error=f"Image file not found: {image_path}")
-        except Exception as e:  # pragma: no cover - defensive logging
+        except (RuntimeError) as e:  # pragma: no cover - defensive logging:
             logger.error(
                 "[%s] Failed to send local Slack image %s: %s",
                 self.name,
@@ -1230,7 +1231,7 @@ class SlackAdapter(BasePlatformAdapter):
             return await self._upload_file(chat_id, audio_path, caption, reply_to, metadata)
         except FileNotFoundError:
             return SendResult(success=False, error=f"Audio file not found: {audio_path}")
-        except Exception as e:  # pragma: no cover - defensive logging
+        except (RuntimeError) as e:  # pragma: no cover - defensive logging:
             logger.error(
                 "[Slack] Failed to send audio file %s: %s",
                 audio_path,
@@ -1268,7 +1269,7 @@ class SlackAdapter(BasePlatformAdapter):
                     )
                     self._record_uploaded_file_thread(chat_id, thread_ts)
                     return SendResult(success=True, raw_response=result)
-                except Exception as exc:
+                except (RuntimeError) as exc:
                     last_exc = exc
                     if not self._is_retryable_upload_error(exc) or attempt >= 2:
                         raise
@@ -1282,7 +1283,7 @@ class SlackAdapter(BasePlatformAdapter):
 
             raise last_exc
 
-        except Exception as e:  # pragma: no cover - defensive logging
+        except (RuntimeError) as e:  # pragma: no cover - defensive logging:
             logger.error(
                 "[%s] Failed to send video %s: %s",
                 self.name,
@@ -1327,7 +1328,7 @@ class SlackAdapter(BasePlatformAdapter):
                     )
                     self._record_uploaded_file_thread(chat_id, thread_ts)
                     return SendResult(success=True, raw_response=result)
-                except Exception as exc:
+                except (RuntimeError) as exc:
                     last_exc = exc
                     if not self._is_retryable_upload_error(exc) or attempt >= 2:
                         raise
@@ -1341,7 +1342,7 @@ class SlackAdapter(BasePlatformAdapter):
 
             raise last_exc
 
-        except Exception as e:  # pragma: no cover - defensive logging
+        except (RuntimeError) as e:  # pragma: no cover - defensive logging:
             logger.error(
                 "[%s] Failed to send document %s: %s",
                 self.name,
@@ -1367,7 +1368,7 @@ class SlackAdapter(BasePlatformAdapter):
                 "name": channel.get("name", chat_id),
                 "type": "dm" if is_dm else "group",
             }
-        except Exception as e:  # pragma: no cover - defensive logging
+        except (AttributeError, KeyError, RuntimeError, TypeError) as e:  # pragma: no cover - defensive logging:
             logger.error(
                 "[Slack] Failed to fetch chat info for %s: %s",
                 chat_id,
@@ -1493,7 +1494,7 @@ class SlackAdapter(BasePlatformAdapter):
 
         try:
             session_store.get_or_create_session(source)
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             logger.debug(
                 "[Slack] Failed to seed assistant thread session for %s/%s",
                 channel_id,
@@ -1776,7 +1777,7 @@ class SlackAdapter(BasePlatformAdapter):
                                 file_id, info_resp.get("error"),
                             )
                         continue
-                except Exception as e:
+                except (AttributeError, KeyError, RuntimeError, TypeError) as e:
                     response = getattr(e, "response", None)
                     detail = self._describe_slack_api_error(response, file_obj=f)
                     if detail:
@@ -1797,7 +1798,7 @@ class SlackAdapter(BasePlatformAdapter):
                     cached = await self._download_slack_file(url, ext, team_id=team_id)
                     media_urls.append(cached)
                     media_types.append(mimetype)
-                except Exception as e:  # pragma: no cover - defensive logging
+                except (RuntimeError) as e:  # pragma: no cover - defensive logging:
                     detail = self._describe_slack_download_failure(e, file_obj=f)
                     if detail:
                         attachment_notices.append(detail)
@@ -1812,7 +1813,7 @@ class SlackAdapter(BasePlatformAdapter):
                     cached = await self._download_slack_file(url, ext, audio=True, team_id=team_id)
                     media_urls.append(cached)
                     media_types.append(mimetype)
-                except Exception as e:  # pragma: no cover - defensive logging
+                except (RuntimeError) as e:  # pragma: no cover - defensive logging:
                     detail = self._describe_slack_download_failure(e, file_obj=f)
                     if detail:
                         attachment_notices.append(detail)
@@ -1873,7 +1874,7 @@ class SlackAdapter(BasePlatformAdapter):
                         except UnicodeDecodeError:
                             pass  # Binary content, skip injection
 
-                except Exception as e:  # pragma: no cover - defensive logging
+                except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:  # pragma: no cover - defensive logging:
                     detail = self._describe_slack_download_failure(e, file_obj=f)
                     if detail:
                         attachment_notices.append(detail)
@@ -1928,7 +1929,7 @@ class SlackAdapter(BasePlatformAdapter):
                     thread_ts=thread_ts,
                     team_id=team_id,
                 ) or None
-            except Exception:  # pragma: no cover - defensive
+            except (RuntimeError):
                 reply_to_text = None
 
         msg_event = MessageEvent(
@@ -2113,7 +2114,7 @@ class SlackAdapter(BasePlatformAdapter):
                 text=decision_text,
                 blocks=updated_blocks,
             )
-        except Exception as e:
+        except (RuntimeError) as e:
             logger.warning("[Slack] Failed to update approval message: %s", e)
 
         # Resolve the approval — this unblocks the agent thread
@@ -2124,7 +2125,7 @@ class SlackAdapter(BasePlatformAdapter):
                 "Slack button resolved %d approval(s) for session %s (choice=%s, user=%s)",
                 count, session_key, choice, user_name,
             )
-        except Exception as exc:
+        except (ImportError, ModuleNotFoundError) as exc:
             logger.error("Failed to resolve gateway approval from Slack button: %s", exc)
 
         # (approval state already consumed by atomic pop above)
@@ -2170,7 +2171,7 @@ class SlackAdapter(BasePlatformAdapter):
                         inclusive=True,
                     )
                     break
-                except Exception as exc:
+                except (RuntimeError) as exc:
                     # Check for rate-limit error from slack_sdk
                     err_str = str(exc).lower()
                     is_rate_limit = (
@@ -2305,7 +2306,7 @@ class SlackAdapter(BasePlatformAdapter):
             if bot_uid:
                 text = text.replace(f"<@{bot_uid}>", "").strip()
             return text
-        except Exception as exc:  # pragma: no cover - defensive
+        except (AttributeError, KeyError, RuntimeError, TypeError) as exc:  # pragma: no cover - defensive:
             logger.debug("[Slack] Failed to fetch thread parent text: %s", exc)
             return ""
 
@@ -2412,7 +2413,7 @@ class SlackAdapter(BasePlatformAdapter):
 
             session_store._ensure_loaded()
             return session_key in session_store._entries
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             return False
 
     async def _download_slack_file(self, url: str, ext: str, audio: bool = False, team_id: str = "") -> str:

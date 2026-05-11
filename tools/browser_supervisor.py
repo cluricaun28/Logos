@@ -364,14 +364,14 @@ class CDPSupervisor:
                 if ws is not None:
                     try:
                         await ws.close()
-                    except Exception:
+                    except (RuntimeError):
                         pass
 
             try:
                 fut = asyncio.run_coroutine_threadsafe(_close_ws(), loop)
                 try:
                     fut.result(timeout=2.0)
-                except Exception:
+                except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                     pass
             except RuntimeError:
                 pass  # loop already shutting down
@@ -453,7 +453,7 @@ class CDPSupervisor:
         try:
             fut = asyncio.run_coroutine_threadsafe(_do_respond(), loop)
             fut.result(timeout=timeout)
-        except Exception as e:
+        except (RuntimeError) as e:
             return {"ok": False, "error": f"{type(e).__name__}: {e}"}
         return {"ok": True, "dialog": snapshot_copy.to_dict()}
 
@@ -481,11 +481,11 @@ class CDPSupervisor:
                     t.cancel()
                 if pending:
                     loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
-            except Exception:
+            except (RuntimeError):
                 pass
             try:
                 loop.close()
-            except Exception:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                 pass
             with self._state_lock:
                 self._active = False
@@ -508,7 +508,7 @@ class CDPSupervisor:
                     websockets.connect(self.cdp_url, max_size=50 * 1024 * 1024),
                     timeout=10.0,
                 )
-            except Exception as e:
+            except (RuntimeError) as e:
                 attempt += 1
                 if not self._ready_event.is_set():
                     # Never connected once — fatal for start().
@@ -573,7 +573,7 @@ class CDPSupervisor:
                 if ws is not None:
                     try:
                         await ws.close()
-                    except Exception:
+                    except (RuntimeError):
                         pass
 
             if self._stop_requested:
@@ -636,7 +636,7 @@ class CDPSupervisor:
                 session_id=session_id,
                 timeout=5.0,
             )
-        except Exception as e:
+        except (RuntimeError) as e:
             logger.debug(
                 "dialog bridge: addScriptToEvaluateOnNewDocument failed on sid=%s: %s",
                 (session_id or "")[:16], e,
@@ -656,7 +656,7 @@ class CDPSupervisor:
                 session_id=session_id,
                 timeout=5.0,
             )
-        except Exception as e:
+        except (RuntimeError) as e:
             logger.debug(
                 "dialog bridge: Fetch.enable failed on sid=%s: %s",
                 (session_id or "")[:16], e,
@@ -670,7 +670,7 @@ class CDPSupervisor:
                 session_id=session_id,
                 timeout=3.0,
             )
-        except Exception:
+        except (RuntimeError):
             pass
 
     async def _cdp(
@@ -708,7 +708,7 @@ class CDPSupervisor:
                     break
                 try:
                     msg = json.loads(raw)
-                except Exception:
+                except (json.JSONDecodeError, ValueError):
                     logger.debug("CDP supervisor: non-JSON frame dropped")
                     continue
                 if "id" in msg:
@@ -722,7 +722,7 @@ class CDPSupervisor:
                             fut.set_result(msg)
                 elif "method" in msg:
                     await self._on_event(msg["method"], msg.get("params", {}), msg.get("sessionId"))
-        except Exception as e:
+        except (AttributeError, json.JSONDecodeError, KeyError, RuntimeError, TypeError, ValueError) as e:
             logger.debug("CDP read loop exited: %s", e)
 
     # ── Event dispatch ──────────────────────────────────────────────────────
@@ -811,7 +811,7 @@ class CDPSupervisor:
                 session_id=dialog.cdp_session_id or None,
                 timeout=5.0,
             )
-        except Exception as e:
+        except (RuntimeError) as e:
             logger.debug("auto-handle CDP call failed for %s: %s", dialog.id, e)
 
     async def _dialog_timeout_expired(self, dialog_id: str) -> None:
@@ -843,7 +843,7 @@ class CDPSupervisor:
                     session_id=dialog.cdp_session_id or None,
                     timeout=5.0,
                 )
-        except Exception as e:
+        except (AttributeError, KeyError, RuntimeError, TypeError) as e:
             logger.debug("auto-dismiss failed for %s: %s", dialog_id, e)
 
     def _archive_dialog_locked(self, dialog: PendingDialog, closed_by: str) -> None:
@@ -959,7 +959,7 @@ class CDPSupervisor:
                     "Fetch.continueRequest", {"requestId": request_id},
                     session_id=session_id, timeout=3.0,
                 )
-            except Exception:
+            except (RuntimeError):
                 pass
             return
 
@@ -1041,7 +1041,7 @@ class CDPSupervisor:
                 session_id=dialog.cdp_session_id or None,
                 timeout=5.0,
             )
-        except Exception as e:
+        except (ImportError, ModuleNotFoundError, RuntimeError) as e:
             logger.debug("bridge fulfill failed for %s: %s", dialog.id, e)
 
     # ── Frame / target tracking ─────────────────────────────────────────────
@@ -1162,7 +1162,7 @@ class CDPSupervisor:
                 session_id=sid,
                 timeout=3.0,
             )
-        except Exception as e:
+        except (RuntimeError) as e:
             logger.debug("child session %s setup failed: %s", sid[:16], e)
         # Install the dialog bridge on the child so iframe dialogs are captured.
         await self._install_dialog_bridge(sid)

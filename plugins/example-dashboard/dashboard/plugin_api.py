@@ -2,6 +2,7 @@
 
 Mounted at /api/plugins/example/ by the dashboard plugin system.
 """
+from __future__ import annotations
 
 from fastapi import APIRouter
 

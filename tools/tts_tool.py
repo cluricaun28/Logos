@@ -23,6 +23,7 @@ Usage:
 
     result = text_to_speech_tool(text="Hello world")
 """
+from __future__ import annotations
 
 import asyncio
 import base64
@@ -228,7 +229,7 @@ def _load_tts_config() -> Dict[str, Any]:
     except ImportError:
         logger.debug("hermes_cli.config not available, using default TTS config")
         return {}
-    except Exception as e:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError) as e:
         logger.warning("Failed to load TTS config: %s", e, exc_info=True)
         return {}
 
@@ -276,7 +277,7 @@ def _convert_to_opus(mp3_path: str) -> Optional[str]:
         logger.warning("ffmpeg OGG conversion timed out after 30s")
     except FileNotFoundError:
         logger.warning("ffmpeg not found in PATH")
-    except Exception as e:
+    except (AttributeError, FileNotFoundError, KeyError, OSError, PermissionError, subprocess.CalledProcessError, TypeError) as e:
         logger.warning("ffmpeg OGG conversion failed: %s", e, exc_info=True)
     return None
 
@@ -599,7 +600,7 @@ def _generate_mistral_tts(text: str, output_path: str, tts_config: Dict[str, Any
             audio_bytes = base64.b64decode(response.audio_data)
     except ValueError:
         raise
-    except Exception as e:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
         logger.error("Mistral TTS failed: %s", e, exc_info=True)
         raise RuntimeError(f"Mistral TTS failed: {type(e).__name__}") from e
 
@@ -705,7 +706,7 @@ def _generate_gemini_tts(text: str, output_path: str, tts_config: Dict[str, Any]
         try:
             err = response.json().get("error", {})
             detail = err.get("message") or response.text[:300]
-        except Exception:
+        except (AttributeError, KeyError, TypeError):
             detail = response.text[:300]
         raise RuntimeError(
             f"Gemini TTS API error (HTTP {response.status_code}): {detail}"
@@ -786,7 +787,7 @@ def _check_neutts_available() -> bool:
     try:
         import importlib.util
         return importlib.util.find_spec("neutts") is not None
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         return False
 
 
@@ -795,7 +796,7 @@ def _check_kittentts_available() -> bool:
     try:
         import importlib.util
         return importlib.util.find_spec("kittentts") is not None
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         return False
 
 
@@ -877,7 +878,7 @@ def _check_piper_available() -> bool:
     try:
         import importlib.util
         return importlib.util.find_spec("piper") is not None
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         return False
 
 
@@ -1491,7 +1492,7 @@ def stream_tts_to_speaker(
                 except (ImportError, OSError) as exc:
                     logger.debug("sounddevice not available: %s", exc)
                     output_stream = None
-                except Exception as exc:
+                except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
                     logger.warning("sounddevice OutputStream failed: %s", exc)
                     output_stream = None
 
@@ -1542,7 +1543,7 @@ def stream_tts_to_speaker(
                 else:
                     # Fallback: write chunks to temp file and play via system player
                     _play_via_tempfile(audio_iter, stop_event)
-            except Exception as exc:
+            except (ImportError, ModuleNotFoundError, OSError, PermissionError) as exc:
                 logger.warning("Streaming TTS sentence failed: %s", exc)
 
         def _play_via_tempfile(audio_iter, stop_evt):
@@ -1562,7 +1563,7 @@ def stream_tts_to_speaker(
                         wf.writeframes(chunk)
                 from tools.voice_mode import play_audio_file
                 play_audio_file(tmp_path)
-            except Exception as exc:
+            except (ImportError, ModuleNotFoundError, OSError, PermissionError) as exc:
                 logger.warning("Temp-file TTS fallback failed: %s", exc)
             finally:
                 if tmp_path:
@@ -1624,7 +1625,7 @@ def stream_tts_to_speaker(
 
         # output_stream is closed in the finally block below
 
-    except Exception as exc:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
         logger.warning("Streaming TTS pipeline error: %s", exc)
     finally:
         # Always close the audio output stream to avoid locking the device
@@ -1632,7 +1633,7 @@ def stream_tts_to_speaker(
             try:
                 output_stream.stop()
                 output_stream.close()
-            except Exception:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                 pass
         tts_done_event.set()
 

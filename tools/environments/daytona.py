@@ -4,6 +4,7 @@ Uses the Daytona Python SDK to run commands in cloud sandboxes.
 Supports persistent sandboxes: when enabled, sandboxes are stopped on cleanup
 and resumed on next creation, preserving the filesystem across sessions.
 """
+from __future__ import annotations
 
 import logging
 import math

@@ -14,6 +14,7 @@ Cron jobs are executed automatically by the gateway daemon:
 The gateway ticks the scheduler every 60 seconds. A file lock prevents
 duplicate execution if multiple processes overlap.
 """
+from __future__ import annotations
 
 from cron.jobs import (
     create_job,

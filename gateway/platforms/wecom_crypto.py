@@ -91,7 +91,7 @@ class WXBizMsgCrypt:
             raise SignatureError("signature mismatch")
         try:
             cipher_text = base64.b64decode(encrypt)
-        except Exception as exc:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
             raise DecryptError(f"invalid base64 payload: {exc}") from exc
         try:
             cipher = Cipher(algorithms.AES(self.key), modes.CBC(self.iv), backend=default_backend())
@@ -104,7 +104,7 @@ class WXBizMsgCrypt:
             receive_id = content[4 + xml_length:].decode("utf-8")
         except WeComCryptoError:
             raise
-        except Exception as exc:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
             raise DecryptError(f"decrypt failed: {exc}") from exc
 
         if receive_id != self.receive_id:
@@ -133,7 +133,7 @@ class WXBizMsgCrypt:
             encryptor = cipher.encryptor()
             encrypted = encryptor.update(padded) + encryptor.finalize()
             return base64.b64encode(encrypted).decode("utf-8")
-        except Exception as exc:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
             raise EncryptError(f"encrypt failed: {exc}") from exc
 
     @staticmethod

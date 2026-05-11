@@ -5,6 +5,7 @@ can share.  Routes through the centralized provider router in
 agent/auxiliary_client.py so auth, headers, and API format are handled
 consistently.
 """
+from __future__ import annotations
 
 import os
 

@@ -117,7 +117,7 @@ def _toolset_enabled(config: Dict[str, object], toolset_key: str) -> bool:
                 continue
             try:
                 available_tools.update(resolve_toolset(toolset_name))
-            except Exception:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                 continue
 
         if target_tools and target_tools.issubset(available_tools):
@@ -236,7 +236,7 @@ def get_nous_subscription_features(
 
     try:
         nous_status = get_nous_auth_status()
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         nous_status = {}
 
     managed_tools_flag = managed_nous_tools_enabled()
@@ -697,7 +697,7 @@ def prompt_enable_tool_gateway(config: Dict[str, object]) -> set[str]:
 
     try:
         from hermes_cli.setup import prompt_choice
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         return set()
 
     # Build description lines showing full status of all gateway tools

@@ -9,6 +9,7 @@ Powers both:
 All logic lives in shared do_* functions. The CLI entry point and slash command
 handler are thin wrappers that parse args and delegate.
 """
+from __future__ import annotations
 
 import json
 import re
@@ -118,18 +119,18 @@ def _resolve_source_meta_and_bundle(identifier: str, sources):
                 meta = src.inspect(identifier)
                 if meta:
                     matched_source = src
-            except Exception:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                 meta = None
         try:
             bundle = src.fetch(identifier)
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             bundle = None
         if bundle:
             matched_source = src
             if meta is None:
                 try:
                     meta = src.inspect(identifier)
-                except Exception:
+                except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                     meta = None
             break
 
@@ -617,7 +618,7 @@ def do_install(identifier: str, category: str = "", force: bool = False,
         try:
             from agent.prompt_builder import clear_skills_system_prompt_cache
             clear_skills_system_prompt_cache(clear_snapshot=True)
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             pass
     else:
         c.print("[dim]Skill will be available in your next session.[/]")
@@ -695,7 +696,7 @@ def browse_skills(page: int = 1, page_size: int = 20, source: str = "all") -> di
         try:
             limit = _PER_SOURCE_LIMIT.get(sid, 50)
             all_results.extend(src.search("", limit=limit))
-        except Exception:
+        except (AttributeError, KeyError, TypeError):
             continue
     if not all_results:
         return {"items": [], "page": 1, "total_pages": 1, "total": 0}
@@ -959,7 +960,7 @@ def do_uninstall(name: str, console: Optional[Console] = None,
             try:
                 from agent.prompt_builder import clear_skills_system_prompt_cache
                 clear_skills_system_prompt_cache(clear_snapshot=True)
-            except Exception:
+            except (ImportError, ModuleNotFoundError):
                 pass
         else:
             c.print("[dim]Change will take effect in your next session.[/]")
@@ -1006,7 +1007,7 @@ def do_reset(name: str, restore: bool = False,
         try:
             from agent.prompt_builder import clear_skills_system_prompt_cache
             clear_skills_system_prompt_cache(clear_snapshot=True)
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             pass
     else:
         c.print("[dim]Change will take effect in your next session.[/]")
@@ -1155,7 +1156,7 @@ def _github_publish(skill_path: Path, skill_name: str, target_repo: str,
             headers=headers, timeout=15,
         )
         default_branch = resp.json().get("default_branch", "main")
-    except Exception:
+    except (AttributeError, ConnectionError, KeyError, OSError, TimeoutError, TypeError):
         default_branch = "main"
 
     # 3. Get the base tree SHA
@@ -1165,7 +1166,7 @@ def _github_publish(skill_path: Path, skill_name: str, target_repo: str,
             headers=headers, timeout=15,
         )
         base_sha = resp.json()["object"]["sha"]
-    except Exception as e:
+    except (AttributeError, ConnectionError, KeyError, OSError, TimeoutError, TypeError) as e:
         return False, f"Failed to get base branch: {e}"
 
     # 4. Create a new branch
@@ -1176,7 +1177,7 @@ def _github_publish(skill_path: Path, skill_name: str, target_repo: str,
             headers=headers, timeout=15,
             json={"ref": f"refs/heads/{branch_name}", "sha": base_sha},
         )
-    except Exception as e:
+    except (ConnectionError, OSError, TimeoutError) as e:
         return False, f"Failed to create branch: {e}"
 
     # 5. Upload skill files
@@ -1197,7 +1198,7 @@ def _github_publish(skill_path: Path, skill_name: str, target_repo: str,
                     "branch": branch_name,
                 },
             )
-        except Exception as e:
+        except (ConnectionError, ImportError, ModuleNotFoundError, OSError, TimeoutError) as e:
             return False, f"Failed to upload {rel}: {e}"
 
     # 6. Create PR

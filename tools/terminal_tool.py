@@ -29,6 +29,7 @@ Usage:
     # Execute in background
     result = terminal_tool("python server.py", background=True)
 """
+from __future__ import annotations
 
 import importlib.util
 import json
@@ -140,7 +141,7 @@ def _check_disk_usage_warning():
             return True
         
         return False
-    except Exception as e:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
         logger.debug("Disk usage warning check failed: %s", e, exc_info=True)
         return False
 
@@ -203,7 +204,7 @@ def _get_sudo_password_cache_scope() -> str:
         from gateway.session_context import get_session_env
 
         session_key = get_session_env("HERMES_SESSION_KEY", "")
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         session_key = os.getenv("HERMES_SESSION_KEY", "")
     if session_key:
         return f"session:{session_key}"
@@ -336,7 +337,7 @@ def _prompt_for_sudo_password(timeout_seconds: int = 45) -> str:
     if _sudo_cb is not None:
         try:
             return _sudo_cb() or ""
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             return ""
 
     result = {"password": None, "done": False}
@@ -373,19 +374,19 @@ def _prompt_for_sudo_password(timeout_seconds: int = 45) -> str:
                 result["password"] = b"".join(chars).decode("utf-8", errors="replace")
         except (EOFError, KeyboardInterrupt, OSError):
             result["password"] = ""
-        except Exception:
+        except (AttributeError, ImportError, KeyError, ModuleNotFoundError, OSError, PermissionError, TypeError):
             result["password"] = ""
         finally:
             if tty_fd is not None and old_attrs is not None:
                 try:
                     import termios as _termios
                     _termios.tcsetattr(tty_fd, _termios.TCSAFLUSH, old_attrs)
-                except Exception as e:
+                except (ImportError, ModuleNotFoundError) as e:
                     logger.debug("Failed to restore terminal attributes: %s", e)
             if tty_fd is not None:
                 try:
                     os.close(tty_fd)
-                except Exception as e:
+                except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
                     logger.debug("Failed to close tty fd: %s", e)
             result["done"] = True
     
@@ -447,7 +448,7 @@ def _safe_command_preview(command: Any, limit: int = 200) -> str:
         return command[:limit]
     try:
         return repr(command)[:limit]
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         return f"<{type(command).__name__}>"
 
 def _looks_like_env_assignment(token: str) -> bool:
@@ -1053,7 +1054,7 @@ def _create_environment(env_type: str, image: str, cwd: str, timeout: int,
                 import inspect, modal
                 if "ephemeral_disk" in inspect.signature(modal.Sandbox.create).parameters:
                     sandbox_kwargs["ephemeral_disk"] = disk
-            except Exception:
+            except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
                 pass
 
         modal_state = _get_modal_backend_state(cc.get("modal_mode"))
@@ -1173,7 +1174,7 @@ def _cleanup_inactive_envs(lifetime_seconds: int = 300):
 
             logger.info("Cleaned up inactive environment for task: %s", task_id)
 
-        except Exception as e:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
             error_str = str(e)
             if "404" in error_str or "not found" in error_str.lower():
                 logger.info("Environment for task %s already cleaned up", task_id)
@@ -1187,7 +1188,7 @@ def _cleanup_thread_worker():
         try:
             config = _get_env_config()
             _cleanup_inactive_envs(config["lifetime_seconds"])
-        except Exception as e:
+        except (AttributeError, KeyError, TypeError) as e:
             logger.warning("Error in cleanup thread: %s", e, exc_info=True)
 
         for _ in range(60):
@@ -1253,7 +1254,7 @@ def cleanup_all_environments():
         try:
             cleanup_vm(task_id)
             cleaned += 1
-        except Exception as e:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
             logger.error("Error cleaning %s: %s", task_id, e, exc_info=True)
     
     # Also clean any orphaned directories
@@ -1305,7 +1306,7 @@ def cleanup_vm(task_id: str):
 
         logger.info("Manually cleaned up environment for task: %s", task_id)
 
-    except Exception as e:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
         error_str = str(e)
         if "404" in error_str or "not found" in error_str.lower():
             logger.info("Environment for task %s already cleaned up", task_id)
@@ -1875,7 +1876,7 @@ def terminal_tool(
                     if workdir:
                         execute_kwargs["cwd"] = workdir
                     result = env.execute(command, **execute_kwargs)
-                except Exception as e:
+                except (AttributeError, KeyError, sqlite3.Error, TypeError) as e:
                     error_str = str(e).lower()
                     if "timeout" in error_str:
                         return json.dumps({
@@ -1929,7 +1930,7 @@ def terminal_tool(
                     if isinstance(hook_result, str):
                         output = hook_result
                         break
-            except Exception:
+            except (ImportError, ModuleNotFoundError):
                 pass
             
             # Truncate output if too long, keeping both head and tail

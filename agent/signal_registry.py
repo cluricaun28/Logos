@@ -14,6 +14,7 @@ Design principles:
   - WAL mode for concurrent reads from other sessions
   - Append-only safety — signal data is an index layer over immutable PM messages
 """
+from __future__ import annotations
 
 import logging
 import math
@@ -585,8 +586,7 @@ class SignalRegistry:
             return 0
 
         try:
-            with open(report_path, "r") as f:
-                data = json.load(f)
+            with open(report_path, "r", encoding='utf-8') as f:                data = json.load(f)
             return self.update_signals(data)
         except (json.JSONDecodeError, IOError) as e:
             logger.warning(f"Failed to load signal report from {report_path}: {e}")

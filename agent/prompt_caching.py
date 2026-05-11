@@ -7,6 +7,7 @@ the conversation prefix. Uses 4 cache_control breakpoints (Anthropic max):
 
 Pure functions -- no class state, no AIAgent dependency.
 """
+from __future__ import annotations
 
 import copy
 from typing import Any, Dict, List

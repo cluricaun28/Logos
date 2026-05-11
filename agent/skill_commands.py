@@ -3,6 +3,7 @@
 Shared between CLI (cli.py) and gateway (gateway/run.py) so both surfaces
 can invoke skills via /skill-name commands.
 """
+from __future__ import annotations
 
 import json
 import logging
@@ -37,7 +38,7 @@ def _load_skill_payload(skill_identifier: str, task_id: str | None = None) -> tu
         if identifier_path.is_absolute():
             try:
                 normalized = str(identifier_path.resolve().relative_to(SKILLS_DIR.resolve()))
-            except Exception:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                 normalized = raw_identifier
         else:
             normalized = raw_identifier.lstrip("/")
@@ -45,7 +46,7 @@ def _load_skill_payload(skill_identifier: str, task_id: str | None = None) -> tu
         loaded_skill = json.loads(
             skill_view(normalized, task_id=task_id, preprocess=False)
         )
-    except Exception:
+    except (json.JSONDecodeError, ValueError):
         return None
 
     if not loaded_skill.get("success"):
@@ -64,7 +65,7 @@ def _load_skill_payload(skill_identifier: str, task_id: str | None = None) -> tu
     elif skill_path:
         try:
             skill_dir = SKILLS_DIR / Path(skill_path).parent
-        except Exception:
+        except (OSError, PermissionError):
             skill_dir = None
 
     return loaded_skill, skill_dir, skill_name
@@ -105,7 +106,7 @@ def _inject_skill_config(loaded_skill: dict[str, Any], parts: list[str]) -> None
             lines.append(f"  {key} = {display_val}")
         lines.append("]")
         parts.extend(lines)
-    except Exception:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError, yaml.YAMLError):
         pass  # Non-critical — skill still loads without config injection
 
 
@@ -333,7 +334,7 @@ def build_skill_invocation_message(
     try:
         from tools.skill_usage import bump_use
         bump_use(skill_name)
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         pass  # Non-critical — skill invocation proceeds regardless
 
     activation_note = (
@@ -380,7 +381,7 @@ def build_preloaded_skills_prompt(
         try:
             from tools.skill_usage import bump_use
             bump_use(skill_name)
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             pass  # Non-critical
 
         activation_note = (

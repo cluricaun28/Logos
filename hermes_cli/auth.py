@@ -478,7 +478,7 @@ def _resolve_api_key_provider_secret(
                 return get_copilot_api_token(token), source
         except ValueError as exc:
             logger.warning("Copilot token validation failed: %s", exc)
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             pass
         return "", ""
 
@@ -500,7 +500,7 @@ def _resolve_api_key_provider_secret(
                 key = str(key).strip()
                 if has_usable_secret(key):
                     return key, f"credential_pool:{provider_id}"
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         pass
 
     return "", ""
@@ -559,7 +559,7 @@ def detect_zai_endpoint(api_key: str, timeout: float = 8.0) -> Optional[Dict[str
                         "label": label,
                     }
                 logger.debug("Z.AI endpoint probe: %s model=%s returned %s", ep_id, model, resp.status_code)
-            except Exception as exc:
+            except (ConnectionError, OSError, TimeoutError) as exc:
                 logger.debug("Z.AI endpoint probe: %s model=%s failed: %s", ep_id, model, exc)
     return None
 
@@ -700,7 +700,7 @@ def _auth_file_path() -> Path:
         real_home_auth = (Path.home() / ".hermes" / "auth.json").resolve(strict=False)
         try:
             resolved = path.resolve(strict=False)
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             resolved = path
         if resolved == real_home_auth:
             raise RuntimeError(
@@ -782,12 +782,12 @@ def _load_auth_store(auth_file: Optional[Path] = None) -> Dict[str, Any]:
 
     try:
         raw = json.loads(auth_file.read_text())
-    except Exception as exc:
+    except (json.JSONDecodeError, OSError, PermissionError, ValueError) as exc:
         corrupt_path = auth_file.with_suffix(".json.corrupt")
         try:
             import shutil
             shutil.copy2(auth_file, corrupt_path)
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             pass
         logger.warning(
             "auth: failed to parse %s (%s) — starting with empty store. "
@@ -937,7 +937,7 @@ def is_source_suppressed(provider_id: str, source: str) -> bool:
         auth_store = _load_auth_store()
         suppressed = auth_store.get("suppressed_sources", {})
         return source in suppressed.get(provider_id, [])
-    except Exception:
+    except (AttributeError, KeyError, TypeError):
         return False
 
 
@@ -996,7 +996,7 @@ def is_provider_explicitly_configured(provider_id: str) -> bool:
         active = (auth_store.get("active_provider") or "").strip().lower()
         if active and active == normalized:
             return True
-    except Exception:
+    except (AttributeError, KeyError, TypeError):
         pass
 
     # 2. Check config.yaml model.provider
@@ -1008,7 +1008,7 @@ def is_provider_explicitly_configured(provider_id: str) -> bool:
             cfg_provider = (model_cfg.get("provider") or "").strip().lower()
             if cfg_provider == normalized:
                 return True
-    except Exception:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
         pass
 
     # 3. Check provider-specific env vars
@@ -1104,7 +1104,7 @@ def _get_config_hint_for_unknown_provider(provider_name: str) -> str:
             if first_hint:
                 lines.append(f"    → {first_hint}")
         return "\n".join(lines)
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         return ""
 
 
@@ -1186,7 +1186,7 @@ def resolve_provider(
             status = get_auth_status(active)
             if status.get("logged_in"):
                 return active
-    except Exception as e:
+    except (AttributeError, KeyError, TypeError) as e:
         logger.debug("Could not detect active auth provider: %s", e)
 
     if has_usable_secret(os.getenv("OPENAI_API_KEY")) or has_usable_secret(os.getenv("OPENROUTER_API_KEY")):
@@ -1239,7 +1239,7 @@ def _parse_iso_timestamp(value: Any) -> Optional[float]:
         text = text[:-1] + "+00:00"
     try:
         parsed = datetime.fromisoformat(text)
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         return None
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
@@ -1256,7 +1256,7 @@ def _is_expiring(expires_at_iso: Any, skew_seconds: int) -> bool:
 def _coerce_ttl_seconds(expires_in: Any) -> int:
     try:
         ttl = int(expires_in)
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         ttl = 0
     return max(0, ttl)
 
@@ -1276,7 +1276,7 @@ def _decode_jwt_claims(token: Any) -> Dict[str, Any]:
     try:
         raw = base64.urlsafe_b64decode(payload.encode("utf-8"))
         claims = json.loads(raw.decode("utf-8"))
-    except Exception:
+    except (json.JSONDecodeError, ValueError):
         return {}
     return claims if isinstance(claims, dict) else {}
 
@@ -1303,7 +1303,7 @@ def _read_qwen_cli_tokens() -> Dict[str, Any]:
         )
     try:
         data = json.loads(auth_path.read_text(encoding="utf-8"))
-    except Exception as exc:
+    except (json.JSONDecodeError, OSError, PermissionError, ValueError) as exc:
         raise AuthError(
             f"Failed to read Qwen CLI credentials from {auth_path}: {exc}",
             provider="qwen-oauth",
@@ -1331,7 +1331,7 @@ def _save_qwen_cli_tokens(tokens: Dict[str, Any]) -> Path:
 def _qwen_access_token_is_expiring(expiry_date_ms: Any, skew_seconds: int = QWEN_ACCESS_TOKEN_REFRESH_SKEW_SECONDS) -> bool:
     try:
         expiry_ms = int(expiry_date_ms)
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         return True
     return (time.time() + max(0, int(skew_seconds))) * 1000 >= expiry_ms
 
@@ -1359,7 +1359,7 @@ def _refresh_qwen_cli_tokens(tokens: Dict[str, Any], timeout_seconds: float = 20
             },
             timeout=timeout_seconds,
         )
-    except Exception as exc:
+    except (ConnectionError, OSError, TimeoutError) as exc:
         raise AuthError(
             f"Qwen OAuth refresh failed: {exc}",
             provider="qwen-oauth",
@@ -1377,7 +1377,7 @@ def _refresh_qwen_cli_tokens(tokens: Dict[str, Any], timeout_seconds: float = 20
 
     try:
         payload = response.json()
-    except Exception as exc:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
         raise AuthError(
             f"Qwen OAuth refresh returned invalid JSON: {exc}",
             provider="qwen-oauth",
@@ -1394,7 +1394,7 @@ def _refresh_qwen_cli_tokens(tokens: Dict[str, Any], timeout_seconds: float = 20
     expires_in = payload.get("expires_in")
     try:
         expires_in_seconds = int(expires_in)
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         expires_in_seconds = 6 * 60 * 60
 
     refreshed = {
@@ -1816,7 +1816,7 @@ def _spotify_exchange_code_for_tokens(
             },
             timeout=timeout_seconds,
         )
-    except Exception as exc:
+    except (ConnectionError, OSError, TimeoutError) as exc:
         raise AuthError(
             f"Spotify token exchange failed: {exc}",
             provider="spotify",
@@ -1868,7 +1868,7 @@ def _refresh_spotify_oauth_state(
             },
             timeout=timeout_seconds,
         )
-    except Exception as exc:
+    except (ConnectionError, OSError, TimeoutError) as exc:
         raise AuthError(
             f"Spotify token refresh failed: {exc}",
             provider="spotify",
@@ -2006,7 +2006,7 @@ def _spotify_interactive_setup(redirect_uri_hint: str) -> str:
     if not _is_remote_session():
         try:
             webbrowser.open(SPOTIFY_DASHBOARD_URL)
-        except Exception:
+        except (OSError, PermissionError):
             pass
 
     try:
@@ -2081,7 +2081,7 @@ def login_spotify_command(args) -> None:
     if open_browser and not _is_remote_session():
         try:
             opened = webbrowser.open(authorize_url)
-        except Exception:
+        except (OSError, PermissionError):
             opened = False
         if opened:
             print("Browser opened for Spotify authorization.")
@@ -2255,7 +2255,7 @@ def refresh_codex_oauth_pure(
                     err_desc = err.get("error_description") or err.get("message")
                     if isinstance(err_desc, str) and err_desc.strip():
                         message = f"Codex token refresh failed: {err_desc.strip()}"
-        except Exception:
+        except (AttributeError, KeyError, TypeError):
             pass
         if code in {"invalid_grant", "invalid_token", "invalid_request"}:
             relogin_required = True
@@ -2281,7 +2281,7 @@ def refresh_codex_oauth_pure(
 
     try:
         refresh_payload = response.json()
-    except Exception as exc:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
         raise AuthError(
             "Codex token refresh returned invalid JSON.",
             provider="openai-codex",
@@ -2360,7 +2360,7 @@ def _import_codex_cli_tokens() -> Optional[Dict[str, str]]:
             )
             return None
         return dict(tokens)
-    except Exception:
+    except (AttributeError, ImportError, json.JSONDecodeError, KeyError, ModuleNotFoundError, OSError, PermissionError, TypeError, ValueError):
         return None
 
 
@@ -2527,7 +2527,7 @@ def _poll_for_token(
 
         try:
             error_payload = response.json()
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             response.raise_for_status()
             raise RuntimeError("Token endpoint returned a non-JSON error response")
 
@@ -2575,7 +2575,7 @@ def _refresh_access_token(
 
     try:
         error_payload = response.json()
-    except Exception as exc:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
         raise AuthError("Refresh token exchange failed",
                         provider="nous", relogin_required=True) from exc
 
@@ -2630,7 +2630,7 @@ def _mint_agent_key(
 
     try:
         error_payload = response.json()
-    except Exception as exc:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
         raise AuthError("Agent key mint request failed",
                         provider="nous", code="server_error") from exc
 
@@ -2660,7 +2660,7 @@ def fetch_nous_models(
         try:
             err = response.json()
             description = str(err.get("error_description") or err.get("error") or description)
-        except Exception as e:
+        except (AttributeError, KeyError, TypeError) as e:
             logger.debug("Could not parse error response JSON: %s", e)
         raise AuthError(description, provider="nous", code="models_fetch_failed")
 
@@ -3005,7 +3005,7 @@ def resolve_nous_runtime_credentials(
             try:
                 _save_provider_state(auth_store, "nous", state)
                 _save_auth_store(auth_store)
-            except Exception as exc:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
                 _oauth_trace(
                     "nous_state_persist_failed",
                     sequence_id=sequence_id,
@@ -3351,7 +3351,7 @@ def get_codex_auth_status() -> Dict[str, Any]:
                         "source": f"pool:{getattr(entry, 'label', 'unknown')}",
                         "api_key": api_key,
                     }
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         pass
 
     # Fall back to legacy provider state
@@ -3622,7 +3622,7 @@ def _get_config_provider() -> Optional[str]:
     """Return model.provider from config.yaml, normalized, if present."""
     try:
         config = read_raw_config()
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         return None
     if not config:
         return None
@@ -3967,7 +3967,7 @@ def _codex_device_code_login() -> Dict[str, Any]:
                 json={"client_id": client_id},
                 headers={"Content-Type": "application/json"},
             )
-    except Exception as exc:
+    except (ConnectionError, OSError, TimeoutError) as exc:
         raise AuthError(
             f"Failed to request device code: {exc}",
             provider="openai-codex", code="device_code_request_failed",
@@ -4057,7 +4057,7 @@ def _codex_device_code_login() -> Dict[str, Any]:
                 },
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
-    except Exception as exc:
+    except (ConnectionError, OSError, TimeoutError) as exc:
         raise AuthError(
             f"Token exchange failed: {exc}",
             provider="openai-codex", code="token_exchange_failed",

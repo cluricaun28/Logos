@@ -120,7 +120,7 @@ def record_nous_rate_limit(
             with os.fdopen(fd, "w") as f:
                 json.dump(state, f)
             atomic_replace(tmp_path, path)
-        except Exception:
+        except (json.JSONDecodeError, OSError, PermissionError, ValueError):
             # Clean up temp file on failure
             try:
                 os.unlink(tmp_path)
@@ -132,7 +132,7 @@ def record_nous_rate_limit(
             "Nous rate limit recorded: resets in %.0fs (at %.0f)",
             reset_at - now, reset_at,
         )
-    except Exception as exc:
+    except (OSError, PermissionError) as exc:
         logger.debug("Failed to write Nous rate limit state: %s", exc)
 
 
@@ -144,8 +144,7 @@ def nous_rate_limit_remaining() -> Optional[float]:
     """
     path = _state_path()
     try:
-        with open(path) as f:
-            state = json.load(f)
+        with open(path, encoding='utf-8') as f:            state = json.load(f)
         reset_at = state.get("reset_at", 0)
         remaining = reset_at - time.time()
         if remaining > 0:

@@ -24,6 +24,7 @@ Usage:
     # Search for content
     result = file_ops.search("TODO", path=".", file_glob="*.py")
 """
+from __future__ import annotations
 
 import os
 import re

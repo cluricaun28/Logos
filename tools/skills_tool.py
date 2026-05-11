@@ -65,6 +65,7 @@ Usage:
     # View a reference file within a skill (loads linked file)
     content = skill_view("axolotl", "references/dataset-formats.md")
 """
+from __future__ import annotations
 
 import json
 import logging
@@ -331,7 +332,7 @@ def _capture_required_environment_variables(
                 entry["prompt"],
                 metadata,
             )
-        except Exception:
+        except (AttributeError, KeyError, TypeError):
             logger.warning(
                 f"Secret capture callback failed for {entry['name']}", exc_info=True
             )
@@ -407,7 +408,7 @@ def _gateway_setup_hint() -> str:
         from gateway.platforms.base import GATEWAY_SECRET_CAPTURE_UNSUPPORTED_MESSAGE
 
         return GATEWAY_SECRET_CAPTURE_UNSUPPORTED_MESSAGE
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         return f"Secure secret entry is not available. Load this skill in the local CLI to be prompted, or add the key to {display_hermes_home()}/.env manually."
 
 
@@ -453,7 +454,7 @@ def _get_category_from_path(skill_path: Path) -> Optional[str]:
     try:
         from agent.skill_utils import get_external_skills_dirs
         dirs_to_check.extend(get_external_skills_dirs())
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         pass
     for skills_dir in dirs_to_check:
         try:
@@ -517,7 +518,7 @@ def _get_session_platform() -> str:
     try:
         from gateway.session_context import get_session_env
         return get_session_env("HERMES_SESSION_PLATFORM") or ""
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         return ""
 
 
@@ -539,7 +540,7 @@ def _is_skill_disabled(name: str, platform: str = None) -> bool:
             if platform_disabled is not None:
                 return name in platform_disabled
         return name in skills_cfg.get("disabled", [])
-    except Exception:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, OSError, TypeError):
         return False
 
 
@@ -661,7 +662,7 @@ def _load_category_description(category_dir: Path) -> Optional[str]:
     except (UnicodeDecodeError, PermissionError) as e:
         logger.debug("Failed to read category description %s: %s", desc_file, e)
         return None
-    except Exception as e:
+    except (AttributeError, KeyError, OSError, PermissionError, TypeError) as e:
         logger.warning(
             "Error parsing category description %s: %s", desc_file, e, exc_info=True
         )
@@ -764,7 +765,7 @@ def _serve_plugin_skill(
 
     try:
         content = skill_md.read_text(encoding="utf-8")
-    except Exception as e:
+    except (OSError, PermissionError) as e:
         return json.dumps(
             {"success": False, "error": f"Failed to read skill '{namespace}:{bare}': {e}"},
             ensure_ascii=False,
@@ -773,7 +774,7 @@ def _serve_plugin_skill(
     parsed_frontmatter: Dict[str, Any] = {}
     try:
         parsed_frontmatter, _ = _parse_frontmatter(content)
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         pass
 
     if not skill_matches_platform(parsed_frontmatter):
@@ -812,7 +813,7 @@ def _serve_plugin_skill(
             )
         else:
             banner = f"[Bundle context: This skill is part of the '{namespace}' plugin.]\n\n"
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         banner = ""
 
     rendered_content = content
@@ -825,7 +826,7 @@ def _serve_plugin_skill(
                 skill_md.parent,
                 session_id=session_id,
             )
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             logger.debug(
                 "Could not preprocess plugin skill %s:%s", namespace, bare, exc_info=True
             )
@@ -998,7 +999,7 @@ def skill_view(
         # Read the file once — reused for platform check and main content below
         try:
             content = skill_md.read_text(encoding="utf-8")
-        except Exception as e:
+        except (OSError, PermissionError) as e:
             return json.dumps(
                 {
                     "success": False,
@@ -1013,7 +1014,7 @@ def skill_view(
         _trusted_dirs = [SKILLS_DIR.resolve()]
         try:
             _trusted_dirs.extend(d.resolve() for d in all_dirs[1:])
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             pass
         for _td in _trusted_dirs:
             try:
@@ -1039,7 +1040,7 @@ def skill_view(
         parsed_frontmatter: Dict[str, Any] = {}
         try:
             parsed_frontmatter, _ = _parse_frontmatter(content)
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             parsed_frontmatter = {}
 
         if not skill_matches_platform(parsed_frontmatter):
@@ -1284,7 +1285,7 @@ def skill_view(
                 from tools.env_passthrough import register_env_passthrough
 
                 register_env_passthrough(available_env_names)
-            except Exception:
+            except (ImportError, ModuleNotFoundError):
                 logger.debug(
                     "Could not register env passthrough for skill %s",
                     skill_name,
@@ -1305,7 +1306,7 @@ def skill_view(
                 missing_cred_files = register_credential_files(required_cred_files_raw)
                 if missing_cred_files:
                     setup_needed = True
-            except Exception:
+            except (ImportError, ModuleNotFoundError):
                 logger.debug(
                     "Could not register credential files for skill %s",
                     skill_name,
@@ -1322,7 +1323,7 @@ def skill_view(
                     skill_dir,
                     session_id=task_id,
                 )
-            except Exception:
+            except (ImportError, ModuleNotFoundError):
                 logger.debug(
                     "Could not preprocess skill content for %s", skill_name, exc_info=True
                 )

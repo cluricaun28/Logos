@@ -7,6 +7,7 @@ Backup and import commands for hermes CLI.
 `hermes import` restores from a backup zip, overlaying onto the current
 HERMES_HOME root.
 """
+from __future__ import annotations
 
 import json
 import logging
@@ -102,12 +103,12 @@ def _safe_copy_db(src: Path, dst: Path) -> bool:
         backup_conn.close()
         conn.close()
         return True
-    except Exception as exc:
+    except (sqlite3.Error) as exc:
         logger.warning("SQLite safe copy failed for %s: %s", src, exc)
         try:
             shutil.copy2(src, dst)
             return True
-        except Exception as exc2:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc2:
             logger.error("Raw copy also failed for %s: %s", src, exc2)
             return False
 
@@ -573,8 +574,7 @@ def create_quick_snapshot(
         "total_size": sum(manifest.values()),
         "files": manifest,
     }
-    with open(snap_dir / "manifest.json", "w") as f:
-        json.dump(meta, f, indent=2)
+    with open(snap_dir / "manifest.json", "w", encoding='utf-8') as f:        json.dump(meta, f, indent=2)
 
     # Auto-prune
     _prune_quick_snapshots(root, keep=_QUICK_DEFAULT_KEEP)
@@ -599,8 +599,7 @@ def list_quick_snapshots(
         manifest_path = d / "manifest.json"
         if manifest_path.exists():
             try:
-                with open(manifest_path) as f:
-                    results.append(json.load(f))
+                with open(manifest_path, encoding='utf-8') as f:                    results.append(json.load(f))
             except (json.JSONDecodeError, OSError):
                 results.append({"id": d.name, "file_count": 0, "total_size": 0})
         if len(results) >= limit:
@@ -629,8 +628,7 @@ def restore_quick_snapshot(
     if not manifest_path.exists():
         return False
 
-    with open(manifest_path) as f:
-        meta = json.load(f)
+    with open(manifest_path, encoding='utf-8') as f:        meta = json.load(f)
 
     restored = 0
     for rel in meta.get("files", {}):

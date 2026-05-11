@@ -775,7 +775,7 @@ class SignManager:
 
                 try:
                     result_data: dict[str, Any] = response.json()
-                except Exception as exc:
+                except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
                     raise ValueError(f"Sign token response parse error: {exc}") from exc
 
                 code = result_data.get("code")
@@ -1051,7 +1051,7 @@ class InboundPipeline:
                     continue
                 try:
                     await handler(ctx, next_fn)
-                except Exception:
+                except (RuntimeError):
                     logger.error("[InboundPipeline] middleware [%s] error", name, exc_info=True)
                     raise
                 return
@@ -1085,7 +1085,7 @@ class DecodeMiddleware(InboundMiddleware):
             if isinstance(msg_content, str):
                 try:
                     msg_content = json.loads(msg_content)
-                except Exception:
+                except (json.JSONDecodeError, ValueError):
                     msg_content = {"text": msg_content}
             result.append({"msg_type": msg_type, "msg_content": msg_content or {}})
         return result
@@ -1146,7 +1146,7 @@ class DecodeMiddleware(InboundMiddleware):
         """Decode a single raw frame into (push_dict, decoded_via) or (None, '')."""
         try:
             conn_json = json.loads(data.decode("utf-8"))
-        except Exception:
+        except (json.JSONDecodeError, ValueError):
             conn_json = None
 
         if isinstance(conn_json, dict):
@@ -1156,7 +1156,7 @@ class DecodeMiddleware(InboundMiddleware):
         else:
             try:
                 push = decode_inbound_push(data)
-            except Exception:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                 push = None
             if push:
                 return push, "protobuf"
@@ -1367,7 +1367,7 @@ class RecallGuardMiddleware(InboundMiddleware):
                 sid = store.get_or_create_session(
                     cls._build_source(adapter, group_code, from_account),
                 ).session_id
-            except Exception:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                 return
             # Poll until the recalled content appears in transcript — the
             # interrupted turn hasn't finished writing yet when scheduled.
@@ -1375,7 +1375,7 @@ class RecallGuardMiddleware(InboundMiddleware):
                 await asyncio.sleep(0.5)
                 try:
                     transcript = store.load_transcript(sid)
-                except Exception:
+                except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                     continue
                 for entry in transcript:
                     if entry.get("role") == "user" and entry.get("content") == recalled_text:
@@ -1383,7 +1383,7 @@ class RecallGuardMiddleware(InboundMiddleware):
                         try:
                             store.rewrite_transcript(sid, transcript)
                             logger.info("[%s] Recall redact: session %s", adapter.name, session_key[:30])
-                        except Exception as exc:
+                        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
                             logger.warning("[%s] Recall redact failed: %s", adapter.name, exc)
                         return
             logger.debug("[%s] Recall redact: content not found after polling, session %s", adapter.name, session_key[:30])
@@ -1402,7 +1402,7 @@ class RecallGuardMiddleware(InboundMiddleware):
             return
         try:
             sid = store.get_or_create_session(cls._build_source(adapter, group_code, from_account)).session_id
-        except Exception as exc:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
             logger.warning("[%s] Recall: failed to resolve session: %s", adapter.name, exc)
             return
 
@@ -1419,7 +1419,7 @@ class RecallGuardMiddleware(InboundMiddleware):
                                 transcript.append(json.loads(line))
                             except json.JSONDecodeError:
                                 pass
-        except Exception as exc:
+        except (json.JSONDecodeError, ValueError) as exc:
             logger.warning("[%s] Recall: failed to load transcript: %s", adapter.name, exc)
             return
 
@@ -1441,7 +1441,7 @@ class RecallGuardMiddleware(InboundMiddleware):
             try:
                 store.rewrite_transcript(sid, transcript)
                 logger.info("[%s] Recall: redacted msg_id=%s (branch A)", adapter.name, recalled_id)
-            except Exception as exc:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
                 logger.warning("[%s] Recall: rewrite_transcript failed: %s", adapter.name, exc)
             return
 
@@ -1600,7 +1600,7 @@ class AutoSetHomeMiddleware(InboundMiddleware):
                         adapter.name, ctx.chat_id, ctx.chat_name,
                     )
                     # Silent auto-sethome: no user-facing message, only log
-                except Exception as e:
+                except (AttributeError, ImportError, KeyError, ModuleNotFoundError, OSError, PermissionError, TypeError, yaml.YAMLError) as e:
                     logger.warning("[%s] Auto-sethome failed: %s", adapter.name, e)
         await next_fn()
 
@@ -2048,7 +2048,7 @@ class GroupAtGuardMiddleware(InboundMiddleware):
                 session_entry.session_id,
                 entry,
             )
-        except Exception as exc:
+        except (AttributeError, KeyError, TypeError) as exc:
             logger.warning("[%s] Failed to observe group message: %s", adapter.name, exc)
 
     async def handle(self, ctx: InboundContext, next_fn) -> None:
@@ -2249,7 +2249,7 @@ class MediaResolveMiddleware(InboundMiddleware):
         """
         try:
             parsed = urllib.parse.urlparse(url)
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             return url
 
         query = urllib.parse.parse_qs(parsed.query)
@@ -2260,7 +2260,7 @@ class MediaResolveMiddleware(InboundMiddleware):
 
         try:
             return await MediaResolveMiddleware._fetch_resource_url(adapter, resource_id)
-        except Exception:
+        except (RuntimeError):
             return url
 
     @classmethod
@@ -2273,7 +2273,7 @@ class MediaResolveMiddleware(InboundMiddleware):
             file_bytes, content_type = await media_download_url(
                 fetch_url, max_size_mb=adapter.MEDIA_MAX_SIZE_MB,
             )
-        except Exception as exc:
+        except (RuntimeError) as exc:
             logger.warning(
                 "[%s] inbound media download failed: kind=%s %s err=%s",
                 adapter.name, kind, log_tag, exc,
@@ -2301,7 +2301,7 @@ class MediaResolveMiddleware(InboundMiddleware):
             file_name = os.path.basename(parsed.path) or "file"
         try:
             local_path = cache_document_from_bytes(file_bytes, file_name)
-        except Exception as exc:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
             logger.warning(
                 "[%s] inbound file cache failed: %s err=%s",
                 adapter.name, log_tag, exc,
@@ -2335,7 +2335,7 @@ class MediaResolveMiddleware(InboundMiddleware):
 
             try:
                 fetch_url = await cls._resolve_download_url(adapter, url)
-            except Exception as exc:
+            except (RuntimeError) as exc:
                 logger.warning(
                     "[%s] inbound media resolve failed: kind=%s url=%s err=%s",
                     adapter.name, kind, url, exc,
@@ -2368,7 +2368,7 @@ class MediaResolveMiddleware(InboundMiddleware):
         try:
             session_entry = store.get_or_create_session(source)
             history = store.load_transcript(session_entry.session_id)
-        except Exception as exc:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
             logger.warning(
                 "[%s] Observed-media hydration setup failed: %s",
                 adapter.name, exc,
@@ -2408,7 +2408,7 @@ class MediaResolveMiddleware(InboundMiddleware):
         for rid, kind, filename in order:
             try:
                 fresh_url = await cls._resolve_by_resource_id(adapter, rid)
-            except Exception as exc:
+            except (RuntimeError) as exc:
                 logger.warning(
                     "[%s] observed-media resolve failed: rid=%s kind=%s err=%s",
                     adapter.name, rid, kind, exc,
@@ -2463,7 +2463,7 @@ class DispatchMiddleware(InboundMiddleware):
                 extra_img_urls, extra_img_mimes = await MediaResolveMiddleware._collect_observed_media(
                     adapter, ctx.source,
                 )
-            except Exception as exc:
+            except (RuntimeError) as exc:
                 logger.warning(
                     "[%s] observed-image hydration raised, continuing anyway: %s",
                     adapter.name, exc,
@@ -2571,7 +2571,7 @@ class DispatchMiddleware(InboundMiddleware):
                     await dispatch_fn()
                     while session_key in adapter._active_sessions:
                         await asyncio.sleep(0.1)
-                except Exception:
+                except (RuntimeError):
                     logger.exception("[%s] Group queue consumer error", adapter.name)
         finally:
             adapter._group_queues.pop(session_key, None)
@@ -2664,7 +2664,7 @@ class ConnectionManager:
         if callable(open_attr):
             try:
                 return bool(open_attr())
-            except Exception:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                 return False
         return False
 
@@ -2699,7 +2699,7 @@ class ConnectionManager:
                 if open_attr is True or (callable(open_attr) and open_attr()):
                     logger.debug("[%s] Already connected, skipping connect()", adapter.name)
                     return True
-            except Exception:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                 pass
 
         # Acquire platform-scoped lock to prevent duplicate connections
@@ -2846,7 +2846,7 @@ class ConnectionManager:
 
                 try:
                     msg = decode_conn_msg(bytes(raw))
-                except Exception:
+                except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                     continue
 
                 head = msg.get("head", {})
@@ -2866,7 +2866,7 @@ class ConnectionManager:
         except asyncio.TimeoutError:
             logger.error("[%s] AUTH_BIND timeout", adapter.name)
             return False
-        except Exception as exc:
+        except (AttributeError, KeyError, RuntimeError, TypeError) as exc:
             logger.error("[%s] AUTH_BIND error: %s", adapter.name, exc, exc_info=True)
             return False
 
@@ -2887,7 +2887,7 @@ class ConnectionManager:
                 return None
             connect_id = _get_string(fdict, 3)
             return connect_id if connect_id else None
-        except Exception as exc:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
             logger.warning("[%s] Failed to extract connectId: %s", self._adapter.name, exc)
             return None
 
@@ -2927,7 +2927,7 @@ class ConnectionManager:
                     finally:
                         self._pending_acks.pop(msg_id, None)
                         self._pending_pong = None
-                except Exception as exc:
+                except (AttributeError, KeyError, RuntimeError, TypeError) as exc:
                     logger.debug("[%s] Heartbeat send failed: %s", adapter.name, exc)
         except asyncio.CancelledError:
             pass
@@ -2958,7 +2958,7 @@ class ConnectionManager:
                 adapter._mark_disconnected()
             else:
                 self.schedule_reconnect()
-        except Exception as exc:
+        except (RuntimeError) as exc:
             logger.warning("[%s] receive_loop exited: %s", adapter.name, exc)
             self.schedule_reconnect()
 
@@ -2967,7 +2967,7 @@ class ConnectionManager:
         adapter = self._adapter
         try:
             msg = decode_conn_msg(raw)
-        except Exception as exc:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
             logger.debug("[%s] Failed to decode frame: %s", adapter.name, exc)
             return
 
@@ -3021,7 +3021,7 @@ class ConnectionManager:
                 try:
                     ack_bytes = encode_push_ack(head)
                     await self._ws.send(ack_bytes)
-                except Exception as ack_exc:
+                except (RuntimeError) as ack_exc:
                     logger.debug("[%s] Failed to send PushAck: %s", adapter.name, ack_exc)
 
             if msg_id and msg_id in self._pending_acks:
@@ -3030,7 +3030,7 @@ class ConnectionManager:
                     try:
                         decoded = decode_inbound_push(data) if data else {"head": head}
                         fut.set_result(decoded)
-                    except Exception as exc:
+                    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
                         fut.set_exception(exc)
                 return
 
@@ -3071,14 +3071,14 @@ class ConnectionManager:
                 )
                 if from_account:
                     return f"{from_account}:{group_code}"
-        except Exception:
+        except (AttributeError, json.JSONDecodeError, KeyError, TypeError, ValueError):
             pass
         # Protobuf: try decode_inbound_push for sender info
         try:
             push = decode_inbound_push(raw_data)
             if push:
                 return f"{push.get('from_account', '')}:{push.get('group_code', '')}"
-        except Exception:
+        except (AttributeError, KeyError, TypeError):
             pass
         # Fallback: unique key (no aggregation)
         return f"__unknown_{id(raw_data)}"
@@ -3164,7 +3164,7 @@ class ConnectionManager:
             return result
         except asyncio.TimeoutError:
             raise
-        except Exception:
+        except (RuntimeError):
             raise
         finally:
             self._pending_acks.pop(req_id, None)
@@ -3269,7 +3269,7 @@ class ConnectionManager:
         if ws is not None:
             try:
                 await ws.close()
-            except Exception:
+            except (RuntimeError):
                 pass
 
 class MediaSendHandler(ABC):
@@ -3578,7 +3578,7 @@ class GroupQueryService:
         except asyncio.TimeoutError:
             logger.warning("[%s] query_group_info timeout: group=%s", adapter.name, group_code)
             return None
-        except Exception as exc:
+        except (AttributeError, KeyError, RuntimeError, TypeError) as exc:
             logger.warning("[%s] query_group_info failed: %s", adapter.name, exc)
             return None
 
@@ -3615,7 +3615,7 @@ class GroupQueryService:
         except asyncio.TimeoutError:
             logger.warning("[%s] get_group_member_list timeout: group=%s", adapter.name, group_code)
             return None
-        except Exception as exc:
+        except (AttributeError, KeyError, RuntimeError, TypeError) as exc:
             logger.warning("[%s] get_group_member_list failed: %s", adapter.name, exc)
             return None
 
@@ -3727,7 +3727,7 @@ class HeartbeatManager:
                 "[%s] Reply heartbeat %s sent: chat=%s",
                 adapter.name, status_name, chat_id,
             )
-        except Exception as exc:
+        except (RuntimeError) as exc:
             logger.debug("[%s] send_heartbeat_once failed: %s", adapter.name, exc)
 
     async def start(self, chat_id: str) -> None:
@@ -3772,7 +3772,7 @@ class HeartbeatManager:
 
         except asyncio.CancelledError:
             cancelled = True
-        except Exception:
+        except (AttributeError, KeyError, RuntimeError, TypeError):
             cancelled = False
         else:
             cancelled = False
@@ -3780,7 +3780,7 @@ class HeartbeatManager:
             if not cancelled:
                 try:
                     await self.send_heartbeat_once(chat_id, WS_HEARTBEAT_FINISH)
-                except Exception:
+                except (RuntimeError):
                     pass
             self._reply_heartbeat_tasks.pop(chat_id, None)
             self._reply_hb_last_active.pop(chat_id, None)
@@ -3797,7 +3797,7 @@ class HeartbeatManager:
         if send_finish:
             try:
                 await self.send_heartbeat_once(chat_id, WS_HEARTBEAT_FINISH)
-            except Exception:
+            except (RuntimeError):
                 pass
 
     async def close(self) -> None:
@@ -3841,7 +3841,7 @@ class SlowResponseNotifier:
             await self._sender.send_text_chunk(chat_id, SLOW_RESPONSE_MESSAGE)
         except asyncio.CancelledError:
             pass
-        except Exception as exc:
+        except (RuntimeError) as exc:
             logger.debug("[%s] Slow-response notifier failed: %s", self._adapter.name, exc)
 
     def cancel(self, chat_id: str) -> None:
@@ -3951,7 +3951,7 @@ class MessageSender:
         if self._on_send_finish:
             try:
                 await self._on_send_finish(chat_id)
-            except Exception:
+            except (RuntimeError):
                 pass
         return SendResult(success=True)
 
@@ -4069,7 +4069,7 @@ class MessageSender:
                     "[%s] send_text_chunk attempt %d/%d failed: %s",
                     adapter.name, attempt + 1, retry, last_error,
                 )
-            except Exception as exc:
+            except (AttributeError, KeyError, RuntimeError, TypeError) as exc:
                 last_error = str(exc)
                 logger.warning(
                     "[%s] send_text_chunk attempt %d/%d exception: %s",
@@ -4200,7 +4200,7 @@ class MessageSender:
             return {"success": True, "msg_key": response.get("msg_id", "")}
         except asyncio.TimeoutError:
             return {"success": False, "error": f"Request timeout after {DEFAULT_SEND_TIMEOUT}s"}
-        except Exception as exc:
+        except (AttributeError, KeyError, RuntimeError, TypeError) as exc:
             return {"success": False, "error": str(exc)}
 
     # -- Media validation ---------------------------------------------------
@@ -4567,7 +4567,7 @@ class YuanbaoAdapter(BasePlatformAdapter):
         """Send "typing" status heartbeat (RUNNING). Delegates to OutboundManager."""
         try:
             await self._outbound.start_typing(chat_id)
-        except Exception:
+        except (RuntimeError):
             pass
 
     async def stop_typing(self, chat_id: str) -> None:
@@ -4578,7 +4578,7 @@ class YuanbaoAdapter(BasePlatformAdapter):
         """
         try:
             await self._outbound.stop_typing(chat_id, send_finish=False)
-        except Exception:
+        except (RuntimeError):
             pass
 
     async def _process_message_background(self, event, session_key: str) -> None:

@@ -17,6 +17,7 @@ Security features (based on OWASP + NIST SP 800-63-4 guidance):
 
 Storage: ~/.hermes/pairing/
 """
+from __future__ import annotations
 
 import json
 import os

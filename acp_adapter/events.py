@@ -6,6 +6,7 @@ to the client via ``conn.session_update()`` using
 ``asyncio.run_coroutine_threadsafe()`` (since AIAgent runs in a worker
 thread while the event loop lives on the main thread).
 """
+from __future__ import annotations
 
 import asyncio
 import json

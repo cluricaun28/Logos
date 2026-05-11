@@ -10,6 +10,7 @@ Requires:
   - signal-cli installed and running: signal-cli daemon --http 127.0.0.1:8080
   - SIGNAL_HTTP_URL and SIGNAL_ACCOUNT environment variables set
 """
+from __future__ import annotations
 
 import asyncio
 import base64
@@ -228,7 +229,7 @@ class SignalAdapter(BasePlatformAdapter):
             if not self._acquire_platform_lock('signal-phone', self.account, 'Signal account'):
                 return False
             lock_acquired = True
-        except Exception as e:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
             logger.warning("Signal: Could not acquire phone lock (non-fatal): %s", e)
 
         self.client = httpx.AsyncClient(timeout=30.0)
@@ -239,7 +240,7 @@ class SignalAdapter(BasePlatformAdapter):
                 if resp.status_code != 200:
                     logger.error("Signal: health check failed (status %d)", resp.status_code)
                     return False
-            except Exception as e:
+            except (AttributeError, ConnectionError, KeyError, OSError, RuntimeError, TimeoutError, TypeError) as e:
                 logger.error("Signal: cannot reach signal-cli at %s: %s", self.http_url, e)
                 return False
 
@@ -338,7 +339,7 @@ class SignalAdapter(BasePlatformAdapter):
                                     await self._handle_envelope(data)
                                 except json.JSONDecodeError:
                                     logger.debug("Signal SSE: invalid JSON: %s", data_str[:100])
-                                except Exception:
+                                except (json.JSONDecodeError, RuntimeError, ValueError):
                                     logger.exception("Signal SSE: error handling event")
 
             except asyncio.CancelledError:
@@ -346,7 +347,7 @@ class SignalAdapter(BasePlatformAdapter):
             except httpx.HTTPError as e:
                 if self._running:
                     logger.warning("Signal SSE: HTTP error: %s (reconnecting in %.0fs)", e, backoff)
-            except Exception as e:
+            except (ConnectionError, json.JSONDecodeError, OSError, RuntimeError, TimeoutError, ValueError) as e:
                 if self._running:
                     logger.warning("Signal SSE: error: %s (reconnecting in %.0fs)", e, backoff)
 
@@ -384,7 +385,7 @@ class SignalAdapter(BasePlatformAdapter):
                     else:
                         logger.warning("Signal: health check failed (%d), forcing reconnect", resp.status_code)
                         self._force_reconnect()
-                except Exception as e:
+                except (AttributeError, ConnectionError, KeyError, OSError, RuntimeError, TimeoutError, TypeError) as e:
                     logger.warning("Signal: health check error: %s, forcing reconnect", e)
                     self._force_reconnect()
 
@@ -395,7 +396,7 @@ class SignalAdapter(BasePlatformAdapter):
                 task = asyncio.create_task(self._sse_response.aclose())
                 self._background_tasks.add(task)
                 task.add_done_callback(self._background_tasks.discard)
-            except Exception:
+            except (RuntimeError):
                 pass
             self._sse_response = None
 
@@ -509,7 +510,7 @@ class SignalAdapter(BasePlatformAdapter):
                         content_type = att.get("contentType") or _ext_to_mime(ext)
                         media_urls.append(cached_path)
                         media_types.append(content_type)
-                except Exception:
+                except (AttributeError, ImportError, KeyError, ModuleNotFoundError, RuntimeError, TypeError):
                     logger.exception("Signal: failed to fetch attachment %s", att_id)
 
         # Build session source
@@ -700,7 +701,7 @@ class SignalAdapter(BasePlatformAdapter):
 
             return data.get("result")
 
-        except Exception as e:
+        except (AttributeError, ConnectionError, KeyError, OSError, RuntimeError, TimeoutError, TypeError) as e:
             if log_failures:
                 logger.warning("Signal RPC %s failed: %s", method, e)
             else:
@@ -820,7 +821,7 @@ class SignalAdapter(BasePlatformAdapter):
             # Download remote image to cache
             try:
                 file_path = await cache_image_from_url(image_url)
-            except Exception as e:
+            except (RuntimeError) as e:
                 logger.warning("Signal: failed to download image: %s", e)
                 return SendResult(success=False, error=str(e))
 

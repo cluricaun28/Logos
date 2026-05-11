@@ -13,6 +13,7 @@ Import chain (circular-import safe):
            ^
     run_agent.py, cli.py, batch_runner.py, etc.
 """
+from __future__ import annotations
 
 import ast
 import importlib

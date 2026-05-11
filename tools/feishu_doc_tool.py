@@ -3,6 +3,7 @@
 Provides ``feishu_doc_read`` for reading document content as plain text.
 Uses the same lazy-import + BaseRequest pattern as feishu_comment.py.
 """
+from __future__ import annotations
 
 import json
 import logging

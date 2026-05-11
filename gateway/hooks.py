@@ -18,6 +18,7 @@ Events:
 
 Errors in hooks are caught and logged but never block the main pipeline.
 """
+from __future__ import annotations
 
 import asyncio
 import importlib.util
@@ -164,7 +165,7 @@ class HookRegistry:
                 # Support both sync and async handlers
                 if asyncio.iscoroutine(result):
                     await result
-            except Exception as e:
+            except (RuntimeError) as e:
                 print(f"[hooks] Error in handler for '{event_type}': {e}", flush=True)
 
     async def emit_collect(
@@ -192,6 +193,6 @@ class HookRegistry:
                     result = await result
                 if result is not None:
                     results.append(result)
-            except Exception as e:
+            except (RuntimeError) as e:
                 print(f"[hooks] Error in handler for '{event_type}': {e}", flush=True)
         return results

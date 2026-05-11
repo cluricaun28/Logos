@@ -25,6 +25,7 @@ Security:
   - Body size limits checked before reading payload
   - Set secret to "INSECURE_NO_AUTH" to skip validation (testing only)
 """
+from __future__ import annotations
 
 import asyncio
 import hashlib
@@ -289,7 +290,7 @@ class WebhookAdapter(BasePlatformAdapter):
                 len(self._dynamic_routes),
                 ", ".join(self._dynamic_routes.keys()) or "(none)",
             )
-        except Exception as e:
+        except (json.JSONDecodeError, OSError, PermissionError, ValueError) as e:
             logger.error("[webhook] Failed to reload dynamic routes: %s", e)
 
     async def _handle_webhook(self, request: "web.Request") -> "web.Response":
@@ -316,7 +317,7 @@ class WebhookAdapter(BasePlatformAdapter):
         # Read body (must be done before any validation)
         try:
             raw_body = await request.read()
-        except Exception as e:
+        except (OSError, PermissionError, RuntimeError) as e:
             logger.error("[webhook] Failed to read body: %s", e)
             return web.json_response({"error": "Bad request"}, status=400)
 
@@ -352,7 +353,7 @@ class WebhookAdapter(BasePlatformAdapter):
                 payload = dict(
                     urllib.parse.parse_qsl(raw_body.decode("utf-8"))
                 )
-            except Exception:
+            except (ImportError, ModuleNotFoundError):
                 return web.json_response(
                     {"error": "Cannot parse body"}, status=400
                 )
@@ -408,7 +409,7 @@ class WebhookAdapter(BasePlatformAdapter):
                         logger.warning(
                             "[webhook] Skill '%s' not found", skill_name
                         )
-            except Exception as e:
+            except (ImportError, ModuleNotFoundError) as e:
                 logger.warning("[webhook] Skill loading failed: %s", e)
 
         # Build a unique delivery ID
@@ -460,7 +461,7 @@ class WebhookAdapter(BasePlatformAdapter):
             )
             try:
                 result = await self._direct_deliver(prompt, delivery)
-            except Exception:
+            except (RuntimeError):
                 logger.exception(
                     "[webhook] direct-deliver failed route=%s delivery=%s",
                     route_name,

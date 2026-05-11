@@ -8,6 +8,7 @@ Usage:
     python -m hermes_cli.main web          # Start on http://127.0.0.1:9119
     python -m hermes_cli.main web --port 8080
 """
+from __future__ import annotations
 
 import asyncio
 import hmac
@@ -476,7 +477,7 @@ def _probe_gateway_health() -> tuple[bool, dict | None]:
                 if resp.status == 200:
                     body = json.loads(resp.read())
                     return True, body
-        except Exception:
+        except (json.JSONDecodeError, OSError, PermissionError, ValueError):
             continue
     return False, None
 
@@ -516,7 +517,7 @@ async def get_status():
         configured_gateway_platforms = {
             platform.value for platform in gateway_config.get_connected_platforms()
         }
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         configured_gateway_platforms = None
 
     # Prefer the detailed health endpoint response (has full state) when the
@@ -565,7 +566,7 @@ async def get_status():
             )
         finally:
             db.close()
-    except Exception:
+    except (AttributeError, KeyError, TypeError):
         pass
 
     return {
@@ -665,7 +666,7 @@ async def restart_gateway():
     """Kick off a ``hermes gateway restart`` in the background."""
     try:
         proc = _spawn_hermes_action(["gateway", "restart"], "gateway-restart")
-    except Exception as exc:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
         _log.exception("Failed to spawn gateway restart")
         raise HTTPException(status_code=500, detail=f"Failed to restart gateway: {exc}")
     return {
@@ -680,7 +681,7 @@ async def update_hermes():
     """Kick off ``hermes update`` in the background."""
     try:
         proc = _spawn_hermes_action(["update"], "hermes-update")
-    except Exception as exc:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
         _log.exception("Failed to spawn hermes update")
         raise HTTPException(status_code=500, detail=f"Failed to start update: {exc}")
     return {
@@ -736,7 +737,7 @@ async def get_sessions(limit: int = 20, offset: int = 0):
             return {"sessions": sessions, "total": total, "limit": limit, "offset": offset}
         finally:
             db.close()
-    except Exception:
+    except (AttributeError, KeyError, TypeError):
         _log.exception("GET /api/sessions failed")
         raise HTTPException(status_code=500, detail="Internal server error")
 
@@ -778,7 +779,7 @@ async def search_sessions(q: str = "", limit: int = 20):
             return {"results": list(seen.values())}
         finally:
             db.close()
-    except Exception:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
         _log.exception("GET /api/sessions/search failed")
         raise HTTPException(status_code=500, detail="Search failed")
 
@@ -870,7 +871,7 @@ def get_model_info():
                 provider=provider,
                 config_context_length=None,  # ignore override — we want auto value
             )
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             auto_ctx = 0
 
         config_ctx_int = 0
@@ -894,7 +895,7 @@ def get_model_info():
                     "max_output_tokens": mc.max_output_tokens,
                     "model_family": mc.model_family,
                 }
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             pass
 
         return {
@@ -905,7 +906,7 @@ def get_model_info():
             "effective_context_length": effective_ctx,
             "capabilities": caps,
         }
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         _log.exception("GET /api/model/info failed")
         return dict(_EMPTY_MODEL_INFO)
 
@@ -958,7 +959,7 @@ def _denormalize_config_from_web(config: Dict[str, Any]) -> Dict[str, Any]:
                         "default": model_val,
                         "context_length": ctx_override,
                     }
-        except Exception:
+        except (AttributeError, KeyError, TypeError):
             pass  # can't read disk config — just use the string form
     return config
 
@@ -968,7 +969,7 @@ async def update_config(body: ConfigUpdate):
     try:
         save_config(_denormalize_config_from_web(body.config))
         return {"ok": True}
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         _log.exception("PUT /api/config failed")
         raise HTTPException(status_code=500, detail="Internal server error")
 
@@ -997,7 +998,7 @@ async def set_env_var(body: EnvVarUpdate):
     try:
         save_env_value(body.key, body.value)
         return {"ok": True, "key": body.key}
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         _log.exception("PUT /api/env failed")
         raise HTTPException(status_code=500, detail="Internal server error")
 
@@ -1011,7 +1012,7 @@ async def remove_env_var(body: EnvVarDelete):
         return {"ok": True, "key": body.key}
     except HTTPException:
         raise
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         _log.exception("DELETE /api/env failed")
         raise HTTPException(status_code=500, detail="Internal server error")
 
@@ -1101,7 +1102,7 @@ def _anthropic_oauth_status() -> Dict[str, Any]:
     if read_hermes_oauth_credentials:
         try:
             hermes_creds = read_hermes_oauth_credentials()
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             hermes_creds = None
     if hermes_creds and hermes_creds.get("accessToken"):
         return {
@@ -1117,7 +1118,7 @@ def _anthropic_oauth_status() -> Dict[str, Any]:
     if read_claude_code_credentials:
         try:
             cc_creds = read_claude_code_credentials()
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             cc_creds = None
     if cc_creds and cc_creds.get("accessToken"):
         return {
@@ -1152,7 +1153,7 @@ def _claude_code_only_status() -> Dict[str, Any]:
     try:
         from agent.anthropic_adapter import read_claude_code_credentials
         creds = read_claude_code_credentials()
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         creds = None
     if creds and creds.get("accessToken"):
         return {
@@ -1222,7 +1223,7 @@ def _resolve_provider_status(provider_id: str, status_fn) -> Dict[str, Any]:
     if status_fn is not None:
         try:
             return status_fn()
-        except Exception as e:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
             return {"logged_in": False, "error": str(e)}
     try:
         from hermes_cli import auth as hauth
@@ -1316,13 +1317,13 @@ async def disconnect_oauth_provider(provider_id: str, request: Request):
             from agent.anthropic_adapter import _HERMES_OAUTH_FILE
             if _HERMES_OAUTH_FILE.exists():
                 _HERMES_OAUTH_FILE.unlink()
-        except Exception:
+        except (ImportError, ModuleNotFoundError, OSError, PermissionError):
             pass
         # Also clear the credential pool entry if present.
         try:
             from hermes_cli.auth import clear_provider_auth
             clear_provider_auth("anthropic")
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             pass
         _log.info("oauth/disconnect: %s", provider_id)
         return {"ok": True, "provider": provider_id}
@@ -1332,7 +1333,7 @@ async def disconnect_oauth_provider(provider_id: str, request: Request):
         cleared = clear_provider_auth(provider_id)
         _log.info("oauth/disconnect: %s (cleared=%s)", provider_id, cleared)
         return {"ok": bool(cleared), "provider": provider_id}
-    except Exception as e:
+    except (ImportError, ModuleNotFoundError) as e:
         _log.exception("disconnect %s failed", provider_id)
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1450,7 +1451,7 @@ def _save_anthropic_oauth_creds(access_token: str, refresh_token: str, expires_a
         for e in existing:
             try:
                 pool.remove_entry(getattr(e, "id", ""))
-            except Exception:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                 pass
         entry = PooledCredential(
             provider="anthropic",
@@ -1464,7 +1465,7 @@ def _save_anthropic_oauth_creds(access_token: str, refresh_token: str, expires_a
             expires_at_ms=expires_at_ms,
         )
         pool.add_entry(entry)
-    except Exception as e:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
         _log.warning("anthropic pool add (dashboard) failed: %s", e)
 
 
@@ -1532,7 +1533,7 @@ def _submit_anthropic_pkce(session_id: str, code_input: str) -> Dict[str, Any]:
     try:
         with urllib.request.urlopen(req, timeout=20) as resp:
             result = json.loads(resp.read().decode())
-    except Exception as e:
+    except (json.JSONDecodeError, OSError, PermissionError, ValueError) as e:
         with _oauth_sessions_lock:
             sess["status"] = "error"
             sess["error_message"] = f"Token exchange failed: {e}"
@@ -1550,7 +1551,7 @@ def _submit_anthropic_pkce(session_id: str, code_input: str) -> Dict[str, Any]:
     expires_at_ms = int(time.time() * 1000) + (expires_in * 1000)
     try:
         _save_anthropic_oauth_creds(access_token, refresh_token, expires_at_ms)
-    except Exception as e:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
         with _oauth_sessions_lock:
             sess["status"] = "error"
             sess["error_message"] = f"Save failed: {e}"
@@ -1860,7 +1861,7 @@ async def start_oauth_login(provider_id: str, request: Request):
             return await _start_device_code_flow(provider_id)
     except HTTPException:
         raise
-    except Exception as e:
+    except (RuntimeError) as e:
         _log.exception("oauth/start %s failed", provider_id)
         raise HTTPException(status_code=500, detail=str(e))
     raise HTTPException(status_code=400, detail="Unsupported flow")
@@ -2051,7 +2052,7 @@ async def create_cron_job(body: CronJobCreate):
         job = create_job(prompt=body.prompt, schedule=body.schedule,
                          name=body.name, deliver=body.deliver)
         return job
-    except Exception as e:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
         _log.exception("POST /api/cron/jobs failed")
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -2154,7 +2155,7 @@ async def get_toolsets():
     for name, label, desc in _get_effective_configurable_toolsets():
         try:
             tools = sorted(set(resolve_toolset(name)))
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             tools = []
         is_enabled = name in enabled_toolsets
         result.append({
@@ -2360,7 +2361,7 @@ async def _broadcast_event(channel: str, payload: str) -> None:
     for sub in subs:
         try:
             await sub.send_text(payload)
-        except Exception:
+        except (RuntimeError):
             # Subscriber went away mid-send; the /api/events finally clause
             # will remove it from the registry on its next iteration.
             pass
@@ -2433,7 +2434,7 @@ async def pty_ws(ws: WebSocket) -> None:
                 continue
             try:
                 await ws.send_bytes(chunk)
-            except Exception:
+            except (RuntimeError):
                 return
 
     reader_task = asyncio.create_task(pump_pty_to_ws())
@@ -2883,7 +2884,7 @@ def _discover_user_themes() -> list:
     for f in sorted(themes_dir.glob("*.yaml")):
         try:
             data = yaml.safe_load(f.read_text(encoding="utf-8"))
-        except Exception:
+        except (OSError, PermissionError, yaml.YAMLError):
             continue
         normalised = _normalise_theme_definition(data)
         if normalised is not None:
@@ -3113,7 +3114,7 @@ def _mount_plugin_api_routes():
                 continue
             app.include_router(router, prefix=f"/api/plugins/{plugin['name']}")
             _log.info("Mounted plugin API routes: /api/plugins/%s/", plugin["name"])
-        except Exception as exc:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
             _log.warning("Failed to load plugin %s API routes: %s", plugin["name"], exc)
 
 

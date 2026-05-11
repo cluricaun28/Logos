@@ -360,7 +360,7 @@ class _MarkerDetector:
 
             return scores
 
-        except Exception as e:
+        except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError) as e:
             logger.debug("Semantic marker detection unavailable: %s", e)
             return None
 
@@ -832,7 +832,7 @@ class SourceAnalyzer:
             try:
                 report = self.analyze(url, content, query_context)
                 reports.append(report)
-            except Exception as e:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
                 logger.debug("Analysis failed for %s: %s", url, e)
                 reports.append(
                     AnalysisReport(
@@ -906,7 +906,7 @@ class SourceAnalyzer:
         if findings:
             try:
                 self._writer.write(findings)
-            except Exception as e:
+            except (OSError, PermissionError) as e:
                 logger.debug("Failed to write findings to RL: %s", e)
 
         return results

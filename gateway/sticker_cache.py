@@ -7,6 +7,7 @@ sticker image on every send. Descriptions are concise (1-2 sentences).
 
 Cache location: ~/.hermes/sticker_cache.json
 """
+from __future__ import annotations
 
 import json
 import time

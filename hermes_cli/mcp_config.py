@@ -7,6 +7,7 @@ MCP server lifecycle management (issue #690 Phase 2).
 Relies on tools/mcp_tool.py for connection/discovery and keeps
 configuration in ~/.hermes/config.yaml under the ``mcp_servers`` key.
 """
+from __future__ import annotations
 
 import asyncio
 import logging
@@ -287,7 +288,7 @@ def cmd_mcp_add(args):
                 oauth_ok=True
             else:
                 _warning("OAuth setup failed — MCP SDK auth module not available")
-        except Exception as exc:
+        except (ImportError, ModuleNotFoundError) as exc:
             _warning(f"OAuth error: {exc}")
 
         if not oauth_ok:
@@ -330,7 +331,7 @@ def cmd_mcp_add(args):
 
     try:
         tools = _probe_single_server(name, server_config)
-    except Exception as exc:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
         _error(f"Failed to connect: {exc}")
         if _confirm("Save config anyway (you can test later)?", default=False):
             server_config["enabled"] = False
@@ -435,7 +436,7 @@ def cmd_mcp_remove(args):
         from tools.mcp_oauth_manager import get_manager
         get_manager().remove(name)
         _success("Cleaned up OAuth tokens")
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         pass
 
 
@@ -556,7 +557,7 @@ def cmd_mcp_test(args):
     try:
         tools = _probe_single_server(name, cfg)
         elapsed_ms = (time.monotonic() - start) * 1000
-    except Exception as exc:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
         elapsed_ms = (time.monotonic() - start) * 1000
         _error(f"Connection failed ({elapsed_ms:.0f}ms): {exc}")
         return
@@ -619,7 +620,7 @@ def cmd_mcp_login(args):
         from tools.mcp_oauth_manager import get_manager
         mgr = get_manager()
         mgr.remove(name)
-    except Exception as exc:
+    except (ImportError, ModuleNotFoundError) as exc:
         _warning(f"Could not clear existing OAuth state: {exc}")
 
     print()
@@ -632,7 +633,7 @@ def cmd_mcp_login(args):
             _success(f"Authenticated — {len(tools)} tool(s) available")
         else:
             _success("Authenticated (server reported no tools)")
-    except Exception as exc:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
         _error(f"Authentication failed: {exc}")
 
 
@@ -662,7 +663,7 @@ def cmd_mcp_configure(args):
 
     try:
         all_tools = _probe_single_server(name, cfg)
-    except Exception as exc:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
         _error(f"Failed to connect: {exc}")
         return
 

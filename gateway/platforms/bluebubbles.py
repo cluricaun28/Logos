@@ -7,6 +7,7 @@ documents), tapback reactions, typing indicators, and read receipts.
 Architecture based on PR #5869 (benjaminsehl) with inbound attachment
 downloading from PR #4588 (YuhangLin).
 """
+from __future__ import annotations
 
 import asyncio
 import json
@@ -175,7 +176,7 @@ class BlueBubblesAdapter(BasePlatformAdapter):
                 self._private_api_enabled,
                 self._helper_connected,
             )
-        except Exception as exc:
+        except (AttributeError, KeyError, RuntimeError, TypeError) as exc:
             logger.error(
                 "[bluebubbles] cannot reach server at %s: %s", self.server_url, exc
             )
@@ -247,7 +248,7 @@ class BlueBubblesAdapter(BasePlatformAdapter):
             data = res.get("data")
             if isinstance(data, list):
                 return [wh for wh in data if wh.get("url") == url]
-        except Exception:
+        except (AttributeError, KeyError, RuntimeError, TypeError):
             pass
         return []
 
@@ -292,7 +293,7 @@ class BlueBubblesAdapter(BasePlatformAdapter):
                     res.get("message"),
                 )
                 return False
-        except Exception as exc:
+        except (AttributeError, KeyError, RuntimeError, TypeError) as exc:
             logger.warning(
                 "[bluebubbles] failed to register webhook with server: %s",
                 exc,
@@ -324,7 +325,7 @@ class BlueBubblesAdapter(BasePlatformAdapter):
                 logger.info(
                     "[bluebubbles] webhook unregistered: %s", webhook_url
                 )
-        except Exception as exc:
+        except (AttributeError, KeyError, RuntimeError, TypeError) as exc:
             logger.debug(
                 "[bluebubbles] failed to unregister webhook (non-critical): %s",
                 exc,
@@ -367,7 +368,7 @@ class BlueBubblesAdapter(BasePlatformAdapter):
                     if (part.get("address") or "").strip() == target and guid:
                         self._guid_cache[target] = guid
                         return guid
-        except Exception:
+        except (AttributeError, KeyError, RuntimeError, TypeError):
             pass
         return None
 
@@ -385,7 +386,7 @@ class BlueBubblesAdapter(BasePlatformAdapter):
             data = res.get("data") or {}
             msg_id = data.get("guid") or data.get("messageGuid") or "ok"
             return SendResult(success=True, message_id=str(msg_id), raw_response=res)
-        except Exception as exc:
+        except (AttributeError, KeyError, RuntimeError, TypeError) as exc:
             return SendResult(success=False, error=str(exc))
 
     # ------------------------------------------------------------------
@@ -448,7 +449,7 @@ class BlueBubblesAdapter(BasePlatformAdapter):
                 last = SendResult(
                     success=True, message_id=str(msg_id), raw_response=res
                 )
-            except Exception as exc:
+            except (AttributeError, KeyError, RuntimeError, TypeError) as exc:
                 return SendResult(success=False, error=str(exc))
         return last
 
@@ -523,7 +524,7 @@ class BlueBubblesAdapter(BasePlatformAdapter):
 
             local_path = await cache_image_from_url(image_url)
             return await self._send_attachment(chat_id, local_path, caption=caption)
-        except Exception:
+        except (ImportError, ModuleNotFoundError, RuntimeError):
             return await super().send_image(chat_id, image_url, caption, reply_to)
 
     async def send_image_file(
@@ -597,7 +598,7 @@ class BlueBubblesAdapter(BasePlatformAdapter):
                 await self.client.post(
                     self._api_url(f"/api/v1/chat/{encoded}/typing"), timeout=5
                 )
-        except Exception:
+        except (RuntimeError):
             pass
 
     async def stop_typing(self, chat_id: str) -> None:
@@ -610,7 +611,7 @@ class BlueBubblesAdapter(BasePlatformAdapter):
                 await self.client.delete(
                     self._api_url(f"/api/v1/chat/{encoded}/typing"), timeout=5
                 )
-        except Exception:
+        except (RuntimeError):
             pass
 
     # ------------------------------------------------------------------
@@ -628,7 +629,7 @@ class BlueBubblesAdapter(BasePlatformAdapter):
                     self._api_url(f"/api/v1/chat/{encoded}/read"), timeout=5
                 )
                 return True
-        except Exception:
+        except (RuntimeError):
             pass
         return False
 
@@ -667,7 +668,7 @@ class BlueBubblesAdapter(BasePlatformAdapter):
                 info["name"] = display_name
                 if participants:
                     info["participants"] = participants
-        except Exception:
+        except (AttributeError, KeyError, RuntimeError, TypeError):
             pass
         return info
 
@@ -780,7 +781,7 @@ class BlueBubblesAdapter(BasePlatformAdapter):
             body = raw.decode("utf-8", errors="replace")
             try:
                 payload = json.loads(body)
-            except Exception:
+            except (json.JSONDecodeError, ValueError):
                 from urllib.parse import parse_qs
 
                 form = parse_qs(body)
@@ -791,7 +792,7 @@ class BlueBubblesAdapter(BasePlatformAdapter):
                     or [""]
                 )[0]
                 payload = json.loads(payload_str) if payload_str else {}
-        except Exception as exc:
+        except (AttributeError, ImportError, json.JSONDecodeError, KeyError, ModuleNotFoundError, TypeError, ValueError) as exc:
             logger.error("[bluebubbles] webhook parse error: %s", exc)
             return web.json_response({"error": "invalid payload"}, status=400)
 

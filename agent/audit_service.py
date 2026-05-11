@@ -9,6 +9,7 @@ Design principles:
   - Structured audit report with pass/fail verdict and specific corrections
   - Zero tolerance for unsupported claims — if it's not in the raw turns, flag it
 """
+from __future__ import annotations
 
 import json
 import logging
@@ -85,7 +86,7 @@ class AuditService:
             response = call_llm(**call_kwargs)
             audit_text = response.choices[0].message.content.strip()
 
-        except Exception as e:
+        except (ImportError, ModuleNotFoundError) as e:
             logger.warning(f"Audit LLM call failed (defaulting to PASS): {e}")
             # If critic is unavailable, default to PASS but log warning
             return self._pass_report("Audit skipped — LLM unavailable")
@@ -127,7 +128,7 @@ class AuditService:
                 {"id": row[0], "role": row[1], "content": row[2] or ""}
                 for row in rows
             ]
-        except Exception as e:
+        except (sqlite3.Error) as e:
             logger.error(f"Failed to fetch turns for audit: {e}")
             return []
 

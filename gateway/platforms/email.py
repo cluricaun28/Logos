@@ -14,6 +14,7 @@ Environment variables:
     EMAIL_POLL_INTERVAL — Seconds between mailbox checks (default: 15)
     EMAIL_ALLOWED_USERS — Comma-separated list of allowed sender addresses
 """
+from __future__ import annotations
 
 import asyncio
 import email as email_lib
@@ -286,7 +287,7 @@ class EmailAdapter(BasePlatformAdapter):
             self._trim_seen_uids()
             imap.logout()
             logger.info("[Email] IMAP connection test passed. %d existing messages skipped.", len(self._seen_uids))
-        except Exception as e:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
             logger.error("[Email] IMAP connection failed: %s", e)
             return False
 
@@ -297,7 +298,7 @@ class EmailAdapter(BasePlatformAdapter):
             smtp.login(self._address, self._password)
             smtp.quit()
             logger.info("[Email] SMTP connection test passed.")
-        except Exception as e:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
             logger.error("[Email] SMTP connection failed: %s", e)
             return False
 
@@ -325,7 +326,7 @@ class EmailAdapter(BasePlatformAdapter):
                 await self._check_inbox()
             except asyncio.CancelledError:
                 break
-            except Exception as e:
+            except (RuntimeError) as e:
                 logger.error("[Email] Poll error: %s", e)
             await asyncio.sleep(self._poll_interval)
 
@@ -397,9 +398,9 @@ class EmailAdapter(BasePlatformAdapter):
             finally:
                 try:
                     imap.logout()
-                except Exception:
+                except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                     pass
-        except Exception as e:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
             logger.error("[Email] IMAP fetch error: %s", e)
         return results
 
@@ -477,7 +478,7 @@ class EmailAdapter(BasePlatformAdapter):
                 None, self._send_email, chat_id, content, reply_to
             )
             return SendResult(success=True, message_id=message_id)
-        except Exception as e:
+        except (RuntimeError) as e:
             logger.error("[Email] Send failed to %s: %s", chat_id, e)
             return SendResult(success=False, error=str(e))
 
@@ -519,7 +520,7 @@ class EmailAdapter(BasePlatformAdapter):
         finally:
             try:
                 smtp.quit()
-            except Exception:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                 smtp.close()
 
         logger.info("[Email] Sent reply to %s (subject: %s)", to_addr, subject)
@@ -588,7 +589,7 @@ class EmailAdapter(BasePlatformAdapter):
                 body,
                 local_paths,
             )
-        except Exception as e:
+        except (RuntimeError) as e:
             logger.error("[Email] Multi-image send failed, falling back: %s", e, exc_info=True)
             await super().send_multiple_images(chat_id, images, metadata, human_delay)
 
@@ -630,7 +631,7 @@ class EmailAdapter(BasePlatformAdapter):
                     encoders.encode_base64(part)
                     part.add_header("Content-Disposition", f"attachment; filename={p.name}")
                     msg.attach(part)
-            except Exception as e:
+            except (OSError, PermissionError) as e:
                 logger.warning("[Email] Failed to attach %s: %s", file_path, e)
 
         smtp = smtplib.SMTP(self._smtp_host, self._smtp_port, timeout=30)
@@ -641,7 +642,7 @@ class EmailAdapter(BasePlatformAdapter):
         finally:
             try:
                 smtp.quit()
-            except Exception:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                 smtp.close()
 
         logger.info("[Email] Sent multi-attachment email to %s (%d files)", to_addr, len(file_paths))
@@ -668,7 +669,7 @@ class EmailAdapter(BasePlatformAdapter):
                 file_name,
             )
             return SendResult(success=True, message_id=message_id)
-        except Exception as e:
+        except (RuntimeError) as e:
             logger.error("[Email] Send document failed: %s", e)
             return SendResult(success=False, error=str(e))
 
@@ -720,7 +721,7 @@ class EmailAdapter(BasePlatformAdapter):
         finally:
             try:
                 smtp.quit()
-            except Exception:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                 smtp.close()
 
         return msg_id

@@ -14,6 +14,7 @@ Flow:
   4. Sends to Gemini Flash with a focused summarization prompt
   5. Returns per-session summaries with metadata
 """
+from __future__ import annotations
 
 import asyncio
 import concurrent.futures

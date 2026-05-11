@@ -33,6 +33,7 @@ Payment / credit exhaustion fallback:
   auto-detection chain.  This handles the common case where a user depletes
   their OpenRouter balance but has Codex OAuth or another provider available.
 """
+from __future__ import annotations
 
 import json
 import logging
@@ -296,7 +297,7 @@ def _codex_cloudflare_headers(access_token: str) -> Dict[str, str]:
         acct_id = claims.get("https://api.openai.com/auth", {}).get("chatgpt_account_id")
         if isinstance(acct_id, str) and acct_id:
             headers["ChatGPT-Account-ID"] = acct_id
-    except Exception:
+    except (AttributeError, ImportError, json.JSONDecodeError, KeyError, ModuleNotFoundError, TypeError, ValueError):
         pass
     return headers
 
@@ -322,14 +323,14 @@ def _select_pool_entry(provider: str) -> Tuple[bool, Optional[Any]]:
     """Return (pool_exists_for_provider, selected_entry)."""
     try:
         pool = load_pool(provider)
-    except Exception as exc:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
         logger.debug("Auxiliary client: could not load pool for %s: %s", provider, exc)
         return False, None
     if not pool or not pool.has_credentials():
         return False, None
     try:
         return True, pool.select()
-    except Exception as exc:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
         logger.debug("Auxiliary client: could not select pool entry for %s: %s", provider, exc)
         return True, None
 
@@ -876,7 +877,7 @@ def _maybe_wrap_anthropic(
 
     try:
         real_client = build_anthropic_client(api_key, base_url)
-    except Exception as exc:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
         logger.warning(
             "Failed to build Anthropic client for %s (%s) — falling back to "
             "OpenAI-wire client.", base_url, exc,
@@ -926,7 +927,7 @@ def _read_nous_auth() -> Optional[dict]:
         if not provider.get("agent_key") and not provider.get("access_token"):
             return None
         return provider
-    except Exception as exc:
+    except (AttributeError, json.JSONDecodeError, KeyError, OSError, PermissionError, TypeError, ValueError) as exc:
         logger.debug("Could not read Nous auth: %s", exc)
         return None
 
@@ -957,7 +958,7 @@ def _resolve_nous_runtime_api(*, force_refresh: bool = False) -> Optional[tuple[
             timeout_seconds=float(os.getenv("HERMES_NOUS_TIMEOUT_SECONDS", "15")),
             force_mint=force_refresh,
         )
-    except Exception as exc:
+    except (ImportError, ModuleNotFoundError, OSError) as exc:
         logger.debug("Auxiliary Nous runtime credential resolution failed: %s", exc)
         return None
 
@@ -1002,11 +1003,11 @@ def _read_codex_access_token() -> Optional[str]:
             if exp and time.time() > exp:
                 logger.debug("Codex access token expired (exp=%s), skipping", exp)
                 return None
-        except Exception:
+        except (AttributeError, ImportError, json.JSONDecodeError, KeyError, ModuleNotFoundError, TypeError, ValueError):
             pass  # Non-JWT token or decode error — use as-is
 
         return access_token.strip()
-    except Exception as exc:
+    except (AttributeError, ImportError, json.JSONDecodeError, KeyError, ModuleNotFoundError, TypeError, ValueError) as exc:
         logger.debug("Could not read Codex auth for auxiliary client: %s", exc)
         return None
 
@@ -1147,7 +1148,7 @@ def _try_nous(vision: bool = False) -> Tuple[Optional[OpenAI], Optional[str]]:
                 _remaining,
             )
             return None, None
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         pass
 
     nous = _read_nous_auth()
@@ -1179,7 +1180,7 @@ def _try_nous(vision: bool = False) -> Tuple[Optional[OpenAI], Optional[str]]:
                 "Auxiliary/%s: no Portal recommendation, falling back to %s",
                 "vision" if vision else "text", model,
             )
-    except Exception as exc:
+    except (ImportError, ModuleNotFoundError) as exc:
         logger.debug(
             "Auxiliary/%s: recommended-models lookup failed (%s); "
             "falling back to %s",
@@ -1216,7 +1217,7 @@ def _read_main_model() -> str:
             default = model_cfg.get("default", "")
             if isinstance(default, str) and default.strip():
                 return default.strip()
-    except Exception:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
         pass
     return ""
 
@@ -1235,7 +1236,7 @@ def _read_main_provider() -> str:
             provider = model_cfg.get("provider", "")
             if isinstance(provider, str) and provider.strip():
                 return provider.strip().lower()
-    except Exception:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
         pass
     return ""
 
@@ -1251,7 +1252,7 @@ def _resolve_custom_runtime() -> Tuple[Optional[str], Optional[str], Optional[st
         from hermes_cli.runtime_provider import resolve_runtime_provider
 
         runtime = resolve_runtime_provider(requested="custom")
-    except Exception as exc:
+    except (ImportError, ModuleNotFoundError) as exc:
         logger.debug("Auxiliary client: custom runtime resolution failed: %s", exc)
         runtime = None
 
@@ -1442,7 +1443,7 @@ def _try_anthropic() -> Tuple[Optional[Any], Optional[str]]:
                 cfg_base_url = (model_cfg.get("base_url") or "").strip().rstrip("/")
                 if cfg_base_url:
                     base_url = cfg_base_url
-    except Exception:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
         pass
 
     from agent.anthropic_adapter import _is_oauth_token
@@ -1614,7 +1615,7 @@ def _evict_cached_clients(provider: str) -> None:
                     close_fn = getattr(client, "close", None)
                     if callable(close_fn):
                         close_fn()
-                except Exception:
+                except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                     pass
             _client_cache.pop(key, None)
 
@@ -1863,7 +1864,7 @@ def _normalize_resolved_model(model_name: Optional[str], provider: str) -> Optio
         from hermes_cli.model_normalize import normalize_model_for_provider
 
         return normalize_model_for_provider(model_name, provider)
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         return model_name
 
 
@@ -2637,7 +2638,7 @@ def _store_cached_client(cache_key: tuple, client: Any, default_model: Optional[
                 close_fn = getattr(old_entry[0], "close", None)
                 if callable(close_fn):
                     close_fn()
-            except Exception:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                 pass
         _client_cache[cache_key] = (client, default_model, bound_loop)
 
@@ -2735,7 +2736,7 @@ def _force_close_async_httpx(client: Any) -> None:
         inner = getattr(client, "_client", None)
         if inner is not None and not getattr(inner, "is_closed", True):
             inner._state = ClientState.CLOSED
-    except Exception:
+    except (ConnectionError, ImportError, ModuleNotFoundError, OSError, TimeoutError):
         pass
 
 
@@ -2761,7 +2762,7 @@ def shutdown_cached_clients() -> None:
                 close_fn = getattr(client, "close", None)
                 if close_fn and not inspect.iscoroutinefunction(close_fn):
                     close_fn()
-            except Exception:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                 pass
         _client_cache.clear()
 
@@ -3283,7 +3284,7 @@ def call_llm(
     try:
         return _validate_llm_response(
             client.chat.completions.create(**kwargs), task)
-    except Exception as first_err:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as first_err:
         if "temperature" in kwargs and _is_unsupported_temperature_error(first_err):
             retry_kwargs = dict(kwargs)
             retry_kwargs.pop("temperature", None)
@@ -3294,7 +3295,7 @@ def call_llm(
             try:
                 return _validate_llm_response(
                     client.chat.completions.create(**retry_kwargs), task)
-            except Exception as retry_err:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as retry_err:
                 retry_err_str = str(retry_err)
                 # If retry still fails, fall through to the max_tokens /
                 # payment / auth chains below using the temperature-stripped
@@ -3322,7 +3323,7 @@ def call_llm(
             try:
                 return _validate_llm_response(
                     client.chat.completions.create(**kwargs), task)
-            except Exception as retry_err:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as retry_err:
                 # If the max_tokens retry also hits a payment or connection
                 # error, fall through to the fallback chain below.
                 if not (_is_payment_error(retry_err) or _is_connection_error(retry_err)):
@@ -3579,7 +3580,7 @@ async def async_call_llm(
     try:
         return _validate_llm_response(
             await client.chat.completions.create(**kwargs), task)
-    except Exception as first_err:
+    except (RuntimeError) as first_err:
         if "temperature" in kwargs and _is_unsupported_temperature_error(first_err):
             retry_kwargs = dict(kwargs)
             retry_kwargs.pop("temperature", None)
@@ -3590,7 +3591,7 @@ async def async_call_llm(
             try:
                 return _validate_llm_response(
                     await client.chat.completions.create(**retry_kwargs), task)
-            except Exception as retry_err:
+            except (RuntimeError) as retry_err:
                 retry_err_str = str(retry_err)
                 if not (
                     _is_payment_error(retry_err)
@@ -3614,7 +3615,7 @@ async def async_call_llm(
             try:
                 return _validate_llm_response(
                     await client.chat.completions.create(**kwargs), task)
-            except Exception as retry_err:
+            except (RuntimeError) as retry_err:
                 # If the max_tokens retry also hits a payment or connection
                 # error, fall through to the fallback chain below.
                 if not (_is_payment_error(retry_err) or _is_connection_error(retry_err)):

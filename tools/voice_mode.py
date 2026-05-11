@@ -8,6 +8,7 @@ Dependencies (optional):
     pip install sounddevice numpy
     or: pip install hermes-agent[voice]
 """
+from __future__ import annotations
 
 import logging
 import os
@@ -77,7 +78,7 @@ def _termux_api_app_installed() -> bool:
             check=False,
         )
         return "package:com.termux.api" in (result.stdout or "")
-    except Exception:
+    except (AttributeError, FileNotFoundError, KeyError, subprocess.CalledProcessError, TypeError):
         return False
 
 
@@ -134,7 +135,7 @@ def detect_audio_environment() -> dict:
                     notices.append("No PortAudio devices detected, but Termux:API microphone capture is available")
                 else:
                     warnings.append("No audio input/output devices detected")
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             # In WSL with PulseAudio, device queries can fail even though
             # recording/playback works fine. Don't block if PULSE_SERVER is set.
             if os.environ.get('PULSE_SERVER'):
@@ -235,7 +236,7 @@ def play_beep(frequency: int = 880, duration: float = 0.12, count: int = 1) -> N
         while sd.get_stream() and sd.get_stream().active and time.monotonic() < deadline:
             time.sleep(0.01)
         sd.stop()
-    except Exception as e:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
         logger.debug("Beep playback failed: %s", e)
 
 
@@ -303,7 +304,7 @@ class TermuxAudioRecorder:
         except subprocess.CalledProcessError as e:
             details = (e.stderr or e.stdout or str(e)).strip()
             raise RuntimeError(f"Termux microphone start failed: {details}") from e
-        except Exception as e:
+        except (FileNotFoundError, ImportError, ModuleNotFoundError, subprocess.CalledProcessError) as e:
             raise RuntimeError(f"Termux microphone start failed: {e}") from e
 
         with self._lock:
@@ -354,7 +355,7 @@ class TermuxAudioRecorder:
             self._current_rms = 0
         try:
             self._stop_termux_recording()
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             pass
         if path and os.path.isfile(path):
             try:
@@ -537,7 +538,7 @@ class AudioRecorder:
                         def _safe_cb():
                             try:
                                 cb()
-                            except Exception as e:
+                            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
                                 logger.error("Silence callback failed: %s", e, exc_info=True)
                         threading.Thread(target=_safe_cb, daemon=True).start()
 
@@ -551,11 +552,11 @@ class AudioRecorder:
                 callback=_callback,
             )
             stream.start()
-        except Exception as e:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
             if stream is not None:
                 try:
                     stream.close()
-                except Exception:
+                except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                     pass
             raise RuntimeError(
                 f"Failed to open audio input stream: {e}. "
@@ -621,7 +622,7 @@ class AudioRecorder:
             try:
                 stream.stop()
                 stream.close()
-            except Exception:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                 pass
 
         t = threading.Thread(target=_do_close, daemon=True)
@@ -830,13 +831,13 @@ def stop_playback() -> None:
         try:
             proc.terminate()
             logger.info("Audio playback interrupted")
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             pass
     # Also stop sounddevice playback if active
     try:
         sd, _ = _import_audio()
         sd.stop()
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         pass
 
 
@@ -879,7 +880,7 @@ def play_audio_file(file_path: str) -> bool:
             return True
         except (ImportError, OSError):
             pass  # audio libs not available, fall through to system players
-        except Exception as e:
+        except (OSError, PermissionError) as e:
             logger.debug("sounddevice playback failed: %s", e)
 
     # Fall back to system audio players (using Popen for interruptability)
@@ -909,7 +910,7 @@ def play_audio_file(file_path: str) -> bool:
                 proc.wait()
                 with _playback_lock:
                     _active_playback = None
-            except Exception as e:
+            except (FileNotFoundError, OSError, PermissionError, subprocess.CalledProcessError) as e:
                 logger.debug("System player %s failed: %s", cmd[0], e)
                 with _playback_lock:
                     _active_playback = None

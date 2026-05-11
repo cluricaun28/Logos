@@ -3,6 +3,7 @@ Doctor command for hermes CLI.
 
 Diagnoses issues with Hermes Agent setup.
 """
+from __future__ import annotations
 
 import os
 import sys
@@ -97,7 +98,7 @@ def _honcho_is_configured_for_doctor() -> bool:
 
         cfg = HonchoClientConfig.from_global_config()
         return bool(cfg.enabled and (cfg.api_key or cfg.base_url))
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         return False
 
 
@@ -138,7 +139,7 @@ def _check_gateway_service_linger(issues: list[str]) -> None:
             get_systemd_unit_path,
             is_linux,
         )
-    except Exception as e:
+    except (ImportError, ModuleNotFoundError) as e:
         check_warn("Gateway service linger", f"(could not import gateway helpers: {e})")
         return
 
@@ -293,12 +294,12 @@ def run_doctor(args):
             try:
                 from hermes_cli.auth import PROVIDER_REGISTRY
                 known_providers = set(PROVIDER_REGISTRY.keys()) | {"openrouter", "custom", "auto"}
-            except Exception:
+            except (ImportError, ModuleNotFoundError):
                 pass
             try:
                 from hermes_cli.config import get_compatible_custom_providers as _compatible_custom_providers
                 from hermes_cli.providers import resolve_provider_full as _resolve_provider_full
-            except Exception:
+            except (ImportError, ModuleNotFoundError):
                 _compatible_custom_providers = None
                 _resolve_provider_full = None
 
@@ -306,7 +307,7 @@ def run_doctor(args):
             if _compatible_custom_providers is not None:
                 try:
                     custom_providers = _compatible_custom_providers(cfg)
-                except Exception:
+                except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                     custom_providers = []
 
             user_providers = cfg.get("providers")
@@ -375,10 +376,10 @@ def run_doctor(args):
                                 f"Run 'hermes setup' or set the provider's API key in {_DHH}/.env, "
                                 f"or switch providers with 'hermes config set model.provider <name>'"
                             )
-                except Exception:
+                except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
                     pass
 
-        except Exception as e:
+        except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError) as e:
             check_warn("Could not validate model/provider config", f"({e})")
     else:
         fallback_config = PROJECT_ROOT / 'cli-config.yaml'
@@ -413,21 +414,20 @@ def run_doctor(args):
                         migrate_config(interactive=False, quiet=False)
                         check_ok("Config migrated to latest version")
                         fixed_count += 1
-                    except Exception as mig_err:
+                    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as mig_err:
                         check_warn(f"Auto-migration failed: {mig_err}")
                         issues.append("Run 'hermes setup' to migrate config")
                 else:
                     issues.append("Run 'hermes doctor --fix' or 'hermes setup' to migrate config")
             else:
                 check_ok(f"Config version up to date (v{current_ver})")
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             pass
 
         # Detect stale root-level model keys (known bug source — PR #4329)
         try:
             import yaml
-            with open(config_path) as f:
-                raw_config = yaml.safe_load(f) or {}
+            with open(config_path, encoding='utf-8') as f:                raw_config = yaml.safe_load(f) or {}
             stale_root_keys = [k for k in ("provider", "base_url") if k in raw_config and isinstance(raw_config[k], str)]
             if stale_root_keys:
                 check_warn(
@@ -447,7 +447,7 @@ def run_doctor(args):
                     fixed_count += 1
                 else:
                     issues.append("Stale root-level provider/base_url in config.yaml — run 'hermes doctor --fix'")
-        except Exception:
+        except (AttributeError, ImportError, KeyError, ModuleNotFoundError, OSError, PermissionError, TypeError, yaml.YAMLError):
             pass
 
         # Validate config structure (catches malformed custom_providers, etc.)
@@ -466,7 +466,7 @@ def run_doctor(args):
                     for hint_line in ci.hint.splitlines():
                         check_info(hint_line)
                     issues.append(ci.message)
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             pass
 
     # =========================================================================
@@ -611,7 +611,7 @@ def run_doctor(args):
             count = cursor.fetchone()[0]
             conn.close()
             check_ok(f"{_DHH}/state.db exists ({count} sessions)")
-        except Exception as e:
+        except (ImportError, ModuleNotFoundError, sqlite3.Error) as e:
             check_warn(f"{_DHH}/state.db exists but has issues: {e}")
     else:
         check_info(f"{_DHH}/state.db not created yet (will be created on first session)")
@@ -638,7 +638,7 @@ def run_doctor(args):
                     issues.append("Large WAL file — run 'hermes doctor --fix' to checkpoint")
             elif wal_size > 10 * 1024 * 1024:  # 10 MB
                 check_info(f"WAL file is {wal_size // (1024*1024)} MB (normal for active sessions)")
-        except Exception:
+        except (ImportError, ModuleNotFoundError, OSError, PermissionError, sqlite3.Error):
             pass
 
     _check_gateway_service_linger(issues)
@@ -864,7 +864,7 @@ def run_doctor(args):
                     issues.append(f"{label} has {total} npm vulnerability(ies)")
                 else:
                     check_ok(f"{label} deps", f"({moderate} moderate vulnerability(ies))")
-            except Exception:
+            except (AttributeError, FileNotFoundError, ImportError, json.JSONDecodeError, KeyError, ModuleNotFoundError, subprocess.CalledProcessError, TypeError, ValueError):
                 pass
 
     # =========================================================================
@@ -900,7 +900,7 @@ def run_doctor(args):
                 issues.append("OpenRouter rate limit hit — consider switching to a different provider or waiting")
             else:
                 print(f"\r  {color('✗', Colors.RED)} OpenRouter API {color(f'(HTTP {response.status_code})', Colors.DIM)}                ")
-        except Exception as e:
+        except (AttributeError, ConnectionError, ImportError, KeyError, ModuleNotFoundError, OSError, TimeoutError, TypeError) as e:
             print(f"\r  {color('✗', Colors.RED)} OpenRouter API {color(f'({e})', Colors.DIM)}                ")
             issues.append("Check network connectivity")
     else:
@@ -932,7 +932,7 @@ def run_doctor(args):
             else:
                 msg = "(couldn't verify)"
                 print(f"\r  {color('⚠', Colors.YELLOW)} Anthropic API {color(msg, Colors.DIM)}                 ")
-        except Exception as e:
+        except (AttributeError, ConnectionError, ImportError, KeyError, ModuleNotFoundError, OSError, TimeoutError, TypeError) as e:
             print(f"\r  {color('⚠', Colors.YELLOW)} Anthropic API {color(f'({e})', Colors.DIM)}                 ")
 
     # -- API-key providers --
@@ -1025,7 +1025,7 @@ def run_doctor(args):
             except ImportError:
                 print(f"\r  {color('⚠', Colors.YELLOW)} {_label} {color(f'(boto3 not installed — {sys.executable} -m pip install boto3)', Colors.DIM)}           ")
                 issues.append(f"Install boto3 for Bedrock: {sys.executable} -m pip install boto3")
-            except Exception as _e:
+            except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError) as _e:
                 _err_name = type(_e).__name__
                 print(f"\r  {color('⚠', Colors.YELLOW)} {_label} {color(f'({_err_name}: {_e})', Colors.DIM)}           ")
                 issues.append(f"AWS Bedrock: {_err_name} — check IAM permissions for bedrock:ListFoundationModels")
@@ -1084,7 +1084,7 @@ def run_doctor(args):
         api_disabled = [u for u in unavailable if (u.get("missing_vars") or u.get("env_vars"))]
         if api_disabled:
             issues.append("Run 'hermes setup' to configure missing API keys for full tool access")
-    except Exception as e:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError) as e:
         check_warn("Could not check tool availability", f"({e})")
     
     # =========================================================================
@@ -1103,7 +1103,7 @@ def run_doctor(args):
                 lock_data = json.loads(lock_file.read_text())
                 count = len(lock_data.get("installed", {}))
                 check_ok(f"Lock file OK ({count} hub-installed skill(s))")
-            except Exception:
+            except (AttributeError, ImportError, json.JSONDecodeError, KeyError, ModuleNotFoundError, OSError, PermissionError, TypeError, ValueError):
                 check_warn("Lock file", "(corrupted or unreadable)")
         quarantine = hub_dir / "quarantine"
         q_count = sum(1 for d in quarantine.iterdir() if d.is_dir()) if quarantine.exists() else 0
@@ -1130,10 +1130,9 @@ def run_doctor(args):
         import yaml as _yaml
         _mem_cfg_path = HERMES_HOME / "config.yaml"
         if _mem_cfg_path.exists():
-            with open(_mem_cfg_path) as _f:
-                _raw_cfg = _yaml.safe_load(_f) or {}
+            with open(_mem_cfg_path, encoding='utf-8') as _f:                _raw_cfg = _yaml.safe_load(_f) or {}
             _active_memory_provider = (_raw_cfg.get("memory") or {}).get("provider", "")
-    except Exception:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, OSError, PermissionError, TypeError, yaml.YAMLError):
         pass
 
     if not _active_memory_provider:
@@ -1160,13 +1159,13 @@ def run_doctor(args):
                         "Honcho connected",
                         f"workspace={hcfg.workspace_id} mode={hcfg.recall_mode} freq={hcfg.write_frequency}",
                     )
-                except Exception as _e:
+                except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as _e:
                     check_fail("Honcho connection failed", str(_e))
                     issues.append(f"Honcho unreachable: {_e}")
         except ImportError:
             check_fail("honcho-ai not installed", "pip install honcho-ai")
             issues.append("Honcho is set as memory provider but honcho-ai is not installed")
-        except Exception as _e:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as _e:
             check_warn("Honcho check failed", str(_e))
     elif _active_memory_provider == "mem0":
         try:
@@ -1182,7 +1181,7 @@ def run_doctor(args):
         except ImportError:
             check_fail("Mem0 plugin not loadable", "pip install mem0ai")
             issues.append("Mem0 is set as memory provider but mem0ai is not installed")
-        except Exception as _e:
+        except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError) as _e:
             check_warn("Mem0 check failed", str(_e))
     else:
         # Generic check for other memory providers (openviking, hindsight, etc.)
@@ -1195,7 +1194,7 @@ def run_doctor(args):
                 check_warn(f"{_active_memory_provider} configured but not available", "run: hermes memory status")
             else:
                 check_warn(f"{_active_memory_provider} plugin not found", "run: hermes memory setup")
-        except Exception as _e:
+        except (ImportError, ModuleNotFoundError) as _e:
             check_warn(f"{_active_memory_provider} check failed", str(_e))
 
     # =========================================================================
@@ -1238,11 +1237,11 @@ def run_doctor(args):
                             _m = _re.search(r"hermes -p (\S+)", content)
                             if _m and not profile_exists(_m.group(1)):
                                 check_warn(f"Orphan alias: {wrapper.name} → profile '{_m.group(1)}' no longer exists")
-                    except Exception:
+                    except (OSError, PermissionError):
                         pass
     except ImportError:
         pass
-    except Exception:
+    except (OSError, PermissionError):
         pass
 
     # =========================================================================

@@ -3,6 +3,7 @@ Status command for hermes CLI.
 
 Shows the status of all Hermes Agent components.
 """
+from __future__ import annotations
 
 import os
 import sys
@@ -48,7 +49,7 @@ def _format_iso_timestamp(value) -> str:
         parsed = datetime.fromisoformat(text)
         if parsed.tzinfo is None:
             parsed = parsed.replace(tzinfo=timezone.utc)
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         return value
     return parsed.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
 
@@ -105,7 +106,7 @@ def show_status(args):
 
     try:
         config = load_config()
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         config = {}
 
     print(f"  Model:        {_configured_model_label(config)}")
@@ -158,7 +159,7 @@ def show_status(args):
         nous_status = get_nous_auth_status()
         codex_status = get_codex_auth_status()
         qwen_status = get_qwen_auth_status()
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         nous_status = {}
         codex_status = {}
         qwen_status = {}
@@ -248,7 +249,7 @@ def show_status(args):
             portal_url = nous_status.get("portal_base_url", "").rstrip("/")
             if portal_url:
                 print(f"  Upgrade: {portal_url}")
-        except Exception:
+        except (AttributeError, KeyError, TypeError):
             pass
 
     # =========================================================================
@@ -304,7 +305,7 @@ def show_status(args):
         try:
             _cfg = load_config()
             terminal_env = _cfg.get("terminal", {}).get("backend", "local")
-        except Exception:
+        except (AttributeError, KeyError, TypeError):
             terminal_env = "local"
     print(f"  Backend:      {terminal_env}")
     
@@ -386,7 +387,7 @@ def show_status(args):
             print("  Note:         Android may stop background jobs when Termux is suspended")
         elif snapshot.service_installed and not snapshot.service_running:
             print("  Service:      installed but stopped")
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         if _is_termux():
             print(f"  Status:       {color('unknown', Colors.DIM)}")
             print("  Manager:      Termux / manual process")
@@ -415,7 +416,7 @@ def show_status(args):
                 jobs = data.get("jobs", [])
                 enabled_jobs = [j for j in jobs if j.get("enabled", True)]
                 print(f"  Jobs:         {len(enabled_jobs)} active, {len(jobs)} total")
-        except Exception:
+        except (AttributeError, json.JSONDecodeError, KeyError, OSError, PermissionError, TypeError, ValueError):
             print("  Jobs:         (error reading jobs file)")
     else:
         print("  Jobs:         0")
@@ -433,7 +434,7 @@ def show_status(args):
             with open(sessions_file, encoding="utf-8") as f:
                 data = json.load(f)
                 print(f"  Active:       {len(data)} session(s)")
-        except Exception:
+        except (json.JSONDecodeError, OSError, PermissionError, ValueError):
             print("  Active:       (error reading sessions file)")
     else:
         print("  Active:       0")
@@ -457,7 +458,7 @@ def show_status(args):
                 )
                 ok = response.status_code == 200
                 print(f"  OpenRouter:   {check_mark(ok)} {'reachable' if ok else f'error ({response.status_code})'}")
-            except Exception as e:
+            except (AttributeError, ConnectionError, ImportError, KeyError, ModuleNotFoundError, OSError, TimeoutError, TypeError) as e:
                 print(f"  OpenRouter:   {check_mark(False)} error: {e}")
         
         # Check gateway port

@@ -3,6 +3,7 @@
 Overridable at the RL environment level via HermesAgentEnvConfig fields.
 Per-tool resolution: pinned > config overrides > registry > default.
 """
+from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Dict

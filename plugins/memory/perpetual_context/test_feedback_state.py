@@ -75,16 +75,14 @@ class TestFeedbackStateInit(unittest.TestCase):
                 {"timestamp": 2.0, "overall_score": 0.8},
             ]
         }
-        with open(self.tmp.name, "w") as f:
-            json.dump(data, f)
+        with open(self.tmp.name, "w", encoding='utf-8') as f:            json.dump(data, f)
 
         state = FeedbackState(state_file=self.tmp.name)
         self.assertEqual(len(state._entries), 2)
 
     def test_load_corrupt_json(self):
         # Write invalid JSON
-        with open(self.tmp.name, "w") as f:
-            f.write("{invalid json}")
+        with open(self.tmp.name, "w", encoding='utf-8') as f:            f.write("{invalid json}")
 
         state = FeedbackState(state_file=self.tmp.name)
         self.assertEqual(len(state._entries), 0)
@@ -96,8 +94,7 @@ class TestFeedbackStateInit(unittest.TestCase):
                 {"timestamp": 1.0, "overall_score": 0.8},  # valid
             ]
         }
-        with open(self.tmp.name, "w") as f:
-            json.dump(data, f)
+        with open(self.tmp.name, "w", encoding='utf-8') as f:            json.dump(data, f)
 
         state = FeedbackState(state_file=self.tmp.name)
         self.assertEqual(len(state._entries), 1)
@@ -109,8 +106,7 @@ class TestFeedbackStateInit(unittest.TestCase):
                 {"timestamp": 2.0, "overall_score": 0.8},  # valid
             ]
         }
-        with open(self.tmp.name, "w") as f:
-            json.dump(data, f)
+        with open(self.tmp.name, "w", encoding='utf-8') as f:            json.dump(data, f)
 
         state = FeedbackState(state_file=self.tmp.name)
         self.assertEqual(len(state._entries), 1)

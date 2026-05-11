@@ -88,7 +88,7 @@ def _lookup_supports_vision(provider: str, model: str) -> Optional[bool]:
     try:
         from agent.models_dev import get_model_capabilities
         caps = get_model_capabilities(provider, model)
-    except Exception as exc:  # pragma: no cover - defensive
+    except (ImportError, ModuleNotFoundError) as exc:  # pragma: no cover - defensive:
         logger.debug("image_routing: caps lookup failed for %s:%s — %s", provider, model, exc)
         return None
     if caps is None:
@@ -175,7 +175,7 @@ def _file_to_data_url(path: Path) -> Optional[str]:
     """
     try:
         raw = path.read_bytes()
-    except Exception as exc:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
         logger.warning("image_routing: failed to read %s — %s", path, exc)
         return None
     mime = _guess_mime(path)

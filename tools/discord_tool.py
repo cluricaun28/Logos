@@ -24,6 +24,7 @@ Per-guild permissions (MANAGE_ROLES etc.) are NOT pre-checked — Discord
 returns a 403 at call time and :func:`_enrich_403` maps it to
 actionable guidance the model can relay to the user.
 """
+from __future__ import annotations
 
 import json
 import logging

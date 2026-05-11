@@ -6,6 +6,7 @@ A transport owns the data path for one api_mode:
 It does NOT own: client construction, streaming, credential refresh,
 prompt caching, interrupt handling, or retry logic.  Those stay on AIAgent.
 """
+from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional

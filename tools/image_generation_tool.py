@@ -19,6 +19,7 @@ Architecture:
 Pricing shown in UI strings is as-of the initial commit; we accept drift and
 update when it's noticed.
 """
+from __future__ import annotations
 
 import json
 import logging
@@ -447,7 +448,7 @@ def _submit_fal_request(model: str, arguments: Dict[str, Any]):
             arguments=arguments,
             headers=request_headers,
         )
-    except Exception as exc:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
         # 4xx from the managed gateway typically means the portal doesn't
         # currently proxy this model (allowlist miss, billing gate, etc.)
         # — surface a clearer message with actionable remediation instead
@@ -500,7 +501,7 @@ def _resolve_fal_model() -> tuple:
             raw = img_cfg.get("model")
             if isinstance(raw, str):
                 model_id = raw.strip()
-    except Exception as exc:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError) as exc:
         logger.debug("Could not load image_gen.model from config: %s", exc)
 
     # Env var escape hatch (undocumented; backward-compat for tests/scripts).
@@ -803,9 +804,9 @@ def check_image_generation_requirements() -> bool:
             try:
                 if provider.is_available():
                     return True
-            except Exception:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                 continue
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         pass
 
     return False
@@ -895,7 +896,7 @@ def _read_configured_image_provider():
             value = section.get("provider")
             if isinstance(value, str) and value.strip():
                 return value.strip()
-    except Exception as exc:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError) as exc:
         logger.debug("Could not read image_gen.provider: %s", exc)
     return None
 
@@ -923,7 +924,7 @@ def _dispatch_to_plugin_provider(prompt: str, aspect_ratio: str):
 
         _ensure_plugins_discovered()
         provider = get_provider(configured)
-    except Exception as exc:
+    except (ImportError, ModuleNotFoundError) as exc:
         logger.debug("image_gen plugin dispatch skipped: %s", exc)
         return None
 
@@ -934,7 +935,7 @@ def _dispatch_to_plugin_provider(prompt: str, aspect_ratio: str):
             # a forced refresh before surfacing a missing-provider error.
             _ensure_plugins_discovered(force=True)
             provider = get_provider(configured)
-        except Exception as exc:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
             logger.debug("image_gen plugin force-refresh skipped: %s", exc)
 
     if provider is None:
@@ -951,7 +952,7 @@ def _dispatch_to_plugin_provider(prompt: str, aspect_ratio: str):
 
     try:
         result = provider.generate(prompt=prompt, aspect_ratio=aspect_ratio)
-    except Exception as exc:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
         logger.warning(
             "Image gen provider '%s' raised: %s",
             getattr(provider, "name", "?"), exc,

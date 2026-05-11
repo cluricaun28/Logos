@@ -27,6 +27,7 @@ tool results never enter the context window.
 Platform: Linux / macOS only (Unix domain sockets for local). Disabled on Windows.
 Remote execution additionally requires Python 3 in the terminal backend.
 """
+from __future__ import annotations
 
 import base64
 import functools
@@ -195,7 +196,7 @@ def retry(fn, max_attempts=3, delay=2):
     for attempt in range(max_attempts):
         try:
             return fn()
-        except Exception as e:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
             last_err = e
             if attempt < max_attempts - 1:
                 time.sleep(delay * (2 ** attempt))
@@ -276,8 +277,7 @@ def _call(tool_name, args):
 
     # Write request atomically (write to .tmp, then rename)
     tmp = req_file + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump({"tool": tool_name, "args": args, "seq": seq}, f)
+    with open(tmp, "w", encoding='utf-8') as f:        json.dump({"tool": tool_name, "args": args, "seq": seq}, f)
     os.rename(tmp, req_file)
 
     # Wait for response with adaptive polling
@@ -289,8 +289,7 @@ def _call(tool_name, args):
         time.sleep(poll_interval)
         poll_interval = min(poll_interval * 1.2, 0.25)  # Back off to 250ms
 
-    with open(res_file) as f:
-        raw = f.read()
+    with open(res_file, encoding='utf-8') as f:        raw = f.read()
 
     # Clean up response file
     try:
@@ -408,7 +407,7 @@ def _rpc_server_loop(
                     finally:
                         sys.stdout, sys.stderr = _real_stdout, _real_stderr
                         devnull.close()
-                except Exception as exc:
+                except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
                     logger.error("Tool call failed in sandbox: %s", exc, exc_info=True)
                     result = tool_error(str(exc))
 
@@ -567,7 +566,7 @@ def _env_temp_dir(env: Any) -> str:
             temp_dir = get_temp_dir()
             if isinstance(temp_dir, str) and temp_dir.startswith("/"):
                 return temp_dir.rstrip("/") or "/"
-        except Exception as exc:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
             logger.debug("Could not resolve execute_code env temp dir: %s", exc)
     candidate = tempfile.gettempdir()
     if isinstance(candidate, str) and candidate.startswith("/"):
@@ -680,7 +679,7 @@ def _rpc_poll_loop(
                         finally:
                             sys.stdout, sys.stderr = _real_stdout, _real_stderr
                             devnull.close()
-                    except Exception as exc:
+                    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
                         logger.error("Tool call failed in remote sandbox: %s",
                                      exc, exc_info=True)
                         tool_result = tool_error(str(exc))
@@ -847,7 +846,7 @@ def _execute_remote(
             env.execute(
                 f"rm -rf {quoted_sandbox_dir}", cwd="/", timeout=15,
             )
-        except Exception:
+        except (sqlite3.Error):
             logger.debug("Failed to clean up remote sandbox %s", sandbox_dir)
 
     duration = round(time.monotonic() - exec_start, 2)
@@ -1020,7 +1019,7 @@ def execute_code(
                               "PASSWD", "AUTH")
         try:
             from tools.env_passthrough import is_env_passthrough as _is_passthrough
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             _is_passthrough = lambda _: False  # noqa: E731
         child_env = {}
         for k, v in os.environ.items():
@@ -1176,7 +1175,7 @@ def execute_code(
             try:
                 from tools.environments.base import touch_activity_if_due
                 touch_activity_if_due(_activity_state, "execute_code running")
-            except Exception:
+            except (ImportError, ModuleNotFoundError):
                 pass
             time.sleep(0.2)
 
@@ -1299,7 +1298,7 @@ def _kill_process_group(proc, escalate: bool = False):
         logger.debug("Could not kill process group: %s", e, exc_info=True)
         try:
             proc.kill()
-        except Exception as e2:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e2:
             logger.debug("Could not kill process: %s", e2, exc_info=True)
 
     if escalate:
@@ -1316,7 +1315,7 @@ def _kill_process_group(proc, escalate: bool = False):
                 logger.debug("Could not kill process group with SIGKILL: %s", e, exc_info=True)
                 try:
                     proc.kill()
-                except Exception as e2:
+                except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e2:
                     logger.debug("Could not kill process: %s", e2, exc_info=True)
 
 
@@ -1325,7 +1324,7 @@ def _load_config() -> dict:
     try:
         from cli import CLI_CONFIG
         return CLI_CONFIG.get("code_execution", {})
-    except Exception:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
         return {}
 
 

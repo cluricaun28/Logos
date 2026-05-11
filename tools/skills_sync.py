@@ -20,6 +20,7 @@ Update logic:
 
 The manifest lives at ~/.hermes/skills/.bundled_manifest.
 """
+from __future__ import annotations
 
 import hashlib
 import logging

@@ -7,6 +7,7 @@ Each adapter handles:
 - Platform-specific authentication
 - Message formatting and media handling
 """
+from __future__ import annotations
 
 from .base import BasePlatformAdapter, MessageEvent, SendResult
 from .qqbot import QQAdapter

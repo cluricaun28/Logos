@@ -18,6 +18,7 @@ Usage::
     hermes profile use coder             # set as sticky default
     hermes profile delete coder          # remove profile + alias + service
 """
+from __future__ import annotations
 
 import json
 import os
@@ -209,7 +210,7 @@ def check_alias_collision(name: str) -> Optional[str]:
                     content = (wrapper_dir / name).read_text()
                     if "hermes -p" in content:
                         return None  # it's our wrapper, safe to overwrite
-                except Exception:
+                except (OSError, PermissionError):
                     pass
             return f"'{name}' conflicts with an existing command ({existing_path})"
     except (FileNotFoundError, subprocess.TimeoutExpired):
@@ -256,7 +257,7 @@ def remove_wrapper_script(name: str) -> bool:
             if "hermes -p" in content:
                 wrapper_path.unlink()
                 return True
-        except Exception:
+        except (OSError, PermissionError):
             pass
     return False
 
@@ -286,15 +287,14 @@ def _read_config_model(profile_dir: Path) -> tuple:
         return None, None
     try:
         import yaml
-        with open(config_path, "r") as f:
-            cfg = yaml.safe_load(f) or {}
+        with open(config_path, "r", encoding='utf-8') as f:            cfg = yaml.safe_load(f) or {}
         model_cfg = cfg.get("model", {})
         if isinstance(model_cfg, str):
             return model_cfg, None
         if isinstance(model_cfg, dict):
             return model_cfg.get("default") or model_cfg.get("model"), model_cfg.get("provider")
         return None, None
-    except Exception:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, OSError, PermissionError, TypeError, yaml.YAMLError):
         return None, None
 
 
@@ -303,7 +303,7 @@ def _check_gateway_running(profile_dir: Path) -> bool:
     try:
         from gateway.status import get_running_pid
         return get_running_pid(profile_dir / "gateway.pid", cleanup_stale=False) is not None
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         return False
 
 
@@ -457,7 +457,7 @@ def create_profile(
         try:
             from hermes_cli.default_soul import DEFAULT_SOUL_MD
             soul_path.write_text(DEFAULT_SOUL_MD, encoding="utf-8")
-        except Exception:
+        except (ImportError, ModuleNotFoundError, OSError, PermissionError):
             pass  # best-effort — don't fail profile creation over this
 
     return profile_dir
@@ -490,7 +490,7 @@ def seed_profile_skills(profile_dir: Path, quiet: bool = False) -> Optional[dict
         if not quiet:
             print("⚠ Skill seeding timed out (60s)")
         return None
-    except Exception as e:
+    except (FileNotFoundError, ImportError, json.JSONDecodeError, ModuleNotFoundError, OSError, subprocess.CalledProcessError, ValueError) as e:
         if not quiet:
             print(f"⚠ Skill seeding failed: {e}")
         return None
@@ -572,7 +572,7 @@ def delete_profile(name: str, yes: bool = False) -> Path:
     try:
         shutil.rmtree(profile_dir)
         print(f"✓ Removed {profile_dir}")
-    except Exception as e:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
         print(f"⚠ Could not remove {profile_dir}: {e}")
 
     # 5. Clear active_profile if it pointed to this profile
@@ -581,7 +581,7 @@ def delete_profile(name: str, yes: bool = False) -> Path:
         if active == name:
             set_active_profile("default")
             print("✓ Active profile reset to default")
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         pass
 
     print(f"\nProfile '{name}' deleted.")
@@ -666,7 +666,7 @@ def _stop_gateway_process(profile_dir: Path) -> None:
         print(f"✓ Gateway force-stopped (PID {pid})")
     except (ProcessLookupError, PermissionError):
         print("✓ Gateway already stopped")
-    except Exception as e:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
         print(f"⚠ Could not stop gateway: {e}")
 
 
@@ -1054,7 +1054,7 @@ def rename_profile(old_name: str, new_name: str) -> Path:
         if get_active_profile() == old_name:
             set_active_profile(new_name)
             print(f"✓ Active profile updated: {new_name}")
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         pass
 
     return new_dir

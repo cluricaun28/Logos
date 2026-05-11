@@ -207,7 +207,7 @@ def _load_direct_aliases() -> dict[str, DirectAlias]:
                     merged[name.strip().lower()] = DirectAlias(
                         model=model, provider=provider, base_url=base_url,
                     )
-    except Exception:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
         pass
     return merged
 
@@ -460,7 +460,7 @@ def resolve_alias(
             for m in static:
                 if m.lower() not in seen:
                     catalog.append(m)
-    except Exception:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
         pass
 
     # For aggregators, models are vendor/model-name format
@@ -506,7 +506,7 @@ def get_authenticated_provider_slugs(
             max_models=0,
         )
         return [p["slug"] for p in providers]
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         return []
 
 
@@ -565,7 +565,7 @@ def resolve_display_context_length(
         )
         if ctx:
             return int(ctx)
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         pass
     if model_info is not None and model_info.context_window:
         return int(model_info.context_window)
@@ -660,7 +660,7 @@ def switch_model(
                     _switch_err += "\n\nRun 'hermes doctor' — config issues detected:"
                     for _ci in _cfg_issues[:3]:
                         _switch_err += f"\n  • {_ci.message}"
-            except Exception:
+            except (ImportError, ModuleNotFoundError):
                 pass
             return ModelSwitchResult(
                 success=False,
@@ -823,7 +823,7 @@ def switch_model(
             api_key = runtime.get("api_key", "")
             base_url = runtime.get("base_url", "")
             api_mode = runtime.get("api_mode", "")
-        except Exception as e:
+        except (AttributeError, KeyError, TypeError) as e:
             return ModelSwitchResult(
                 success=False,
                 target_provider=target_provider,
@@ -848,7 +848,7 @@ def switch_model(
                 api_key = runtime.get("api_key", "")
                 base_url = runtime.get("base_url", "")
                 api_mode = runtime.get("api_mode", "")
-        except Exception:
+        except (AttributeError, KeyError, TypeError):
             pass
 
     # --- Direct alias override: use exact base_url from the alias if set ---
@@ -873,7 +873,7 @@ def switch_model(
             base_url=base_url,
             api_mode=api_mode or None,
         )
-    except Exception as e:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
         validation = {
             "accepted": False,
             "persist": False,
@@ -1091,7 +1091,7 @@ def list_authenticated_providers(
                 store = _load_auth_store()
                 if store and hermes_id in store.get("credential_pool", {}):
                     has_creds = True
-            except Exception:
+            except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
                 pass
         if not has_creds:
             continue
@@ -1167,7 +1167,7 @@ def list_authenticated_providers(
                     or pid in pool_store or hermes_slug in pool_store
                 ):
                     has_creds = True
-            except Exception as exc:
+            except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError) as exc:
                 logger.debug("Auth store check failed for %s: %s", pid, exc)
         # Fallback: check the credential pool with full auto-seeding.
         # This catches credentials that exist in external stores (e.g.
@@ -1179,7 +1179,7 @@ def list_authenticated_providers(
                 pool = load_pool(hermes_slug)
                 if pool.has_credentials():
                     has_creds = True
-            except Exception as exc:
+            except (ImportError, ModuleNotFoundError) as exc:
                 logger.debug("Credential pool check failed for %s: %s", hermes_slug, exc)
         # Fallback: check external credential files directly.
         # The credential pool gates anthropic behind
@@ -1199,7 +1199,7 @@ def list_authenticated_providers(
                 if (hermes_creds and hermes_creds.get("accessToken")) or \
                    (cc_creds and cc_creds.get("accessToken")):
                     has_creds = True
-            except Exception as exc:
+            except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError) as exc:
                 logger.debug("Anthropic external creds check failed: %s", exc)
         if not has_creds:
             continue
@@ -1213,7 +1213,7 @@ def list_authenticated_providers(
                 from agent.bedrock_adapter import bedrock_model_ids_or_none
                 _ids = bedrock_model_ids_or_none()
                 model_ids = _ids if _ids is not None else (curated.get(hermes_slug, []) or curated.get(pid, []))
-            except Exception:
+            except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
                 model_ids = curated.get(hermes_slug, []) or curated.get(pid, [])
         else:
             # Use curated list — look up by Hermes slug, fall back to overlay key
@@ -1266,7 +1266,7 @@ def list_authenticated_providers(
                     or _cp.slug in _cp_pool_store
                 ):
                     _cp_has_creds = True
-            except Exception:
+            except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
                 pass
         if not _cp_has_creds:
             try:
@@ -1274,7 +1274,7 @@ def list_authenticated_providers(
                 _cp_pool = load_pool(_cp.slug)
                 if _cp_pool.has_credentials():
                     _cp_has_creds = True
-            except Exception:
+            except (ImportError, ModuleNotFoundError):
                 pass
 
         # Special case: aws_sdk auth (bedrock) — no API key env vars,
@@ -1284,7 +1284,7 @@ def list_authenticated_providers(
             try:
                 from agent.bedrock_adapter import has_aws_credentials
                 _cp_has_creds = has_aws_credentials()
-            except Exception:
+            except (ImportError, ModuleNotFoundError):
                 pass
 
         if not _cp_has_creds:
@@ -1297,7 +1297,7 @@ def list_authenticated_providers(
                 from agent.bedrock_adapter import bedrock_model_ids_or_none
                 _ids = bedrock_model_ids_or_none()
                 _cp_model_ids = _ids if _ids is not None else curated.get(_cp.slug, [])
-            except Exception:
+            except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
                 _cp_model_ids = curated.get(_cp.slug, [])
         else:
             _cp_model_ids = curated.get(_cp.slug, [])
@@ -1386,7 +1386,7 @@ def list_authenticated_providers(
                     live_models = fetch_api_models(api_key, api_url)
                     if live_models:
                         models_list = live_models
-                except Exception:
+                except (ImportError, ModuleNotFoundError):
                     pass
 
             results.append({
@@ -1590,7 +1590,7 @@ def list_picker_providers(
             try:
                 live = fetch_openrouter_models()
                 live_ids = [mid for mid, _ in live]
-            except Exception:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                 live_ids = list(p.get("models", []))
             p = dict(p)
             p["models"] = live_ids[:max_models]

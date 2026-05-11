@@ -12,6 +12,7 @@ This is a library module (not an agent tool). It provides:
 
 Used by hermes_cli/skills_hub.py for CLI commands and the /skills slash command.
 """
+from __future__ import annotations
 
 import hashlib
 import json
@@ -239,7 +240,7 @@ class GitHubAuth:
             )
             if resp.status_code == 201:
                 return resp.json().get("token")
-        except Exception as e:
+        except (AttributeError, KeyError, OSError, PermissionError, TypeError) as e:
             logger.debug(f"GitHub App auth failed: {e}")
 
         return None
@@ -332,7 +333,7 @@ class GitHubSource(SkillSource):
                     searchable = f"{skill.name} {skill.description} {' '.join(skill.tags)}".lower()
                     if query_lower in searchable:
                         results.append(skill)
-            except Exception as e:
+            except (AttributeError, KeyError, TypeError) as e:
                 logger.debug(f"Failed to search {tap['repo']}: {e}")
                 continue
 
@@ -1353,7 +1354,7 @@ class SkillsShSource(SkillSource):
         for base_path in base_paths:
             try:
                 skills = self.github._list_skills_in_repo(repo, base_path)
-            except Exception:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                 continue
             for meta in skills:
                 if self._matches_skill_tokens(meta, tokens):
@@ -1390,12 +1391,12 @@ class SkillsShSource(SkillSource):
                         # Try listing skills in this directory
                         try:
                             skills = self.github._list_skills_in_repo(repo, dir_name + "/")
-                        except Exception:
+                        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                             continue
                         for meta in skills:
                             if self._matches_skill_tokens(meta, tokens):
                                 return meta.identifier
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             pass
 
         return None
@@ -2839,7 +2840,7 @@ def check_for_skill_updates(
         for src in candidate_sources:
             try:
                 bundle = src.fetch(identifier)
-            except Exception:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                 bundle = None
             if bundle:
                 break
@@ -3117,7 +3118,7 @@ def _search_one_source(
     """Search a single source.  Runs in a thread for parallelism."""
     try:
         return src.source_id(), src.search(query, limit=limit)
-    except Exception as e:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
         logger.debug("Search failed for %s: %s", src.source_id(), e)
         return src.source_id(), []
 
@@ -3187,7 +3188,7 @@ def parallel_search_sources(
                     all_results.extend(results)
                     if on_source_done:
                         on_source_done(sid, len(results))
-                except Exception:
+                except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                     pass
         except TimeoutError:
             timed_out_ids = [

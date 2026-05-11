@@ -5,6 +5,7 @@ into prompt_toolkit's event loop. Each function takes the HermesCLI instance
 as its first argument and uses its state (queues, app reference) to coordinate
 with the TUI.
 """
+from __future__ import annotations
 
 import queue
 import time as _time
@@ -113,12 +114,12 @@ def prompt_for_secret(cli, var_name: str, prompt: str, metadata=None) -> dict:
     if hasattr(cli, "_clear_secret_input_buffer"):
         try:
             cli._clear_secret_input_buffer()
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             pass
     elif hasattr(cli, "_app") and cli._app:
         try:
             cli._app.current_buffer.reset()
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             pass
 
     if hasattr(cli, "_app") and cli._app:
@@ -163,12 +164,12 @@ def prompt_for_secret(cli, var_name: str, prompt: str, metadata=None) -> dict:
     if hasattr(cli, "_clear_secret_input_buffer"):
         try:
             cli._clear_secret_input_buffer()
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             pass
     elif hasattr(cli, "_app") and cli._app:
         try:
             cli._app.current_buffer.reset()
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             pass
     if hasattr(cli, "_app") and cli._app:
         cli._app.invalidate()

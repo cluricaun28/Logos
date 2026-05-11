@@ -558,7 +558,7 @@ class MattermostAdapter(BasePlatformAdapter):
                                     continue
                                 file_data = await resp.read()
                                 ct = resp.content_type or "image/png"
-                        except Exception as dl_err:
+                        except (AttributeError, ConnectionError, KeyError, OSError, PermissionError, RuntimeError, TimeoutError, TypeError) as dl_err:
                             logger.warning("Mattermost: download failed for %s: %s", image_url[:80], dl_err)
                             continue
                         fname = image_url.rsplit("/", 1)[-1].split("?")[0] or f"image_{len(file_ids)}.png"
@@ -604,7 +604,7 @@ class MattermostAdapter(BasePlatformAdapter):
                 delay = _RECONNECT_BASE_DELAY
             except asyncio.CancelledError:
                 return
-            except Exception as exc:
+            except (RuntimeError) as exc:
                 if self._closing:
                     return
                 # Detect permanent auth/permission failures that will never

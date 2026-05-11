@@ -20,6 +20,7 @@ Usage in a tool module:
     def get_debug_session_info():
         return _debug.get_session_info()
 """
+from __future__ import annotations
 
 import datetime
 import json

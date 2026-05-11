@@ -27,6 +27,7 @@ Usage:
         rl_get_results,
     )
 """
+from __future__ import annotations
 
 import ast
 import asyncio
@@ -246,7 +247,7 @@ def _get_env_config_fields(env_file_path: str) -> Dict[str, Dict[str, Any]]:
         try:
             env_config, server_configs = env_class.config_init()
             config_class = type(env_config)
-        except Exception as config_error:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as config_error:
             # Fallback: try to import BaseEnvConfig directly from atroposlib
             logger.info("config_init failed (%s), using BaseEnvConfig defaults", config_error)
             try:
@@ -497,7 +498,7 @@ def _stop_training_run(run_state: RunState):
         if fh is not None:
             try:
                 fh.close()
-            except Exception:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                 pass
             setattr(run_state, attr, None)
 
@@ -895,7 +896,7 @@ async def rl_check_status(run_id: str) -> str:
                 "percent_correct": wandb_run.summary.get("train/percent_correct"),
                 "eval_percent_correct": wandb_run.summary.get("eval/percent_correct"),
             }
-    except Exception as e:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, OSError, TypeError) as e:
         result["wandb_error"] = str(e)
     
     return json.dumps(result, indent=2)
@@ -971,7 +972,7 @@ async def rl_get_results(run_id: str) -> str:
             result["wandb_url"] = wandb_run.url
             result["final_metrics"] = dict(wandb_run.summary)
             result["history"] = [dict(row) for row in wandb_run.history(samples=10)]
-    except Exception as e:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, OSError, TypeError) as e:
         result["wandb_error"] = str(e)
     
     return json.dumps(result, indent=2)
@@ -1267,7 +1268,7 @@ async def rl_test_inference(
         except asyncio.TimeoutError:
             model_results["error"] = "Process timed out after 10 minutes"
             print("  Timeout!")
-        except Exception as e:
+        except (AttributeError, json.JSONDecodeError, KeyError, RuntimeError, TypeError, ValueError) as e:
             model_results["error"] = str(e)
             print(f"  Error: {e}")
         

@@ -27,6 +27,7 @@ Usage:
     else:
         result = apply_v4a_operations(operations, file_ops)
 """
+from __future__ import annotations
 
 import difflib
 import re

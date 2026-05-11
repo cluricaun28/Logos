@@ -1,4 +1,5 @@
 """Shared gateway restart constants and parsing helpers."""
+from __future__ import annotations
 
 from hermes_cli.config import DEFAULT_CONFIG
 

@@ -7,6 +7,7 @@ Routes messages to the appropriate destination based on:
 - Origin (back to where the job was created)
 - Local (always saved to files)
 """
+from __future__ import annotations
 
 import logging
 from pathlib import Path
@@ -158,7 +159,7 @@ class DeliveryRouter:
                     "success": True,
                     "result": result
                 }
-            except Exception as e:
+            except (RuntimeError) as e:
                 results[target.to_string()] = {
                     "success": False,
                     "error": str(e)

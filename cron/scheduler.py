@@ -7,6 +7,7 @@ calls this every 60 seconds from a background thread.
 Uses a file-based lock (~/.hermes/cron/.tick.lock) so only one tick
 runs at a time if multiple processes overlap.
 """
+from __future__ import annotations
 
 import asyncio
 import concurrent.futures
@@ -64,7 +65,7 @@ def _resolve_cron_enabled_toolsets(job: dict, cfg: dict) -> list[str] | None:
     try:
         from hermes_cli.tools_config import _get_platform_tools  # lazy: avoid heavy import at cron module load
         return sorted(_get_platform_tools(cfg or {}, "cron"))
-    except Exception as exc:
+    except (ImportError, ModuleNotFoundError) as exc:
         logger.warning(
             "Cron toolset resolution failed, falling back to full default toolset: %s",
             exc,
@@ -203,7 +204,7 @@ def _resolve_single_delivery_target(job: dict, deliver_value: str) -> Optional[d
                         thread_id = parsed_thread_id
                 else:
                     chat_id = resolved
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             pass
 
         return {
@@ -326,7 +327,7 @@ def _send_media_via_adapter(
                     "Job '%s': media send failed for %s: %s",
                     job.get("id", "?"), media_path, getattr(result, "error", "unknown"),
                 )
-        except Exception as e:
+        except (AttributeError, KeyError, TypeError) as e:
             logger.warning("Job '%s': failed to send media %s: %s", job.get("id", "?"), media_path, e)
 
 
@@ -380,7 +381,7 @@ def _deliver_result(job: dict, content: str, adapters=None, loop=None) -> Option
     try:
         user_cfg = load_config()
         wrap_response = user_cfg.get("cron", {}).get("wrap_response", True)
-    except Exception:
+    except (AttributeError, KeyError, TypeError):
         pass
 
     if wrap_response:
@@ -402,7 +403,7 @@ def _deliver_result(job: dict, content: str, adapters=None, loop=None) -> Option
 
     try:
         config = load_gateway_config()
-    except Exception as e:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
         msg = f"failed to load gateway config: {e}"
         logger.error("Job '%s': %s", job["id"], msg)
         return msg
@@ -479,7 +480,7 @@ def _deliver_result(job: dict, content: str, adapters=None, loop=None) -> Option
                 if adapter_ok:
                     logger.info("Job '%s': delivered to %s:%s via live adapter", job["id"], platform_name, chat_id)
                     delivered = True
-            except Exception as e:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
                 logger.warning(
                     "Job '%s': live adapter delivery to %s:%s failed (%s), falling back to standalone",
                     job["id"], platform_name, chat_id, e,
@@ -506,7 +507,7 @@ def _deliver_result(job: dict, content: str, adapters=None, loop=None) -> Option
                 with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
                     future = pool.submit(asyncio.run, _send_to_platform(platform, pconfig, chat_id, cleaned_delivery_content, thread_id=thread_id, media_files=media_files))
                     result = future.result(timeout=30)
-            except Exception as e:
+            except (FileNotFoundError, RuntimeError, subprocess.CalledProcessError) as e:
                 msg = f"delivery to {platform_name}:{chat_id} failed: {e}"
                 logger.error("Job '%s': %s", job["id"], msg)
                 delivery_errors.append(msg)
@@ -537,7 +538,7 @@ def _get_script_timeout() -> int:
             timeout = int(float(_SCRIPT_TIMEOUT))
             if timeout > 0:
                 return timeout
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             logger.warning("Invalid patched _SCRIPT_TIMEOUT=%r; using env/config/default", _SCRIPT_TIMEOUT)
 
     env_value = os.getenv("HERMES_CRON_SCRIPT_TIMEOUT", "").strip()
@@ -546,7 +547,7 @@ def _get_script_timeout() -> int:
             timeout = int(float(env_value))
             if timeout > 0:
                 return timeout
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             logger.warning("Invalid HERMES_CRON_SCRIPT_TIMEOUT=%r; using config/default", env_value)
 
     try:
@@ -557,7 +558,7 @@ def _get_script_timeout() -> int:
             timeout = int(float(configured))
             if timeout > 0:
                 return timeout
-    except Exception as exc:
+    except (AttributeError, KeyError, TypeError) as exc:
         logger.debug("Failed to load cron script timeout from config: %s", exc)
 
     return _DEFAULT_SCRIPT_TIMEOUT
@@ -645,7 +646,7 @@ def _run_job_script(script_path: str) -> tuple[bool, str]:
             from agent.redact import redact_sensitive_text
             stdout = redact_sensitive_text(stdout)
             stderr = redact_sensitive_text(stderr)
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             pass
 
         if result.returncode != 0:
@@ -660,7 +661,7 @@ def _run_job_script(script_path: str) -> tuple[bool, str]:
 
     except subprocess.TimeoutExpired:
         return False, f"Script timed out after {script_timeout}s: {path}"
-    except Exception as exc:
+    except (FileNotFoundError, ImportError, ModuleNotFoundError, subprocess.CalledProcessError) as exc:
         return False, f"Script execution failed: {exc}"
 
 
@@ -960,7 +961,7 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
     try:
         from hermes_state import SessionDB
         _session_db = SessionDB()
-    except Exception as e:
+    except (ImportError, ModuleNotFoundError) as e:
         logger.debug("Job '%s': SQLite session store not available: %s", job.get("id", "?"), e)
 
     # Wake-gate: if this job has a pre-check script, run it BEFORE building
@@ -1065,8 +1066,7 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
             import yaml
             _cfg_path = str(_hermes_home / "config.yaml")
             if os.path.exists(_cfg_path):
-                with open(_cfg_path) as _f:
-                    _cfg = yaml.safe_load(_f) or {}
+                with open(_cfg_path, encoding='utf-8') as _f:                    _cfg = yaml.safe_load(_f) or {}
                 _cfg = _expand_env_vars(_cfg)
                 _model_cfg = _cfg.get("model", {})
                 if not job.get("model"):
@@ -1074,7 +1074,7 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
                         model = _model_cfg
                     elif isinstance(_model_cfg, dict):
                         model = _model_cfg.get("default", model)
-        except Exception as e:
+        except (AttributeError, ImportError, KeyError, ModuleNotFoundError, OSError, PermissionError, TypeError, yaml.YAMLError) as e:
             logger.warning("Job '%s': failed to load config.yaml, using defaults: %s", job_id, e)
 
         # Apply IPv4 preference if configured.
@@ -1083,7 +1083,7 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
             _net_cfg = _cfg.get("network", {})
             if isinstance(_net_cfg, dict) and _net_cfg.get("force_ipv4"):
                 apply_ipv4_preference(force=True)
-        except Exception:
+        except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
             pass
 
         # Reasoning config from config.yaml
@@ -1104,7 +1104,7 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
                         prefill_messages = json.load(_pf)
                     if not isinstance(prefill_messages, list):
                         prefill_messages = None
-                except Exception as e:
+                except (json.JSONDecodeError, OSError, PermissionError, ValueError) as e:
                     logger.warning("Job '%s': failed to parse prefill messages file '%s': %s", job_id, pfpath, e)
                     prefill_messages = None
 
@@ -1144,11 +1144,11 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
                     runtime = resolve_runtime_provider(**fb_kwargs)
                     logger.info("Job '%s': fallback resolved to %s", job_id, runtime.get("provider"))
                     break
-                except Exception as fb_exc:
+                except (AttributeError, KeyError, TypeError) as fb_exc:
                     logger.debug("Job '%s': fallback %s failed: %s", job_id, entry.get("provider"), fb_exc)
             if runtime is None:
                 raise RuntimeError(format_runtime_provider_error(auth_exc)) from auth_exc
-        except Exception as exc:
+        except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError) as exc:
             message = format_runtime_provider_error(exc)
             raise RuntimeError(message) from exc
 
@@ -1167,7 +1167,7 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
                         runtime_provider,
                         len(pool.entries()),
                     )
-            except Exception as e:
+            except (ImportError, ModuleNotFoundError) as e:
                 logger.debug("Job '%s': failed to load credential pool for %s: %s", job_id, runtime_provider, e)
 
         agent = AIAgent(
@@ -1237,12 +1237,12 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
                         try:
                             _act = agent.get_activity_summary()
                             _idle_secs = _act.get("seconds_since_activity", 0.0)
-                        except Exception:
+                        except (AttributeError, KeyError, TypeError):
                             pass
                     if _idle_secs >= _cron_inactivity_limit:
                         _inactivity_timeout = True
                         break
-        except Exception:
+        except (AttributeError, KeyError, TypeError):
             _cron_pool.shutdown(wait=False, cancel_futures=True)
             raise
         finally:
@@ -1254,7 +1254,7 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
             if hasattr(agent, "get_activity_summary"):
                 try:
                     _activity = agent.get_activity_summary()
-                except Exception:
+                except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                     pass
             _last_desc = _activity.get("last_activity_desc", "unknown")
             _secs_ago = _activity.get("seconds_since_activity", 0)
@@ -1433,7 +1433,7 @@ def tick(verbose: bool = True, adapters=None, loop=None) -> int:
                 ).get("max_parallel_jobs")
                 if _cfg_par is not None:
                     _max_workers = int(_cfg_par) or None
-            except Exception:
+            except (AttributeError, KeyError, TypeError):
                 pass
 
         if verbose:
@@ -1465,7 +1465,7 @@ def tick(verbose: bool = True, adapters=None, loop=None) -> int:
                 if should_deliver:
                     try:
                         delivery_error = _deliver_result(job, deliver_content, adapters=adapters, loop=loop)
-                    except Exception as de:
+                    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as de:
                         delivery_error = str(de)
                         logger.error("Delivery failed for job %s: %s", job["id"], de)
 
@@ -1479,7 +1479,7 @@ def tick(verbose: bool = True, adapters=None, loop=None) -> int:
                 mark_job_run(job["id"], success, error, delivery_error=delivery_error)
                 return True
 
-            except Exception as e:
+            except (FileNotFoundError, subprocess.CalledProcessError) as e:
                 logger.error("Error processing job %s: %s", job['id'], e)
                 mark_job_run(job["id"], False, str(e))
                 return False
@@ -1515,7 +1515,7 @@ def tick(verbose: bool = True, adapters=None, loop=None) -> int:
         try:
             from tools.mcp_tool import _kill_orphaned_mcp_children
             _kill_orphaned_mcp_children()
-        except Exception as _e:
+        except (ImportError, ModuleNotFoundError) as _e:
             logger.debug("Post-tick MCP orphan cleanup failed: %s", _e)
 
         return sum(_results)

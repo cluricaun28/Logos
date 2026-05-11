@@ -325,7 +325,7 @@ class MatrixAdapter(BasePlatformAdapter):
                         client.device_id,
                     )
                     return False
-        except Exception as exc:
+        except (AttributeError, KeyError, RuntimeError, TypeError) as exc:
             logger.error("Matrix: post-upload key verification failed: %s", exc)
             return False
         return True
@@ -338,7 +338,7 @@ class MatrixAdapter(BasePlatformAdapter):
         """
         try:
             resp = await client.query_keys({client.mxid: [client.device_id]})
-        except Exception as exc:
+        except (RuntimeError) as exc:
             logger.error(
                 "Matrix: cannot verify device keys on server: %s — refusing E2EE",
                 exc,
@@ -355,7 +355,7 @@ class MatrixAdapter(BasePlatformAdapter):
             olm.account.shared = False
             try:
                 await olm.share_keys()
-            except Exception as exc:
+            except (RuntimeError) as exc:
                 logger.error("Matrix: failed to re-upload device keys: %s", exc)
                 return False
             return await self._reverify_keys_after_upload(client, local_ed25519)
@@ -386,11 +386,11 @@ class MatrixAdapter(BasePlatformAdapter):
                 logger.info(
                     "Matrix: deleted stale device %s from server", client.device_id
                 )
-            except Exception:
+            except (ImportError, ModuleNotFoundError, RuntimeError):
                 pass
             try:
                 await olm.share_keys()
-            except Exception as exc:
+            except (RuntimeError) as exc:
                 logger.error(
                     "Matrix: cannot upload device keys for %s: %s. "
                     "Try generating a new access token to get a fresh device.",
@@ -461,7 +461,7 @@ class MatrixAdapter(BasePlatformAdapter):
                     self._user_id or "(unknown user)",
                     f" (device {effective_device_id})" if effective_device_id else "",
                 )
-            except Exception as exc:
+            except (RuntimeError) as exc:
                 logger.error(
                     "Matrix: whoami failed — check MATRIX_ACCESS_TOKEN and MATRIX_HOMESERVER: %s",
                     exc,
@@ -479,7 +479,7 @@ class MatrixAdapter(BasePlatformAdapter):
                 if resp and hasattr(resp, "device_id"):
                     client.device_id = resp.device_id
                 logger.info("Matrix: logged in as %s", self._user_id)
-            except Exception as exc:
+            except (RuntimeError) as exc:
                 logger.error("Matrix: login failed — %s", exc)
                 await api.session.close()
                 return False
@@ -571,7 +571,7 @@ class MatrixAdapter(BasePlatformAdapter):
                 # sessions and all new messages are undecryptable.
                 try:
                     await olm.share_keys()
-                except Exception as exc:
+                except (RuntimeError) as exc:
                     exc_str = str(exc)
                     if "already exists" in exc_str:
                         logger.error(
@@ -603,7 +603,7 @@ class MatrixAdapter(BasePlatformAdapter):
                     try:
                         await olm.verify_with_recovery_key(recovery_key)
                         logger.info("Matrix: cross-signing verified via recovery key")
-                    except Exception as exc:
+                    except (RuntimeError) as exc:
                         logger.warning(
                             "Matrix: recovery key verification failed: %s", exc
                         )
@@ -614,7 +614,7 @@ class MatrixAdapter(BasePlatformAdapter):
                     str(_CRYPTO_DB_PATH),
                     f", device_id={client.device_id}" if client.device_id else "",
                 )
-            except Exception as exc:
+            except (RuntimeError) as exc:
                 logger.error(
                     "Matrix: failed to create E2EE client: %s. %s",
                     exc,
@@ -662,21 +662,21 @@ class MatrixAdapter(BasePlatformAdapter):
                     tasks = client.handle_sync(sync_data)
                     if tasks:
                         await asyncio.gather(*tasks)
-                except Exception as exc:
+                except (RuntimeError) as exc:
                     logger.warning("Matrix: initial sync event dispatch error: %s", exc)
             else:
                 logger.warning(
                     "Matrix: initial sync returned unexpected type %s",
                     type(sync_data).__name__,
                 )
-        except Exception as exc:
+        except (RuntimeError) as exc:
             logger.warning("Matrix: initial sync error: %s", exc)
 
         # Share keys after initial sync if E2EE is enabled.
         if self._encryption and getattr(client, "crypto", None):
             try:
                 await client.crypto.share_keys()
-            except Exception as exc:
+            except (RuntimeError) as exc:
                 logger.warning("Matrix: initial key share failed: %s", exc)
 
         # Start the sync loop.
@@ -699,13 +699,13 @@ class MatrixAdapter(BasePlatformAdapter):
         if hasattr(self, "_crypto_db") and self._crypto_db:
             try:
                 await self._crypto_db.stop()
-            except Exception as exc:
+            except (RuntimeError) as exc:
                 logger.debug("Matrix: could not close crypto DB on disconnect: %s", exc)
 
         if self._client:
             try:
                 await self._client.api.session.close()
-            except Exception:
+            except (RuntimeError):
                 pass
             self._client = None
 
@@ -765,7 +765,7 @@ class MatrixAdapter(BasePlatformAdapter):
                 )
                 last_event_id = str(event_id)
                 logger.info("Matrix: sent event %s to %s", last_event_id, chat_id)
-            except Exception as exc:
+            except (RuntimeError) as exc:
                 # On E2EE errors, retry after sharing keys.
                 if self._encryption and getattr(self._client, "crypto", None):
                     try:
@@ -785,7 +785,7 @@ class MatrixAdapter(BasePlatformAdapter):
                             chat_id,
                         )
                         continue
-                    except Exception as retry_exc:
+                    except (RuntimeError) as retry_exc:
                         logger.error(
                             "Matrix: failed to send to %s after retry: %s",
                             chat_id,
@@ -810,7 +810,7 @@ class MatrixAdapter(BasePlatformAdapter):
                 )
                 if name_evt and hasattr(name_evt, "name") and name_evt.name:
                     name = name_evt.name
-            except Exception:
+            except (RuntimeError):
                 pass
 
         return {"name": name, "type": chat_type}
@@ -826,7 +826,7 @@ class MatrixAdapter(BasePlatformAdapter):
         if self._client:
             try:
                 await self._client.set_typing(RoomID(chat_id), timeout=30000)
-            except Exception:
+            except (RuntimeError):
                 pass
 
     async def stop_typing(self, chat_id: str) -> None:
@@ -834,7 +834,7 @@ class MatrixAdapter(BasePlatformAdapter):
         if self._client:
             try:
                 await self._client.set_typing(RoomID(chat_id), timeout=0)
-            except Exception:
+            except (RuntimeError):
                 pass
 
 
@@ -871,7 +871,7 @@ class MatrixAdapter(BasePlatformAdapter):
                 msg_content,
             )
             return SendResult(success=True, message_id=str(event_id))
-        except Exception as exc:
+        except (RuntimeError) as exc:
             return SendResult(success=False, error=str(exc))
 
     async def send_image(
@@ -915,7 +915,7 @@ class MatrixAdapter(BasePlatformAdapter):
                     data = resp.content
                     ct = resp.headers.get("content-type", "image/png")
                     fname = image_url.rsplit("/", 1)[-1].split("?")[0] or "image.png"
-        except Exception as exc:
+        except (AttributeError, ConnectionError, ImportError, KeyError, ModuleNotFoundError, OSError, PermissionError, RuntimeError, TimeoutError, TypeError) as exc:
             logger.warning("Matrix: failed to download image %s: %s", image_url, exc)
             return await self.send(
                 chat_id, f"{caption or ''}\n{image_url}".strip(), reply_to
@@ -1015,13 +1015,13 @@ class MatrixAdapter(BasePlatformAdapter):
             if state_store:
                 try:
                     room_encrypted = bool(await state_store.is_encrypted(RoomID(room_id)))
-                except Exception:
+                except (RuntimeError):
                     room_encrypted = False
                 if room_encrypted:
                     try:
                         from mautrix.crypto.attachments import encrypt_attachment
                         upload_data, encrypted_file = encrypt_attachment(data)
-                    except Exception as exc:
+                    except (ImportError, ModuleNotFoundError) as exc:
                         logger.error("Matrix: attachment encryption failed: %s", exc)
                         return SendResult(success=False, error=str(exc))
 
@@ -1033,7 +1033,7 @@ class MatrixAdapter(BasePlatformAdapter):
                 filename=filename,
                 size=len(upload_data),
             )
-        except Exception as exc:
+        except (RuntimeError) as exc:
             logger.error("Matrix: upload failed: %s", exc)
             return SendResult(success=False, error=str(exc))
 
@@ -1075,7 +1075,7 @@ class MatrixAdapter(BasePlatformAdapter):
                 msg_content,
             )
             return SendResult(success=True, message_id=str(event_id))
-        except Exception as exc:
+        except (RuntimeError) as exc:
             return SendResult(success=False, error=str(exc))
 
     async def _send_local_file(
@@ -1151,12 +1151,12 @@ class MatrixAdapter(BasePlatformAdapter):
                         tasks = client.handle_sync(sync_data)
                         if tasks:
                             await asyncio.gather(*tasks)
-                    except Exception as exc:
+                    except (RuntimeError) as exc:
                         logger.warning("Matrix: sync event dispatch error: %s", exc)
 
             except asyncio.CancelledError:
                 return
-            except Exception as exc:
+            except (RuntimeError) as exc:
                 if self._closing:
                     return
                 # Detect permanent auth/permission failures.
@@ -1568,7 +1568,7 @@ class MatrixAdapter(BasePlatformAdapter):
             self._joined_rooms.add(room_id)
             logger.info("Matrix: joined %s", room_id)
             await self._refresh_dm_cache()
-        except Exception as exc:
+        except (RuntimeError) as exc:
             logger.warning("Matrix: error joining %s: %s", room_id, exc)
 
     # ------------------------------------------------------------------
@@ -1602,7 +1602,7 @@ class MatrixAdapter(BasePlatformAdapter):
             )
             logger.debug("Matrix: sent reaction %s to %s", emoji, event_id)
             return str(resp_event_id)
-        except Exception as exc:
+        except (RuntimeError) as exc:
             logger.debug("Matrix: reaction send error: %s", exc)
             return None
 
@@ -1761,7 +1761,7 @@ class MatrixAdapter(BasePlatformAdapter):
         async def _send() -> None:
             try:
                 await self.send_read_receipt(room_id, event_id)
-            except Exception as exc:  # pragma: no cover — defensive
+            except (RuntimeError) as exc:  # pragma: no cover — defensive:
                 logger.debug("Matrix: background read receipt failed: %s", exc)
 
         asyncio.ensure_future(_send())
@@ -1788,7 +1788,7 @@ class MatrixAdapter(BasePlatformAdapter):
                 return False
             logger.debug("Matrix: sent read receipt for %s in %s", event_id, room_id)
             return True
-        except Exception as exc:
+        except (RuntimeError) as exc:
             logger.debug("Matrix: read receipt failed: %s", exc)
             return False
 
@@ -1813,7 +1813,7 @@ class MatrixAdapter(BasePlatformAdapter):
             )
             logger.info("Matrix: redacted %s in %s", event_id, room_id)
             return True
-        except Exception as exc:
+        except (RuntimeError) as exc:
             logger.warning("Matrix: redact error: %s", exc)
             return False
 
@@ -1850,7 +1850,7 @@ class MatrixAdapter(BasePlatformAdapter):
             self._joined_rooms.add(room_id_str)
             logger.info("Matrix: created room %s (%s)", room_id_str, name or "unnamed")
             return room_id_str
-        except Exception as exc:
+        except (AttributeError, KeyError, RuntimeError, TypeError) as exc:
             logger.warning("Matrix: create_room error: %s", exc)
             return None
 
@@ -1862,7 +1862,7 @@ class MatrixAdapter(BasePlatformAdapter):
             await self._client.invite_user(RoomID(room_id), UserID(user_id))
             logger.info("Matrix: invited %s to %s", user_id, room_id)
             return True
-        except Exception as exc:
+        except (RuntimeError) as exc:
             logger.warning("Matrix: invite error: %s", exc)
             return False
 
@@ -1891,7 +1891,7 @@ class MatrixAdapter(BasePlatformAdapter):
             )
             logger.debug("Matrix: presence set to %s", state)
             return True
-        except Exception as exc:
+        except (RuntimeError) as exc:
             logger.debug("Matrix: set_presence failed: %s", exc)
             return False
 
@@ -1922,7 +1922,7 @@ class MatrixAdapter(BasePlatformAdapter):
                 msg_content,
             )
             return SendResult(success=True, message_id=str(event_id))
-        except Exception as exc:
+        except (RuntimeError) as exc:
             return SendResult(success=False, error=str(exc))
 
     # ------------------------------------------------------------------
@@ -1942,7 +1942,7 @@ class MatrixAdapter(BasePlatformAdapter):
                 members = await state_store.get_members(room_id)
                 if members and len(members) == 2:
                     return True
-            except Exception:
+            except (RuntimeError):
                 pass
         return False
 
@@ -1959,7 +1959,7 @@ class MatrixAdapter(BasePlatformAdapter):
                 dm_data = resp.content
             elif isinstance(resp, dict):
                 dm_data = resp
-        except Exception as exc:
+        except (RuntimeError) as exc:
             logger.debug("Matrix: get_account_data('m.direct') failed: %s", exc)
 
         if dm_data is None:
@@ -2029,7 +2029,7 @@ class MatrixAdapter(BasePlatformAdapter):
                 member = await state_store.get_member(room_id, user_id)
                 if member and getattr(member, "displayname", None):
                     return member.displayname
-            except Exception:
+            except (RuntimeError):
                 pass
         # Strip the @...:server format to just the localpart.
         if user_id.startswith("@") and ":" in user_id:

@@ -88,7 +88,7 @@ def _snapshot_auth_active_provider() -> Any:
         from hermes_cli.auth import _load_auth_store
         store = _load_auth_store()
         return store.get("active_provider")
-    except Exception:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
         return None
 
 
@@ -100,7 +100,7 @@ def _restore_auth_active_provider(value: Any) -> None:
             store = _load_auth_store()
             store["active_provider"] = value
             _save_auth_store(store)
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         # Best-effort — if auth.json can't be restored, the user's primary
         # provider may have been deactivated by the picker.  They can re-run
         # `hermes model` to fix it.  Don't fail the fallback add.
@@ -262,7 +262,7 @@ def cmd_fallback_remove(args) -> None:  # noqa: ARG001
     try:
         from hermes_cli.setup import _curses_prompt_choice
         idx = _curses_prompt_choice("Select a fallback to remove:", choices, 0)
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         idx = _numbered_pick("Select a fallback to remove:", choices)
 
     if idx is None or idx < 0 or idx >= len(chain):

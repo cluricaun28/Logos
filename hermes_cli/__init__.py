@@ -10,6 +10,7 @@ Provides subcommands for:
 - hermes status        - Show status of all components
 - hermes cron          - Manage cron jobs
 """
+from __future__ import annotations
 
 __version__ = "0.11.0"
 __release_date__ = "2026.4.23"

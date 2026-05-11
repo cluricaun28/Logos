@@ -55,7 +55,7 @@ def _resolve_home_dir() -> str:
         profile_home = get_subprocess_home()
         if profile_home:
             return profile_home
-    except Exception:
+    except (FileNotFoundError, ImportError, ModuleNotFoundError, subprocess.CalledProcessError):
         pass
 
     home = os.environ.get("HOME", "").strip()
@@ -72,7 +72,7 @@ def _resolve_home_dir() -> str:
         resolved = pwd.getpwuid(os.getuid()).pw_dir.strip()
         if resolved:
             return resolved
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         pass
 
     # Last resort: /tmp (writable on any POSIX system). Avoids crashing the
@@ -219,7 +219,7 @@ def _extract_tool_calls_from_text(text: str) -> tuple[list[SimpleNamespace], str
     def _try_add_tool_call(raw_json: str) -> None:
         try:
             obj = json.loads(raw_json)
-        except Exception:
+        except (json.JSONDecodeError, ValueError):
             return
         if not isinstance(obj, dict):
             return
@@ -347,10 +347,10 @@ class CopilotACPClient:
         try:
             proc.terminate()
             proc.wait(timeout=2)
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             try:
                 proc.kill()
-            except Exception:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                 pass
 
     def _create_chat_completion(
@@ -448,7 +448,7 @@ class CopilotACPClient:
             for line in proc.stdout:
                 try:
                     inbox.put(json.loads(line))
-                except Exception:
+                except (json.JSONDecodeError, ValueError):
                     inbox.put({"raw": line.rstrip("\n")})
 
         def _stderr_reader() -> None:
@@ -616,7 +616,7 @@ class CopilotACPClient:
                         "content": content,
                     },
                 }
-            except Exception as exc:
+            except (AttributeError, KeyError, OSError, PermissionError, TypeError) as exc:
                 response = _jsonrpc_error(message_id, -32602, str(exc))
         elif method == "fs/write_text_file":
             try:
@@ -632,7 +632,7 @@ class CopilotACPClient:
                     "id": message_id,
                     "result": None,
                 }
-            except Exception as exc:
+            except (AttributeError, KeyError, OSError, PermissionError, TypeError) as exc:
                 response = _jsonrpc_error(message_id, -32602, str(exc))
         else:
             response = _jsonrpc_error(

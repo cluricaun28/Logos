@@ -1,4 +1,5 @@
 """Browser Use cloud browser provider."""
+from __future__ import annotations
 
 import logging
 import os

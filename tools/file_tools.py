@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """File Tools Module - LLM agent file manipulation tools."""
+from __future__ import annotations
 
 import errno
 import json
@@ -53,7 +54,7 @@ def _get_max_read_chars() -> int:
         if isinstance(val, (int, float)) and val > 0:
             _max_read_chars_cached = int(val)
             return _max_read_chars_cached
-    except Exception:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
         pass
     _max_read_chars_cached = _DEFAULT_MAX_READ_CHARS
     return _max_read_chars_cached
@@ -90,7 +91,7 @@ def _get_live_tracking_cwd(task_id: str = "default") -> str | None:
     try:
         from tools.terminal_tool import _resolve_container_task_id
         container_key = _resolve_container_task_id(task_id)
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         container_key = task_id
 
     with _file_ops_lock:
@@ -110,7 +111,7 @@ def _get_live_tracking_cwd(task_id: str = "default") -> str | None:
             live_cwd = getattr(env, "cwd", None) if env is not None else None
         if live_cwd:
             return live_cwd
-    except Exception:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
         pass
 
     return None
@@ -625,7 +626,7 @@ def read_file_tool(path: str, offset: int = 1, limit: int = 500, task_id: str = 
         try:
             _partial = (offset > 1) or bool(result_dict.get("truncated"))
             file_state.record_read(task_id, resolved_str, partial=_partial)
-        except Exception:
+        except (AttributeError, KeyError, TypeError):
             logger.debug("file_state.record_read failed", exc_info=True)
 
         if count >= 4:
@@ -647,7 +648,7 @@ def read_file_tool(path: str, offset: int = 1, limit: int = 500, task_id: str = 
             )
 
         return json.dumps(result_dict, ensure_ascii=False)
-    except Exception as e:
+    except (AttributeError, json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
         return tool_error(str(e))
 
 
@@ -801,7 +802,7 @@ def write_file_tool(path: str, content: str, task_id: str = "default") -> str:
         # check below still runs.
         try:
             _resolved = str(_resolve_path_for_task(path, task_id))
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             _resolved = None
 
         if _resolved is None:
@@ -867,7 +868,7 @@ def patch_tool(mode: str = "replace", path: str = None, old_string: str = None,
         for _p in _paths_to_check:
             try:
                 _r = str(_resolve_path_for_task(_p, task_id))
-            except Exception:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                 _r = None
             if _r and _r not in _seen:
                 _resolved_paths.append(_r)
@@ -889,7 +890,7 @@ def patch_tool(mode: str = "replace", path: str = None, old_string: str = None,
             for _p in _paths_to_check:
                 try:
                     _r = str(_resolve_path_for_task(_p, task_id))
-                except Exception:
+                except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                     _r = None
                 _path_to_resolved[_p] = _r
                 _cross = file_state.check_stale(task_id, _r) if _r else None

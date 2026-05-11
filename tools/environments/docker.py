@@ -4,6 +4,7 @@ Security hardened (cap-drop ALL, no-new-privileges, PID limits),
 configurable resource limits (CPU, memory, disk), and optional filesystem
 persistence via bind mounts.
 """
+from __future__ import annotations
 
 import logging
 import os

@@ -9,6 +9,7 @@ Design principles:
   - Provenance tracking: every committed page links back to source PM turn IDs
   - SignalRegistry integration: marks clusters as distilled upon successful commit
 """
+from __future__ import annotations
 
 import json
 import logging
@@ -293,7 +294,7 @@ Distilled: {datetime.now(timezone.utc).isoformat()}
             with os.fdopen(fd, "w") as f:
                 f.write(draft_content)
             os.replace(tmp_path, rl_path)
-        except Exception:
+        except (OSError, PermissionError):
             if os.path.exists(tmp_path):
                 os.unlink(tmp_path)
             raise
@@ -328,7 +329,7 @@ Distilled: {datetime.now(timezone.utc).isoformat()}
             with os.fdopen(fd, "w") as f:
                 f.write(content)
             os.replace(tmp_path, index_path)
-        except Exception:
+        except (OSError, PermissionError):
             if os.path.exists(tmp_path):
                 os.unlink(tmp_path)
 

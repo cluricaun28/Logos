@@ -5,6 +5,7 @@ Provides options for:
 - Full uninstall: Remove everything including configs and data
 - Keep data: Remove code but keep ~/.hermes/ (configs, sessions, logs)
 """
+from __future__ import annotations
 
 import os
 import shutil
@@ -111,7 +112,7 @@ def remove_wrapper_script():
                 if 'hermes_cli' in content or 'hermes-agent' in content:
                     wrapper.unlink()
                     removed.append(wrapper)
-            except Exception as e:
+            except (OSError, PermissionError) as e:
                 log_warn(f"Could not remove {wrapper}: {e}")
     
     return removed
@@ -139,7 +140,7 @@ def uninstall_gateway_service():
             if killed:
                 log_success(f"Killed {killed} running gateway process(es)")
                 stopped_something = True
-    except Exception as e:
+    except (ImportError, ModuleNotFoundError) as e:
         log_warn(f"Could not check for gateway processes: {e}")
 
     system = platform.system()
@@ -182,9 +183,9 @@ def uninstall_gateway_service():
                                    capture_output=True, check=False)
                     log_success(f"Removed {scope} gateway service ({unit_path})")
                     stopped_something = True
-                except Exception as e:
+                except (FileNotFoundError, OSError, PermissionError, subprocess.CalledProcessError) as e:
                     log_warn(f"Could not remove {scope} gateway service: {e}")
-        except Exception as e:
+        except (FileNotFoundError, OSError, PermissionError, subprocess.CalledProcessError) as e:
             log_warn(f"Could not check systemd gateway services: {e}")
 
     # 3. macOS: uninstall launchd plist
@@ -198,7 +199,7 @@ def uninstall_gateway_service():
                 plist_path.unlink()
                 log_success(f"Removed macOS gateway service ({plist_path})")
                 stopped_something = True
-        except Exception as e:
+        except (FileNotFoundError, ImportError, ModuleNotFoundError, OSError, PermissionError, subprocess.CalledProcessError) as e:
             log_warn(f"Could not remove launchd gateway service: {e}")
 
     return stopped_something
@@ -209,7 +210,7 @@ def _is_default_hermes_home(hermes_home: Path) -> bool:
     try:
         from hermes_constants import get_default_hermes_root
         return hermes_home.resolve() == get_default_hermes_root().resolve()
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         return False
 
 
@@ -219,11 +220,11 @@ def _discover_named_profiles():
     default root."""
     try:
         from hermes_cli.profiles import list_profiles
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         return []
     try:
         return [p for p in list_profiles() if not getattr(p, "is_default", False)]
-    except Exception as e:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
         log_warn(f"Could not enumerate profiles: {e}")
         return []
 
@@ -257,7 +258,7 @@ def _uninstall_profile(profile) -> None:
             )
         except subprocess.TimeoutExpired:
             log_warn(f"  Gateway {subcmd} timed out for '{name}'")
-        except Exception as e:
+        except (FileNotFoundError, subprocess.CalledProcessError) as e:
             log_warn(f"  Could not run gateway {subcmd} for '{name}': {e}")
 
     # 2. Remove the wrapper alias script at ~/.local/bin/<name> (if any).
@@ -266,7 +267,7 @@ def _uninstall_profile(profile) -> None:
         try:
             alias_path.unlink()
             log_success(f"  Removed alias {alias_path}")
-        except Exception as e:
+        except (OSError, PermissionError) as e:
             log_warn(f"  Could not remove alias {alias_path}: {e}")
 
     # 3. Wipe the profile's HERMES_HOME directory.
@@ -274,7 +275,7 @@ def _uninstall_profile(profile) -> None:
         if profile_home.exists():
             shutil.rmtree(profile_home)
             log_success(f"  Removed {profile_home}")
-    except Exception as e:
+    except (OSError, PermissionError) as e:
         log_warn(f"  Could not remove {profile_home}: {e}")
 
 
@@ -433,7 +434,7 @@ def run_uninstall(args):
                 # Installation is somewhere else entirely
                 shutil.rmtree(project_root)
                 log_success(f"Removed {project_root}")
-    except Exception as e:
+    except (OSError, PermissionError) as e:
         log_warn(f"Could not fully remove {project_root}: {e}")
         log_info("You may need to manually remove it")
     
@@ -453,7 +454,7 @@ def run_uninstall(args):
             if hermes_home.exists():
                 shutil.rmtree(hermes_home)
                 log_success(f"Removed {hermes_home}")
-        except Exception as e:
+        except (OSError, PermissionError) as e:
             log_warn(f"Could not fully remove {hermes_home}: {e}")
             log_info("You may need to manually remove it")
     else:

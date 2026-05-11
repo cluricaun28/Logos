@@ -3,6 +3,7 @@
 Runs asynchronously after the first response is delivered so it never
 adds latency to the user-facing reply.
 """
+from __future__ import annotations
 
 import logging
 import threading
@@ -70,7 +71,7 @@ def generate_title(
         if len(title) > 80:
             title = title[:77] + "..."
         return title if title else None
-    except Exception as e:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
         # Log at WARNING so this shows up in agent.log without debug mode.
         # Full detail at debug level for operators who need the stack.
         logger.warning("Title generation failed: %s", e)
@@ -78,7 +79,7 @@ def generate_title(
         if failure_callback is not None:
             try:
                 failure_callback("title generation", e)
-            except Exception:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                 logger.debug("Title generation failure_callback raised", exc_info=True)
         return None
 
@@ -107,7 +108,7 @@ def auto_title_session(
         existing = session_db.get_session_title(session_id)
         if existing:
             return
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         return
 
     title = generate_title(
@@ -119,7 +120,7 @@ def auto_title_session(
     try:
         session_db.set_session_title(session_id, title)
         logger.debug("Auto-generated session title: %s", title)
-    except Exception as e:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
         logger.debug("Failed to set auto-generated title: %s", e)
 
 

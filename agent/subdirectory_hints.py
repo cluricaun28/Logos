@@ -12,6 +12,7 @@ the conversation without modifying the system prompt (preserving prompt caching)
 
 Inspired by Block/goose's SubdirectoryHintTracker.
 """
+from __future__ import annotations
 
 import logging
 import os
@@ -204,7 +205,7 @@ class SubdirectoryHintTracker:
                 found_hints.append((rel_path, content))
                 # First match wins per directory (like startup loading)
                 break
-            except Exception as exc:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
                 logger.debug("Could not read %s: %s", hint_path, exc)
 
         if not found_hints:

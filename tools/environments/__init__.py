@@ -7,6 +7,7 @@ SSH, Modal, or Daytona.
 The terminal_tool.py factory (_create_environment) selects the backend
 based on the TERMINAL_ENV configuration.
 """
+from __future__ import annotations
 
 from tools.environments.base import BaseEnvironment
 

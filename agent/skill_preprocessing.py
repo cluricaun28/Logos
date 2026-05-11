@@ -1,4 +1,5 @@
 """Shared SKILL.md preprocessing helpers."""
+from __future__ import annotations
 
 import logging
 import re
@@ -29,7 +30,7 @@ def load_skills_config() -> dict:
         skills_cfg = cfg.get("skills")
         if isinstance(skills_cfg, dict):
             return skills_cfg
-    except Exception:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
         logger.debug("Could not read skills config", exc_info=True)
     return {}
 
@@ -79,7 +80,7 @@ def run_inline_shell(command: str, cwd: Path | None, timeout: int) -> str:
         return f"[inline-shell timeout after {timeout}s: {command}]"
     except FileNotFoundError:
         return "[inline-shell error: bash not found]"
-    except Exception as exc:
+    except (FileNotFoundError, subprocess.CalledProcessError) as exc:
         return f"[inline-shell error: {exc}]"
 
     output = (completed.stdout or "").rstrip("\n")

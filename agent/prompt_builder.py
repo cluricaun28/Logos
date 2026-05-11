@@ -3,6 +3,7 @@
 All functions are stateless. AIAgent._build_system_prompt() calls these to
 assemble pieces, then combines them with memory and ephemeral prompts.
 """
+from __future__ import annotations
 
 import json
 import logging
@@ -547,7 +548,7 @@ def _load_skills_snapshot(skills_dir: Path) -> Optional[dict]:
         return None
     try:
         snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
-    except Exception:
+    except (json.JSONDecodeError, OSError, PermissionError, ValueError):
         return None
     if not isinstance(snapshot, dict):
         return None
@@ -573,7 +574,7 @@ def _write_skills_snapshot(
     }
     try:
         atomic_json_write(_skills_prompt_snapshot_path(), payload)
-    except Exception as e:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
         logger.debug("Could not write skills prompt snapshot: %s", e)
 
 
@@ -625,7 +626,7 @@ def _parse_skill_file(skill_file: Path) -> tuple[bool, dict, str]:
             return False, frontmatter, ""
 
         return True, frontmatter, extract_skill_description(frontmatter)
-    except Exception as e:
+    except (OSError, PermissionError) as e:
         logger.warning("Failed to parse skill file %s: %s", skill_file, e)
         return True, {}, ""
 
@@ -774,7 +775,7 @@ def build_skills_system_prompt(
                 rel = desc_file.relative_to(skills_dir)
                 cat = "/".join(rel.parts[:-1]) if len(rel.parts) > 1 else "general"
                 category_descriptions[cat] = str(cat_desc).strip().strip("'\"")
-            except Exception as e:
+            except (AttributeError, KeyError, OSError, PermissionError, TypeError) as e:
                 logger.debug("Could not read skill description %s: %s", desc_file, e)
 
         _write_skills_snapshot(
@@ -818,7 +819,7 @@ def build_skills_system_prompt(
                 skills_by_category.setdefault(entry["category"], []).append(
                     (frontmatter_name, entry["description"])
                 )
-            except Exception as e:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
                 logger.debug("Error reading external skill %s: %s", skill_file, e)
 
         # External category descriptions
@@ -832,7 +833,7 @@ def build_skills_system_prompt(
                 rel = desc_file.relative_to(ext_dir)
                 cat = "/".join(rel.parts[:-1]) if len(rel.parts) > 1 else "general"
                 category_descriptions.setdefault(cat, str(cat_desc).strip().strip("'\""))
-            except Exception as e:
+            except (AttributeError, KeyError, OSError, PermissionError, TypeError) as e:
                 logger.debug("Could not read external skill description %s: %s", desc_file, e)
 
     if not skills_by_category:
@@ -891,7 +892,7 @@ def build_nous_subscription_prompt(valid_tool_names: "set[str] | None" = None) -
     try:
         from hermes_cli.nous_subscription import get_nous_subscription_features
         from tools.tool_backend_helpers import managed_nous_tools_enabled
-    except Exception as exc:
+    except (ImportError, ModuleNotFoundError) as exc:
         logger.debug("Failed to import Nous subscription helper: %s", exc)
         return ""
 
@@ -978,7 +979,7 @@ def load_soul_md() -> Optional[str]:
     try:
         from hermes_cli.config import ensure_hermes_home
         ensure_hermes_home()
-    except Exception as e:
+    except (ImportError, ModuleNotFoundError) as e:
         logger.debug("Could not ensure HERMES_HOME before loading SOUL.md: %s", e)
 
     soul_path = get_hermes_home() / "SOUL.md"
@@ -991,7 +992,7 @@ def load_soul_md() -> Optional[str]:
         content = _scan_context_content(content, "SOUL.md")
         content = _truncate_content(content, "SOUL.md")
         return content
-    except Exception as e:
+    except (OSError, PermissionError) as e:
         logger.debug("Could not read SOUL.md from %s: %s", soul_path, e)
         return None
 
@@ -1014,7 +1015,7 @@ def _load_hermes_md(cwd_path: Path) -> str:
         content = _scan_context_content(content, rel)
         result = f"## {rel}\n\n{content}"
         return _truncate_content(result, ".hermes.md")
-    except Exception as e:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
         logger.debug("Could not read %s: %s", hermes_md_path, e)
         return ""
 
@@ -1030,7 +1031,7 @@ def _load_agents_md(cwd_path: Path) -> str:
                     content = _scan_context_content(content, name)
                     result = f"## {name}\n\n{content}"
                     return _truncate_content(result, "AGENTS.md")
-            except Exception as e:
+            except (OSError, PermissionError) as e:
                 logger.debug("Could not read %s: %s", candidate, e)
     return ""
 
@@ -1046,7 +1047,7 @@ def _load_claude_md(cwd_path: Path) -> str:
                     content = _scan_context_content(content, name)
                     result = f"## {name}\n\n{content}"
                     return _truncate_content(result, "CLAUDE.md")
-            except Exception as e:
+            except (OSError, PermissionError) as e:
                 logger.debug("Could not read %s: %s", candidate, e)
     return ""
 
@@ -1061,7 +1062,7 @@ def _load_cursorrules(cwd_path: Path) -> str:
             if content:
                 content = _scan_context_content(content, ".cursorrules")
                 cursorrules_content += f"## .cursorrules\n\n{content}\n\n"
-        except Exception as e:
+        except (OSError, PermissionError) as e:
             logger.debug("Could not read .cursorrules: %s", e)
 
     cursor_rules_dir = cwd_path / ".cursor" / "rules"
@@ -1073,7 +1074,7 @@ def _load_cursorrules(cwd_path: Path) -> str:
                 if content:
                     content = _scan_context_content(content, f".cursor/rules/{mdc_file.name}")
                     cursorrules_content += f"## .cursor/rules/{mdc_file.name}\n\n{content}\n\n"
-            except Exception as e:
+            except (OSError, PermissionError) as e:
                 logger.debug("Could not read %s: %s", mdc_file, e)
 
     if not cursorrules_content:

@@ -13,6 +13,7 @@ Usage in tools:
     if is_interrupted():
         return {"output": "[interrupted]", "returncode": 130}
 """
+from __future__ import annotations
 
 import logging
 import os

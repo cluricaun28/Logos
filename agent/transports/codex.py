@@ -4,6 +4,7 @@ Delegates to the existing adapter functions in agent/codex_responses_adapter.py.
 This transport owns format conversion and normalization — NOT client lifecycle,
 streaming, or the _run_codex_stream() call path.
 """
+from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 

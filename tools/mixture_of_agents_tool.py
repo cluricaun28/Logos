@@ -44,6 +44,7 @@ Usage:
         user_prompt="Solve this complex mathematical proof..."
     )
 """
+from __future__ import annotations
 
 import json
 import logging

@@ -10,6 +10,7 @@ separate HERMES_HOME directories naturally get separate PID files — a property
 that will be useful when we add named profiles (multiple agents running
 concurrently under distinct configurations).
 """
+from __future__ import annotations
 
 import hashlib
 import json
@@ -260,11 +261,11 @@ def _cleanup_invalid_pid_path(pid_path: Path, *, cleanup_stale: bool) -> None:
         return
     try:
         pid_path.unlink(missing_ok=True)
-    except Exception:
+    except (OSError, PermissionError):
         pass
     try:
         _get_gateway_lock_path(pid_path).unlink(missing_ok=True)
-    except Exception:
+    except (OSError, PermissionError):
         pass
 
 
@@ -381,7 +382,7 @@ def write_pid_file() -> None:
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(record)
-    except Exception:
+    except (OSError, PermissionError):
         try:
             path.unlink(missing_ok=True)
         except OSError:
@@ -457,7 +458,7 @@ def remove_pid_file() -> None:
                 # PID file belongs to a different process — leave it alone.
                 return
         path.unlink(missing_ok=True)
-    except Exception:
+    except (AttributeError, KeyError, OSError, PermissionError, TypeError):
         pass
 
 
@@ -542,7 +543,7 @@ def acquire_scoped_lock(scope: str, identity: str, metadata: Optional[dict[str, 
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             json.dump(record, handle)
-    except Exception:
+    except (json.JSONDecodeError, OSError, PermissionError, ValueError):
         try:
             lock_path.unlink(missing_ok=True)
         except OSError:

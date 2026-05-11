@@ -4,6 +4,7 @@ Cron job management tools for Hermes Agent.
 Expose a single compressed action-oriented tool to avoid schema/context bloat.
 Compatibility wrappers remain for direct Python callers and legacy tests.
 """
+from __future__ import annotations
 
 import json
 import logging

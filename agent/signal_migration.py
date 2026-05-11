@@ -6,6 +6,7 @@ Creates two new tables with zero impact on existing schema:
 
 Idempotent — safe to run multiple times. Uses CREATE TABLE IF NOT EXISTS.
 """
+from __future__ import annotations
 
 import logging
 import sqlite3

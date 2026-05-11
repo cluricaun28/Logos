@@ -81,7 +81,7 @@ def _resolve_cdp_endpoint() -> str:
         from tools.browser_tool import _get_cdp_override  # type: ignore[import-not-found]
 
         return (_get_cdp_override() or "").strip()
-    except Exception as exc:  # pragma: no cover — defensive
+    except (ImportError, ModuleNotFoundError) as exc:  # pragma: no cover — defensive:
         logger.debug("browser_cdp: failed to resolve CDP endpoint: %s", exc)
         return ""
 
@@ -203,7 +203,7 @@ def _browser_cdp_via_supervisor(
     """
     try:
         from tools.browser_supervisor import SUPERVISOR_REGISTRY  # type: ignore[import-not-found]
-    except Exception as exc:  # pragma: no cover — defensive
+    except (ImportError, ModuleNotFoundError) as exc:  # pragma: no cover — defensive:
         return tool_error(
             f"CDP supervisor is not available: {exc}. frame_id routing requires "
             f"a running supervisor attached via /browser connect or an active "
@@ -276,7 +276,7 @@ def _browser_cdp_via_supervisor(
     try:
         fut = _asyncio.run_coroutine_threadsafe(_do_cdp(), loop)
         result_msg = fut.result(timeout=timeout + 2)
-    except Exception as exc:
+    except (RuntimeError) as exc:
         return tool_error(
             f"CDP call via supervisor failed: {type(exc).__name__}: {exc}",
             cdp_docs=CDP_DOCS_URL,
@@ -396,7 +396,7 @@ def browser_cdp(
             "browser may have disconnected — try '/browser connect' again.",
             method=method,
         )
-    except Exception as exc:  # pragma: no cover — unexpected
+    except (RuntimeError) as exc:  # pragma: no cover — unexpected:
         logger.exception("browser_cdp unexpected error")
         return tool_error(
             f"Unexpected error: {type(exc).__name__}: {exc}",

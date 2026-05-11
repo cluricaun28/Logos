@@ -489,7 +489,7 @@ class GatewayStreamConsumer:
             if self._accumulated and self._message_id:
                 try:
                     _best_effort_ok = bool(await self._send_or_edit(self._accumulated))
-                except Exception:
+                except (RuntimeError):
                     pass
             # Only confirm final delivery if the best-effort send above
             # actually succeeded OR if the final response was already
@@ -500,7 +500,7 @@ class GatewayStreamConsumer:
             # "Let me search…") had been delivered, not the real answer.
             if _best_effort_ok and not self._final_response_sent:
                 self._final_response_sent = True
-        except Exception as e:
+        except (RuntimeError) as e:
             logger.error("Stream consumer error: %s", e)
 
     # Pattern to strip MEDIA:<path> tags (including optional surrounding quotes).
@@ -552,7 +552,7 @@ class GatewayStreamConsumer:
             else:
                 self._edit_supported = False
                 return reply_to_id
-        except Exception as e:
+        except (RuntimeError) as e:
             logger.error("Stream send chunk error: %s", e)
             return reply_to_id
 
@@ -627,7 +627,7 @@ class GatewayStreamConsumer:
                         )
                         if result.success:
                             self._last_sent_text = clean_text
-                    except Exception:
+                    except (RuntimeError):
                         pass
                 self._already_sent = True
                 self._final_response_sent = True
@@ -723,7 +723,7 @@ class GatewayStreamConsumer:
             )
             if result.success:
                 self._already_sent = True
-        except Exception as e:
+        except (RuntimeError) as e:
             logger.error("Segment-break tail flush error: %s", e)
 
     async def _try_strip_cursor(self) -> None:
@@ -744,7 +744,7 @@ class GatewayStreamConsumer:
                 content=prefix,
             )
             self._last_sent_text = prefix
-        except Exception:
+        except (RuntimeError):
             pass  # best-effort — don't let this block the fallback path
 
     async def _send_commentary(self, text: str) -> bool:
@@ -764,7 +764,7 @@ class GatewayStreamConsumer:
             # the final response to be incorrectly suppressed when there are
             # multiple tool calls. See: https://github.com/NousResearch/hermes-agent/issues/10454
             return result.success
-        except Exception as e:
+        except (ConnectionError, OSError, RuntimeError, TimeoutError) as e:
             logger.error("Commentary send error: %s", e)
             return False
 
@@ -805,7 +805,7 @@ class GatewayStreamConsumer:
                 content=text,
                 metadata=self.metadata,
             )
-        except Exception as e:
+        except (RuntimeError) as e:
             logger.debug("Fresh-final send failed, falling back to edit: %s", e)
             return False
         if not getattr(result, "success", False):
@@ -820,7 +820,7 @@ class GatewayStreamConsumer:
             if delete_fn is not None:
                 try:
                     await delete_fn(self.chat_id, old_message_id)
-                except Exception as e:
+                except (RuntimeError) as e:
                     logger.debug(
                         "Fresh-final preview cleanup failed (%s): %s",
                         old_message_id, e,

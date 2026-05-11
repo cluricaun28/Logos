@@ -4,6 +4,7 @@ Extracts the ``resolve() + relative_to()`` and ``..`` traversal check
 patterns previously duplicated across skill_manager_tool, skills_tool,
 skills_hub, cronjob_tools, and credential_files.
 """
+from __future__ import annotations
 
 import logging
 from pathlib import Path

@@ -3,6 +3,7 @@
 Uses real conversation history as fixtures to validate pruning behavior
 on actual Hermes Agent message patterns.
 """
+from __future__ import annotations
 
 import pytest
 import sys

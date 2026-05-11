@@ -1,4 +1,5 @@
 """Local execution environment — spawn-per-call with session snapshot."""
+from __future__ import annotations
 
 import os
 import platform

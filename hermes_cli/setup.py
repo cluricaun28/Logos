@@ -10,6 +10,7 @@ Modular wizard with independently-runnable sections:
 
 Config files are stored in ~/.hermes/ for easy access.
 """
+from __future__ import annotations
 
 import importlib.util
 import logging
@@ -167,7 +168,7 @@ def is_interactive_stdin() -> bool:
         return False
     try:
         return bool(stdin.isatty())
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         return False
 
 
@@ -356,7 +357,7 @@ def _print_setup_summary(config: dict, hermes_home):
         from agent.auxiliary_client import get_available_vision_backends
 
         _vision_backends = get_available_vision_backends()
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         _vision_backends = []
 
     if _vision_backends:
@@ -431,9 +432,9 @@ def _print_setup_summary(config: dict, hermes_home):
                     if _p.is_available():
                         _img_backend = _p.display_name
                         break
-                except Exception:
+                except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                     continue
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             pass
         if _img_backend:
             tool_status.append((f"Image Generation ({_img_backend})", True, None))
@@ -459,7 +460,7 @@ def _print_setup_summary(config: dict, hermes_home):
     elif tts_provider == "neutts":
         try:
             neutts_ok = importlib.util.find_spec("neutts") is not None
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             neutts_ok = False
         if neutts_ok:
             tool_status.append(("Text-to-Speech (NeuTTS local)", True, None))
@@ -469,7 +470,7 @@ def _print_setup_summary(config: dict, hermes_home):
         try:
             import importlib.util
             kittentts_ok = importlib.util.find_spec("kittentts") is not None
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             kittentts_ok = False
         if kittentts_ok:
             tool_status.append(("Text-to-Speech (KittenTTS local)", True, None))
@@ -506,7 +507,7 @@ def _print_setup_summary(config: dict, hermes_home):
         _spotify_state = get_provider_auth_state("spotify") or {}
         if _spotify_state.get("access_token") or _spotify_state.get("refresh_token"):
             tool_status.append(("Spotify (PKCE OAuth)", True, None))
-    except Exception:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
         pass
 
     # Skills Hub
@@ -690,7 +691,7 @@ def setup_model_provider(config: dict, *, quick: bool = False):
     except (SystemExit, KeyboardInterrupt):
         print()
         print_info("Provider setup skipped.")
-    except Exception as exc:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
         logger.debug("select_provider_and_model error during setup: %s", exc)
         print_warning(f"Provider setup encountered an error: {exc}")
         print_info("You can try again later with: hermes model")
@@ -796,7 +797,7 @@ def setup_model_provider(config: dict, *, quick: bool = False):
         try:
             from agent.auxiliary_client import get_available_vision_backends
             _vision_backends = set(get_available_vision_backends())
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             _vision_backends = set()
 
         _vision_needs_setup = not bool(_vision_backends)
@@ -1032,7 +1033,7 @@ def _setup_tts_provider(config: dict):
         # Check if already installed
         try:
             already_installed = importlib.util.find_spec("neutts") is not None
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             already_installed = False
 
         if already_installed:
@@ -1134,7 +1135,7 @@ def _setup_tts_provider(config: dict):
         try:
             import importlib.util
             already_installed = importlib.util.find_spec("kittentts") is not None
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             already_installed = False
 
         if already_installed:
@@ -1940,7 +1941,7 @@ def _write_slack_manifest_and_instruct():
             "   Re-run `hermes slack manifest --write` anytime to refresh after "
             "Hermes adds new commands."
         )
-    except Exception as exc:  # pragma: no cover - best-effort UX helper
+    except (ImportError, json.JSONDecodeError, ModuleNotFoundError, OSError, PermissionError, ValueError) as exc:  # pragma: no cover - best-effort UX helper:
         print_warning(f"Couldn't write Slack manifest: {exc}")
         print_info(
             "   You can generate it manually later with: "
@@ -2424,7 +2425,7 @@ def setup_gateway(config: dict):
                     print_error("  Restart failed — user systemd not reachable:")
                     for line in str(e).splitlines():
                         print(f"  {line}")
-                except Exception as e:
+                except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
                     print_error(f"  Restart failed: {e}")
         elif service_installed:
             if prompt_yes_no("  Start the gateway service?", True):
@@ -2437,7 +2438,7 @@ def setup_gateway(config: dict):
                     print_error("  Start failed — user systemd not reachable:")
                     for line in str(e).splitlines():
                         print(f"  {line}")
-                except Exception as e:
+                except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
                     print_error(f"  Start failed: {e}")
         elif supports_service_manager:
             svc_name = "systemd" if supports_systemd else "launchd"
@@ -2464,9 +2465,9 @@ def setup_gateway(config: dict):
                             print_error("  Start failed — user systemd not reachable:")
                             for line in str(e).splitlines():
                                 print(f"  {line}")
-                        except Exception as e:
+                        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
                             print_error(f"  Start failed: {e}")
-                except Exception as e:
+                except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
                     print_error(f"  Install failed: {e}")
                     print_info("  You can try manually: hermes gateway install")
             else:
@@ -2530,12 +2531,12 @@ def _model_section_has_credentials(config: dict) -> bool:
         from hermes_cli.auth import get_active_provider
         if get_active_provider():
             return True
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         pass
 
     try:
         from hermes_cli.auth import PROVIDER_REGISTRY
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         PROVIDER_REGISTRY = {}  # type: ignore[assignment]
 
     def _has_key(pconfig) -> bool:
@@ -2683,7 +2684,7 @@ def _load_openclaw_migration_module():
     _sys.modules[spec.name] = mod
     try:
         spec.loader.exec_module(mod)
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         _sys.modules.pop(spec.name, None)
         raise
     return mod
@@ -2808,7 +2809,7 @@ def _offer_openclaw_migration(hermes_home: Path) -> bool:
         if mod is None:
             print_warning("Could not load migration script.")
             return False
-    except Exception as e:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
         print_warning(f"Could not load migration script: {e}")
         logger.debug("OpenClaw migration module load error", exc_info=True)
         return False
@@ -2828,7 +2829,7 @@ def _offer_openclaw_migration(hermes_home: Path) -> bool:
             preset_name="full",
         )
         preview_report = dry_migrator.migrate()
-    except Exception as e:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
         print_warning(f"Migration preview failed: {e}")
         logger.debug("OpenClaw migration preview error", exc_info=True)
         return False
@@ -2873,7 +2874,7 @@ def _offer_openclaw_migration(hermes_home: Path) -> bool:
             preset_name="full",
         )
         report = migrator.migrate()
-    except Exception as e:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
         print_warning(f"Migration failed: {e}")
         logger.debug("OpenClaw migration error", exc_info=True)
         return False
@@ -3129,7 +3130,7 @@ def _resolve_hermes_chat_argv() -> Optional[list[str]]:
     try:
         if importlib.util.find_spec("hermes_cli") is not None:
             return [sys.executable, "-m", "hermes_cli.main", "chat"]
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         pass
 
     return None

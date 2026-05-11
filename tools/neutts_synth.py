@@ -11,6 +11,7 @@ Usage:
 Requires: python -m pip install -U neutts[all]
 System:   apt install espeak-ng  (or brew install espeak-ng)
 """
+from __future__ import annotations
 
 import argparse
 import struct

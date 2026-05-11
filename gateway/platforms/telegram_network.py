@@ -95,7 +95,7 @@ class TelegramFallbackTransport(httpx.AsyncBaseTransport):
                                 ip,
                             )
                 return response
-            except Exception as exc:
+            except (RuntimeError) as exc:
                 last_error = exc
                 if not _is_retryable_connect_error(exc):
                     raise
@@ -152,7 +152,7 @@ def _resolve_system_dns() -> set[str]:
     try:
         results = socket.getaddrinfo(_TELEGRAM_API_HOST, 443, socket.AF_INET)
         return {addr[4][0] for addr in results}
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         return set()
 
 
@@ -177,7 +177,7 @@ async def _query_doh_provider(
             except ValueError:
                 continue
         return ips
-    except Exception as exc:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
         logger.debug("DoH query to %s failed: %s", provider["url"], exc)
         return []
 

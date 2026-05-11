@@ -21,6 +21,7 @@ Usage:
     if not allowed:
         print(format_scan_report(result))
 """
+from __future__ import annotations
 
 import re
 import hashlib

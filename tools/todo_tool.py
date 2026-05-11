@@ -13,6 +13,7 @@ Design:
 - No system prompt mutation, no tool response modification
 - Behavioral guidance lives entirely in the tool schema description
 """
+from __future__ import annotations
 
 import json
 from typing import Dict, Any, List, Optional

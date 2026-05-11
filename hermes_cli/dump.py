@@ -5,6 +5,7 @@ Outputs a compact, plain-text summary of the user's Hermes setup
 that can be copy-pasted into Discord/GitHub/Telegram for support context.
 No ANSI colors, no checkmarks — just data.
 """
+from __future__ import annotations
 
 import json
 import os
@@ -27,7 +28,7 @@ def _get_git_commit(project_root: Path) -> str:
         )
         if result.returncode == 0:
             return result.stdout.strip()
-    except Exception:
+    except (FileNotFoundError, subprocess.CalledProcessError):
         pass
     return "(unknown)"
 
@@ -55,7 +56,7 @@ def _gateway_status() -> str:
         if snapshot.service_installed and not snapshot.service_running:
             return f"stopped ({snapshot.manager})"
         return f"stopped ({snapshot.manager})"
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         return "unknown" if sys.platform.startswith(("linux", "darwin")) else "N/A"
 
 
@@ -88,7 +89,7 @@ def _cron_summary(hermes_home: Path) -> str:
         jobs = data.get("jobs", [])
         active = sum(1 for j in jobs if j.get("enabled", True))
         return f"{active} active / {len(jobs)} total"
-    except Exception:
+    except (AttributeError, json.JSONDecodeError, KeyError, OSError, PermissionError, TypeError, ValueError):
         return "(error reading)"
 
 
@@ -216,7 +217,7 @@ def run_dump(args):
 
     try:
         config = load_config()
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         config = {}
 
     model, provider = _get_model_and_provider(config)
@@ -225,7 +226,7 @@ def run_dump(args):
     try:
         from hermes_cli.profiles import get_active_profile_name
         profile = get_active_profile_name() or "(default)"
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         profile = "(default)"
 
     # Terminal backend

@@ -31,6 +31,7 @@ Configuration in config.yaml::
           redirect_port: 0                      # 0 = auto-pick free port
           client_name: "My Custom Client"       # default: "Hermes Agent"
 """
+from __future__ import annotations
 
 import asyncio
 import json

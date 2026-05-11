@@ -407,7 +407,7 @@ def _spawn(spec: ShellHookSpec, stdin_json: str) -> Dict[str, Any]:
     except PermissionError:
         result["error"] = "command not executable"
         return result
-    except Exception as exc:  # pragma: no cover — defensive
+    except (FileNotFoundError, subprocess.CalledProcessError) as exc:  # pragma: no cover — defensive:
         result["error"] = str(exc)
         return result
 
@@ -570,7 +570,7 @@ def save_allowlist(data: Dict[str, Any]) -> None:
             with os.fdopen(fd, "w") as fh:
                 fh.write(json.dumps(data, indent=2, sort_keys=True))
             atomic_replace(tmp_path, p)
-        except Exception:
+        except (json.JSONDecodeError, OSError, PermissionError, ValueError):
             try:
                 os.unlink(tmp_path)
             except OSError:

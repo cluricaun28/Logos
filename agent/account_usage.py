@@ -257,7 +257,7 @@ def _fetch_openrouter_account_usage(base_url: Optional[str], api_key: Optional[s
             key_resp = client.get(key_url, headers=headers)
             key_resp.raise_for_status()
             key_data = (key_resp.json() or {}).get("data") or {}
-        except Exception:
+        except (AttributeError, KeyError, TypeError):
             key_data = {}
     total_credits = float(credits.get("total_credits") or 0.0)
     total_usage = float(credits.get("total_usage") or 0.0)
@@ -321,6 +321,6 @@ def fetch_account_usage(
             return _fetch_anthropic_account_usage()
         if normalized == "openrouter":
             return _fetch_openrouter_account_usage(base_url, api_key)
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         return None
     return None

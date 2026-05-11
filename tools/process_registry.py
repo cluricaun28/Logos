@@ -28,6 +28,7 @@ Usage:
     # Kill it
     process_registry.kill(session.id)
 """
+from __future__ import annotations
 
 import json
 import logging
@@ -452,7 +453,7 @@ class ProcessRegistry:
                 temp_dir = get_temp_dir()
                 if isinstance(temp_dir, str) and temp_dir.startswith("/"):
                     return temp_dir.rstrip("/") or "/"
-            except Exception as exc:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
                 logger.debug("Could not resolve environment temp dir: %s", exc)
         return "/tmp"
 
@@ -625,7 +626,7 @@ class ProcessRegistry:
                 if line.isdigit():
                     session.pid = int(line)
                     break
-        except Exception as e:
+        except (AttributeError, ImportError, KeyError, ModuleNotFoundError, sqlite3.Error, TypeError) as e:
             session.exited = True
             session.exit_code = -1
             session.output_buffer = f"Failed to start: {e}"
@@ -666,13 +667,13 @@ class ProcessRegistry:
                     if len(session.output_buffer) > session.max_output_chars:
                         session.output_buffer = session.output_buffer[-session.max_output_chars:]
                 self._check_watch_patterns(session, chunk)
-        except Exception as e:
+        except (OSError, PermissionError) as e:
             logger.debug("Process stdout reader ended: %s", e)
         finally:
             # Always reap the child to prevent zombie processes.
             try:
                 session.process.wait(timeout=5)
-            except Exception as e:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
                 logger.debug("Process wait timed out or failed: %s", e)
             session.exited = True
             session.exit_code = session.process.returncode
@@ -724,7 +725,7 @@ class ProcessRegistry:
                     self._move_to_finished(session)
                     return
 
-            except Exception:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                 # Environment might be gone (sandbox reaped, etc.)
                 session.exited = True
                 session.exit_code = -1
@@ -748,15 +749,15 @@ class ProcessRegistry:
                         self._check_watch_patterns(session, text)
                 except EOFError:
                     break
-                except Exception:
+                except (OSError, PermissionError):
                     break
-        except Exception as e:
+        except (OSError, PermissionError) as e:
             logger.debug("PTY stdout reader ended: %s", e)
 
         # Process exited
         try:
             pty.wait()
-        except Exception as e:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
             logger.debug("PTY wait timed out or failed: %s", e)
         session.exited = True
         session.exit_code = pty.exitstatus if hasattr(pty, 'exitstatus') else -1
@@ -949,7 +950,7 @@ class ProcessRegistry:
                 # PTY process -- terminate via ptyprocess
                 try:
                     session._pty.terminate(force=True)
-                except Exception:
+                except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                     if session.pid:
                         os.kill(session.pid, signal.SIGTERM)
             elif session.process:
@@ -1005,7 +1006,7 @@ class ProcessRegistry:
                 pty_data = data.encode("utf-8") if isinstance(data, str) else data
                 session._pty.write(pty_data)
                 return {"status": "ok", "bytes_written": len(data)}
-            except Exception as e:
+            except (OSError, PermissionError) as e:
                 return {"status": "error", "error": str(e)}
 
         # Popen mode -- write through stdin pipe
@@ -1015,7 +1016,7 @@ class ProcessRegistry:
             session.process.stdin.write(data)
             session.process.stdin.flush()
             return {"status": "ok", "bytes_written": len(data)}
-        except Exception as e:
+        except (OSError, PermissionError) as e:
             return {"status": "error", "error": str(e)}
 
     def submit_stdin(self, session_id: str, data: str = "") -> dict:
@@ -1034,7 +1035,7 @@ class ProcessRegistry:
             try:
                 session._pty.sendeof()
                 return {"status": "ok", "message": "EOF sent"}
-            except Exception as e:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
                 return {"status": "error", "error": str(e)}
 
         if not session.process or not session.process.stdin:
@@ -1042,7 +1043,7 @@ class ProcessRegistry:
         try:
             session.process.stdin.close()
             return {"status": "ok", "message": "stdin closed"}
-        except Exception as e:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
             return {"status": "error", "error": str(e)}
 
     def list_sessions(self, task_id: str = None) -> list:
@@ -1179,7 +1180,7 @@ class ProcessRegistry:
             # Atomic write to avoid corruption on crash
             from utils import atomic_json_write
             atomic_json_write(CHECKPOINT_PATH, entries)
-        except Exception as e:
+        except (ImportError, ModuleNotFoundError) as e:
             logger.debug("Failed to write checkpoint file: %s", e, exc_info=True)
 
     def recover_from_checkpoint(self) -> int:
@@ -1193,7 +1194,7 @@ class ProcessRegistry:
 
         try:
             entries = json.loads(CHECKPOINT_PATH.read_text(encoding="utf-8"))
-        except Exception:
+        except (json.JSONDecodeError, OSError, PermissionError, ValueError):
             return 0
 
         recovered = 0

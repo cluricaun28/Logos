@@ -20,6 +20,7 @@ through this adapter by pointing at http://localhost:8642/v1.
 Requires:
 - aiohttp (already available in the gateway)
 """
+from __future__ import annotations
 
 import asyncio
 import hashlib
@@ -97,7 +98,7 @@ def _normalize_chat_content(
                     if text:
                         try:
                             parts.append(str(text)[:MAX_NORMALIZED_TEXT_LENGTH])
-                        except Exception:
+                        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                             pass
                 # Silently skip image_url / other non-text parts
             elif isinstance(item, list):
@@ -114,7 +115,7 @@ def _normalize_chat_content(
     try:
         result = str(content)
         return result[:MAX_NORMALIZED_TEXT_LENGTH] if len(result) > MAX_NORMALIZED_TEXT_LENGTH else result
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         return ""
 
 
@@ -295,11 +296,11 @@ class ResponseStore:
             try:
                 from hermes_cli.config import get_hermes_home
                 db_path = str(get_hermes_home() / "response_store.db")
-            except Exception:
+            except (ImportError, ModuleNotFoundError):
                 db_path = ":memory:"
         try:
             self._conn = sqlite3.connect(db_path, check_same_thread=False)
-        except Exception:
+        except (sqlite3.Error):
             self._conn = sqlite3.connect(":memory:", check_same_thread=False)
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute(
@@ -374,7 +375,7 @@ class ResponseStore:
         """Close the database connection."""
         try:
             self._conn.close()
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             pass
 
     def __len__(self) -> int:
@@ -623,7 +624,7 @@ class APIServerAdapter(BasePlatformAdapter):
             profile = get_active_profile_name()
             if profile and profile not in ("default", "custom"):
                 return profile
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             pass
         return "hermes-agent"
 
@@ -697,7 +698,7 @@ class APIServerAdapter(BasePlatformAdapter):
             try:
                 from hermes_state import SessionDB
                 self._session_db = SessionDB()
-            except Exception as e:
+            except (ImportError, ModuleNotFoundError) as e:
                 logger.debug("SessionDB unavailable for API server: %s", e)
         return self._session_db
 
@@ -897,7 +898,7 @@ class APIServerAdapter(BasePlatformAdapter):
                 db = self._ensure_session_db()
                 if db is not None:
                     history = db.get_messages_as_conversation(session_id)
-            except Exception as e:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
                 logger.warning("Failed to load session history for %s: %s", session_id, e)
                 history = []
         else:
@@ -995,7 +996,7 @@ class APIServerAdapter(BasePlatformAdapter):
             fp = _make_request_fingerprint(body, keys=["model", "messages", "tools", "tool_choice", "stream"])
             try:
                 result, usage = await _idem_cache.get_or_set(idempotency_key, fp, _compute_completion)
-            except Exception as e:
+            except (RuntimeError) as e:
                 logger.error("Error running agent for chat completions: %s", e, exc_info=True)
                 return web.json_response(
                     _openai_error(f"Internal server error: {e}", err_type="server_error"),
@@ -1004,7 +1005,7 @@ class APIServerAdapter(BasePlatformAdapter):
         else:
             try:
                 result, usage = await _compute_completion()
-            except Exception as e:
+            except (RuntimeError) as e:
                 logger.error("Error running agent for chat completions: %s", e, exc_info=True)
                 return web.json_response(
                     _openai_error(f"Internal server error: {e}", err_type="server_error"),
@@ -1135,7 +1136,7 @@ class APIServerAdapter(BasePlatformAdapter):
             try:
                 result, agent_usage = await agent_task
                 usage = agent_usage or usage
-            except Exception:
+            except (RuntimeError):
                 pass
 
             # Finish chunk
@@ -1159,7 +1160,7 @@ class APIServerAdapter(BasePlatformAdapter):
             if agent is not None:
                 try:
                     agent.interrupt("SSE client disconnected")
-                except Exception:
+                except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                     pass
             if not agent_task.done():
                 agent_task.cancel()
@@ -1543,7 +1544,7 @@ class APIServerAdapter(BasePlatformAdapter):
                     final_response_text = agent_final
                 if isinstance(result, dict) and result.get("error") and not final_response_text:
                     agent_error = result["error"]
-            except Exception as e:  # noqa: BLE001
+            except (AttributeError, KeyError, RuntimeError, TypeError) as e:  # noqa: BLE001:
                 logger.error("Error running agent for streaming responses: %s", e, exc_info=True)
                 agent_error = str(e)
 
@@ -1643,7 +1644,7 @@ class APIServerAdapter(BasePlatformAdapter):
             if agent is not None:
                 try:
                     agent.interrupt("SSE client disconnected")
-                except Exception:
+                except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                     pass
             if not agent_task.done():
                 agent_task.cancel()
@@ -1662,7 +1663,7 @@ class APIServerAdapter(BasePlatformAdapter):
             if agent is not None:
                 try:
                     agent.interrupt("SSE task cancelled")
-                except Exception:
+                except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                     pass
             if not agent_task.done():
                 agent_task.cancel()
@@ -1866,7 +1867,7 @@ class APIServerAdapter(BasePlatformAdapter):
             )
             try:
                 result, usage = await _idem_cache.get_or_set(idempotency_key, fp, _compute_response)
-            except Exception as e:
+            except (RuntimeError) as e:
                 logger.error("Error running agent for responses: %s", e, exc_info=True)
                 return web.json_response(
                     _openai_error(f"Internal server error: {e}", err_type="server_error"),
@@ -1875,7 +1876,7 @@ class APIServerAdapter(BasePlatformAdapter):
         else:
             try:
                 result, usage = await _compute_response()
-            except Exception as e:
+            except (RuntimeError) as e:
                 logger.error("Error running agent for responses: %s", e, exc_info=True)
                 return web.json_response(
                     _openai_error(f"Internal server error: {e}", err_type="server_error"),
@@ -2006,7 +2007,7 @@ class APIServerAdapter(BasePlatformAdapter):
             include_disabled = request.query.get("include_disabled", "").lower() in ("true", "1")
             jobs = _cron_list(include_disabled=include_disabled)
             return web.json_response({"jobs": jobs})
-        except Exception as e:
+        except (AttributeError, KeyError, TypeError) as e:
             return web.json_response({"error": str(e)}, status=500)
 
     async def _handle_create_job(self, request: "web.Request") -> "web.Response":
@@ -2073,7 +2074,7 @@ class APIServerAdapter(BasePlatformAdapter):
             if not job:
                 return web.json_response({"error": "Job not found"}, status=404)
             return web.json_response({"job": job})
-        except Exception as e:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
             return web.json_response({"error": str(e)}, status=500)
 
     async def _handle_update_job(self, request: "web.Request") -> "web.Response":
@@ -2106,7 +2107,7 @@ class APIServerAdapter(BasePlatformAdapter):
             if not job:
                 return web.json_response({"error": "Job not found"}, status=404)
             return web.json_response({"job": job})
-        except Exception as e:
+        except (AttributeError, KeyError, RuntimeError, TypeError) as e:
             return web.json_response({"error": str(e)}, status=500)
 
     async def _handle_delete_job(self, request: "web.Request") -> "web.Response":
@@ -2125,7 +2126,7 @@ class APIServerAdapter(BasePlatformAdapter):
             if not success:
                 return web.json_response({"error": "Job not found"}, status=404)
             return web.json_response({"ok": True})
-        except Exception as e:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
             return web.json_response({"error": str(e)}, status=500)
 
     async def _handle_pause_job(self, request: "web.Request") -> "web.Response":
@@ -2144,7 +2145,7 @@ class APIServerAdapter(BasePlatformAdapter):
             if not job:
                 return web.json_response({"error": "Job not found"}, status=404)
             return web.json_response({"job": job})
-        except Exception as e:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
             return web.json_response({"error": str(e)}, status=500)
 
     async def _handle_resume_job(self, request: "web.Request") -> "web.Response":
@@ -2163,7 +2164,7 @@ class APIServerAdapter(BasePlatformAdapter):
             if not job:
                 return web.json_response({"error": "Job not found"}, status=404)
             return web.json_response({"job": job})
-        except Exception as e:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
             return web.json_response({"error": str(e)}, status=500)
 
     async def _handle_run_job(self, request: "web.Request") -> "web.Response":
@@ -2182,7 +2183,7 @@ class APIServerAdapter(BasePlatformAdapter):
             if not job:
                 return web.json_response({"error": "Job not found"}, status=404)
             return web.json_response({"job": job})
-        except Exception as e:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
             return web.json_response({"error": str(e)}, status=500)
 
     # ------------------------------------------------------------------
@@ -2306,7 +2307,7 @@ class APIServerAdapter(BasePlatformAdapter):
                 return
             try:
                 loop.call_soon_threadsafe(q.put_nowait, event)
-            except Exception:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                 pass
 
         def _callback(event_type: str, tool_name: str = None, preview: str = None, args=None, **kwargs):
@@ -2354,7 +2355,7 @@ class APIServerAdapter(BasePlatformAdapter):
 
         try:
             body = await request.json()
-        except Exception:
+        except (RuntimeError):
             return web.json_response(_openai_error("Invalid JSON"), status=400)
 
         raw_input = body.get("input")
@@ -2384,7 +2385,7 @@ class APIServerAdapter(BasePlatformAdapter):
                     "timestamp": time.time(),
                     "delta": delta,
                 })
-            except Exception:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                 pass
 
         instructions = body.get("instructions")
@@ -2477,13 +2478,13 @@ class APIServerAdapter(BasePlatformAdapter):
                         "timestamp": time.time(),
                         "error": str(exc),
                     })
-                except Exception:
+                except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                     pass
             finally:
                 # Sentinel: signal SSE stream to close
                 try:
                     q.put_nowait(None)
-                except Exception:
+                except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                     pass
                 self._active_run_agents.pop(run_id, None)
                 self._active_run_tasks.pop(run_id, None)
@@ -2540,7 +2541,7 @@ class APIServerAdapter(BasePlatformAdapter):
                     break
                 payload = f"data: {json.dumps(event)}\n\n"
                 await response.write(payload.encode())
-        except Exception as exc:
+        except (AttributeError, json.JSONDecodeError, KeyError, OSError, PermissionError, RuntimeError, TypeError, ValueError) as exc:
             logger.debug("[api_server] SSE stream error for run %s: %s", run_id, exc)
         finally:
             self._run_streams.pop(run_id, None)
@@ -2564,7 +2565,7 @@ class APIServerAdapter(BasePlatformAdapter):
         if agent is not None:
             try:
                 agent.interrupt("Stop requested via API")
-            except Exception:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                 pass
 
         if task is not None and not task.done():
@@ -2703,7 +2704,7 @@ class APIServerAdapter(BasePlatformAdapter):
             )
             return True
 
-        except Exception as e:
+        except (ConnectionError, OSError, RuntimeError, TimeoutError, yaml.YAMLError) as e:
             logger.error("[%s] Failed to start API server: %s", self.name, e)
             return False
 

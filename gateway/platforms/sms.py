@@ -17,6 +17,7 @@ Gateway-specific env vars:
   - SMS_ALLOW_ALL_USERS  (true/false)
   - SMS_HOME_CHANNEL     (phone number for cron delivery)
 """
+from __future__ import annotations
 
 import asyncio
 import base64
@@ -190,7 +191,7 @@ class SmsAdapter(BasePlatformAdapter):
                             )
                         msg_sid = body.get("sid", "")
                         last_result = SendResult(success=True, message_id=msg_sid)
-                except Exception as e:
+                except (AttributeError, KeyError, RuntimeError, TypeError) as e:
                     logger.error("[sms] send error to %s: %s", redact_phone(chat_id), e)
                     return SendResult(success=False, error=str(e))
         finally:
@@ -290,7 +291,7 @@ class SmsAdapter(BasePlatformAdapter):
             raw = await request.read()
             # Twilio sends form-encoded data, not JSON
             form = urllib.parse.parse_qs(raw.decode("utf-8"), keep_blank_values=True)
-        except Exception as e:
+        except (OSError, PermissionError, RuntimeError) as e:
             logger.error("[sms] webhook parse error: %s", e)
             return web.Response(
                 text='<?xml version="1.0" encoding="UTF-8"?><Response></Response>',

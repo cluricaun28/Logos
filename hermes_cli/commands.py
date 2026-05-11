@@ -347,7 +347,7 @@ def _resolve_config_gates() -> set[str]:
     try:
         from hermes_cli.config import read_raw_config
         cfg = read_raw_config()
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         return set()
     result: set[str] = set()
     for cmd in gated:
@@ -414,11 +414,11 @@ def _iter_plugin_command_entries() -> list[tuple[str, str, str]]:
     """
     try:
         from hermes_cli.plugins import get_plugin_commands
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         return []
     try:
         commands = get_plugin_commands() or {}
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         return []
     entries: list[tuple[str, str, str]] = []
     for name, meta in commands.items():
@@ -573,7 +573,7 @@ def _collect_gateway_skill_entries(
             if len(desc) > desc_limit:
                 desc = desc[:desc_limit - 3] + "..."
             plugin_pairs.append((name, desc))
-    except Exception:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
         pass
 
     plugin_pairs = _clamp_command_names(plugin_pairs, reserved_names)
@@ -587,7 +587,7 @@ def _collect_gateway_skill_entries(
     try:
         from agent.skill_utils import get_disabled_skill_names
         _platform_disabled = get_disabled_skill_names(platform=platform)
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         pass
 
     skill_triples: list[tuple[str, str, str]] = []
@@ -615,7 +615,7 @@ def _collect_gateway_skill_entries(
             if len(desc) > desc_limit:
                 desc = desc[:desc_limit - 3] + "..."
             skill_triples.append((name, desc, cmd_key))
-    except Exception:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
         pass
 
     # Clamp names; _clamp_command_names works on (name, desc) pairs so we
@@ -729,7 +729,7 @@ def discord_skill_commands_by_category(
     try:
         from agent.skill_utils import get_disabled_skill_names
         _platform_disabled = get_disabled_skill_names(platform="discord")
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         pass
 
     # Collect raw skill data --------------------------------------------------
@@ -784,7 +784,7 @@ def discord_skill_commands_by_category(
                 categories.setdefault(cat, []).append((discord_name, desc, cmd_key))
             else:
                 uncategorized.append((discord_name, desc, cmd_key))
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         pass
 
     # Enforce Discord limits: 25 subcommand groups, 25 subcommands each ------
@@ -964,7 +964,7 @@ def _lmstudio_completion_models() -> list[str]:
             if "lmstudio" not in (store.get("providers") or {}) \
                and "lmstudio" not in (store.get("credential_pool") or {}):
                 return []
-        except Exception:
+        except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
             return []
     now = time.time()
     if _LMSTUDIO_COMPLETION_CACHE and (now - _LMSTUDIO_COMPLETION_CACHE[0]) < 30.0:
@@ -976,7 +976,7 @@ def _lmstudio_completion_models() -> list[str]:
             base_url=os.environ.get("LM_BASE_URL") or "http://127.0.0.1:1234/v1",
             timeout=0.8,
         )
-    except Exception:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, OSError, TypeError):
         models = []
     _LMSTUDIO_COMPLETION_CACHE = (now, models)
     return models
@@ -1002,7 +1002,7 @@ class SlashCommandCompleter(Completer):
             return True
         try:
             return bool(self._command_filter(slash_command))
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             return True
 
     def _iter_skill_commands(self) -> Mapping[str, dict[str, Any]]:
@@ -1010,7 +1010,7 @@ class SlashCommandCompleter(Completer):
             return {}
         try:
             return self._skill_commands_provider() or {}
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             return {}
 
     @staticmethod
@@ -1342,7 +1342,7 @@ class SlashCommandCompleter(Completer):
                         display=name,
                         display_meta=s.get("description", "") or s.get("source", ""),
                     )
-        except Exception:
+        except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
             pass
 
     @staticmethod
@@ -1370,7 +1370,7 @@ class SlashCommandCompleter(Completer):
                         display=name,
                         display_meta=meta,
                     )
-        except Exception:
+        except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
             pass
 
     def _model_completions(self, sub_text: str, sub_lower: str):
@@ -1403,7 +1403,7 @@ class SlashCommandCompleter(Completer):
                         display=name,
                         display_meta=f"{identity.vendor}/{identity.family}",
                     )
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             pass
         # LM Studio: surface locally-loaded models. Gated on the user actually
         # having LM Studio configured (env var or auth-store entry) so we
@@ -1502,7 +1502,7 @@ class SlashCommandCompleter(Completer):
                         display=f"/{cmd_name}",
                         display_meta=f"🔌 {short_desc}",
                     )
-        except Exception:
+        except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
             pass
 
 

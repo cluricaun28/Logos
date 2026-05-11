@@ -1,4 +1,5 @@
 """SSH remote execution environment with ControlMaster connection persistence."""
+from __future__ import annotations
 
 import hashlib
 import logging

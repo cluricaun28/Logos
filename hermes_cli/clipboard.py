@@ -11,6 +11,7 @@ Platform support:
   WSL2    — powershell.exe via WinForms, Get-Clipboard, file-drop fallback
   Linux   — wl-paste (Wayland), xclip (X11)
 """
+from __future__ import annotations
 
 import base64
 import logging
@@ -69,7 +70,7 @@ def _macos_has_image() -> bool:
             capture_output=True, text=True, timeout=3,
         )
         return "«class PNGf»" in info.stdout or "«class TIFF»" in info.stdout
-    except Exception:
+    except (FileNotFoundError, subprocess.CalledProcessError):
         return False
 
 
@@ -84,7 +85,7 @@ def _macos_pngpaste(dest: Path) -> bool:
             return True
     except FileNotFoundError:
         pass  # pngpaste not installed
-    except Exception as e:
+    except (FileNotFoundError, OSError, PermissionError, subprocess.CalledProcessError) as e:
         logger.debug("pngpaste failed: %s", e)
     return False
 
@@ -112,7 +113,7 @@ def _macos_osascript(dest: Path) -> bool:
         )
         if r.returncode == 0 and "fail" not in r.stdout and dest.exists() and dest.stat().st_size > 0:
             return True
-    except Exception as e:
+    except (FileNotFoundError, OSError, PermissionError, subprocess.CalledProcessError) as e:
         logger.debug("osascript clipboard extract failed: %s", e)
     return False
 
@@ -218,7 +219,7 @@ def _powershell_has_image(exe: str, *, timeout: int, label: str) -> bool:
         except FileNotFoundError:
             logger.debug("%s not found — clipboard unavailable", exe)
             return False
-        except Exception as e:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
             logger.debug("%s clipboard image check failed: %s", label, e)
     return False
 
@@ -239,7 +240,7 @@ def _powershell_save_image(exe: str, dest: Path, *, timeout: int, label: str) ->
         except FileNotFoundError:
             logger.debug("%s not found — clipboard unavailable", exe)
             return False
-        except Exception as e:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
             logger.debug("%s clipboard image extraction failed: %s", label, e)
             dest.unlink(missing_ok=True)
     return False
@@ -263,7 +264,7 @@ def _find_powershell() -> str | None:
                 return name
         except FileNotFoundError:
             continue
-        except Exception:
+        except (FileNotFoundError, subprocess.CalledProcessError):
             continue
     return None
 
@@ -339,7 +340,7 @@ def _wayland_has_image() -> bool:
         )
     except FileNotFoundError:
         logger.debug("wl-paste not installed — Wayland clipboard unavailable")
-    except Exception:
+    except (FileNotFoundError, subprocess.CalledProcessError):
         pass
     return False
 
@@ -403,7 +404,7 @@ def _convert_to_png(path: Path) -> bool:
         return True
     except ImportError:
         pass
-    except Exception as e:
+    except (ImportError, ModuleNotFoundError, OSError, PermissionError) as e:
         logger.debug("Pillow BMP→PNG conversion failed: %s", e)
 
     # Fall back to ImageMagick convert
@@ -424,7 +425,7 @@ def _convert_to_png(path: Path) -> bool:
         logger.debug("ImageMagick not installed — cannot convert BMP to PNG")
         if tmp.exists() and not path.exists():
             tmp.rename(path)
-    except Exception as e:
+    except (FileNotFoundError, OSError, PermissionError, subprocess.CalledProcessError) as e:
         logger.debug("ImageMagick BMP→PNG conversion failed: %s", e)
         if tmp.exists() and not path.exists():
             tmp.rename(path)
@@ -445,7 +446,7 @@ def _xclip_has_image() -> bool:
         return r.returncode == 0 and "image/png" in r.stdout
     except FileNotFoundError:
         pass
-    except Exception:
+    except (FileNotFoundError, subprocess.CalledProcessError):
         pass
     return False
 
@@ -463,7 +464,7 @@ def _xclip_save(dest: Path) -> bool:
     except FileNotFoundError:
         logger.debug("xclip not installed — X11 clipboard image paste unavailable")
         return False
-    except Exception:
+    except (FileNotFoundError, subprocess.CalledProcessError):
         return False
 
     # Extract PNG data
@@ -475,7 +476,7 @@ def _xclip_save(dest: Path) -> bool:
             )
         if dest.exists() and dest.stat().st_size > 0:
             return True
-    except Exception as e:
+    except (FileNotFoundError, OSError, PermissionError, subprocess.CalledProcessError) as e:
         logger.debug("xclip image extraction failed: %s", e)
         dest.unlink(missing_ok=True)
     return False

@@ -42,6 +42,7 @@ Usage:
 
     hermes claw migrate --dry-run  # Preview migration without changes
 """
+from __future__ import annotations
 
 import argparse
 import json
@@ -137,7 +138,7 @@ def _apply_profile_override() -> None:
         except (ValueError, FileNotFoundError) as exc:
             print(f"Error: {exc}", file=sys.stderr)
             sys.exit(1)
-        except Exception as exc:
+        except (ImportError, ModuleNotFoundError) as exc:
             # A bug in profiles.py must NEVER prevent hermes from starting
             print(
                 f"Warning: profile override failed ({exc}), using default",
@@ -291,7 +292,7 @@ def _has_any_provider_configured() -> bool:
                 val = val.strip().strip("'\"")
                 if key.strip() in provider_env_vars and val:
                     return True
-        except Exception:
+        except (OSError, PermissionError):
             pass
 
     # Check provider-specific auth fallbacks (for example, Copilot via gh auth).
@@ -302,7 +303,7 @@ def _has_any_provider_configured() -> bool:
             status = get_auth_status(provider_id)
             if status.get("logged_in"):
                 return True
-    except Exception:
+    except (AttributeError, KeyError, TypeError):
         pass
 
     # Check for Nous Portal OAuth credentials
@@ -317,7 +318,7 @@ def _has_any_provider_configured() -> bool:
                 status = get_auth_status(active)
                 if status.get("logged_in"):
                     return True
-        except Exception:
+        except (AttributeError, ImportError, json.JSONDecodeError, KeyError, ModuleNotFoundError, OSError, PermissionError, TypeError, ValueError):
             pass
 
     # Check config.yaml — if model is a dict with an explicit provider set,
@@ -346,7 +347,7 @@ def _has_any_provider_configured() -> bool:
                 is_claude_code_token_valid(creds) or creds.get("refreshToken")
             ):
                 return True
-        except Exception:
+        except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
             pass
 
     return False
@@ -605,7 +606,7 @@ def _resolve_last_session(source: str = "cli") -> Optional[str]:
         db.close()
         if sessions:
             return sessions[0]["id"]
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         pass
     return None
 
@@ -751,12 +752,12 @@ def _resolve_session_by_name_or_id(name_or_id: str) -> Optional[str]:
             # the live tip instead of a dead compressed parent.
             try:
                 resolved_id = db.get_compression_tip(resolved_id) or resolved_id
-            except Exception:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                 pass
 
         db.close()
         return resolved_id
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         pass
     return None
 
@@ -768,7 +769,7 @@ def _read_tui_active_session_file(path: Optional[str]) -> Optional[str]:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
         sid = str(data.get("session_id") or "").strip()
         return sid or None
-    except Exception:
+    except (AttributeError, json.JSONDecodeError, KeyError, OSError, PermissionError, TypeError, ValueError):
         return None
 
 
@@ -801,7 +802,7 @@ def _print_tui_exit_summary(session_id: Optional[str], active_session_file: Opti
             + cache_write_tokens
             + reasoning_tokens
         )
-    except Exception:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
         return
     finally:
         if db is not None:
@@ -1177,7 +1178,7 @@ def cmd_chat(args):
         from hermes_cli.banner import prefetch_update_check
 
         prefetch_update_check()
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         pass
 
     # Sync bundled skills on every CLI launch (fast -- skips unchanged skills)
@@ -1185,7 +1186,7 @@ def cmd_chat(args):
         from tools.skills_sync import sync_skills
 
         sync_skills(quiet=True)
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         pass
 
     # --yolo: bypass all dangerous command approvals
@@ -1998,7 +1999,7 @@ def _aux_select_for_task(task: str) -> None:
             current_model=current_model,
             current_base_url=current_base_url,
         )
-    except Exception as exc:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
         print(f"Could not detect authenticated providers: {exc}")
         providers = []
 
@@ -2062,7 +2063,7 @@ def _aux_flow_provider_model(
     pricing: dict = {}
     try:
         pricing = get_pricing_for_provider(provider_slug) or {}
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         pricing = {}
 
     model_list = list(curated_models)
@@ -2151,7 +2152,7 @@ def _prompt_provider_choice(choices, *, default=0):
         if idx >= 0:
             print()
             return idx
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         pass
 
     # Fallback: numbered list
@@ -2333,12 +2334,12 @@ def _model_flow_nous(config, current_model="", args=None):
             try:
                 _refreshed = load_config() or {}
                 prompt_enable_tool_gateway(_refreshed)
-            except Exception:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                 pass
         except SystemExit:
             print("Login cancelled or failed.")
             return
-        except Exception as exc:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
             print(f"Login failed: {exc}")
             return
         # login_nous already handles model selection + config update
@@ -2362,7 +2363,7 @@ def _model_flow_nous(config, current_model="", args=None):
     # Verify credentials are still valid (catches expired sessions early)
     try:
         creds = resolve_nous_runtime_credentials(min_key_ttl_seconds=5 * 60)
-    except Exception as exc:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
         relogin = isinstance(exc, AuthError) and exc.relogin_required
         msg = format_auth_error(exc) if isinstance(exc, AuthError) else str(exc)
         if relogin:
@@ -2380,7 +2381,7 @@ def _model_flow_nous(config, current_model="", args=None):
                     insecure=False,
                 )
                 _login_nous(mock_args, PROVIDER_REGISTRY["nous"])
-            except Exception as login_exc:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as login_exc:
                 print(f"Re-login failed: {login_exc}")
             return
         print(f"Could not verify credentials: {msg}")
@@ -2410,7 +2411,7 @@ def _model_flow_nous(config, current_model="", args=None):
         _nous_state = get_provider_auth_state("nous")
         if _nous_state:
             _nous_portal_url = _nous_state.get("portal_base_url", "")
-    except Exception:
+    except (AttributeError, KeyError, TypeError):
         pass
 
     if free_tier and not model_ids:
@@ -2503,7 +2504,7 @@ def _model_flow_openai_codex(config, current_model=""):
             except SystemExit:
                 print("Login cancelled or failed.")
                 return
-            except Exception as exc:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
                 print(f"Login failed: {exc}")
                 return
             status = get_codex_auth_status()
@@ -2521,7 +2522,7 @@ def _model_flow_openai_codex(config, current_model=""):
         except SystemExit:
             print("Login cancelled or failed.")
             return
-        except Exception as exc:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
             print(f"Login failed: {exc}")
             return
 
@@ -2532,7 +2533,7 @@ def _model_flow_openai_codex(config, current_model=""):
         _codex_status = get_codex_auth_status()
         if _codex_status.get("logged_in"):
             _codex_token = _codex_status.get("api_key")
-    except Exception:
+    except (AttributeError, KeyError, TypeError):
         pass
     if not _codex_token:
         try:
@@ -2540,7 +2541,7 @@ def _model_flow_openai_codex(config, current_model=""):
 
             _codex_creds = resolve_codex_runtime_credentials()
             _codex_token = _codex_creds.get("api_key")
-        except Exception:
+        except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
             pass
 
     codex_models = get_codex_model_ids(access_token=_codex_token)
@@ -2588,7 +2589,7 @@ def _model_flow_qwen_oauth(_config, current_model=""):
     try:
         creds = resolve_qwen_runtime_credentials(refresh_if_expiring=True)
         models = fetch_api_models(creds["api_key"], creds["base_url"])
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         pass
     if not models:
         models = list(_DEFAULT_QWEN_PORTAL_MODELS)
@@ -2645,7 +2646,7 @@ def _model_flow_google_gemini_cli(_config, current_model=""):
 
             env_project = resolve_project_id_from_env()
             start_oauth_flow(force_relogin=True, project_id=env_project)
-        except Exception as exc:
+        except (ImportError, ModuleNotFoundError) as exc:
             print(f"OAuth login failed: {exc}")
             return
 
@@ -2659,7 +2660,7 @@ def _model_flow_google_gemini_cli(_config, current_model=""):
             print(
                 "  No GCP project configured — free tier will be auto-provisioned on first request."
             )
-    except Exception as exc:
+    except (AttributeError, KeyError, TypeError) as exc:
         print(f"Failed to resolve Gemini credentials: {exc}")
         return
 
@@ -3563,7 +3564,7 @@ def _model_flow_copilot(config, current_model=""):
                 else:
                     print("  Login cancelled or failed.")
                     return
-            except Exception as exc:
+            except (ImportError, ModuleNotFoundError) as exc:
                 print(f"  Login failed: {exc}")
                 return
         elif choice == "2":
@@ -3732,7 +3733,7 @@ def _model_flow_copilot_acp(config, current_model=""):
 
     try:
         creds = resolve_external_process_provider_credentials(provider_id)
-    except Exception as exc:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
         print(f"  ⚠ {exc}")
         print(
             "  Set HERMES_COPILOT_ACP_COMMAND or COPILOT_CLI_PATH if Copilot CLI is installed elsewhere."
@@ -3745,7 +3746,7 @@ def _model_flow_copilot_acp(config, current_model=""):
     try:
         catalog_creds = resolve_api_key_provider_credentials("copilot")
         catalog_api_key = catalog_creds.get("api_key", "")
-    except Exception:
+    except (AttributeError, KeyError, TypeError):
         pass
 
     catalog = fetch_github_model_catalog(catalog_api_key)
@@ -4391,7 +4392,7 @@ def _model_flow_api_key_provider(config, provider_id, current_model=""):
     if provider_id == "gemini" and existing_key:
         try:
             from agent.gemini_native_adapter import probe_gemini_tier
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             probe_gemini_tier = None
         if probe_gemini_tier is not None:
             print("  Checking Gemini API tier...")
@@ -4455,7 +4456,7 @@ def _model_flow_api_key_provider(config, provider_id, current_model=""):
             _m = load_config().get("model") or {}
             if str(_m.get("provider") or "").strip().lower() == provider_id:
                 current_base = str(_m.get("base_url") or "").strip()
-        except Exception:
+        except (AttributeError, KeyError, TypeError):
             pass
     effective_base = current_base or pconfig.inference_base_url
 
@@ -4517,7 +4518,7 @@ def _model_flow_api_key_provider(config, provider_id, current_model=""):
             from agent.models_dev import list_agentic_models
 
             mdev_models = list_agentic_models(provider_id)
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             pass
 
         if mdev_models:
@@ -4612,7 +4613,7 @@ def _run_anthropic_oauth_flow(save_env_value):
     def _activate_claude_code_credentials_if_available() -> bool:
         try:
             creds = read_claude_code_credentials()
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             creds = None
         if creds and (
             is_claude_code_token_valid(creds) or bool(creds.get("refreshToken"))
@@ -4720,7 +4721,7 @@ def _model_flow_anthropic(config, current_model=""):
         cc_creds = read_claude_code_credentials()
         if cc_creds and is_claude_code_token_valid(cc_creds):
             cc_available = True
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         pass
 
     # Stale-OAuth guard: if the only existing cred is an expired OAuth token
@@ -4984,7 +4985,7 @@ def cmd_version(args):
             )
         elif behind == 0:
             print("Up to date")
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         pass
 
 
@@ -5412,7 +5413,7 @@ def _update_via_zip(args):
             print(f"  − {len(result['cleaned'])} removed from manifest")
         if not result["copied"] and not result.get("updated"):
             print("  ✓ Skills are up to date")
-    except Exception:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
         pass
 
     print()
@@ -5631,7 +5632,7 @@ def _get_origin_url(git_cmd: list[str], cwd: Path) -> Optional[str]:
         )
         if result.returncode == 0:
             return result.stdout.strip()
-    except Exception:
+    except (FileNotFoundError, subprocess.CalledProcessError):
         pass
     return None
 
@@ -5663,7 +5664,7 @@ def _has_upstream_remote(git_cmd: list[str], cwd: Path) -> bool:
             text=True,
         )
         return result.returncode == 0
-    except Exception:
+    except (FileNotFoundError, subprocess.CalledProcessError):
         return False
 
 
@@ -5677,7 +5678,7 @@ def _add_upstream_remote(git_cmd: list[str], cwd: Path) -> bool:
             text=True,
         )
         return result.returncode == 0
-    except Exception:
+    except (FileNotFoundError, subprocess.CalledProcessError):
         return False
 
 
@@ -5692,7 +5693,7 @@ def _count_commits_between(git_cmd: list[str], cwd: Path, base: str, head: str) 
         )
         if result.returncode == 0:
             return int(result.stdout.strip())
-    except Exception:
+    except (FileNotFoundError, subprocess.CalledProcessError):
         pass
     return -1
 
@@ -5710,7 +5711,7 @@ def _mark_skip_upstream_prompt():
         from hermes_constants import get_hermes_home
 
         (get_hermes_home() / SKIP_UPSTREAM_PROMPT_FILE).touch()
-    except Exception:
+    except (ImportError, ModuleNotFoundError, OSError, PermissionError):
         pass
 
 
@@ -5727,7 +5728,7 @@ def _sync_fork_with_upstream(git_cmd: list[str], cwd: Path) -> bool:
             text=True,
         )
         return result.returncode == 0
-    except Exception:
+    except (FileNotFoundError, subprocess.CalledProcessError):
         return False
 
 
@@ -5869,7 +5870,7 @@ def _invalidate_update_cache():
             cache_file = home / ".update_check"
             if cache_file.exists():
                 cache_file.unlink()
-        except Exception:
+        except (OSError, PermissionError):
             pass
 
 
@@ -5886,7 +5887,7 @@ def _load_installable_optional_extras() -> list[str]:
 
         with (PROJECT_ROOT / "pyproject.toml").open("rb") as handle:
             project = tomllib.load(handle).get("project", {})
-    except Exception:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, OSError, PermissionError, TypeError):
         return []
 
     optional_deps = project.get("optional-dependencies", {})
@@ -6016,7 +6017,7 @@ class _UpdateOutputStream:
         if self._log is not None:
             try:
                 self._log.write(data)
-            except Exception:
+            except (OSError, PermissionError):
                 # Log errors should never abort the update.
                 pass
 
@@ -6035,7 +6036,7 @@ class _UpdateOutputStream:
         if self._log is not None:
             try:
                 self._log.flush()
-            except Exception:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                 pass
         if self._original_broken:
             return
@@ -6049,7 +6050,7 @@ class _UpdateOutputStream:
             return False
         try:
             return self._original.isatty()
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             return False
 
     def fileno(self):
@@ -6134,7 +6135,7 @@ def _install_hangup_protection(gateway_mode: bool = False):
         sys.stdout = _UpdateOutputStream(state["prev_stdout"], log_file)
         sys.stderr = _UpdateOutputStream(state["prev_stderr"], log_file)
         state["installed"] = True
-    except Exception:
+    except (ImportError, ModuleNotFoundError, OSError, PermissionError):
         # Leave stdio untouched on any setup failure.  Update continues
         # without mirroring.
         state["log_file"] = None
@@ -6149,18 +6150,18 @@ def _finalize_update_output(state):
     if state.get("installed"):
         try:
             sys.stdout = state.get("prev_stdout", sys.stdout)
-        except Exception:
+        except (AttributeError, KeyError, TypeError):
             pass
         try:
             sys.stderr = state.get("prev_stderr", sys.stderr)
-        except Exception:
+        except (AttributeError, KeyError, TypeError):
             pass
     log_file = state.get("log_file")
     if log_file is not None:
         try:
             log_file.flush()
             log_file.close()
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             pass
 
 
@@ -6331,7 +6332,7 @@ def _run_pre_update_backup(args) -> None:
     try:
         from hermes_cli.config import load_config
         cfg = load_config()
-    except Exception as exc:
+    except (ImportError, ModuleNotFoundError) as exc:
         logging.getLogger(__name__).debug("Could not load config for pre-update backup: %s", exc)
         cfg = {}
 
@@ -6347,7 +6348,7 @@ def _run_pre_update_backup(args) -> None:
 
     try:
         from hermes_cli.backup import create_pre_update_backup
-    except Exception as exc:
+    except (ImportError, ModuleNotFoundError) as exc:
         print(f"⚠ Pre-update backup: could not load backup module ({exc}); continuing update.")
         print()
         return
@@ -6356,7 +6357,7 @@ def _run_pre_update_backup(args) -> None:
     t0 = _time.monotonic()
     try:
         out_path = create_pre_update_backup(keep=int(keep))
-    except Exception as exc:  # defensive — helper already swallows, but just in case
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:  # defensive — helper already swallows, but just in case:
         print(f"  ⚠ Backup failed: {exc}")
         print("  Continuing with update.")
         print()
@@ -6390,7 +6391,7 @@ def _run_pre_update_backup(args) -> None:
             display_path = f"{display_hermes_home()}/{out_path.relative_to(home)}"
         except ValueError:
             display_path = str(out_path)
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         display_path = str(out_path)
 
     print(f"  Saved:    {display_path} ({size_str}, {elapsed:.1f}s)")
@@ -6607,7 +6608,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
             snap_id = create_quick_snapshot(label="pre-update")
             if snap_id:
                 print(f"  ✓ Pre-update snapshot: {snap_id}")
-        except Exception as exc:
+        except (ImportError, ModuleNotFoundError) as exc:
             # Never let a snapshot failure block an update.
             logger.debug("Pre-update snapshot failed: %s", exc)
 
@@ -6721,7 +6722,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
             import hermes_constants as _hc
 
             importlib.reload(_hc)
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             pass  # non-fatal — worst case a lazy import fails gracefully
 
         # Sync bundled skills (copies new, updates changed, respects user deletions)
@@ -6743,7 +6744,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
                 print(f"  − {len(result['cleaned'])} removed from manifest")
             if not result["copied"] and not result.get("updated"):
                 print("  ✓ Skills are up to date")
-        except Exception as e:
+        except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError) as e:
             logger.debug("Skills sync during update failed: %s", e)
 
         # Sync bundled skills to all other profiles
@@ -6777,9 +6778,9 @@ def _cmd_update_impl(args, gateway_mode: bool):
                         else:
                             status = "sync failed"
                         print(f"  {p.name}: {status}")
-                    except Exception as pe:
+                    except (AttributeError, KeyError, TypeError) as pe:
                         print(f"  {p.name}: error ({pe})")
-        except Exception:
+        except (AttributeError, KeyError, TypeError):
             pass  # profiles module not available or no profiles
 
         # Sync Honcho host blocks to all profiles
@@ -6789,7 +6790,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
             synced = sync_honcho_profiles_quiet()
             if synced:
                 print(f"\n-> Honcho: synced {synced} profile(s)")
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             pass  # honcho plugin not installed or not configured
 
         # Check for config migrations
@@ -6867,7 +6868,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
         # for non-login interactive shells.  No-op on every other platform.
         try:
             _ensure_fhs_path_guard()
-        except Exception as e:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
             logger.debug("FHS PATH guard check failed: %s", e)
 
         # Write exit code *before* the gateway restart attempt.
@@ -6986,14 +6987,14 @@ def _cmd_update_impl(args, gateway_mode: bool):
                 from hermes_constants import (
                     DEFAULT_GATEWAY_RESTART_DRAIN_TIMEOUT as _DEFAULT_DRAIN,
                 )
-            except Exception:
+            except (ImportError, ModuleNotFoundError):
                 _DEFAULT_DRAIN = 60.0
             _cfg_drain = None
             try:
                 from hermes_cli.config import load_config
                 _cfg_agent = (load_config().get("agent") or {})
                 _cfg_drain = _cfg_agent.get("restart_drain_timeout")
-            except Exception:
+            except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
                 pass
             try:
                 _drain_budget = float(_cfg_drain) if _cfg_drain is not None else float(_DEFAULT_DRAIN)
@@ -7011,7 +7012,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
             if supports_systemd_services():
                 try:
                     _ensure_user_systemd_env()
-                except Exception:
+                except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                     pass
 
                 for scope, scope_cmd in [
@@ -7218,7 +7219,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
                 # No gateways were running — nothing to do
                 pass
 
-        except Exception as e:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
             logger.debug("Gateway restart during update failed: %s", e)
 
         # Warn if legacy Hermes gateway unit files are still installed.
@@ -7247,7 +7248,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
                 print("    hermes gateway migrate-legacy")
                 print()
                 print("  (add `sudo` if any are in system scope)")
-        except Exception as e:
+        except (ImportError, ModuleNotFoundError) as e:
             logger.debug("Legacy unit check during update failed: %s", e)
 
         # Warn about stale dashboard processes — the dashboard has no
@@ -7460,7 +7461,7 @@ def cmd_profile(args):
 
                     if clone_honcho_for_profile(name):
                         print(f"Honcho config cloned (peer: {name})")
-                except Exception:
+                except (ImportError, ModuleNotFoundError):
                     pass  # Honcho plugin not installed or not configured
 
             # Seed bundled skills (skip if --clone-all already copied them)
@@ -9246,7 +9247,7 @@ Examples:
                 formatter_class=__import__("argparse").RawDescriptionHelpFormatter,
             )
             cmd_info["setup_fn"](plugin_parser)
-    except Exception as _exc:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError) as _exc:
         logging.getLogger(__name__).debug("Plugin CLI discovery failed: %s", _exc)
 
     # =========================================================================
@@ -9581,7 +9582,7 @@ Examples:
             from hermes_state import SessionDB
 
             db = SessionDB()
-        except Exception as e:
+        except (ImportError, ModuleNotFoundError) as e:
             print(f"Error: Could not open session database: {e}")
             return
 
@@ -9771,7 +9772,7 @@ Examples:
             report = engine.generate(days=args.days, source=args.source)
             print(engine.format_terminal(report))
             db.close()
-        except Exception as e:
+        except (ImportError, ModuleNotFoundError) as e:
             print(f"Error generating insights: {e}")
 
     insights_parser.set_defaults(func=cmd_insights)
@@ -10226,7 +10227,7 @@ Examples:
         try:
             from hermes_cli.plugins import discover_plugins
             discover_plugins()
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             logger.debug(
                 "plugin discovery failed at CLI startup", exc_info=True,
             )
@@ -10237,7 +10238,7 @@ Examples:
             # via the same lazy import path (#16856).
             from tools.mcp_tool import discover_mcp_tools
             discover_mcp_tools()
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             logger.debug(
                 "MCP tool discovery failed at CLI startup", exc_info=True,
             )
@@ -10245,7 +10246,7 @@ Examples:
             from hermes_cli.config import load_config
             from agent.shell_hooks import register_from_config
             register_from_config(load_config(), accept_hooks=_accept_hooks)
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             logger.debug(
                 "shell-hook registration failed at CLI startup",
                 exc_info=True,

@@ -6,6 +6,7 @@ Uses python-telegram-bot library for:
 - Sending responses back
 - Handling media and commands
 """
+from __future__ import annotations
 
 import asyncio
 import json
@@ -392,11 +393,11 @@ class TelegramAdapter(BasePlatformAdapter):
             # PTB 22.x: _request is a (get_updates, general) tuple;
             # no public accessor exists for the polling request.
             polling_req = self._app.bot._request[0]  # noqa: SLF001
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             return
         try:
             await polling_req.shutdown()
-        except Exception:
+        except (RuntimeError):
             logger.debug(
                 "[%s] Polling request shutdown failed (non-fatal)",
                 self.name, exc_info=True,
@@ -406,7 +407,7 @@ class TelegramAdapter(BasePlatformAdapter):
             logger.debug(
                 "[%s] Polling request pool drained before reconnect", self.name
             )
-        except Exception:
+        except (RuntimeError):
             logger.debug(
                 "[%s] Polling request re-initialize failed (non-fatal)",
                 self.name, exc_info=True,
@@ -454,7 +455,7 @@ class TelegramAdapter(BasePlatformAdapter):
         try:
             if self._app and self._app.updater and self._app.updater.running:
                 await self._app.updater.stop()
-        except Exception:
+        except (RuntimeError):
             pass
 
         await self._drain_polling_connections()
@@ -470,7 +471,7 @@ class TelegramAdapter(BasePlatformAdapter):
                 self.name, attempt,
             )
             self._polling_network_error_count = 0
-        except Exception as retry_err:
+        except (RuntimeError) as retry_err:
             logger.warning("[%s] Telegram polling reconnect failed: %s", self.name, retry_err)
             # start_polling failed — polling is dead and no further error
             # callbacks will fire, so schedule the next retry ourselves.
@@ -503,7 +504,7 @@ class TelegramAdapter(BasePlatformAdapter):
             try:
                 if self._app and self._app.updater and self._app.updater.running:
                     await self._app.updater.stop()
-            except Exception:
+            except (RuntimeError):
                 pass
             await asyncio.sleep(RETRY_DELAY)
             await self._drain_polling_connections()
@@ -516,7 +517,7 @@ class TelegramAdapter(BasePlatformAdapter):
                 logger.info("[%s] Telegram polling resumed after conflict retry %d", self.name, self._polling_conflict_count)
                 self._polling_conflict_count = 0  # reset on success
                 return
-            except Exception as retry_err:
+            except (RuntimeError) as retry_err:
                 logger.warning("[%s] Telegram polling retry failed: %s", self.name, retry_err)
                 # Don't fall through to fatal yet — wait for the next conflict
                 # to trigger another retry attempt (up to MAX_CONFLICT_RETRIES).
@@ -536,7 +537,7 @@ class TelegramAdapter(BasePlatformAdapter):
         try:
             if self._app and self._app.updater:
                 await self._app.updater.stop()
-        except Exception as stop_error:
+        except (RuntimeError) as stop_error:
             logger.warning("[%s] Failed stopping Telegram polling after conflict: %s", self.name, stop_error, exc_info=True)
         await self._notify_fatal_error()
 
@@ -568,7 +569,7 @@ class TelegramAdapter(BasePlatformAdapter):
                 self.name, name, chat_id, thread_id,
             )
             return thread_id
-        except Exception as e:
+        except (AttributeError, KeyError, RuntimeError, TypeError) as e:
             error_text = str(e).lower()
             # If topic already exists, try to find it via getForumTopicIconStickers
             # or we just log and skip — Telegram doesn't provide a "list topics" API
@@ -601,8 +602,7 @@ class TelegramAdapter(BasePlatformAdapter):
                 return
 
             import yaml as _yaml
-            with open(config_path, "r") as f:
-                config = _yaml.safe_load(f) or {}
+            with open(config_path, "r", encoding='utf-8') as f:                config = _yaml.safe_load(f) or {}
 
             # Navigate to platforms.telegram.extra.dm_topics
             dm_topics = (
@@ -646,7 +646,7 @@ class TelegramAdapter(BasePlatformAdapter):
                     "[%s] Persisted thread_id=%s for topic '%s' in config.yaml",
                     self.name, thread_id, topic_name,
                 )
-        except Exception as e:
+        except (OSError, PermissionError, yaml.YAMLError) as e:
             logger.warning("[%s] Failed to persist thread_id to config: %s", self.name, e, exc_info=True)
 
     async def _setup_dm_topics(self) -> None:
@@ -963,7 +963,7 @@ class TelegramAdapter(BasePlatformAdapter):
                         "[%s] Telegram menu: %d commands registered, %d hidden (over 100 limit). Use /commands for full list.",
                         self.name, len(menu_commands), hidden_count,
                     )
-            except Exception as e:
+            except (ImportError, ModuleNotFoundError, RuntimeError) as e:
                 logger.warning(
                     "[%s] Could not register Telegram command menu: %s",
                     self.name,
@@ -980,7 +980,7 @@ class TelegramAdapter(BasePlatformAdapter):
             # Failures here are non-fatal — the bot works fine without topics.
             try:
                 await self._setup_dm_topics()
-            except Exception as topics_err:
+            except (RuntimeError) as topics_err:
                 logger.warning(
                     "[%s] DM topics setup failed (non-fatal): %s",
                     self.name, topics_err, exc_info=True,
@@ -988,7 +988,7 @@ class TelegramAdapter(BasePlatformAdapter):
 
             return True
             
-        except Exception as e:
+        except (RuntimeError) as e:
             self._release_platform_lock()
             message = f"Telegram startup failed: {e}"
             self._set_fatal_error("telegram_connect_error", message, retryable=True)
@@ -1013,7 +1013,7 @@ class TelegramAdapter(BasePlatformAdapter):
                 if self._app.running:
                     await self._app.stop()
                 await self._app.shutdown()
-            except Exception as e:
+            except (RuntimeError) as e:
                 logger.warning("[%s] Error during Telegram disconnect: %s", self.name, e, exc_info=True)
         self._release_platform_lock()
 
@@ -1114,7 +1114,7 @@ class TelegramAdapter(BasePlatformAdapter):
                                 message_thread_id=effective_thread_id,
                                 **self._link_preview_kwargs(),
                             )
-                        except Exception as md_error:
+                        except (RuntimeError) as md_error:
                             # Markdown parsing failed, try plain text
                             if "parse" in str(md_error).lower() or "markdown" in str(md_error).lower():
                                 logger.warning("[%s] MarkdownV2 parse failed, falling back to plain text: %s", self.name, md_error)
@@ -1223,7 +1223,7 @@ class TelegramAdapter(BasePlatformAdapter):
                     text=formatted,
                     parse_mode=ParseMode.MARKDOWN_V2,
                 )
-            except Exception as fmt_err:
+            except (RuntimeError) as fmt_err:
                 # "Message is not modified" is a no-op, not an error
                 if "not modified" in str(fmt_err).lower():
                     return SendResult(success=True, message_id=message_id)
@@ -1234,7 +1234,7 @@ class TelegramAdapter(BasePlatformAdapter):
                     text=content,
                 )
             return SendResult(success=True, message_id=message_id)
-        except Exception as e:
+        except (RuntimeError) as e:
             err_str = str(e).lower()
             # "Message is not modified" — content identical, treat as success
             if "not modified" in err_str:
@@ -1252,7 +1252,7 @@ class TelegramAdapter(BasePlatformAdapter):
                         message_id=int(message_id),
                         text=truncated,
                     )
-                except Exception:
+                except (RuntimeError):
                     pass  # best-effort truncation
                 return SendResult(success=True, message_id=message_id)
             # Flood control / RetryAfter — short waits are retried inline,
@@ -1275,7 +1275,7 @@ class TelegramAdapter(BasePlatformAdapter):
                         text=content,
                     )
                     return SendResult(success=True, message_id=message_id)
-                except Exception as retry_err:
+                except (RuntimeError) as retry_err:
                     logger.error(
                         "[%s] Edit retry failed after flood wait: %s",
                         self.name, retry_err,
@@ -1308,7 +1308,7 @@ class TelegramAdapter(BasePlatformAdapter):
                 message_id=int(message_id),
             )
             return True
-        except Exception as e:
+        except (RuntimeError) as e:
             logger.debug(
                 "[%s] Failed to delete Telegram message %s: %s",
                 self.name, message_id, e,
@@ -1343,7 +1343,7 @@ class TelegramAdapter(BasePlatformAdapter):
                 **self._link_preview_kwargs(),
             )
             return SendResult(success=True, message_id=str(msg.message_id))
-        except Exception as e:
+        except (RuntimeError) as e:
             logger.warning("[%s] send_update_prompt failed: %s", self.name, e)
             return SendResult(success=False, error=str(e))
 
@@ -1635,7 +1635,7 @@ class TelegramAdapter(BasePlatformAdapter):
 
             try:
                 result_text = await callback(chat_id, model_id, provider_slug)
-            except Exception as exc:
+            except (RuntimeError) as exc:
                 logger.error("Model picker switch failed: %s", exc)
                 result_text = f"Error switching model: {exc}"
 
@@ -1646,7 +1646,7 @@ class TelegramAdapter(BasePlatformAdapter):
                     parse_mode=ParseMode.MARKDOWN,
                     reply_markup=None,
                 )
-            except Exception:
+            except (RuntimeError):
                 # Markdown parse failure — retry as plain text
                 try:
                     await query.edit_message_text(
@@ -1654,7 +1654,7 @@ class TelegramAdapter(BasePlatformAdapter):
                         parse_mode=None,
                         reply_markup=None,
                     )
-                except Exception:
+                except (RuntimeError):
                     pass
             await query.answer(text="Model switched!")
 
@@ -1679,7 +1679,7 @@ class TelegramAdapter(BasePlatformAdapter):
 
             try:
                 provider_label = get_label(state["current_provider"])
-            except Exception:
+            except (AttributeError, KeyError, TypeError):
                 provider_label = state["current_provider"]
 
             await query.edit_message_text(
@@ -1764,7 +1764,7 @@ class TelegramAdapter(BasePlatformAdapter):
                         parse_mode=ParseMode.MARKDOWN,
                         reply_markup=None,
                     )
-                except Exception:
+                except (RuntimeError):
                     pass  # non-fatal if edit fails
 
                 # Resolve the approval — unblocks the agent thread
@@ -1775,7 +1775,7 @@ class TelegramAdapter(BasePlatformAdapter):
                         "Telegram button resolved %d approval(s) for session %s (choice=%s, user=%s)",
                         count, session_key, choice, user_display,
                     )
-                except Exception as exc:
+                except (ImportError, ModuleNotFoundError) as exc:
                     logger.error("Failed to resolve gateway approval from Telegram button: %s", exc)
             return
 
@@ -1796,7 +1796,7 @@ class TelegramAdapter(BasePlatformAdapter):
                 parse_mode=ParseMode.MARKDOWN,
                 reply_markup=None,
             )
-        except Exception:
+        except (RuntimeError):
             pass  # non-fatal if edit fails
         # Write the response file
         try:
@@ -1808,7 +1808,7 @@ class TelegramAdapter(BasePlatformAdapter):
             tmp.replace(response_path)
             logger.info("Telegram update prompt answered '%s' by user %s",
                         answer, getattr(query.from_user, "id", "unknown"))
-        except Exception as exc:
+        except (ImportError, ModuleNotFoundError, OSError, PermissionError) as exc:
             logger.error("Failed to write update response from callback: %s", exc)
 
     def _missing_media_path_error(self, label: str, path: str) -> str:
@@ -1912,7 +1912,7 @@ class TelegramAdapter(BasePlatformAdapter):
                     message_thread_id=self._message_thread_id_for_send(_thread),
                 )
             return SendResult(success=True, message_id=str(msg.message_id))
-        except Exception as e:
+        except (OSError, PermissionError, RuntimeError) as e:
             error_str = str(e)
             # Dimension-related errors are the expected case for valid image
             # files that Telegram just refuses as photos (screenshots, extreme
@@ -1952,7 +1952,7 @@ class TelegramAdapter(BasePlatformAdapter):
                     reply_to=reply_to,
                     metadata=metadata,
                 )
-            except Exception as doc_err:
+            except (RuntimeError) as doc_err:
                 logger.error(
                     "[%s] Failed to send Telegram local image as document, "
                     "falling back to base adapter: %s",
@@ -1993,7 +1993,7 @@ class TelegramAdapter(BasePlatformAdapter):
                     message_thread_id=self._message_thread_id_for_send(_thread),
                 )
             return SendResult(success=True, message_id=str(msg.message_id))
-        except Exception as e:
+        except (OSError, PermissionError, RuntimeError) as e:
             print(f"[{self.name}] Failed to send document: {e}")
             return await super().send_document(chat_id, file_path, caption, file_name, reply_to)
 
@@ -2024,7 +2024,7 @@ class TelegramAdapter(BasePlatformAdapter):
                     message_thread_id=self._message_thread_id_for_send(_thread),
                 )
             return SendResult(success=True, message_id=str(msg.message_id))
-        except Exception as e:
+        except (OSError, PermissionError, RuntimeError) as e:
             print(f"[{self.name}] Failed to send video: {e}")
             return await super().send_video(chat_id, video_path, caption, reply_to)
 
@@ -2060,7 +2060,7 @@ class TelegramAdapter(BasePlatformAdapter):
                 message_thread_id=self._message_thread_id_for_send(_photo_thread),
             )
             return SendResult(success=True, message_id=str(msg.message_id))
-        except Exception as e:
+        except (ImportError, ModuleNotFoundError, RuntimeError) as e:
             logger.warning(
                 "[%s] URL-based send_photo failed, trying file upload: %s",
                 self.name,
@@ -2083,7 +2083,7 @@ class TelegramAdapter(BasePlatformAdapter):
                     message_thread_id=self._message_thread_id_for_send(_photo_thread),
                 )
                 return SendResult(success=True, message_id=str(msg.message_id))
-            except Exception as e2:
+            except (AttributeError, ConnectionError, ImportError, KeyError, ModuleNotFoundError, OSError, RuntimeError, TimeoutError, TypeError) as e2:
                 logger.error(
                     "[%s] File upload send_photo also failed: %s",
                     self.name,
@@ -2115,7 +2115,7 @@ class TelegramAdapter(BasePlatformAdapter):
                 message_thread_id=self._message_thread_id_for_send(_anim_thread),
             )
             return SendResult(success=True, message_id=str(msg.message_id))
-        except Exception as e:
+        except (RuntimeError) as e:
             logger.error(
                 "[%s] Failed to send Telegram animation, falling back to photo: %s",
                 self.name,
@@ -2137,7 +2137,7 @@ class TelegramAdapter(BasePlatformAdapter):
                         action="typing",
                         message_thread_id=message_thread_id,
                     )
-                except Exception as e:
+                except (RuntimeError) as e:
                     if message_thread_id is not None and self._is_thread_not_found_error(e):
                         await self._bot.send_chat_action(
                             chat_id=int(chat_id),
@@ -2146,7 +2146,7 @@ class TelegramAdapter(BasePlatformAdapter):
                         )
                     else:
                         raise
-            except Exception as e:
+            except (RuntimeError) as e:
                 # Typing failures are non-fatal; log at debug level only.
                 logger.debug(
                     "[%s] Failed to send Telegram typing indicator: %s",
@@ -2179,7 +2179,7 @@ class TelegramAdapter(BasePlatformAdapter):
                 "username": chat.username,
                 "is_forum": getattr(chat, "is_forum", False),
             }
-        except Exception as e:
+        except (RuntimeError) as e:
             logger.error(
                 "[%s] Failed to get Telegram chat info for %s: %s",
                 self.name,
@@ -2409,7 +2409,7 @@ class TelegramAdapter(BasePlatformAdapter):
             if raw:
                 try:
                     loaded = json.loads(raw)
-                except Exception:
+                except (json.JSONDecodeError, ValueError):
                     loaded = [part.strip() for part in raw.splitlines() if part.strip()]
                     if not loaded:
                         loaded = [part.strip() for part in raw.split(",") if part.strip()]
@@ -2811,7 +2811,7 @@ class TelegramAdapter(BasePlatformAdapter):
                     self._enqueue_photo_event(batch_key, event)
                 return
 
-            except Exception as e:
+            except (AttributeError, ImportError, KeyError, ModuleNotFoundError, RuntimeError, TypeError) as e:
                 logger.warning("[Telegram] Failed to cache photo: %s", e, exc_info=True)
 
         # Download voice/audio messages to cache for STT transcription
@@ -2823,7 +2823,7 @@ class TelegramAdapter(BasePlatformAdapter):
                 event.media_urls = [cached_path]
                 event.media_types = ["audio/ogg"]
                 logger.info("[Telegram] Cached user voice at %s", cached_path)
-            except Exception as e:
+            except (AttributeError, KeyError, RuntimeError, TypeError) as e:
                 logger.warning("[Telegram] Failed to cache voice: %s", e, exc_info=True)
         elif msg.audio:
             try:
@@ -2833,7 +2833,7 @@ class TelegramAdapter(BasePlatformAdapter):
                 event.media_urls = [cached_path]
                 event.media_types = ["audio/mp3"]
                 logger.info("[Telegram] Cached user audio at %s", cached_path)
-            except Exception as e:
+            except (AttributeError, KeyError, RuntimeError, TypeError) as e:
                 logger.warning("[Telegram] Failed to cache audio: %s", e, exc_info=True)
 
         elif msg.video:
@@ -2850,7 +2850,7 @@ class TelegramAdapter(BasePlatformAdapter):
                 event.media_urls = [cached_path]
                 event.media_types = [SUPPORTED_VIDEO_TYPES.get(ext, "video/mp4")]
                 logger.info("[Telegram] Cached user video at %s", cached_path)
-            except Exception as e:
+            except (AttributeError, KeyError, RuntimeError, TypeError) as e:
                 logger.warning("[Telegram] Failed to cache video: %s", e, exc_info=True)
 
         # Download document files to cache for agent processing
@@ -2934,7 +2934,7 @@ class TelegramAdapter(BasePlatformAdapter):
                             exc_info=True,
                         )
 
-            except Exception as e:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
                 logger.warning("[Telegram] Failed to cache document: %s", e, exc_info=True)
 
         media_group_id = getattr(msg, "media_group_id", None)
@@ -3038,7 +3038,7 @@ class TelegramAdapter(BasePlatformAdapter):
                     f"a sticker with emoji {emoji}" if emoji else "a sticker",
                     emoji, set_name,
                 )
-        except Exception as e:
+        except (AttributeError, ImportError, json.JSONDecodeError, KeyError, ModuleNotFoundError, RuntimeError, TypeError, ValueError) as e:
             logger.warning("[Telegram] Sticker analysis error: %s", e, exc_info=True)
             event.text = build_sticker_injection(
                 f"a sticker with emoji {emoji}" if emoji else "a sticker",
@@ -3058,8 +3058,7 @@ class TelegramAdapter(BasePlatformAdapter):
                 return
 
             import yaml as _yaml
-            with open(config_path, "r") as f:
-                config = _yaml.safe_load(f) or {}
+            with open(config_path, "r", encoding='utf-8') as f:                config = _yaml.safe_load(f) or {}
 
             dm_topics = (
                 config.get("platforms", {})
@@ -3255,7 +3254,7 @@ class TelegramAdapter(BasePlatformAdapter):
                 reaction=emoji,
             )
             return True
-        except Exception as e:
+        except (RuntimeError) as e:
             logger.debug("[%s] set_message_reaction failed (%s): %s", self.name, emoji, e)
             return False
 

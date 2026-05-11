@@ -7,6 +7,7 @@ This module is the single source of truth for the dangerous command system:
 - Smart approval via auxiliary LLM (auto-approve low-risk commands)
 - Permanent allowlist persistence (config.yaml)
 """
+from __future__ import annotations
 
 import contextvars
 import logging
@@ -42,13 +43,13 @@ def _fire_approval_hook(hook_name: str, **kwargs) -> None:
     """
     try:
         from hermes_cli.plugins import invoke_hook
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         # Plugin system not available in this execution context
         # (e.g. bare tool-only imports, minimal test environments).
         return
     try:
         invoke_hook(hook_name, **kwargs)
-    except Exception as exc:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
         # invoke_hook() already swallows per-callback errors, so reaching here
         # means the dispatch layer itself failed. Log and move on -- approval
         # flow is safety-critical, plugin observability is not.
@@ -515,7 +516,7 @@ def load_permanent_allowlist() -> set:
         if patterns:
             load_permanent(patterns)
         return patterns
-    except Exception as e:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError) as e:
         logger.warning("Failed to load permanent allowlist: %s", e)
         return set()
 
@@ -527,7 +528,7 @@ def save_permanent_allowlist(patterns: set):
         config = load_config()
         config["command_allowlist"] = list(patterns)
         save_config(config)
-    except Exception as e:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError) as e:
         logger.warning("Could not save allowlist: %s", e)
 
 
@@ -558,7 +559,7 @@ def prompt_dangerous_approval(command: str, description: str,
         try:
             return approval_callback(command, description,
                                      allow_permanent=allow_permanent)
-        except Exception as e:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
             logger.error("Approval callback failed: %s", e, exc_info=True)
             return "deny"
 
@@ -583,7 +584,7 @@ def prompt_dangerous_approval(command: str, description: str,
                 command, description,
             )
             return "deny"
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         # prompt_toolkit not installed, or detection failed -- fall through
         # to the legacy input() path (safe in non-TUI contexts: scripts,
         # tests, sshd, etc.).
@@ -668,7 +669,7 @@ def _get_approval_config() -> dict:
         from hermes_cli.config import load_config
         config = load_config()
         return config.get("approvals", {}) or {}
-    except Exception as e:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError) as e:
         logger.warning("Failed to load approval config: %s", e)
         return {}
 
@@ -696,7 +697,7 @@ def _get_cron_approval_mode() -> str:
         if mode in ("approve", "off", "allow", "yes"):
             return "approve"
         return "deny"
-    except Exception:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
         return "deny"
 
 
@@ -1044,7 +1045,7 @@ def check_all_command_guards(command: str, env_type: str,
             # Notify the user (bridges sync agent thread → async gateway)
             try:
                 notify_cb(approval_data)
-            except Exception as exc:
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
                 logger.warning("Gateway approval notify failed: %s", exc)
                 with _lock:
                     queue = _gateway_queues.get(session_key, [])
@@ -1075,7 +1076,7 @@ def check_all_command_guards(command: str, env_type: str,
 
             try:
                 from tools.environments.base import touch_activity_if_due
-            except Exception:  # pragma: no cover
+            except (ImportError, ModuleNotFoundError):
                 touch_activity_if_due = None
 
             _now = time.monotonic()

@@ -8,6 +8,7 @@ transcript so the receiving-side agent has context about what was sent.
 Standalone -- works from CLI, cron, and gateway contexts without needing
 the full SessionStore machinery.
 """
+from __future__ import annotations
 
 import json
 import logging
@@ -105,7 +106,7 @@ def _find_session_id(
     try:
         with open(_SESSIONS_INDEX, encoding="utf-8") as f:
             data = json.load(f)
-    except Exception:
+    except (json.JSONDecodeError, OSError, PermissionError, ValueError):
         return None
 
     platform_lower = platform.lower()
@@ -156,7 +157,7 @@ def _append_to_jsonl(session_id: str, message: dict) -> None:
     try:
         with open(transcript_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(message, ensure_ascii=False) + "\n")
-    except Exception as e:
+    except (json.JSONDecodeError, OSError, PermissionError, ValueError) as e:
         logger.debug("Mirror JSONL write failed: %s", e)
 
 
@@ -171,7 +172,7 @@ def _append_to_sqlite(session_id: str, message: dict) -> None:
             role=message.get("role", "assistant"),
             content=message.get("content"),
         )
-    except Exception as e:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError) as e:
         logger.debug("Mirror SQLite write failed: %s", e)
     finally:
         if db is not None:

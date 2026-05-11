@@ -25,6 +25,7 @@ Usage::
     if result["success"]:
         print(result["transcript"])
 """
+from __future__ import annotations
 
 import logging
 import os
@@ -101,7 +102,7 @@ def _load_stt_config() -> dict:
     try:
         from hermes_cli.config import load_config
         return load_config().get("stt", {})
-    except Exception:
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
         return {}
 
 
@@ -362,7 +363,7 @@ def _load_local_whisper_model(model_name: str):
     from faster_whisper import WhisperModel
     try:
         return WhisperModel(model_name, device="auto", compute_type="auto")
-    except Exception as exc:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
         if not _looks_like_cuda_lib_error(exc):
             raise
         logger.warning(
@@ -400,7 +401,7 @@ def _transcribe_local(file_path: str, model_name: str) -> Dict[str, Any]:
         try:
             segments, info = _local_model.transcribe(file_path, **transcribe_kwargs)
             transcript = " ".join(segment.text.strip() for segment in segments)
-        except Exception as exc:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
             # CUDA runtime libs sometimes only fail at dlopen-on-first-use,
             # AFTER the model loaded successfully.  Evict the broken cached
             # model, reload on CPU, retry once.  Without this the module-
@@ -568,7 +569,7 @@ def _transcribe_groq(file_path: str, model_name: str) -> Dict[str, Any]:
         return {"success": False, "transcript": "", "error": f"Request timeout: {e}"}
     except APIError as e:
         return {"success": False, "transcript": "", "error": f"API error: {e}"}
-    except Exception as e:
+    except (OSError, PermissionError) as e:
         logger.error("Groq transcription failed: %s", e, exc_info=True)
         return {"success": False, "transcript": "", "error": f"Transcription failed: {e}"}
 
@@ -625,7 +626,7 @@ def _transcribe_openai(file_path: str, model_name: str) -> Dict[str, Any]:
         return {"success": False, "transcript": "", "error": f"Request timeout: {e}"}
     except APIError as e:
         return {"success": False, "transcript": "", "error": f"API error: {e}"}
-    except Exception as e:
+    except (OSError, PermissionError) as e:
         logger.error("OpenAI transcription failed: %s", e, exc_info=True)
         return {"success": False, "transcript": "", "error": f"Transcription failed: {e}"}
 
@@ -663,7 +664,7 @@ def _transcribe_mistral(file_path: str, model_name: str) -> Dict[str, Any]:
 
     except PermissionError:
         return {"success": False, "transcript": "", "error": f"Permission denied: {file_path}"}
-    except Exception as e:
+    except (ImportError, ModuleNotFoundError, OSError, PermissionError) as e:
         logger.error("Mistral transcription failed: %s", e, exc_info=True)
         return {"success": False, "transcript": "", "error": f"Mistral transcription failed: {type(e).__name__}"}
 
@@ -732,7 +733,7 @@ def _transcribe_xai(file_path: str, model_name: str) -> Dict[str, Any]:
             try:
                 err_body = response.json()
                 detail = err_body.get("error", {}).get("message", "") or response.text[:300]
-            except Exception:
+            except (AttributeError, KeyError, TypeError):
                 detail = response.text[:300]
             return {
                 "success": False,
