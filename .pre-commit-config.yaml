@@ -3,15 +3,15 @@ repos:
     hooks:
       - id: ruff-check
         name: ruff (lint)
-        entry: ruff check .
+        entry: ruff check . --exclude venv --exclude node_modules --exclude __pycache__ --exclude venv
         language: system
         types: [python]
         pass_filenames: false
-        files: ^agent/(perpetual_context_db|pcdb_).*\.py$|^plugins/
+        files: ^(agent|tools|gateway|hermes_cli|cron|plugins|acp_adapter)/
       - id: ruff-format
         name: ruff (format)
-        entry: ruff format .
+        entry: ruff format . --exclude venv --exclude node_modules --exclude __pycache__
         language: system
         types: [python]
         pass_filenames: false
-        files: ^agent/(perpetual_context_db|pcdb_).*\.py$|^plugins/
+        files: ^(agent|tools|gateway|hermes_cli|cron|plugins|acp_adapter)/
