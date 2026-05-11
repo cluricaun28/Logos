@@ -241,7 +241,7 @@ class VectorIndex:
             "count": self._index.ntotal,
         }
         meta_path = self._index_path + ".meta.json"
-        with open(meta_path, "w") as f:
+        with open(meta_path, "w", encoding="utf-8") as f:
             json.dump(meta, f)
 
         logger.info("Saved FAISS index (%d vectors) to %s", self._index.ntotal, self._index_path)
@@ -261,7 +261,7 @@ class VectorIndex:
 
         meta_path = self._index_path + ".meta.json"
         if os.path.exists(meta_path):
-            with open(meta_path) as f:
+            with open(meta_path, encoding="utf-8") as f:
                 meta = json.load(f)
             self._id_map = {int(k): v for k, v in meta.get("id_map", {}).items()}
             self._next_id = meta.get("next_id", self._index.ntotal)

@@ -136,7 +136,7 @@ class EmbeddingEngine:
             logger.info("Loading embedding model from local path '%s'...", local_path)
             self._model = SentenceTransformer(local_path, device="cuda" if torch.cuda.is_available() else "cpu", local_files_only=True)
             logger.info("Embedding model loaded successfully (%d-dim vectors)", EMBED_DIM)
-        except ImportError:
+        except (ImportError, ModuleNotFoundError):
             logger.warning("sentence-transformers not installed — semantic search disabled. Install with: pip install sentence-transformers")
             self._model = None
         except Exception as e:
@@ -162,7 +162,7 @@ class EmbeddingEngine:
             vector = model.encode(truncated, convert_to_numpy=True)
             # Convert numpy array to plain Python list for serialization
             return vector.tolist()
-        except Exception as e:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
             logger.debug("Embedding failed for text (%d chars): %s", len(text), e)
             return None
 
@@ -274,7 +274,7 @@ class PerpetualContextDB(
                     cursor = self._conn.execute("PRAGMA table_info(messages)")
                     columns = {row[1] for row in cursor.fetchall()}
                     self._time_column = "created_at" if "created_at" in columns else "timestamp"
-                except Exception:
+                except sqlite3.Error:
                     self._time_column = "created_at"
             # Safety check — never interpolate unvalidated column names into SQL
             if self._time_column not in VALID_TIME_COLUMNS:
@@ -310,7 +310,7 @@ class PerpetualContextDB(
 
                 return True
 
-        except Exception as e:
+        except sqlite3.Error as e:
             logger.error("Failed to initialize PerpetualContextDB: %s", e)
             self._conn = None
             return False
@@ -321,7 +321,7 @@ class PerpetualContextDB(
             if self._conn:
                 try:
                     self._conn.commit()
-                except Exception:
+                except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                     logger.debug("Commit failed during shutdown")
                 self._conn.close()
                 self._conn = None
@@ -375,7 +375,7 @@ class PerpetualContextDB(
                 vi.rebuild_from_db(self._conn)
                 faiss_rebuilt = True
                 logger.info("FAISS index rebuilt with %d vectors", vi.get_count())
-            except Exception as e:
+            except (ImportError, ModuleNotFoundError) as e:
                 logger.warning("FAISS rebuild failed: %s", e)
                 faiss_rebuilt = False
 
@@ -386,6 +386,6 @@ class PerpetualContextDB(
                 "faiss_rebuilt": faiss_rebuilt,
                 "backfill_stats": backfill_result,
             }
-        except Exception as e:
+        except (ImportError, ModuleNotFoundError) as e:
             logger.error("Reindex failed: %s", e)
             return {"action_taken": "failed", "reason": str(e)}

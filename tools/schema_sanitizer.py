@@ -189,7 +189,7 @@ def _sanitize_node(node: Any, path: str) -> Any:
 
     out: dict = {}
     for key, value in node.items():
-        # type: [X, "null"] → type: X (the backend's tool-call parser only
+        # Note: [X, "null"] becomes type X (backend's tool-call parser only
         # accepts singular string types; nullable is lost but the call still
         # succeeds, and the model can still pass null on its own.)
         if key == "type" and isinstance(value, list):
