@@ -30,6 +30,16 @@ from typing import Any, Literal
 
 logger = logging.getLogger(__name__)
 
+# Lazy httpx exception types for except clauses — avoid startup cost
+# by only importing if httpx is available
+try:
+    import httpx as _httpx_import
+    _HTTPX_NETWORK_EXCEPTIONS = (_httpx_import.RequestError, _httpx_import.HTTPStatusError)
+except ImportError:
+    # If httpx is unavailable, these code paths won't execute (guarded by
+    # _HTTP_UNAVAILABLE sentinel), so this tuple stays empty.
+    _HTTPX_NETWORK_EXCEPTIONS = ()  # type: ignore[misc]
+
 # Sentinel: returned by _get_http() when httpx is unavailable, so subsequent
 # calls don't waste time re-importing.
 class _HttpUnavailable:
@@ -160,7 +170,7 @@ class WebResearchClient:
                 if results:
                     logger.debug("SearXNG returned %d results for '%s'", len(results), query[:QUERY_LOG_MAX_CHARS])
                     return results
-            except Exception as e:
+            except (*_HTTPX_NETWORK_EXCEPTIONS, ConnectionError, TimeoutError, KeyError, AttributeError) as e:
                 logger.warning("SearXNG search failed: %s", e)
 
         # Try Firecrawl API
@@ -169,7 +179,7 @@ class WebResearchClient:
             if results:
                 logger.debug("Firecrawl returned %d results for '%s'", len(results), query[:QUERY_LOG_MAX_CHARS])
                 return results
-        except Exception as e:
+        except (*_HTTPX_NETWORK_EXCEPTIONS, ConnectionError, TimeoutError, KeyError, AttributeError) as e:
             logger.warning("Firecrawl search failed: %s", e)
 
         # No backends available — graceful degradation
@@ -221,7 +231,7 @@ class WebResearchClient:
                 headers={"Content-Type": "application/json"},
             )
             resp.raise_for_status()
-        except Exception as e:  # noqa: S110 — graceful degradation, must not raise
+        except (*_HTTPX_NETWORK_EXCEPTIONS, TimeoutError, json.JSONDecodeError, KeyError) as e:  # noqa: S110 — graceful degradation, must not raise
             logger.debug("Firecrawl search request failed: %s", e)
             return []
 
@@ -250,7 +260,7 @@ class WebResearchClient:
             content = self._extract_firecrawl(url)
             if content:
                 return content
-        except Exception as e:
+        except (*_HTTPX_NETWORK_EXCEPTIONS, ConnectionError, TimeoutError, KeyError, AttributeError) as e:
             logger.warning("Firecrawl extraction failed for %s: %s", str(url)[:80], e)
 
         # Fallback to Camofox browser scraping
@@ -258,7 +268,7 @@ class WebResearchClient:
             content = self._extract_camofox(url)
             if content:
                 return content
-        except Exception as e:
+        except (*_HTTPX_NETWORK_EXCEPTIONS, ConnectionError, TimeoutError, KeyError, AttributeError) as e:
             logger.warning("Camofox extraction failed for %s: %s", str(url)[:80], e)
 
         return None
@@ -283,7 +293,7 @@ class WebResearchClient:
                 timeout=WEB_EXTRACT_TIMEOUT,
             )
             resp.raise_for_status()
-        except Exception as e:
+        except (*_HTTPX_NETWORK_EXCEPTIONS, TimeoutError, json.JSONDecodeError, KeyError) as e:
             logger.debug("Firecrawl extraction request failed for %s: %s", str(url)[:URL_LOG_MAX_CHARS], e)
             return None
 
@@ -312,7 +322,7 @@ class WebResearchClient:
                 timeout=WEB_EXTRACT_TIMEOUT,
             )
             resp.raise_for_status()
-        except Exception as e:
+        except (*_HTTPX_NETWORK_EXCEPTIONS, TimeoutError, json.JSONDecodeError, KeyError) as e:
             logger.debug("Camofox tab creation failed for %s: %s", str(url)[:URL_LOG_MAX_CHARS], e)
             return None
 
@@ -340,7 +350,7 @@ class WebResearchClient:
                 timeout=WEB_EXTRACT_TIMEOUT,
             )
             resp.raise_for_status()
-        except Exception as e:
+        except (*_HTTPX_NETWORK_EXCEPTIONS, TimeoutError, json.JSONDecodeError, KeyError) as e:
             logger.debug("Camofox evaluate failed for tab %s: %s", tab_id, e)
             return None
 
@@ -357,7 +367,7 @@ class WebResearchClient:
                 params={"userId": user_id},
                 timeout=CAMOFOX_CLEANUP_TIMEOUT,
             )
-        except Exception as e:
+        except (*_HTTPX_NETWORK_EXCEPTIONS, TimeoutError) as e:
             logger.debug("Camofox tab cleanup failed for %s: %s", tab_id, e)
 
     def _extract_camofox(self, url: str) -> str | None:
@@ -402,7 +412,7 @@ class WebResearchClient:
         for url in urls:
             try:
                 results[url] = self.extract(url)
-            except Exception as e:
+            except (*_HTTPX_NETWORK_EXCEPTIONS, ConnectionError, TimeoutError, KeyError, AttributeError) as e:
                 logger.debug("Batch extract failed for %s: %s", str(url)[:URL_LOG_MAX_CHARS], e)
                 results[url] = None
         return results

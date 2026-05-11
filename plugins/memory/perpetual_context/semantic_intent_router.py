@@ -380,7 +380,7 @@ def classify_injection_intent(query: str) -> dict[str, Any]:
                     return result
                 # Embedding succeeded but no intent exceeded threshold —
                 # fall through to keyword router
-        except Exception as e:
+        except (AttributeError, TypeError) as e:
             logger.debug(
                 "SemanticIntentRouter: embedding failed, falling back to keyword: %s", e
             )

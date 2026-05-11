@@ -104,7 +104,7 @@ def search(
 
         return final
 
-    except Exception as e:
+    except (sqlite3.Error, KeyError, TypeError, AttributeError) as e:
         logger.error("RLIndex search failed: %s", e)
         return []
 
@@ -153,7 +153,7 @@ def _fts_search(
 
         return results
 
-    except Exception as e:
+    except (sqlite3.Error, KeyError, TypeError, AttributeError) as e:
         logger.error("FTS5 search failed: %s", e)
         return []
 
@@ -244,8 +244,8 @@ def _semantic_search(
 
         return results
 
-    except Exception as e:
-        logger.error("RL semantic search failed: %s", e)
+    except (sqlite3.Error, KeyError, TypeError, AttributeError) as e:
+        logger.error("Semantic search failed: %s", e)
         return []
 
 
@@ -302,7 +302,7 @@ def _extract_snippets_batch(
 
         return snippets
 
-    except Exception as e:
+    except (sqlite3.Error, KeyError, TypeError, AttributeError, OSError) as e:
         logger.debug("Snippet extraction failed: %s", e)
         return {}
 
@@ -335,6 +335,6 @@ def get_stats(*, conn: Any) -> dict:
             "categories": categories,
             "total_bytes": total_size,
         }
-    except Exception as e:
+    except (sqlite3.Error, KeyError, TypeError, AttributeError) as e:
         logger.error("RLIndex stats failed: %s", e)
         return {"error": str(e)}

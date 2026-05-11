@@ -66,7 +66,7 @@ def _extract_file_info(file_path: Path) -> dict | None:
     """Read a markdown file and extract title, frontmatter, body, category."""
     try:
         content = file_path.read_text(encoding="utf-8")
-    except Exception as e:
+    except (OSError, UnicodeError) as e:
         logger.debug("Failed to read %s: %s", file_path.name, e)
         return None
 
@@ -186,7 +186,7 @@ class RLIndex:
                         results.extend(v.tolist() for v in vectors)
                     else:
                         results.append(vectors.tolist())
-                except Exception as e:
+                except (AttributeError, TypeError, ValueError) as e:
                     logger.debug("Batch embedding failed: %s", e)
                     results.extend([None] * len(batch))
             return results
@@ -215,7 +215,7 @@ class RLIndex:
                 rl_schema.create_tables(self._conn)
                 self._initialized = True
                 return True
-        except Exception as e:
+        except (sqlite3.Error, AttributeError) as e:
             logger.error("Failed to initialize RLIndex: %s", e)
             self._conn = None
             return False
@@ -225,11 +225,11 @@ class RLIndex:
             if self._conn:
                 try:
                     self._conn.commit()
-                except Exception as e:
+                except (sqlite3.Error, AttributeError) as e:
                     logger.debug("RLIndex shutdown commit error: %s", e)
                 try:
                     self._conn.close()
-                except Exception as e:
+                except (sqlite3.Error, AttributeError) as e:
                     logger.debug("RLIndex close error: %s", e)
                 self._conn = None
             self._initialized = False

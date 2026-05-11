@@ -49,7 +49,7 @@ def _load_source_dossiers() -> dict[str, dict[str, Any]]:
                 else:
                     logger.debug("Skipping malformed source entry: %s", domain)
         return dossiers
-    except Exception as e:
+    except (OSError, KeyError, TypeError, AttributeError) as e:
         logger.debug("Failed to load source_dossiers.yaml: %s", e)
         return {}
 
@@ -104,7 +104,7 @@ def _extract_domain(url: str) -> str | None:
         parsed = urlparse(url)
         domain = parsed.netloc.lower().replace("www.", "")
         return domain if domain else None
-    except Exception as e:
+    except (AttributeError, TypeError) as e:
         logger.debug("Failed to extract domain from '%s': %s", url, e)
         return None
 

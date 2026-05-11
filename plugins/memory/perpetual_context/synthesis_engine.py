@@ -145,7 +145,7 @@ class SynthesisEngine:
                     logger.debug("Pass %d refinement complete (%d chars)", pass_num, len(current_text))
                 else:
                     warnings.append(f"Provider returned empty response on pass {pass_num} — using previous draft")
-            except Exception as e:
+            except (AttributeError, TypeError, ConnectionError, TimeoutError) as e:
                 warnings.append(f"Provider unavailable for pass {pass_num}: {e}")
                 logger.warning("Synthesis pass %d failed, falling back to current draft: %s", pass_num, e)
 
@@ -174,7 +174,7 @@ class SynthesisEngine:
                     "RLUpdateDetector flagged %d page(s) for potential update",
                     len(rl_update_flags),
                 )
-        except Exception as e:
+        except (OSError, KeyError, TypeError, AttributeError) as e:
             logger.debug("RLUpdateDetector failed (non-fatal): %s", e)
 
         return {
@@ -323,7 +323,7 @@ class SynthesisEngine:
 
             return content.strip()
 
-        except Exception as e:
+        except (ConnectionError, TimeoutError, KeyError, AttributeError) as e:
             logger.warning("Provider inference failed on pass %d: %s — using current draft", pass_number, e)
             return None  # Caller will use original draft
 
@@ -453,7 +453,7 @@ class RLUpdateDetector:
         for md_file in md_files:
             try:
                 file_cache[md_file] = md_file.read_text(encoding="utf-8")[:5000]
-            except Exception as e:
+            except (OSError, PermissionError) as e:
                 logger.debug("Failed to read RL page %s: %s", md_file.name, e)
 
         for fact in new_facts:
@@ -489,10 +489,10 @@ class RLUpdateDetector:
                                         "overlap_terms": list(overlap)[:5],
                                     }
                                 )
-                    except Exception as e:
+                    except (KeyError, TypeError, AttributeError) as e:
                         logger.debug("Failed to check RL page %s: %s", md_file.name, e)
 
-            except Exception as e:
+            except (KeyError, TypeError, AttributeError) as e:
                 logger.debug("Fact comparison failed: %s", e)
 
         # Deduplicate recommendations by page

@@ -56,7 +56,7 @@ class DecisionTraceEngine:
                     'session_id': result.get('session_id'),
                     'context': result.get('content', '')[:200],  # Limit context size
                 }
-        except Exception as e:
+        except (sqlite3.Error, KeyError, TypeError, AttributeError) as e:
             logger.exception("Failed to find decision for '%s'", query_text)
         
         return None
@@ -111,6 +111,6 @@ class DecisionTraceEngine:
             end = min(len(session_msgs), dec_idx + 6)
 
             return session_msgs[start:end]
-        except Exception as e:
+        except (sqlite3.Error, KeyError, TypeError, AttributeError) as e:
             logger.exception("Failed to retrieve context for turn #%d", turn_id)
             return []

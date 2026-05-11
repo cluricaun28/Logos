@@ -146,7 +146,7 @@ class ScrutinyGate:
 
                 vetted.append(annotated)
 
-            except Exception as e:
+            except (KeyError, TypeError, AttributeError) as e:
                 logger.debug("Vetting failed for result: %s", e)
                 safe_result = result if isinstance(result, dict) else {}
                 rejected.append({**safe_result, "rejection_reason": f"Vetting error: {e}"})

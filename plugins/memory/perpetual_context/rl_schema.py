@@ -79,7 +79,7 @@ def _create_fts5_table(conn: sqlite3.Connection) -> None:
     # Drop old table and triggers
     try:
         conn.execute("DROP TABLE IF EXISTS rl_index_fts")
-    except Exception as e:
+    except (sqlite3.Error, AttributeError) as e:
         logger.debug("Error dropping old rl_index_fts: %s", e)
 
     conn.execute(
@@ -95,7 +95,7 @@ def _create_fts5_table(conn: sqlite3.Connection) -> None:
     for trig in ("rl_files_ai", "rl_files_ad", "rl_files_au"):
         try:
             conn.execute(f"DROP TRIGGER IF EXISTS {trig}")
-        except Exception as e:
+        except (sqlite3.Error, AttributeError) as e:
             logger.debug("Error dropping trigger %s: %s", trig, e)
 
     conn.execute(

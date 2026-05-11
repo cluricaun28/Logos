@@ -61,7 +61,7 @@ class FileHistoryTracker:
                     })
             
             return history
-        except Exception as e:
+        except (sqlite3.Error, KeyError, TypeError, AttributeError) as e:
             logger.exception("Failed to retrieve file history for '%s'", file_path)
             return []
 

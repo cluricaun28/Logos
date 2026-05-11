@@ -54,7 +54,7 @@ def _load_worldview_profile() -> dict[str, int | None]:
                         v,
                     )
             return valid if valid else None
-    except Exception as e:
+    except (OSError, KeyError, TypeError, AttributeError) as e:
         logger.debug("Failed to load worldview profile: %s", e)
     return None
 
@@ -98,7 +98,7 @@ def _load_axes() -> dict[str, list[str]]:
                         if isinstance(axis_data, dict) and "keywords" in axis_data:
                             axes[axis_name] = axis_data["keywords"]
                     return axes if axes else _DEFAULT_AXES
-            except Exception as e:
+            except (OSError, KeyError, TypeError, AttributeError) as e:
                 logger.debug("Failed to load axes from YAML: %s", e)
 
     return _DEFAULT_AXES
@@ -143,7 +143,7 @@ def _load_worldview_profile() -> dict[str, int | None] | None:
                         v,
                     )
             return valid if valid else None
-    except Exception as e:
+    except (OSError, KeyError, TypeError, AttributeError) as e:
         logger.debug("Failed to load worldview profile: %s", e)
     return None
 
@@ -185,7 +185,7 @@ def _load_axes() -> dict[str, list[str]]:
                         if isinstance(axis_data, dict) and "keywords" in axis_data:
                             axes[axis_name] = axis_data["keywords"]
                     return axes if axes else _DEFAULT_AXES
-            except Exception as e:
+            except (OSError, KeyError, TypeError, AttributeError) as e:
                 logger.debug("Failed to load axes from YAML: %s", e)
 
     return _DEFAULT_AXES

@@ -70,7 +70,7 @@ class RLIngestionGate:
                 if contradiction:
                     contradictions.append(contradiction)
                     issues.append(f"Potential contradiction with existing page: {contradiction}")
-            except Exception as e:
+            except (OSError, KeyError, TypeError, AttributeError) as e:
                 logger.debug("Contradiction check failed: %s", e)
 
         # Source assessment — extract domain and stance
@@ -156,7 +156,7 @@ class RLIngestionGate:
                 top_shared = list(shared)[:3]
                 return f"Significant topic overlap ({', '.join(top_shared)}) — verify consistency"
 
-        except Exception as e:
+        except (OSError, KeyError, TypeError, AttributeError) as e:
             logger.debug("Contradiction check failed for %s: %s", rl_path, e)
 
         return None

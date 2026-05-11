@@ -78,7 +78,7 @@ def build_index(
         for trig in ("rl_files_ai", "rl_files_ad", "rl_files_au"):
             try:
                 conn.execute(f"DROP TRIGGER IF EXISTS {trig}")
-            except Exception as e:
+            except (sqlite3.Error, AttributeError) as e:
                 logger.debug("Error dropping trigger %s: %s", trig, e)
 
         conn.execute("DROP TABLE IF EXISTS rl_index_fts")
@@ -235,7 +235,7 @@ def update_file(
 
             conn.commit()
             return True
-        except Exception as e:
+        except (sqlite3.Error, KeyError, TypeError, AttributeError) as e:
             logger.error(
                 "Failed to update RL file %s: %s",
                 info.get("file_path", path), e,
@@ -268,7 +268,7 @@ def remove_file(
             )
             conn.commit()
             return True
-        except Exception as e:
+        except (sqlite3.Error, AttributeError) as e:
             logger.error("Failed to remove RL file %s: %s", rel_path, e)
             return False
 
@@ -348,7 +348,7 @@ def reindex_stale(
                         info["size"], info["indexed_at"],
                     ),
                 )
-            except Exception as e:
+            except (sqlite3.Error, KeyError, AttributeError) as e:
                 logger.error(
                     "Failed to update RL file %s: %s",
                     info.get("file_path"), e,

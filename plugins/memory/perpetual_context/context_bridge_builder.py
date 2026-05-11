@@ -114,7 +114,7 @@ class ContextBridgeBuilder:
 
             return bridge_text if bridge_text.strip() else ""
 
-        except Exception as e:
+        except (AttributeError, KeyError, TypeError) as e:
             # Robust error handling: never break compression due to bridge generation failure
             logger.warning("Context Bridge generation failed: %s", e)
             return "## Context Bridge\n- Error generating retrieval index. See logs for details."
@@ -178,7 +178,7 @@ class ContextBridgeBuilder:
 
             return score
 
-        except Exception as e:
+        except (AttributeError, KeyError, TypeError) as e:
             logger.debug("Quality scoring failed (non-critical): %s", e)
             return {}
 
@@ -205,7 +205,7 @@ class ContextBridgeBuilder:
             method = getattr(self._extraction, f"extract_{method_name}", None)
             if method:
                 return method(messages)
-        except Exception as e:
+        except (AttributeError, KeyError, TypeError) as e:
             logger.exception("Extraction failed for %s", method_name)
         return []
 
