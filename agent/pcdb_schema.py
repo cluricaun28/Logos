@@ -7,6 +7,7 @@ Extracted from perpetual_context_db.py for single-responsibility compliance.
 from __future__ import annotations
 
 import logging
+import sqlite3
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +69,7 @@ class _SchemaManager:
             cursor = conn.execute("PRAGMA table_info(messages_fts)")
             fts_columns = [row[1] for row in cursor.fetchall()]
             fts_has_metadata = "metadata" in fts_columns
-        except Exception:
+        except sqlite3.Error:
             logger.debug("FTS metadata column check failed")
 
         if not fts_has_metadata:
@@ -83,7 +84,7 @@ class _SchemaManager:
         for trigger in ("messages_ai", "messages_ad", "messages_au"):
             try:
                 conn.execute(f"DROP TRIGGER IF EXISTS {trigger}")
-            except Exception:
+            except sqlite3.Error:
                 logger.debug("Drop trigger failed")
 
         conn.execute("""
@@ -121,7 +122,7 @@ class _SchemaManager:
                 """)
                 _count = conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
                 logger.info("Reindexed %d existing messages into FTS5 after schema migration", _count)
-            except Exception as e:
+            except sqlite3.Error as e:
                 logger.warning("FTS reindex failed: %s", e)
 
         # Topics table — topic clusters per session
@@ -227,7 +228,7 @@ class _SchemaManager:
             columns = {row[1] for row in cursor.fetchall()}
             if "timestamp" in columns and "created_at" not in columns:
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp)")
-        except Exception:
+        except sqlite3.Error:
             logger.debug("Timestamp index creation failed")
 
         # Auto-timestamp triggers — SQLite doesn't support function-call defaults in ALTER TABLE,
@@ -277,7 +278,7 @@ class _SchemaManager:
                 logger.debug("Added missing column %s.%s", table, column)
                 return True
             return False
-        except Exception as e:
+        except sqlite3.Error as e:
             # Column might already exist or ALTER not supported (e.g., FTS5 tables).
             # Log and degrade gracefully — don't abort initialization for non-critical columns.
             if "duplicate column" in str(e).lower() or "already exists" in str(e).lower():
@@ -316,5 +317,5 @@ class _SchemaManager:
             migrated = cursor.rowcount
             logger.info("Migrated %d/%d rows: copied timestamp → created_at", migrated, needs_migration)
 
-        except Exception as e:
+        except sqlite3.Error as e:
             logger.warning("Timestamp migration failed (non-fatal): %s", e)

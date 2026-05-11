@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sqlite3
 import time
 from typing import Any
 
@@ -147,7 +148,7 @@ class _MessageManager:
             with self._lock:
                 self._conn.execute("UPDATE messages SET embedding = ? WHERE id = ?", (blob, message_id))
                 self._conn.commit()
-        except Exception as e:
+        except sqlite3.Error as e:
             logger.debug("Failed to store embedding for message %d: %s", message_id, e)
 
     # -----------------------------------------------------------------------
@@ -235,7 +236,7 @@ class _MessageManager:
                         self._conn.commit()
                     stats["embedded"] += 1
 
-                except Exception as e:
+                except sqlite3.Error as e:
                     logger.debug("Backfill failed for message %d: %s", msg_id, e)
                     stats["failed"] += 1
 
@@ -398,7 +399,7 @@ class _MessageManager:
             with self._lock:
                 row = self._conn.execute("SELECT session_id FROM messages WHERE id = ?", (message_id,)).fetchone()
             return row[0] if row else None
-        except Exception as e:
+        except sqlite3.Error as e:
             logger.debug("get_message_session(%d) failed: %s", message_id, e)
             return None
 

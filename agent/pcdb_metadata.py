@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sqlite3
 import time
 from typing import Any
 
@@ -95,7 +96,7 @@ class _MetadataManager:
                 self._conn.commit()
                 return True
 
-        except Exception as e:
+        except sqlite3.Error as e:
             logger.error("Failed to link topic to message: %s", e)
             return False
 
@@ -275,7 +276,7 @@ class _MetadataManager:
                 self._conn.commit()
                 return rel_id
 
-        except Exception as e:
+        except sqlite3.Error as e:
             logger.error("Failed to add relationship: %s", e)
             return None
 
@@ -430,7 +431,7 @@ class _MetadataManager:
                 }
             return None
 
-        except Exception as e:
+        except sqlite3.Error as e:
             logger.error("Failed to get session info: %s", e)
             return None
 
@@ -466,11 +467,11 @@ class _MetadataManager:
 
                     self._conn.commit()
                     return True
-                except Exception:
+                except sqlite3.Error:
                     self._conn.rollback()
                     raise  # Re-raise so outer handler logs it
 
-        except Exception as e:
+        except sqlite3.Error as e:
             logger.error("Failed to delete session: %s", e)
             return False
 
@@ -507,7 +508,7 @@ class _MetadataManager:
 
             return stats
 
-        except Exception as e:
+        except sqlite3.Error as e:
             logger.error("Failed to get stats: %s", e)
             return {"error": str(e)}
 
@@ -580,7 +581,7 @@ class _MetadataManager:
                     query_sql += ", metadata"
                 else:
                     query_sql += ", '' as metadata"
-            except Exception as e:
+            except sqlite3.Error as e:
                 logger.debug("Metadata column check failed: %s", e)
                 query_sql += ", '' as metadata"
             query_sql += f", {time_col}"
@@ -669,7 +670,7 @@ class _MetadataManager:
                 "offset": offset,
             }
 
-        except Exception as e:
+        except (json.JSONDecodeError, ValueError) as e:
             logger.error("Query messages failed: %s", e)
             return {"error": str(e)}
 
@@ -753,7 +754,7 @@ class _MetadataManager:
                 self._conn.commit()
                 return True
 
-        except Exception as e:
+        except sqlite3.Error as e:
             logger.error("Optimization failed: %s", e)
             return False
 
@@ -815,7 +816,7 @@ class _MetadataManager:
                 self._conn.commit()
                 return gap_id
 
-        except Exception as e:
+        except (json.JSONDecodeError, sqlite3.Error, ValueError) as e:
             logger.error("Failed to add knowledge gap: %s", e)
             return None
 
@@ -869,7 +870,7 @@ class _MetadataManager:
 
             return gaps
 
-        except Exception as e:
+        except (json.JSONDecodeError, ValueError) as e:
             logger.error("Failed to get unresolved gaps: %s", e)
             return []
 
@@ -924,7 +925,7 @@ class _MetadataManager:
                 self._conn.commit()
                 return True
 
-        except Exception as e:
+        except (ImportError, ModuleNotFoundError, sqlite3.Error) as e:
             logger.error("Failed to resolve knowledge gap %d: %s", gap_id, e)
             return False
 
@@ -952,6 +953,6 @@ class _MetadataManager:
                 "unresolved": row[2],
             }
 
-        except Exception as e:
+        except sqlite3.Error as e:
             logger.error("Failed to get gap stats: %s", e)
             return {"total": 0, "resolved": 0, "unresolved": 0}
