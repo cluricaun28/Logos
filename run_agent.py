@@ -241,7 +241,7 @@ def _get_proxy_for_base_url(base_url: Optional[str]) -> Optional[str]:
     try:
         if urllib.request.proxy_bypass_environment(host):
             return None
-    except Exception:
+    except (ValueError, TypeError):
         pass
 
     return proxy
@@ -367,7 +367,7 @@ def _should_parallelize_tool_batch(tool_calls) -> bool:
         tool_name = tool_call.function.name
         try:
             function_args = json.loads(tool_call.function.arguments)
-        except Exception:
+        except (json.JSONDecodeError, TypeError):
             logging.debug(
                 "Could not parse args for %s — defaulting to sequential; raw=%s",
                 tool_name,
@@ -1053,7 +1053,7 @@ class AIAgent:
         # not mid-conversation.  Also validates the api_mode is registered.
         try:
             self._get_transport()
-        except Exception:
+        except (ImportError, AttributeError):
             pass  # Non-fatal — transport may not exist for all modes yet
 
         try:
@@ -1064,7 +1064,7 @@ class AIAgent:
 
             if self.provider not in _AGGREGATOR_PROVIDERS:
                 self.model = normalize_model_for_provider(self.model, self.provider)
-        except Exception:
+        except (ImportError, TypeError):
             pass
 
         # GPT-5.x models usually require the Responses API path, but some
@@ -1201,7 +1201,7 @@ class AIAgent:
             _ttl = _pc_cfg.get("cache_ttl", "5m")
             if _ttl in ("5m", "1h"):
                 self._cache_ttl = _ttl
-        except Exception:
+        except (ImportError, TypeError):
             pass
 
         # Iteration budget: the LLM is only notified when it actually exhausts
@@ -1355,7 +1355,7 @@ class AIAgent:
                         self._bedrock_guardrail_config["streamProcessingMode"] = _gr["stream_processing_mode"]
                     if _gr.get("trace"):
                         self._bedrock_guardrail_config["trace"] = _gr["trace"]
-            except Exception:
+            except (ImportError, KeyError, TypeError):
                 pass
             self.client = None
             self._client_kwargs = {}
@@ -1439,7 +1439,7 @@ class AIAgent:
                             _pcfg = PROVIDER_REGISTRY.get(_explicit)
                             if _pcfg and _pcfg.api_key_env_vars:
                                 _env_hint = _pcfg.api_key_env_vars[0]
-                        except Exception:
+                        except (ImportError, AttributeError, KeyError, IndexError):
                             pass
                         raise RuntimeError(
                             f"Provider '{_explicit}' is set in config.yaml but no API key "
@@ -1487,7 +1487,7 @@ class AIAgent:
                         print(f"🔑 Using API key: {key_used[:8]}...{key_used[-4:]}")
                     else:
                         print(f"⚠️  Warning: API key appears invalid or missing (got: '{key_used[:20] if key_used else 'none'}...')")
-            except Exception as e:
+            except (AttributeError, ConnectionError, TimeoutError, ValueError, TypeError) as e:
                 raise RuntimeError(f"Failed to initialize OpenAI client: {e}")
         
         # Provider fallback chain — ordered list of backup providers tried
@@ -1616,7 +1616,7 @@ class AIAgent:
                     user_id=None,
                     parent_session_id=self._parent_session_id,
                 )
-            except Exception as e:
+            except (sqlite3.Error, AttributeError, TypeError) as e:
                 # Transient SQLite lock contention (e.g. CLI and gateway writing
                 # concurrently) must NOT permanently disable session_search for
                 # this agent.  Keep _session_db alive — subsequent message
@@ -1635,7 +1635,7 @@ class AIAgent:
         try:
             from hermes_cli.config import load_config as _load_agent_config
             _agent_cfg = _load_agent_config()
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             _agent_cfg = {}
         # Cache only the derived auxiliary archiving context override that is
         # needed later by the startup feasibility check.  Avoid exposing a
@@ -1662,7 +1662,7 @@ class AIAgent:
                         user_char_limit=mem_config.get("user_char_limit", 1375),
                     )
                     self._memory_store.load_from_disk()
-            except Exception:
+            except (OSError, PermissionError, ImportError, AttributeError, TypeError):
                 pass  # Memory is optional -- don't break agent init
         
 
@@ -1695,7 +1695,7 @@ class AIAgent:
                                 _st = self._session_db.get_session_title(self.session_id)
                                 if _st:
                                     _init_kwargs["session_title"] = _st
-                            except Exception:
+                            except (sqlite3.Error, AttributeError, TypeError):
                                 pass
                         # Thread gateway user identity for per-user memory scoping
                         if self._user_id:
@@ -1719,14 +1719,14 @@ class AIAgent:
                             _profile = get_active_profile_name()
                             _init_kwargs["agent_identity"] = _profile
                             _init_kwargs["agent_workspace"] = "hermes"
-                        except Exception:
+                        except (ImportError, ModuleNotFoundError):
                             pass
                         self._memory_manager.initialize_all(**_init_kwargs)
                         logger.info("Memory provider '%s' activated", _mem_provider_name)
                     else:
                         logger.debug("Memory provider '%s' not found or not available", _mem_provider_name)
                         self._memory_manager = None
-            except Exception as _mpe:
+            except (ImportError, AttributeError, TypeError, OSError) as _mpe:
                 logger.warning("Memory provider plugin init failed: %s", _mpe)
                 self._memory_manager = None
 
@@ -1757,7 +1757,7 @@ class AIAgent:
         try:
             skills_config = _agent_cfg.get("skills", {})
             self._skill_nudge_interval = int(skills_config.get("creation_nudge_interval", 10))
-        except Exception:
+        except (TypeError, ValueError):
             pass
 
         # Tool-use enforcement config: "auto" (default — matches hardcoded
@@ -1797,7 +1797,7 @@ class AIAgent:
         # /models, so the startup feasibility check needs the config hint.
         try:
             _aux_cfg = _agent_cfg.get("auxiliary", {}).get("archiving", {}) or _agent_cfg.get("auxiliary", {}).get("compression", {})
-        except Exception:
+        except (AttributeError, TypeError):
             _aux_cfg = {}
         if isinstance(_aux_cfg, dict):
             _aux_context_config = _aux_cfg.get("context_length")
@@ -1839,7 +1839,7 @@ class AIAgent:
         try:
             from hermes_cli.config import get_compatible_custom_providers
             _custom_providers = get_compatible_custom_providers(_agent_cfg)
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             _custom_providers = _agent_cfg.get("custom_providers")
             if not isinstance(_custom_providers, list):
                 _custom_providers = []
@@ -1855,7 +1855,7 @@ class AIAgent:
                 )
                 if _cp_ctx_resolved:
                     _config_context_length = int(_cp_ctx_resolved)
-            except Exception:
+            except (AttributeError, TypeError, ValueError):
                 _cp_ctx_resolved = None
 
             # Surface a clear warning if the user set a context_length but it
@@ -1910,7 +1910,7 @@ class AIAgent:
         try:
             _ctx_cfg = _agent_cfg.get("context", {}) if isinstance(_agent_cfg, dict) else {}
             _engine_name = _ctx_cfg.get("engine", "compressor") or "compressor"
-        except Exception:
+        except (AttributeError, TypeError):
             pass
 
         if _engine_name != "compressor":
@@ -1919,7 +1919,7 @@ class AIAgent:
                 from plugins.context_engine import load_context_engine
                 _engine_config = _ctx_cfg.get(_engine_name, {}) if isinstance(_ctx_cfg, dict) else {}
                 _selected_engine = load_context_engine(_engine_name, config=_engine_config)
-            except Exception as _ce_load_err:
+            except (ImportError, AttributeError, TypeError, OSError) as _ce_load_err:
                 logger.debug("Context engine load from plugins/context_engine/: %s", _ce_load_err)
 
             # Try general plugin system as fallback
@@ -1929,7 +1929,7 @@ class AIAgent:
                     _candidate = get_plugin_context_engine()
                     if _candidate and _candidate.name == _engine_name:
                         _selected_engine = _candidate
-                except Exception:
+                except (ImportError, AttributeError):
                     pass
 
             if _selected_engine is None:
@@ -2018,7 +2018,7 @@ class AIAgent:
                     model=self.model,
                     context_length=getattr(self.context_archiver, "context_length", 0),
                 )
-            except Exception as _ce_err:
+            except (AttributeError, TypeError, OSError) as _ce_err:
                 logger.debug("Context engine on_session_start: %s", _ce_err)
 
         self._subdirectory_hints = SubdirectoryHintTracker(
@@ -2061,7 +2061,7 @@ class AIAgent:
                 _detected = query_ollama_num_ctx(self.model, self.base_url, api_key=self.api_key or "")
                 if _detected and _detected > 0:
                     self._ollama_num_ctx = _detected
-            except Exception as exc:
+            except (ConnectionError, TimeoutError, OSError, AttributeError) as exc:
                 logger.debug("Ollama num_ctx detection failed: %s", exc)
         # Cap auto-detected ollama_num_ctx to the user's explicit context_length.
         # Without this, GGUF metadata can advertise 256K+ which Ollama honours
@@ -2181,7 +2181,7 @@ class AIAgent:
             ensure_lmstudio_model_loaded(
                 self.model, self.base_url, getattr(self, "api_key", ""), target_ctx,
             )
-        except Exception as err:
+        except (ConnectionError, TimeoutError, OSError, AttributeError) as err:
             logger.debug("LM Studio preload skipped: %s", err)
 
     def switch_model(self, new_model, new_provider, api_key='', base_url='', api_mode=''):
@@ -2293,7 +2293,7 @@ class AIAgent:
                 from hermes_cli.config import load_config, get_compatible_custom_providers
                 _sm_cfg = load_config()
                 _sm_custom_providers = get_compatible_custom_providers(_sm_cfg)
-            except Exception:
+            except (ImportError, ModuleNotFoundError):
                 _sm_custom_providers = None
             new_context_length = get_model_context_length(
                 self.model,
@@ -2457,12 +2457,12 @@ class AIAgent:
         """
         try:
             self._vprint(f"{self.log_prefix}{message}", force=True)
-        except Exception:
+        except (AttributeError, TypeError, OSError):
             pass
         if self.status_callback:
             try:
                 self.status_callback("lifecycle", message)
-            except Exception:
+            except (AttributeError, TypeError):
                 logger.debug("status_callback error in _emit_status", exc_info=True)
 
     def _emit_warning(self, message: str) -> None:
@@ -2474,19 +2474,19 @@ class AIAgent:
         """
         try:
             self._vprint(f"{self.log_prefix}{message}", force=True)
-        except Exception:
+        except (AttributeError, TypeError, OSError):
             pass
         if self.status_callback:
             try:
                 self.status_callback("warn", message)
-            except Exception:
+            except (AttributeError, TypeError):
                 logger.debug("status_callback error in _emit_warning", exc_info=True)
 
     def _emit_auxiliary_failure(self, task: str, exc: BaseException) -> None:
         """Surface a compact warning for failed auxiliary work."""
         try:
             detail = self._summarize_api_error(exc)
-        except Exception:
+        except (AttributeError, TypeError):
             detail = str(exc)
         detail = (detail or exc.__class__.__name__).strip()
         if len(detail) > 220:
@@ -2627,7 +2627,7 @@ class AIAgent:
             # Hard rejections (aux below minimum context) must propagate
             # so the session refuses to start.
             raise
-        except Exception as exc:
+        except (AttributeError, TypeError, ConnectionError, TimeoutError, OSError) as exc:
             logger.debug(
                 "Compression feasibility check failed (non-fatal): %s", exc
             )
@@ -2646,7 +2646,7 @@ class AIAgent:
         if msg and self.status_callback:
             try:
                 self.status_callback("lifecycle", msg)
-            except Exception:
+            except (AttributeError, TypeError):
                 pass
 
     # ── Backward compat aliases (compress → archive rename) ──
@@ -2873,7 +2873,7 @@ class AIAgent:
             try:
                 from hermes_cli.models import _should_use_copilot_responses_api
                 return _should_use_copilot_responses_api(model)
-            except Exception:
+            except (ImportError, AttributeError, TypeError):
                 # Fall back to the generic GPT-5 rule if Copilot-specific
                 # logic is unavailable for any reason.
                 pass
@@ -3221,12 +3221,12 @@ class AIAgent:
                     )
             else:
                 cleanup_vm(task_id)
-        except Exception as e:
+        except (OSError, ConnectionError, TimeoutError, AttributeError, TypeError) as e:
             if self.verbose_logging:
                 logging.warning(f"Failed to cleanup VM for task {task_id}: {e}")
         try:
             cleanup_browser(task_id)
-        except Exception as e:
+        except (OSError, ConnectionError, TimeoutError, AttributeError, TypeError) as e:
             if self.verbose_logging:
                 logging.warning(f"Failed to cleanup browser for task {task_id}: {e}")
 
@@ -3392,7 +3392,7 @@ class AIAgent:
                 return "deny"
             try:
                 _set_approval_callback(_bg_review_auto_deny)
-            except Exception:
+            except (AttributeError, TypeError):
                 pass
             review_agent = None
             try:
@@ -3452,10 +3452,10 @@ class AIAgent:
                     if _bg_cb:
                         try:
                             _bg_cb(f"💾 {summary}")
-                        except Exception:
+                        except (AttributeError, TypeError):
                             pass
 
-            except Exception as e:
+            except (ImportError, AttributeError, TypeError, OSError) as e:
                 logger.warning("Background memory/skill review failed: %s", e)
                 self._emit_auxiliary_failure("background review", e)
             finally:
@@ -3470,17 +3470,17 @@ class AIAgent:
                 if review_agent is not None:
                     try:
                         review_agent.shutdown_memory_provider()
-                    except Exception:
+                    except (AttributeError, TypeError):
                         pass
                     try:
                         review_agent.close()
-                    except Exception:
+                    except (AttributeError, TypeError):
                         pass
                 # Clear the approval callback on this bg-review thread so a
                 # recycled thread-id doesn't inherit a stale reference.
                 try:
                     _set_approval_callback(None)
-                except Exception:
+                except (AttributeError, TypeError):
                     pass
 
         t = threading.Thread(target=_run_review, daemon=True, name="bg-review")
@@ -3587,7 +3587,7 @@ class AIAgent:
                     codex_message_items=msg.get("codex_message_items") if role == "assistant" else None,
                 )
             self._last_flushed_db_idx = len(messages)
-        except Exception as e:
+        except (sqlite3.Error, AttributeError, TypeError) as e:
             logger.warning("Session DB append_message failed: %s", e)
 
     def _get_messages_up_to_last_assistant(self, messages: List[Dict]) -> List[Dict]:
@@ -4001,7 +4001,7 @@ class AIAgent:
             api_key = None
             try:
                 api_key = getattr(self.client, "api_key", None)
-            except Exception as e:
+            except (AttributeError, TypeError) as e:
                 logger.debug("Could not extract API key for debug dump: %s", e)
 
             dump_payload: Dict[str, Any] = {
@@ -4038,7 +4038,7 @@ class AIAgent:
                     try:
                         error_info["response_status"] = getattr(response_obj, "status_code", None)
                         error_info["response_text"] = response_obj.text
-                    except Exception as e:
+                    except (AttributeError, TypeError) as e:
                         logger.debug("Could not extract error response details: %s", e)
 
                 dump_payload["error"] = error_info
@@ -4056,7 +4056,7 @@ class AIAgent:
                 print(json.dumps(dump_payload, ensure_ascii=False, indent=2, default=str))
 
             return dump_file
-        except Exception as dump_error:
+        except (OSError, TypeError, ValueError) as dump_error:
             if self.verbose_logging:
                 logging.warning(f"Failed to dump API request debug payload: {dump_error}")
             return None
@@ -4110,7 +4110,7 @@ class AIAgent:
                             existing_count, len(cleaned),
                         )
                         return
-                except Exception:
+                except (json.JSONDecodeError, TypeError, ValueError):
                     pass  # corrupted existing file — allow the overwrite
 
             entry = {
@@ -4133,7 +4133,7 @@ class AIAgent:
                 default=str,
             )
 
-        except Exception as e:
+        except (OSError, TypeError, ValueError) as e:
             if self.verbose_logging:
                 logging.warning(f"Failed to save session log: {e}")
     
@@ -4192,7 +4192,7 @@ class AIAgent:
             for _wtid in _worker_tids:
                 try:
                     _set_interrupt(True, _wtid)
-                except Exception:
+                except (AttributeError, TypeError):
                     pass
         # Propagate interrupt to any running child agents (subagent delegation)
         with self._active_children_lock:
@@ -4200,7 +4200,7 @@ class AIAgent:
         for child in children_copy:
             try:
                 child.interrupt(message)
-            except Exception as e:
+            except (AttributeError, TypeError) as e:
                 logger.debug("Failed to propagate interrupt to child agent: %s", e)
         if not self.quiet_mode:
             print("\n⚡ Interrupt requested" + (f": '{message[:40]}...'" if message and len(message) > 40 else f": '{message}'" if message else ""))
@@ -4227,7 +4227,7 @@ class AIAgent:
             for _wtid in _worker_tids:
                 try:
                     _set_interrupt(False, _wtid)
-                except Exception:
+                except (AttributeError, TypeError):
                     pass
         # A hard interrupt supersedes any pending /steer — the steer was
         # meant for the agent's next tool-call iteration, which will no
@@ -4342,7 +4342,7 @@ class AIAgent:
                 blocks = list(existing_content) if existing_content else []
                 blocks.append({"type": "text", "text": marker.lstrip()})
                 messages[target_idx]["content"] = blocks
-            except Exception:
+            except (TypeError, KeyError, IndexError):
                 # Fall back to string replacement if content shape is unexpected.
                 messages[target_idx]["content"] = f"{existing_content}{marker}"
         else:
@@ -4374,7 +4374,7 @@ class AIAgent:
             state = parse_rate_limit_headers(headers, provider=self.provider)
             if state is not None:
                 self._rate_limit_state = state
-        except Exception:
+        except (ImportError, AttributeError, TypeError):
             pass  # Never let header parsing break the agent loop
 
     def get_rate_limit_state(self):
@@ -4410,11 +4410,11 @@ class AIAgent:
         if self._memory_manager:
             try:
                 self._memory_manager.on_session_end(messages or [])
-            except Exception:
+            except (AttributeError, TypeError):
                 pass
             try:
                 self._memory_manager.shutdown_all()
-            except Exception:
+            except (AttributeError, TypeError):
                 pass
         # Notify context engine of session end (flush DAG, close DBs, etc.)
         if hasattr(self, "context_archiver") and self.context_archiver:
@@ -4423,9 +4423,9 @@ class AIAgent:
                     self.session_id or "",
                     messages or [],
                 )
-            except Exception:
+            except (AttributeError, TypeError):
                 pass
-    
+
     def commit_memory_session(self, messages: list = None) -> None:
         """Trigger end-of-session extraction without tearing providers down.
         Called when session_id rotates (e.g. /new, context archiving);
@@ -4435,7 +4435,7 @@ class AIAgent:
             return
         try:
             self._memory_manager.on_session_end(messages or [])
-        except Exception:
+        except (AttributeError, TypeError):
             pass
 
     def _sync_external_memory_for_turn(
@@ -4478,7 +4478,7 @@ class AIAgent:
         try:
             self._memory_manager.sync_all(original_user_message, final_response)
             self._memory_manager.queue_prefetch_all(original_user_message)
-        except Exception as _e:
+        except (AttributeError, TypeError, OSError) as _e:
             logger.warning("Memory sync/queue_prefetch failed (non-fatal): %s", _e)
 
     def release_clients(self) -> None:
@@ -4510,13 +4510,13 @@ class AIAgent:
             for child in children:
                 try:
                     child.release_clients()
-                except Exception:
+                except (AttributeError, TypeError):
                     # Fall back to full close on children; they're per-turn.
                     try:
                         child.close()
-                    except Exception:
+                    except (AttributeError, TypeError):
                         pass
-        except Exception:
+        except (AttributeError, TypeError):
             pass
 
         # Close the OpenAI/httpx client to release sockets immediately.
@@ -4525,7 +4525,7 @@ class AIAgent:
             if client is not None:
                 self._close_openai_client(client, reason="cache_evict", shared=True)
                 self.client = None
-        except Exception:
+        except (AttributeError, TypeError):
             pass
 
     def close(self) -> None:
@@ -4547,19 +4547,19 @@ class AIAgent:
         try:
             from tools.process_registry import process_registry
             process_registry.kill_all(task_id=task_id)
-        except Exception:
+        except (ImportError, AttributeError, TypeError):
             pass
 
         # 2. Clean terminal sandbox environments
         try:
             cleanup_vm(task_id)
-        except Exception:
+        except (OSError, ConnectionError, TimeoutError, AttributeError, TypeError):
             pass
 
         # 3. Clean browser daemon sessions
         try:
             cleanup_browser(task_id)
-        except Exception:
+        except (OSError, ConnectionError, TimeoutError, AttributeError, TypeError):
             pass
 
         # 4. Close active child agents
@@ -4570,9 +4570,9 @@ class AIAgent:
             for child in children:
                 try:
                     child.close()
-                except Exception:
+                except (AttributeError, TypeError):
                     pass
-        except Exception:
+        except (AttributeError, TypeError):
             pass
 
         # 5. Close the OpenAI/httpx client
@@ -4581,7 +4581,7 @@ class AIAgent:
             if client is not None:
                 self._close_openai_client(client, reason="agent_close", shared=True)
                 self.client = None
-        except Exception:
+        except (AttributeError, TypeError):
             pass
 
     def _hydrate_todo_store(self, history: List[Dict[str, Any]]) -> None:
@@ -4735,7 +4735,7 @@ class AIAgent:
                 _ext_mem_block = self._memory_manager.build_system_prompt()
                 if _ext_mem_block:
                     prompt_parts.append(_ext_mem_block)
-            except Exception:
+            except (AttributeError, TypeError):
                 pass
 
         has_skills_tools = any(name in self.valid_tool_names for name in ['skills_list', 'skill_view', 'skill_manage'])
@@ -4763,7 +4763,7 @@ class AIAgent:
             deferred_index = get_deferred_tools_index()
             if deferred_index:
                 prompt_parts.append(deferred_index)
-        except Exception as e:
+        except (AttributeError, TypeError) as e:
             logger.warning("Failed to build deferred tools index: %s", e)
 
         if not self.skip_context_files:
@@ -5291,7 +5291,7 @@ class AIAgent:
                 transport=_httpx.HTTPTransport(socket_options=_sock_opts),
                 proxy=_proxy,
             )
-        except Exception:
+        except (ImportError, AttributeError, TypeError, ConnectionError, TimeoutError):
             return None
 
     def _create_openai_client(self, client_kwargs: dict, *, reason: str, shared: bool) -> Any:
@@ -5442,7 +5442,7 @@ class AIAgent:
                 except OSError:
                     pass
                 closed += 1
-        except Exception as exc:
+        except (OSError, AttributeError, TypeError) as exc:
             logger.debug("Force-close TCP sockets sweep error: %s", exc)
         return closed
 
@@ -5461,7 +5461,7 @@ class AIAgent:
                 force_closed,
                 self._client_log_context(),
             )
-        except Exception as exc:
+        except (AttributeError, TypeError, ConnectionError, TimeoutError) as exc:
             logger.debug(
                 "OpenAI client close failed (%s, shared=%s) %s error=%s",
                 reason,
@@ -5475,7 +5475,7 @@ class AIAgent:
             old_client = getattr(self, "client", None)
             try:
                 new_client = self._create_openai_client(self._client_kwargs, reason=reason, shared=True)
-            except Exception as exc:
+            except (AttributeError, ConnectionError, TimeoutError, ValueError, TypeError) as exc:
                 logger.warning(
                     "Failed to rebuild shared OpenAI client (%s) %s error=%s",
                     reason,
@@ -5569,7 +5569,7 @@ class AIAgent:
                 )
                 self._replace_primary_openai_client(reason="dead_connection_cleanup")
                 return True
-        except Exception as exc:
+        except (AttributeError, TypeError, ConnectionError, TimeoutError) as exc:
             logger.debug("Dead connection check error: %s", exc)
         return False
 
@@ -5657,7 +5657,7 @@ class AIAgent:
                                     if on_first_delta:
                                         try:
                                             on_first_delta()
-                                        except Exception:
+                                        except (AttributeError, TypeError):
                                             pass
                                 self._fire_stream_delta(delta_text)
                         # Track tool calls to suppress text streaming
@@ -5819,7 +5819,7 @@ class AIAgent:
             if callable(close_fn):
                 try:
                     close_fn()
-                except Exception:
+                except (AttributeError, TypeError):
                     pass
 
         if terminal_response is not None:
@@ -5834,7 +5834,7 @@ class AIAgent:
             from hermes_cli.auth import resolve_codex_runtime_credentials
 
             creds = resolve_codex_runtime_credentials(force_refresh=force)
-        except Exception as exc:
+        except (ImportError, ConnectionError, TimeoutError, AttributeError) as exc:
             logger.debug("Codex credential refresh failed: %s", exc)
             return False
 
@@ -5867,7 +5867,7 @@ class AIAgent:
                 timeout_seconds=float(os.getenv("HERMES_NOUS_TIMEOUT_SECONDS", "15")),
                 force_mint=force,
             )
-        except Exception as exc:
+        except (ConnectionError, TimeoutError, OSError, AttributeError) as exc:
             logger.debug("Nous credential refresh failed: %s", exc)
             return False
 
@@ -5905,7 +5905,7 @@ class AIAgent:
             from hermes_cli.copilot_auth import resolve_copilot_token
 
             new_token, token_source = resolve_copilot_token()
-        except Exception as exc:
+        except (ImportError, ConnectionError, TimeoutError, AttributeError) as exc:
             logger.debug("Copilot credential refresh failed: %s", exc)
             return False
 
@@ -5942,7 +5942,7 @@ class AIAgent:
             from agent.anthropic_adapter import resolve_anthropic_token, build_anthropic_client
 
             new_token = resolve_anthropic_token()
-        except Exception as exc:
+        except (ImportError, ConnectionError, TimeoutError, AttributeError) as exc:
             logger.debug("Anthropic credential refresh failed: %s", exc)
             return False
 
@@ -5954,7 +5954,7 @@ class AIAgent:
 
         try:
             self._anthropic_client.close()
-        except Exception:
+        except (AttributeError, TypeError):
             pass
 
         try:
@@ -5963,7 +5963,7 @@ class AIAgent:
                 getattr(self, "_anthropic_base_url", None),
                 timeout=get_provider_request_timeout(self.provider, self.model),
             )
-        except Exception as exc:
+        except (AttributeError, ConnectionError, TimeoutError, ValueError, TypeError) as exc:
             logger.warning("Failed to rebuild Anthropic client after credential refresh: %s", exc)
             return False
 
@@ -6010,7 +6010,7 @@ class AIAgent:
 
             try:
                 self._anthropic_client.close()
-            except Exception:
+            except (AttributeError, TypeError):
                 pass
 
             self._anthropic_api_key = runtime_key
@@ -6187,7 +6187,7 @@ class AIAgent:
                     client = _get_bedrock_runtime_client(region)
                     try:
                         raw_response = client.converse(**api_kwargs)
-                    except Exception as _bedrock_exc:
+                    except (ConnectionError, TimeoutError, OSError, AttributeError) as _bedrock_exc:
                         # Evict the cached client on stale-connection failures
                         # so the outer retry loop builds a fresh client/pool.
                         if is_stale_connection_error(_bedrock_exc):
@@ -6200,7 +6200,7 @@ class AIAgent:
                         api_kwargs=api_kwargs,
                     )
                     result["response"] = request_client_holder["client"].chat.completions.create(**api_kwargs)
-            except Exception as e:
+            except (ConnectionError, TimeoutError, OSError, AttributeError, TypeError) as e:
                 result["error"] = e
             finally:
                 request_client = request_client_holder.get("client")
@@ -6259,7 +6259,7 @@ class AIAgent:
                         rc = request_client_holder.get("client")
                         if rc is not None:
                             self._close_request_openai_client(rc, reason="stale_call_kill")
-                except Exception:
+                except (AttributeError, TypeError):
                     pass
                 self._touch_activity(
                     f"stale non-streaming call killed after {int(_elapsed)}s"
@@ -6285,7 +6285,7 @@ class AIAgent:
                         request_client = request_client_holder.get("client")
                         if request_client is not None:
                             self._close_request_openai_client(request_client, reason="interrupt_abort")
-                except Exception:
+                except (AttributeError, TypeError):
                     pass
                 raise InterruptedError("Agent interrupted during API call")
         if result["error"] is not None:
@@ -6307,7 +6307,7 @@ class AIAgent:
                 for cb in callbacks:
                     try:
                         cb(tail)
-                    except Exception:
+                    except (AttributeError, TypeError):
                         pass
                 self._record_streamed_assistant_text(tail)
         self._current_streamed_assistant_text = ""
@@ -6348,7 +6348,7 @@ class AIAgent:
         already_streamed = self._interim_content_was_streamed(visible)
         try:
             cb(visible, already_streamed=already_streamed)
-        except Exception:
+        except (AttributeError, TypeError):
             logger.debug("interim_assistant_callback error", exc_info=True)
 
     def _fire_stream_delta(self, text: str) -> None:
@@ -6385,7 +6385,7 @@ class AIAgent:
             try:
                 cb(text)
                 delivered = True
-            except Exception:
+            except (AttributeError, TypeError):
                 pass
         if delivered:
             self._record_streamed_assistant_text(text)
@@ -6396,7 +6396,7 @@ class AIAgent:
         if cb is not None:
             try:
                 cb(text)
-            except Exception:
+            except (AttributeError, TypeError):
                 pass
 
     def _fire_tool_gen_started(self, tool_name: str) -> None:
@@ -6411,7 +6411,7 @@ class AIAgent:
         if cb is not None:
             try:
                 cb(tool_name)
-            except Exception:
+            except (AttributeError, TypeError):
                 pass
 
     def _has_stream_consumers(self) -> bool:
@@ -6462,7 +6462,7 @@ class AIAgent:
                     first_delta_fired["done"] = True
                     try:
                         on_first_delta()
-                    except Exception:
+                    except (AttributeError, TypeError):
                         pass
 
             def _bedrock_call():
@@ -6478,7 +6478,7 @@ class AIAgent:
                     client = _get_bedrock_runtime_client(region)
                     try:
                         raw_response = client.converse_stream(**api_kwargs)
-                    except Exception as _bedrock_exc:
+                    except (ConnectionError, TimeoutError, OSError, AttributeError) as _bedrock_exc:
                         # Evict the cached client on stale-connection failures
                         # so the outer retry loop builds a fresh client/pool.
                         if is_stale_connection_error(_bedrock_exc):
@@ -6505,7 +6505,7 @@ class AIAgent:
                         on_reasoning_delta=_on_reasoning if self.reasoning_callback or self.stream_delta_callback else None,
                         on_interrupt_check=lambda: self._interrupt_requested,
                     )
-                except Exception as e:
+                except (ConnectionError, TimeoutError, OSError):
                     result["error"] = e
 
             t = threading.Thread(target=_bedrock_call, daemon=True)
@@ -6532,7 +6532,7 @@ class AIAgent:
                 first_delta_fired["done"] = True
                 try:
                     on_first_delta()
-                except Exception:
+                except (AttributeError, TypeError):
                     pass
 
         def _call_chat_completions():
@@ -6651,7 +6651,7 @@ class AIAgent:
                             try:
                                 self.stream_delta_callback(delta.content)
                                 self._record_streamed_assistant_text(delta.content)
-                            except Exception:
+                            except (AttributeError, TypeError):
                                 pass
 
                 # Accumulate tool call deltas — notify display on first name
@@ -6867,7 +6867,7 @@ class AIAgent:
                         else:
                             result["response"] = _call_chat_completions()
                         return  # success
-                    except Exception as e:
+                    except (ConnectionError, TimeoutError, OSError) as e:
                         _is_timeout = isinstance(
                             e, (_httpx.ReadTimeout, _httpx.ConnectTimeout, _httpx.PoolTimeout)
                         )
@@ -6952,7 +6952,7 @@ class AIAgent:
                                     "\n\n⚠ Connection dropped mid tool-call; "
                                     "reconnecting…\n\n"
                                 )
-                            except Exception:
+                            except (AttributeError, TypeError):
                                 pass
                             # Reset the streamed-text buffer so the retry's
                             # fresh preamble doesn't get double-recorded in
@@ -6960,7 +6960,7 @@ class AIAgent:
                             # pollute the interim-visible-text comparison).
                             try:
                                 self._reset_stream_delivery_tracking()
-                            except Exception:
+                            except (AttributeError, TypeError):
                                 pass
                             # Reset in-memory accumulators so the next
                             # attempt's chunks don't concat onto the dead
@@ -6987,7 +6987,7 @@ class AIAgent:
                                 self._replace_primary_openai_client(
                                     reason="stream_mid_tool_retry_pool_cleanup"
                                 )
-                            except Exception:
+                            except (AttributeError, TypeError):
                                 pass
                             self._emit_status("🔄 Reconnected — resuming…")
                             continue
@@ -7056,7 +7056,7 @@ class AIAgent:
                                     self._replace_primary_openai_client(
                                         reason="stream_retry_pool_cleanup"
                                     )
-                                except Exception:
+                                except (AttributeError, TypeError):
                                     pass
                                 self._emit_status("🔄 Reconnected — resuming…")
                                 continue
@@ -7168,13 +7168,13 @@ class AIAgent:
                     rc = request_client_holder.get("client")
                     if rc is not None:
                         self._close_request_openai_client(rc, reason="stale_stream_kill")
-                except Exception:
+                except (AttributeError, TypeError):
                     pass
                 # Rebuild the primary client too — its connection pool
                 # may hold dead sockets from the same provider outage.
                 try:
                     self._replace_primary_openai_client(reason="stale_stream_pool_cleanup")
-                except Exception:
+                except (AttributeError, TypeError, ConnectionError, TimeoutError):
                     pass
                 # Reset the timer so we don't kill repeatedly while
                 # the inner thread processes the closure.
@@ -7192,7 +7192,7 @@ class AIAgent:
                         request_client = request_client_holder.get("client")
                         if request_client is not None:
                             self._close_request_openai_client(request_client, reason="stream_interrupt_abort")
-                except Exception:
+                except (AttributeError, TypeError):
                     pass
                 raise InterruptedError("Agent interrupted during streaming API call")
         if result["error"] is not None:
@@ -7232,7 +7232,7 @@ class AIAgent:
                     # instead of only in the persisted transcript.
                     try:
                         self._fire_stream_delta(_warn)
-                    except Exception:
+                    except (AttributeError, TypeError):
                         pass
                     logger.warning(
                         "Partial stream dropped tool call(s) %s after %s chars "
@@ -7327,7 +7327,7 @@ class AIAgent:
                 from hermes_cli.model_normalize import normalize_model_for_provider
 
                 fb_model = normalize_model_for_provider(fb_model, fb_provider)
-            except Exception:
+            except (ImportError, ModuleNotFoundError):
                 pass
 
             # Determine api_mode from provider / base URL / model
@@ -7456,7 +7456,7 @@ class AIAgent:
                 old_model, fb_model, fb_provider,
             )
             return True
-        except Exception as e:
+        except (ImportError, ModuleNotFoundError, OSError) as e:
             logging.error("Failed to activate fallback %s: %s", fb_model, e)
             return self._try_activate_fallback()  # try next in chain
 
@@ -7535,7 +7535,7 @@ class AIAgent:
                 self.model, self.provider,
             )
             return True
-        except Exception as e:
+        except (ImportError, ModuleNotFoundError, KeyError, TypeError) as e:
             logging.warning("Failed to restore primary runtime: %s", e)
             return False
 
@@ -7584,7 +7584,7 @@ class AIAgent:
                     self._close_openai_client(
                         self.client, reason="primary_recovery", shared=True,
                     )
-                except Exception:
+                except (AttributeError, TypeError):
                     pass
 
             # Rebuild from primary snapshot
@@ -7623,7 +7623,7 @@ class AIAgent:
             )
             time.sleep(wait_time)
             return True
-        except Exception as e:
+        except (OSError, AttributeError) as e:
             logging.warning("Primary transport recovery failed: %s", e)
             return False
 
@@ -7689,7 +7689,7 @@ class AIAgent:
             )
             result = json.loads(result_json) if isinstance(result_json, str) else {}
             description = (result.get("analysis") or "").strip()
-        except Exception as e:
+        except (ImportError, ModuleNotFoundError, json.JSONDecodeError, OSError) as e:
             description = f"Image analysis failed: {e}"
         finally:
             if cleanup_path and cleanup_path.exists():
@@ -7727,7 +7727,7 @@ class AIAgent:
             if caps is None:
                 return False
             return bool(caps.supports_vision)
-        except Exception:
+        except (AttributeError, TypeError):
             return False
 
     def _preprocess_anthropic_content(self, content: Any, role: str) -> Any:
@@ -7875,7 +7875,7 @@ class AIAgent:
 
         try:
             from tools.vision_tools import _resize_image_for_vision
-        except Exception as exc:
+        except (ImportError, ModuleNotFoundError) as exc:
             logger.warning("image-shrink recovery: vision_tools unavailable — %s", exc)
             return False
 
@@ -7920,13 +7920,13 @@ class AIAgent:
                 finally:
                     try:
                         Path(tmp.name).unlink(missing_ok=True)
-                    except Exception:
+                    except OSError:
                         pass
                 if not resized or len(resized) >= len(url):
                     # Shrink didn't help (or made it bigger — corrupt input?).
                     return None
                 return resized
-            except Exception as exc:
+            except (OSError, TypeError) as exc:
                 logger.warning("image-shrink recovery: re-encode failed — %s", exc)
                 return None
 
@@ -8154,7 +8154,7 @@ class AIAgent:
             _ft = _fixed_temperature_for_model(self.model, self.base_url)
             _omit_temp = _ft is OMIT_TEMPERATURE
             _fixed_temp = _ft if not _omit_temp else None
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             _omit_temp = False
             _fixed_temp = None
 
@@ -8179,7 +8179,7 @@ class AIAgent:
             try:
                 from agent.anthropic_adapter import _get_anthropic_max_output
                 _ant_max = _get_anthropic_max_output(self.model)
-            except Exception:
+            except (ImportError, ModuleNotFoundError):
                 pass  # fail open — let the proxy pick its default
 
         # Qwen session metadata precomputed here (promptId is per-call random)
@@ -8253,7 +8253,7 @@ class AIAgent:
                 from hermes_cli.models import github_model_reasoning_efforts
 
                 return bool(github_model_reasoning_efforts(self.model))
-            except Exception:
+            except (ImportError, TypeError):
                 return False
         if (self.provider or "").strip().lower() == "lmstudio":
             opts = self._lmstudio_reasoning_options_cached()
@@ -8298,7 +8298,7 @@ class AIAgent:
             opts = lmstudio_model_reasoning_options(
                 self.model, self.base_url, getattr(self, "api_key", ""),
             )
-        except Exception:
+        except (ImportError, ModuleNotFoundError, ConnectionError):
             opts = []
         if opts:
             cache[key] = opts
@@ -8321,7 +8321,7 @@ class AIAgent:
         """Format reasoning payload for GitHub Models/OpenAI-compatible routes."""
         try:
             from hermes_cli.models import github_model_reasoning_efforts
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             return None
 
         supported_efforts = github_model_reasoning_efforts(self.model)
@@ -8383,7 +8383,7 @@ class AIAgent:
             if not self.stream_delta_callback and not self._stream_callback:
                 try:
                     self.reasoning_callback(reasoning_text)
-                except Exception:
+                except (AttributeError, TypeError):
                     pass
 
         # Sanitize surrogates from API response — some models (e.g. Kimi/GLM via Ollama)
@@ -8798,12 +8798,12 @@ class AIAgent:
                                 summaries = [f"{r.get('role', '?')}: {r.get('content', '')[:100]}"
                                              for r in recent]
                                 parts.append(f"[{tn}] → {'; '.join(summaries)}")
-                        except Exception:
+                        except (TypeError, ValueError):
                             pass
                     return "\n".join(parts) if parts else ""
 
                 pm_context = self.context_archiver.get_recent_context(messages, pm_callback=_pm_callback) or ""
-            except Exception as _pm_err:
+            except (AttributeError, TypeError, OSError) as _pm_err:
                 logger.debug("PM context query failed (non-fatal): %s", _pm_err)
 
         # Step 2: Run task annotation (pass PM context separately, don't pollute messages)
@@ -8812,7 +8812,7 @@ class AIAgent:
                 annotated = self.context_archiver.annotate_tasks(messages, pm_context=pm_context or None)
                 # annotate_tasks returns a new list — return it to caller for reassignment
                 return annotated
-            except Exception as _tag_err:
+            except (AttributeError, TypeError) as _tag_err:
                 logger.debug("Per-turn task annotation failed (non-fatal): %s", _tag_err)
 
         return messages
@@ -8841,7 +8841,7 @@ class AIAgent:
         if self._memory_manager:
             try:
                 pre_archive_content = self._memory_manager.on_pre_compress(messages) or ""
-            except Exception:
+            except (AttributeError, TypeError):
                 pass
 
         # Task-aware annotation: inject task markers before archiving (Phase 1)
@@ -8849,7 +8849,7 @@ class AIAgent:
         if hasattr(self.context_archiver, 'annotate_tasks'):
             try:
                 messages = self.context_archiver.annotate_tasks(messages)
-            except Exception as _tag_err:
+            except (AttributeError, TypeError) as _tag_err:
                 logger.debug("Task annotation failed (non-fatal): %s", _tag_err)
 
         try:
@@ -8924,7 +8924,7 @@ class AIAgent:
                 self._session_db.update_system_prompt(self.session_id, new_system_prompt)
                 # Reset flush cursor — new session starts with no messages written
                 self._last_flushed_db_idx = 0
-            except Exception as e:
+            except (sqlite3.Error, AttributeError, TypeError) as e:
                 logger.warning("Session DB archiving split failed — new session will NOT be indexed: %s", e)
 
         # Notify the context engine that the session_id rotated because of
@@ -8940,7 +8940,7 @@ class AIAgent:
                     boundary_reason="archiving",
                     old_session_id=_old_sid,
                 )
-        except Exception as _ce_err:
+        except (AttributeError, TypeError, OSError) as _ce_err:
             logger.debug("context engine on_session_start (archiving): %s", _ce_err)
 
         # Warn on repeated archives (quality degrades with each pass)
@@ -8967,7 +8967,7 @@ class AIAgent:
         try:
             from tools.file_tools import reset_file_dedup
             reset_file_dedup(task_id)
-        except Exception:
+        except (ImportError, AttributeError, TypeError):
             pass
 
         logger.info(
@@ -9037,7 +9037,7 @@ class AIAgent:
             block_message = get_pre_tool_call_block_message(
                 function_name, function_args, task_id=effective_task_id or "",
             )
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             pass
         if block_message is not None:
             return json.dumps({"error": block_message}, ensure_ascii=False)
@@ -9082,7 +9082,7 @@ class AIAgent:
                             tool_call_id=tool_call_id,
                         ),
                     )
-                except Exception:
+                except (AttributeError, TypeError):
                     pass
             return result
         elif self._memory_manager and self._memory_manager.has_tool(function_name):
@@ -9175,7 +9175,7 @@ class AIAgent:
                     if file_path:
                         work_dir = self._checkpoint_mgr.get_working_dir_for_path(file_path)
                         self._checkpoint_mgr.ensure_checkpoint(work_dir, f"before {function_name}")
-                except Exception:
+                except (KeyError, TypeError, AttributeError):
                     pass
 
             # Checkpoint before destructive terminal commands
@@ -9187,7 +9187,7 @@ class AIAgent:
                         self._checkpoint_mgr.ensure_checkpoint(
                             cwd, f"before terminal: {cmd[:60]}"
                         )
-                except Exception:
+                except (KeyError, TypeError, AttributeError):
                     pass
 
             parsed_calls.append((tool_call, function_name, function_args))
@@ -9210,14 +9210,14 @@ class AIAgent:
                 try:
                     preview = _build_tool_preview(name, args)
                     self.tool_progress_callback("tool.started", name, preview, args)
-                except Exception as cb_err:
+                except (AttributeError, TypeError) as cb_err:
                     logging.debug(f"Tool progress callback error: {cb_err}")
 
         for tc, name, args in parsed_calls:
             if self.tool_start_callback:
                 try:
                     self.tool_start_callback(tc.id, name, args)
-                except Exception as cb_err:
+                except (AttributeError, TypeError) as cb_err:
                     logging.debug(f"Tool start callback error: {cb_err}")
 
         # ── Concurrent execution ─────────────────────────────────────────
@@ -9252,7 +9252,7 @@ class AIAgent:
             if self._interrupt_requested:
                 try:
                     _set_interrupt(True, _worker_tid)
-                except Exception:
+                except (AttributeError, TypeError):
                     pass
             # Set the activity callback on THIS worker thread so
             # _wait_for_process (terminal commands) can fire heartbeats.
@@ -9261,24 +9261,24 @@ class AIAgent:
             try:
                 from tools.environments.base import set_activity_callback
                 set_activity_callback(self._touch_activity)
-            except Exception:
+            except (ImportError, AttributeError, TypeError):
                 pass
             # Propagate approval/sudo callbacks to this worker thread.
             # Mirrors cli.py run_agent() pattern (GHSA-qg5c-hvr5-hjgr).
             if _parent_approval_cb is not None:
                 try:
                     _set_approval_callback(_parent_approval_cb)
-                except Exception:
+                except (AttributeError, TypeError):
                     pass
             if _parent_sudo_cb is not None:
                 try:
                     _set_sudo_password_callback(_parent_sudo_cb)
-                except Exception:
+                except (AttributeError, TypeError):
                     pass
             start = time.time()
             try:
                 result = self._invoke_tool(function_name, function_args, effective_task_id, tool_call.id, messages=messages)
-            except Exception as tool_error:
+            except (AttributeError, TypeError, OSError) as tool_error:
                 result = f"Error executing tool '{function_name}': {tool_error}"
                 logger.error("_invoke_tool raised for %s: %s", function_name, tool_error, exc_info=True)
             duration = time.time() - start
@@ -9295,14 +9295,14 @@ class AIAgent:
                 self._tool_worker_threads.discard(_worker_tid)
             try:
                 _set_interrupt(False, _worker_tid)
-            except Exception:
+            except (AttributeError, TypeError):
                 pass
             # Clear thread-local callbacks so a recycled worker thread
             # doesn't hold stale references to a disposed CLI instance.
             try:
                 _set_approval_callback(None)
                 _set_sudo_password_callback(None)
-            except Exception:
+            except (AttributeError, TypeError):
                 pass
 
         # Start spinner for CLI mode (skip when TUI handles tool progress)
@@ -9396,7 +9396,7 @@ class AIAgent:
                             "tool.completed", function_name, None, None,
                             duration=tool_duration, is_error=is_error,
                         )
-                    except Exception as cb_err:
+                    except (AttributeError, TypeError) as cb_err:
                         logging.debug(f"Tool progress callback error: {cb_err}")
 
                 if self.verbose_logging:
@@ -9421,7 +9421,7 @@ class AIAgent:
             if self.tool_complete_callback:
                 try:
                     self.tool_complete_callback(tc.id, name, args, function_result)
-                except Exception as cb_err:
+                except (AttributeError, TypeError) as cb_err:
                     logging.debug(f"Tool complete callback error: {cb_err}")
 
             function_result = maybe_persist_tool_result(
@@ -9497,7 +9497,7 @@ class AIAgent:
                 _block_msg = get_pre_tool_call_block_message(
                     function_name, function_args, task_id=effective_task_id or "",
                 )
-            except Exception:
+            except (ImportError, ModuleNotFoundError):
                 pass
 
             if _block_msg is not None:
@@ -9531,20 +9531,20 @@ class AIAgent:
                 try:
                     from tools.environments.base import set_activity_callback
                     set_activity_callback(self._touch_activity)
-                except Exception:
+                except (ImportError, AttributeError, TypeError):
                     pass
 
             if _block_msg is None and self.tool_progress_callback:
                 try:
                     preview = _build_tool_preview(function_name, function_args)
                     self.tool_progress_callback("tool.started", function_name, preview, function_args)
-                except Exception as cb_err:
+                except (AttributeError, TypeError) as cb_err:
                     logging.debug(f"Tool progress callback error: {cb_err}")
 
             if _block_msg is None and self.tool_start_callback:
                 try:
                     self.tool_start_callback(tool_call.id, function_name, function_args)
-                except Exception as cb_err:
+                except (AttributeError, TypeError) as cb_err:
                     logging.debug(f"Tool start callback error: {cb_err}")
 
             # Checkpoint: snapshot working dir before file-mutating tools
@@ -9556,7 +9556,7 @@ class AIAgent:
                         self._checkpoint_mgr.ensure_checkpoint(
                             work_dir, f"before {function_name}"
                         )
-                except Exception:
+                except (KeyError, TypeError, AttributeError):
                     pass  # never block tool execution
 
             # Checkpoint before destructive terminal commands
@@ -9568,7 +9568,7 @@ class AIAgent:
                         self._checkpoint_mgr.ensure_checkpoint(
                             cwd, f"before terminal: {cmd[:60]}"
                         )
-                except Exception:
+                except (KeyError, TypeError, AttributeError):
                     pass  # never block tool execution
 
             tool_start_time = time.time()
@@ -9624,7 +9624,7 @@ class AIAgent:
                                 tool_call_id=getattr(tool_call, "id", None),
                             ),
                         )
-                    except Exception:
+                    except (AttributeError, TypeError):
                         pass
                 tool_duration = time.time() - tool_start_time
                 if self._should_emit_quiet_tool_messages():
@@ -9677,7 +9677,7 @@ class AIAgent:
                 try:
                     function_result = self.context_archiver.handle_tool_call(function_name, function_args, messages=messages)
                     _ce_result = function_result
-                except Exception as tool_error:
+                except (AttributeError, TypeError, OSError) as tool_error:
                     function_result = json.dumps({"error": f"Context engine tool '{function_name}' failed: {tool_error}"})
                     logger.error("context_engine.handle_tool_call raised for %s: %s", function_name, tool_error, exc_info=True)
                 finally:
@@ -9701,7 +9701,7 @@ class AIAgent:
                 try:
                     function_result = self._memory_manager.handle_tool_call(function_name, function_args)
                     _mem_result = function_result
-                except Exception as tool_error:
+                except (AttributeError, TypeError, OSError) as tool_error:
                     function_result = json.dumps({"error": f"Memory tool '{function_name}' failed: {tool_error}"})
                     logger.error("memory_manager.handle_tool_call raised for %s: %s", function_name, tool_error, exc_info=True)
                 finally:
@@ -9729,7 +9729,7 @@ class AIAgent:
                         skip_pre_tool_call_hook=True,
                     )
                     _spinner_result = function_result
-                except Exception as tool_error:
+                except (AttributeError, TypeError, OSError) as tool_error:
                     function_result = f"Error executing tool '{function_name}': {tool_error}"
                     logger.error("handle_function_call raised for %s: %s", function_name, tool_error, exc_info=True)
                 finally:
@@ -9748,7 +9748,7 @@ class AIAgent:
                         enabled_tools=list(self.valid_tool_names) if self.valid_tool_names else None,
                         skip_pre_tool_call_hook=True,
                     )
-                except Exception as tool_error:
+                except (AttributeError, TypeError, OSError) as tool_error:
                     function_result = f"Error executing tool '{function_name}': {tool_error}"
                     logger.error("handle_function_call raised for %s: %s", function_name, tool_error, exc_info=True)
                 tool_duration = time.time() - tool_start_time
@@ -9771,7 +9771,7 @@ class AIAgent:
                         "tool.completed", function_name, None, None,
                         duration=tool_duration, is_error=_is_error_result,
                     )
-                except Exception as cb_err:
+                except (AttributeError, TypeError) as cb_err:
                     logging.debug(f"Tool progress callback error: {cb_err}")
 
             self._current_tool = None
@@ -9784,7 +9784,7 @@ class AIAgent:
             if self.tool_complete_callback:
                 try:
                     self.tool_complete_callback(tool_call.id, function_name, function_args, function_result)
-                except Exception as cb_err:
+                except (AttributeError, TypeError) as cb_err:
                     logging.debug(f"Tool complete callback error: {cb_err}")
 
             function_result = maybe_persist_tool_result(
@@ -9893,7 +9893,7 @@ class AIAgent:
             summary_extra_body = {}
             try:
                 from agent.auxiliary_client import _fixed_temperature_for_model, OMIT_TEMPERATURE as _OMIT_TEMP
-            except Exception:
+            except (ImportError, ModuleNotFoundError):
                 _fixed_temperature_for_model = None
                 _OMIT_TEMP = None
             _raw_summary_temp = (
@@ -10029,8 +10029,7 @@ class AIAgent:
                 else:
                     final_response = "I reached the iteration limit and couldn't generate a summary."
 
-        except Exception as e:
-            logging.warning(f"Failed to get summary response: {e}")
+        except (ConnectionError, TimeoutError, OSError, TypeError, AttributeError) as e:
             final_response = f"I reached the maximum iterations ({self.max_iterations}) but couldn't summarize. Error: {str(e)}"
 
         return final_response
@@ -10132,7 +10131,7 @@ class AIAgent:
                         "issue — cleaned up automatically. Proceeding with fresh "
                         "connection."
                     )
-            except Exception:
+            except (AttributeError, TypeError, ConnectionError, TimeoutError):
                 pass
         # Replay compression warning through status_callback for gateway
         # platforms (the callback was not wired during __init__).
@@ -10252,7 +10251,7 @@ class AIAgent:
                 if self._session_db:
                     try:
                         self._session_db.update_system_prompt(self.session_id, self._cached_system_prompt)
-                    except Exception as e:
+                    except (sqlite3.Error, AttributeError) as e:
                         logger.debug("Session DB update_system_prompt failed: %s", e)
 
         active_system_prompt = self._cached_system_prompt
@@ -10395,7 +10394,7 @@ class AIAgent:
             try:
                 _turn_msg = original_user_message if isinstance(original_user_message, str) else ""
                 self._memory_manager.on_turn_start(self._user_turn_count, _turn_msg)
-            except Exception:
+            except (AttributeError, TypeError):
                 pass
 
         # External memory provider: prefetch once before the tool loop.
@@ -10408,7 +10407,7 @@ class AIAgent:
             try:
                 _query = original_user_message if isinstance(original_user_message, str) else ""
                 _ext_prefetch_cache = self._memory_manager.prefetch_all(_query) or ""
-            except Exception as _e:
+            except (AttributeError, TypeError, OSError) as _e:
                 logger.warning("Prefetch failed (non-fatal): %s", _e, exc_info=True)
 
         while (api_call_count < self.max_iterations and self.iteration_budget.remaining > 0) or self._budget_grace_call:
@@ -10463,7 +10462,7 @@ class AIAgent:
                             ]
                             break
                     self.step_callback(api_call_count, prev_tools)
-                except Exception as _step_err:
+                except (AttributeError, TypeError) as _step_err:
                     logger.debug("step_callback error (iteration %s): %s", api_call_count, _step_err)
 
             # Track tool-calling iterations for skill nudge.
@@ -10500,7 +10499,7 @@ class AIAgent:
                                 blocks = list(existing) if existing else []
                                 blocks.append({"type": "text", "text": marker})
                                 _sm["content"] = blocks
-                            except Exception:
+                            except (TypeError, KeyError, IndexError):
                                 pass
                         _injected = True
                         logger.debug(
@@ -10661,7 +10660,7 @@ class AIAgent:
                                     sort_keys=True,
                                 ),
                             }}
-                        except Exception:
+                        except (json.JSONDecodeError, TypeError):
                             tc["function"]["arguments"] = _repair_tool_call_arguments(
                                 tc["function"]["arguments"],
                                 tc["function"].get("name", "?"),
@@ -10800,7 +10799,7 @@ class AIAgent:
                             request_char_count=total_chars,
                             max_tokens=self.max_tokens,
                         )
-                    except Exception:
+                    except (ImportError, AttributeError, TypeError):
                         pass
 
                     if env_var_enabled("HERMES_DUMP_REQUESTS"):
@@ -11389,7 +11388,7 @@ class AIAgent:
                                     model=self.model,
                                     api_call_count=1,
                                 )
-                            except Exception:
+                            except (sqlite3.Error, AttributeError, TypeError):
                                 pass  # never block the agent loop
                         
                         if self.verbose_logging:
@@ -11425,7 +11424,7 @@ class AIAgent:
                         try:
                             from agent.nous_rate_guard import clear_nous_rate_limit
                             clear_nous_rate_limit()
-                        except Exception:
+                        except (ImportError, AttributeError):
                             pass
                     self._touch_activity(f"API call #{api_call_count} completed")
                     break  # Success, exit retry loop
@@ -11443,7 +11442,7 @@ class AIAgent:
                     final_response = f"Operation interrupted: waiting for model response ({api_elapsed:.1f}s elapsed)."
                     break
 
-                except Exception as api_error:
+                except Exception as api_error:  # Top-level crash handler — must not abort the agent loop
                     # Stop spinner before printing error messages
                     if thinking_spinner:
                         thinking_spinner.stop("(╥_╥) error, retrying...")
@@ -11699,7 +11698,7 @@ class AIAgent:
                             _body = getattr(api_error, "body", None) or getattr(api_error, "response", None)
                             if _body is not None:
                                 _body_text = str(_body)[:200]
-                        except Exception:
+                        except (AttributeError, TypeError):
                             pass
                         print(f"{self.log_prefix}🔐 Nous 401 — Portal authentication failed.")
                         if _body_text:
@@ -11984,7 +11983,7 @@ class AIAgent:
                                     "last-known state) -- not tripping "
                                     "cross-session breaker."
                                 )
-                        except Exception:
+                        except (AttributeError, TypeError, ConnectionError, TimeoutError):
                             pass
                         if _genuine_nous_rate_limit:
                             # Skip straight to max_retries -- the
@@ -12522,7 +12521,7 @@ class AIAgent:
                         assistant_content_chars=len(_assistant_text),
                         assistant_tool_call_count=len(_assistant_tool_calls),
                     )
-                except Exception:
+                except (ImportError, AttributeError, TypeError):
                     pass
 
                 # Handle assistant response
@@ -12546,12 +12545,12 @@ class AIAgent:
                     if first_line and getattr(self, '_delegate_depth', 0) > 0:
                         try:
                             self.tool_progress_callback("_thinking", first_line)
-                        except Exception:
+                        except (AttributeError, TypeError):
                             pass
                     elif _think_text:
                         try:
                             self.tool_progress_callback("reasoning.available", "_thinking", _think_text[:500], None)
-                        except Exception:
+                        except (AttributeError, TypeError):
                             pass
                 
                 # Check for incomplete <REASONING_SCRATCHPAD> (opened but never closed)
@@ -12875,7 +12874,7 @@ class AIAgent:
                     if self.stream_delta_callback:
                         try:
                             self.stream_delta_callback(None)
-                        except Exception:
+                        except (AttributeError, TypeError):
                             pass
 
                     self._execute_tool_calls(assistant_message, messages, effective_task_id, api_call_count)
@@ -13380,7 +13379,7 @@ class AIAgent:
                     model=self.model,
                     platform=getattr(self, "platform", None) or "",
                 )
-            except Exception as exc:
+            except (ImportError, AttributeError, TypeError) as exc:
                 logger.warning("post_llm_call hook failed: %s", exc)
 
         # Extract reasoning from the last assistant message (if any)
@@ -13458,7 +13457,7 @@ class AIAgent:
                     review_memory=_should_review_memory,
                     review_skills=_should_review_skills,
                 )
-            except Exception:
+            except (ImportError, AttributeError, TypeError, OSError):
                 pass  # Background review is best-effort
 
         # Note: Memory provider on_session_end() + shutdown_all() are NOT
@@ -13481,7 +13480,7 @@ class AIAgent:
                 model=self.model,
                 platform=getattr(self, "platform", None) or "",
             )
-        except Exception as exc:
+        except (ImportError, AttributeError, TypeError) as exc:
             logger.warning("on_session_end hook failed: %s", exc)
 
         return result

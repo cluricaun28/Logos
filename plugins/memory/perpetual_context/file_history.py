@@ -12,6 +12,7 @@ Optimized for local hardware by using indexed lookups and limiting search scope.
 from __future__ import annotations
 
 import logging
+import sqlite3
 from typing import Any
 from agent.perpetual_context_db import PerpetualContextDB
 
@@ -61,7 +62,7 @@ class FileHistoryTracker:
                     })
             
             return history
-        except (sqlite3.Error, KeyError, TypeError, AttributeError) as e:
+        except Exception as e:  # noqa: S110 — wrapper around DB calls, must never raise
             logger.exception("Failed to retrieve file history for '%s'", file_path)
             return []
 

@@ -178,7 +178,7 @@ class ContextBridgeBuilder:
 
             return score
 
-        except (AttributeError, KeyError, TypeError) as e:
+        except Exception as e:  # noqa: S110 — wrapper around external extraction engine, must never raise
             logger.debug("Quality scoring failed (non-critical): %s", e)
             return {}
 
@@ -205,7 +205,7 @@ class ContextBridgeBuilder:
             method = getattr(self._extraction, f"extract_{method_name}", None)
             if method:
                 return method(messages)
-        except (AttributeError, KeyError, TypeError) as e:
+        except Exception as e:  # noqa: S110 — wrapper around external extraction engine, must never raise
             logger.exception("Extraction failed for %s", method_name)
         return []
 

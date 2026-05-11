@@ -13,6 +13,7 @@ the scope of searches to recent sessions where decisions are most relevant.
 from __future__ import annotations
 
 import logging
+import sqlite3
 from typing import Any
 from agent.perpetual_context_db import PerpetualContextDB
 
@@ -56,7 +57,7 @@ class DecisionTraceEngine:
                     'session_id': result.get('session_id'),
                     'context': result.get('content', '')[:200],  # Limit context size
                 }
-        except (sqlite3.Error, KeyError, TypeError, AttributeError) as e:
+        except Exception as e:  # noqa: S110 — wrapper around DB calls, must never raise
             logger.exception("Failed to find decision for '%s'", query_text)
         
         return None
@@ -111,6 +112,6 @@ class DecisionTraceEngine:
             end = min(len(session_msgs), dec_idx + 6)
 
             return session_msgs[start:end]
-        except (sqlite3.Error, KeyError, TypeError, AttributeError) as e:
+        except Exception as e:  # noqa: S110 — wrapper around DB calls, must never raise
             logger.exception("Failed to retrieve context for turn #%d", turn_id)
             return []

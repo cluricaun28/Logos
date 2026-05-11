@@ -19,6 +19,7 @@ Config in ~/.hermes/config.yaml (optional):
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re as _re

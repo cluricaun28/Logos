@@ -216,7 +216,7 @@ def _load_prefill_messages(file_path: str) -> List[Dict[str, Any]]:
             logger.warning("Prefill messages file must contain a JSON array: %s", path)
             return []
         return data
-    except Exception as e:
+    except (OSError, PermissionError, ValueError, json.JSONDecodeError) as e:
         logger.warning("Failed to load prefill messages from %s: %s", path, e)
         return []
 
@@ -498,7 +498,7 @@ def load_cli_config() -> Dict[str, Any]:
                 and agent_file_config.get("max_turns") is not None
             ):
                 defaults["agent"]["max_turns"] = file_config["max_turns"]
-        except Exception as e:
+        except (KeyError, OSError, PermissionError, TypeError, ValueError, yaml.YAMLError) as e:
             logger.warning("Failed to load cli-config.yaml: %s", e)
 
     # Expand ${ENV_VAR} references in config values before bridging to env vars.
@@ -794,7 +794,7 @@ def _git_repo_root() -> Optional[str]:
         )
         if result.returncode == 0:
             return result.stdout.strip()
-    except Exception:
+    except (FileNotFoundError, OSError, subprocess.CalledProcessError):
         pass
     return None
 
@@ -841,7 +841,7 @@ def _setup_worktree(repo_root: str = None) -> Optional[Dict[str, str]]:
                 if existing and not existing.endswith("\n"):
                     f.write("\n")
                 f.write(f"{_ignore_entry}\n")
-    except Exception as e:
+    except (OSError, PermissionError) as e:
         logger.debug("Could not update .gitignore: %s", e)
 
     # Create the worktree
@@ -853,7 +853,7 @@ def _setup_worktree(repo_root: str = None) -> Optional[Dict[str, str]]:
         if result.returncode != 0:
             print(f"\033[31m✗ Failed to create worktree: {result.stderr.strip()}\033[0m")
             return None
-    except Exception as e:
+    except (FileNotFoundError, OSError, subprocess.CalledProcessError) as e:
         print(f"\033[31m✗ Failed to create worktree: {e}\033[0m")
         return None
 
@@ -892,7 +892,7 @@ def _setup_worktree(repo_root: str = None) -> Optional[Dict[str, str]]:
                     if not dst.exists():
                         dst.parent.mkdir(parents=True, exist_ok=True)
                         os.symlink(str(src_resolved), str(dst))
-        except Exception as e:
+        except (OSError, PermissionError, shutil.Error) as e:
             logger.debug("Error copying .worktreeinclude entries: %s", e)
 
     info = {
@@ -939,7 +939,7 @@ def _cleanup_worktree(info: Dict[str, str] = None) -> None:
             capture_output=True, text=True, timeout=10, cwd=wt_path,
         )
         has_unpushed = bool(result.stdout.strip())
-    except Exception:
+    except (FileNotFoundError, OSError, subprocess.CalledProcessError):
         has_unpushed = True  # Assume unpushed on error — don't delete
 
     if has_unpushed:
@@ -955,7 +955,7 @@ def _cleanup_worktree(info: Dict[str, str] = None) -> None:
             ["git", "worktree", "remove", wt_path, "--force"],
             capture_output=True, text=True, timeout=15, cwd=repo_root,
         )
-    except Exception as e:
+    except (FileNotFoundError, OSError, subprocess.CalledProcessError) as e:
         logger.debug("Failed to remove worktree: %s", e)
 
     # Delete the branch
@@ -964,7 +964,7 @@ def _cleanup_worktree(info: Dict[str, str] = None) -> None:
             ["git", "branch", "-D", branch],
             capture_output=True, text=True, timeout=10, cwd=repo_root,
         )
-    except Exception as e:
+    except (FileNotFoundError, OSError, subprocess.CalledProcessError) as e:
         logger.debug("Failed to delete branch %s: %s", branch, e)
 
     _active_worktree = None
@@ -995,7 +995,7 @@ def _run_state_db_auto_maintenance(session_db) -> None:
             vacuum=bool(cfg.get("vacuum_after_prune", True)),
             sessions_dir=_get_hermes_home() / "sessions",
         )
-    except Exception as exc:
+    except (TypeError, ValueError) as exc:
         logger.debug("state.db auto-maintenance skipped: %s", exc)
 
 
@@ -1018,7 +1018,7 @@ def _run_checkpoint_auto_maintenance() -> None:
             min_interval_hours=int(cfg.get("min_interval_hours", 24)),
             delete_orphans=bool(cfg.get("delete_orphans", True)),
         )
-    except Exception as exc:
+    except (TypeError, ValueError) as exc:
         logger.debug("checkpoint auto-maintenance skipped: %s", exc)
 
 
@@ -1054,7 +1054,7 @@ def _prune_stale_worktrees(repo_root: str, max_age_hours: int = 24) -> None:
             mtime = entry.stat().st_mtime
             if mtime > soft_cutoff:
                 continue  # Too recent — skip
-        except Exception:
+        except (OSError, PermissionError):
             continue
 
         force = mtime <= hard_cutoff  # Over 72h — force remove
@@ -1068,7 +1068,7 @@ def _prune_stale_worktrees(repo_root: str, max_age_hours: int = 24) -> None:
                 )
                 if result.stdout.strip():
                     continue  # Has unpushed commits — skip
-            except Exception:
+            except (FileNotFoundError, OSError, subprocess.CalledProcessError):
                 continue  # Can't check — skip
 
         # Safe to remove
@@ -1089,7 +1089,7 @@ def _prune_stale_worktrees(repo_root: str, max_age_hours: int = 24) -> None:
                     capture_output=True, text=True, timeout=10, cwd=repo_root,
                 )
             logger.debug("Pruned stale worktree: %s (force=%s)", entry.name, force)
-        except Exception as e:
+        except (FileNotFoundError, OSError, subprocess.CalledProcessError) as e:
             logger.debug("Failed to prune worktree %s: %s", entry.name, e)
 
     _prune_orphaned_branches(repo_root)
@@ -1112,7 +1112,7 @@ def _prune_orphaned_branches(repo_root: str) -> None:
         if result.returncode != 0:
             return
         all_branches = [b.strip() for b in result.stdout.strip().split("\n") if b.strip()]
-    except Exception:
+    except (FileNotFoundError, OSError, subprocess.CalledProcessError):
         return
 
     # Collect branches that are actively checked out in a worktree
@@ -1125,7 +1125,7 @@ def _prune_orphaned_branches(repo_root: str) -> None:
         for line in wt_result.stdout.split("\n"):
             if line.startswith("branch refs/heads/"):
                 active_branches.add(line.split("branch refs/heads/", 1)[-1].strip())
-    except Exception:
+    except (FileNotFoundError, OSError, subprocess.CalledProcessError):
         return  # Can't determine active branches — bail
 
     # Also protect the currently checked-out branch and main
@@ -1137,7 +1137,7 @@ def _prune_orphaned_branches(repo_root: str) -> None:
         current = head_result.stdout.strip()
         if current:
             active_branches.add(current)
-    except Exception:
+    except (FileNotFoundError, OSError, subprocess.CalledProcessError):
         pass
     active_branches.add("main")
 
@@ -1158,7 +1158,7 @@ def _prune_orphaned_branches(repo_root: str) -> None:
                 ["git", "branch", "-D"] + batch,
                 capture_output=True, text=True, timeout=30, cwd=repo_root,
             )
-        except Exception as e:
+        except (FileNotFoundError, OSError, subprocess.CalledProcessError) as e:
             logger.debug("Failed to prune orphaned branches: %s", e)
 
     logger.debug("Pruned %d orphaned branches", len(orphaned))
@@ -1214,7 +1214,7 @@ class _SkinAwareAnsi:
                     get_active_skin().get_color(self._skin_key, self._fallback_hex),
                     bold=self._bold,
                 )
-            except Exception:
+            except (AttributeError, TypeError, ValueError):
                 self._cached = _hex_to_ansi(self._fallback_hex, bold=self._bold)
         return self._cached
 
@@ -1391,7 +1391,7 @@ def _resolve_attachment_path(raw_path: str) -> Path | None:
                 expanded = unquote(parsed.path or "")
                 if parsed.netloc and os.name == "nt":
                     expanded = f"//{parsed.netloc}{expanded}"
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
             expanded = token
     expanded = os.path.expandvars(os.path.expanduser(expanded))
     if os.name != "nt":
@@ -1405,7 +1405,7 @@ def _resolve_attachment_path(raw_path: str) -> Path | None:
 
     try:
         resolved = path.resolve()
-    except Exception:
+    except (AttributeError, TypeError, ValueError):
         resolved = path
 
     if not resolved.exists() or not resolved.is_file():
@@ -1847,7 +1847,7 @@ def save_config_value(key_path: str, value: any) -> bool:
             pass
         
         return True
-    except Exception as e:
+    except (OSError, PermissionError, ValueError, yaml.YAMLError) as e:
         logger.error("Failed to save config: %s", e)
         return False
 
@@ -2463,7 +2463,7 @@ class HermesCLI:
             if prompt_elapsed:
                 parts.append(prompt_elapsed)
             return self._trim_status_bar_text(" │ ".join(parts), width)
-        except Exception:
+        except (KeyError, TypeError):
             return f"⚕ {self.model if getattr(self, 'model', None) else 'Hermes'}"
 
     def _get_status_bar_fragments(self):
@@ -2534,7 +2534,7 @@ class HermesCLI:
                 trimmed = self._trim_status_bar_text(plain_text, width)
                 return [("class:status-bar", trimmed)]
             return frags
-        except Exception:
+        except (KeyError, OSError, TypeError, shutil.Error):
             return [("class:status-bar", f" {self._build_status_bar_text()} ")]
 
     def _normalize_model_for_provider(self, resolved_provider: str) -> bool:
@@ -2558,7 +2558,7 @@ class HermesCLI:
                     self.model = normalized_model
                     current_model = normalized_model
                     changed = True
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
             pass
 
         if resolved_provider == "copilot":
@@ -2579,7 +2579,7 @@ class HermesCLI:
                 if resolved_mode != self.api_mode:
                     self.api_mode = resolved_mode
                     changed = True
-            except Exception:
+            except (AttributeError, TypeError, ValueError):
                 pass
             return changed
 
@@ -2601,7 +2601,7 @@ class HermesCLI:
                 if resolved_mode != self.api_mode:
                     self.api_mode = resolved_mode
                     changed = True
-            except Exception:
+            except (AttributeError, TypeError, ValueError):
                 pass
             return changed
 
@@ -2631,7 +2631,7 @@ class HermesCLI:
                 )
                 if available:
                     fallback_model = available[0]
-            except Exception:
+            except (AttributeError, TypeError, ValueError):
                 pass
 
             if current_model != fallback_model:
@@ -2666,7 +2666,7 @@ class HermesCLI:
 
         try:
             term_width = shutil.get_terminal_size().columns
-        except Exception:
+        except (OSError, shutil.Error):
             term_width = 80
         prefix = "  [thinking] "
         wrap_width = max(30, term_width - len(prefix) - 2)
@@ -2706,7 +2706,7 @@ class HermesCLI:
 
         try:
             term_width = shutil.get_terminal_size().columns
-        except Exception:
+        except (OSError, shutil.Error):
             term_width = 80
         target_width = max(40, term_width - len("  [thinking] ") - 4)
 
@@ -3016,7 +3016,7 @@ class HermesCLI:
                 _skin = get_active_skin()
                 label = _skin.get_branding("response_label", "⚕ Hermes")
                 _text_hex = _skin.get_color("banner_text", "#FFF8DC")
-            except Exception:
+            except (AttributeError, TypeError, ValueError):
                 label = "⚕ Hermes"
                 _text_hex = "#FFF8DC"
             # Build a true-color ANSI escape for the response text color
@@ -3147,7 +3147,7 @@ class HermesCLI:
             self._skip_paste_collapse = True
             target_buffer.open_in_editor(validate_and_handle=False)
             return True
-        except Exception as exc:
+        except (AttributeError, TypeError, ValueError) as exc:
             _cprint(f"{_DIM}Failed to open external editor: {exc}{_RST}")
             return False
 
@@ -3171,7 +3171,7 @@ class HermesCLI:
                 explicit_api_key=self._explicit_api_key,
                 explicit_base_url=self._explicit_base_url,
             )
-        except Exception as exc:
+        except (AttributeError, TypeError, ValueError) as exc:
             _primary_exc = exc
 
         # Primary provider auth failed — try fallback providers before giving up.
@@ -3195,7 +3195,7 @@ class HermesCLI:
                         self.model = _fb_model
                         _primary_exc = None
                         break
-                    except Exception:
+                    except (AttributeError, TypeError, ValueError):
                         continue
 
         if runtime is None:
@@ -3278,7 +3278,7 @@ class HermesCLI:
                         "No model configured — defaulting to %s for provider %s",
                         _default, resolved_provider,
                     )
-            except Exception:
+            except (AttributeError, TypeError, ValueError):
                 pass
 
         # Normalize model for the resolved provider (e.g. swap non-Codex
@@ -3332,7 +3332,7 @@ class HermesCLI:
 
         try:
             overrides = resolve_fast_mode_overrides(route["model"])
-        except Exception:
+        except (KeyError, TypeError):
             overrides = None
         route["request_overrides"] = overrides
         return route
@@ -3374,7 +3374,7 @@ class HermesCLI:
             # See #15000 and SessionDB.resolve_resume_session_id.
             try:
                 resolved_id = self._session_db.resolve_resume_session_id(self.session_id)
-            except Exception:
+            except (AttributeError, TypeError, ValueError):
                 resolved_id = self.session_id
             if resolved_id and resolved_id != self.session_id:
                 ChatConsole().print(
@@ -3411,7 +3411,7 @@ class HermesCLI:
                     (self.session_id,),
                 )
                 self._session_db._conn.commit()
-            except Exception:
+            except (AttributeError, TypeError):
                 pass
         
         try:
@@ -3492,7 +3492,7 @@ class HermesCLI:
                     _cprint(f"  Could not apply pending title: {e}")
                     self._pending_title = None
             return True
-        except Exception as e:
+        except (AttributeError, TypeError, ValueError) as e:
             ChatConsole().print(f"[bold red]Failed to initialize agent: {e}[/]")
             return False
     
@@ -3608,7 +3608,7 @@ class HermesCLI:
         # walk to the descendant that actually holds the messages. See #15000.
         try:
             resolved_id = self._session_db.resolve_resume_session_id(self.session_id)
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
             resolved_id = self.session_id
         if resolved_id and resolved_id != self.session_id:
             self._console_print(
@@ -3651,7 +3651,7 @@ class HermesCLI:
                 (self.session_id,),
             )
             self._session_db._conn.commit()
-        except Exception:
+        except (AttributeError, TypeError):
             pass
 
         return True
@@ -3768,7 +3768,7 @@ class HermesCLI:
             _session_label_c = _skin.get_color("session_label", "#DAA520")
             _session_border_c = _skin.get_color("session_border", "#8B8682")
             _assistant_label_c = _skin.get_color("ui_ok", "#8FBC8F")
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
             _history_text_c = "#FFF8DC"
             _session_label_c = "#DAA520"
             _session_border_c = "#8B8682"
@@ -4143,7 +4143,7 @@ class HermesCLI:
         try:
             self._write_osc52_clipboard(text)
             _cprint(f"  Copied assistant response #{idx + 1} to clipboard")
-        except Exception as e:
+        except (AttributeError, TypeError, ValueError) as e:
             _cprint(f"  Clipboard copy failed: {e}")
 
     def _handle_image_command(self, cmd_original: str):
@@ -4220,7 +4220,7 @@ class HermesCLI:
                     )
                     if announce:
                         _cprint(f"  {_DIM}⚠ vision analysis failed — path included for retry{_RST}")
-            except Exception as e:
+            except (ValueError, json.JSONDecodeError) as e:
                 enriched_parts.append(
                     f"[The user attached an image but analysis failed ({e}). "
                     f"You can try examining it with vision_analyze using "
@@ -4255,7 +4255,7 @@ class HermesCLI:
                         tools_str += f", +{len(item['tools'])-2} more"
                     self._console_print(f"   [dim]• {item['name']}[/] [dim italic]({', '.join(item['missing_vars'])})[/]")
                 self._console_print("[dim]   Run 'hermes setup' to configure[/]")
-        except Exception:
+        except (KeyError, TypeError):
             pass  # Don't crash on import errors
     
     def _show_status(self):
@@ -4282,7 +4282,7 @@ class HermesCLI:
             separator_color = skin.get_color("banner_dim", "#B8860B")
             accent_color = skin.get_color("ui_accent", "#FFBF00")
             label_color = skin.get_color("ui_label", "#DAA520")
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
             separator_color, accent_color, label_color = "#B8860B", "#FFBF00", "cyan"
         toolsets_info = ""
         if self.enabled_toolsets and "all" not in self.enabled_toolsets:
@@ -4304,7 +4304,7 @@ class HermesCLI:
         if self._session_db:
             try:
                 session_meta = self._session_db.get_session(self.session_id) or {}
-            except Exception:
+            except (AttributeError, TypeError, ValueError):
                 session_meta = {}
 
         title = (session_meta.get("title") or "").strip()
@@ -4314,7 +4314,7 @@ class HermesCLI:
         if started_at:
             try:
                 created_at = datetime.fromtimestamp(float(started_at))
-            except Exception:
+            except (TypeError, ValueError):
                 created_at = self.session_start
 
         updated_at = created_at
@@ -4325,7 +4325,7 @@ class HermesCLI:
             try:
                 updated_at = datetime.fromtimestamp(float(value))
                 break
-            except Exception:
+            except (TypeError, ValueError):
                 pass
 
         agent = getattr(self, "agent", None)
@@ -4629,7 +4629,7 @@ class HermesCLI:
                 exclude_sources=["tool"],
                 limit=limit,
             )
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
             return []
         return [s for s in sessions if s.get("id") != self.session_id]
 
@@ -4742,7 +4742,7 @@ class HermesCLI:
                 session_id=self.agent.session_id if self.agent else None,
                 platform=getattr(self, "platform", None) or "cli",
             )
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
             pass
 
     def new_session(self, silent=False):
@@ -4759,7 +4759,7 @@ class HermesCLI:
         if self._session_db and old_session_id:
             try:
                 self._session_db.end_session(old_session_id, "new_session")
-            except Exception:
+            except (AttributeError, TypeError, ValueError):
                 pass
 
         self.session_start = datetime.now()
@@ -4796,7 +4796,7 @@ class HermesCLI:
                             "reasoning_config": self.reasoning_config,
                         },
                     )
-                except Exception:
+                except (AttributeError, TypeError, ValueError):
                     pass
             self._notify_session_boundary("on_session_reset")
 
@@ -4834,7 +4834,7 @@ class HermesCLI:
         # the descendant that actually holds the transcript. See #15000.
         try:
             resolved_id = self._session_db.resolve_resume_session_id(target_id)
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
             resolved_id = target_id
         if resolved_id and resolved_id != target_id:
             _cprint(
@@ -4853,7 +4853,7 @@ class HermesCLI:
         # End current session
         try:
             self._session_db.end_session(self.session_id, "resumed_other")
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
             pass
 
         # Switch to the target session
@@ -4869,7 +4869,7 @@ class HermesCLI:
         # Re-open the target session so it's not marked as ended
         try:
             self._session_db.reopen_session(target_id)
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
             pass
 
         # Sync the agent if already initialised
@@ -4939,7 +4939,7 @@ class HermesCLI:
         # End the old session
         try:
             self._session_db.end_session(self.session_id, "branched")
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
             pass
 
         # Create the new session with parent link
@@ -4954,7 +4954,7 @@ class HermesCLI:
                 },
                 parent_session_id=parent_session_id,
             )
-        except Exception as e:
+        except (AttributeError, TypeError, ValueError) as e:
             _cprint(f"  Failed to create branch session: {e}")
             return
 
@@ -4970,13 +4970,13 @@ class HermesCLI:
                     tool_call_id=msg.get("tool_call_id"),
                     reasoning=msg.get("reasoning"),
                 )
-            except Exception:
+            except (AttributeError, TypeError, ValueError):
                 pass  # Best-effort copy
 
         # Set title on the branch
         try:
             self._session_db.set_session_title(new_session_id, branch_title)
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
             pass
 
         # Switch to the new session
@@ -5031,7 +5031,7 @@ class HermesCLI:
         saved_dir = get_hermes_home() / "sessions" / "saved"
         try:
             saved_dir.mkdir(parents=True, exist_ok=True)
-        except Exception as e:
+        except (OSError, PermissionError) as e:
             print(f"(x_x) Failed to create save directory {saved_dir}: {e}")
             return
         path = saved_dir / f"hermes_conversation_{timestamp}.json"
@@ -5047,7 +5047,7 @@ class HermesCLI:
             print(f"(^_^)v Conversation snapshot saved to: {path}")
             if self.session_id:
                 print(f"       Resume the live session with: hermes --resume {self.session_id}")
-        except Exception as e:
+        except (OSError, PermissionError, ValueError, json.JSONDecodeError) as e:
             print(f"(x_x) Failed to save: {e}")
     
     def retry_last(self):
@@ -5240,7 +5240,7 @@ class HermesCLI:
                     base_url=result.base_url,
                     api_mode=result.api_mode,
                 )
-            except Exception as exc:
+            except (AttributeError, TypeError, ValueError) as exc:
                 _cprint(f"  ⚠ Agent swap failed ({exc}); change applied to next session.")
 
         self._pending_model_switch_note = (
@@ -5269,7 +5269,7 @@ class HermesCLI:
             )
             if ctx:
                 _cprint(f"    Context: {ctx:,} tokens")
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
             pass
         if mi:
             if mi.max_output:
@@ -5317,7 +5317,7 @@ class HermesCLI:
                     live = provider_model_ids(provider_data["slug"])
                     if live:
                         model_list = live
-                except Exception:
+                except (KeyError, TypeError):
                     pass
             state["stage"] = "model"
             state["provider_data"] = provider_data
@@ -5385,7 +5385,7 @@ class HermesCLI:
             cfg = load_config()
             user_provs = cfg.get("providers")
             custom_provs = get_compatible_custom_providers(cfg)
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
             pass
 
         # No args at all: open prompt_toolkit-native picker modal
@@ -5402,7 +5402,7 @@ class HermesCLI:
                     custom_providers=custom_provs,
                     max_models=50,
                 )
-            except Exception:
+            except (AttributeError, TypeError, ValueError):
                 providers = []
 
             if not providers:
@@ -5464,7 +5464,7 @@ class HermesCLI:
                     base_url=result.base_url,
                     api_mode=result.api_mode,
                 )
-            except Exception as exc:
+            except (AttributeError, TypeError, ValueError) as exc:
                 _cprint(f"  ⚠ Agent swap failed ({exc}); change applied to next session.")
 
         # Store a note to prepend to the next user message so the model
@@ -5533,7 +5533,7 @@ class HermesCLI:
             base = text.split(None, 1)[0].lower().lstrip('/')
             cmd = resolve_command(base)
             return bool(cmd and cmd.name == "model")
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
             return False
 
     def _should_handle_steer_command_inline(self, text: str, has_images: bool = False) -> bool:
@@ -5557,7 +5557,7 @@ class HermesCLI:
             base = text.split(None, 1)[0].lower().lstrip('/')
             cmd = resolve_command(base)
             return bool(cmd and cmd.name == "steer")
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
             return False
 
     def _output_console(self):
@@ -5970,7 +5970,7 @@ class HermesCLI:
             print(f"  Configuration file: {display_hermes_home()}/config.yaml")
             print()
             
-        except Exception as e:
+        except (AttributeError, TypeError, ValueError) as e:
             print(f"  Error loading gateway config: {e}")
             print()
             print("  To configure the gateway:")
@@ -6219,7 +6219,7 @@ class HermesCLI:
                         detail = f" ({', '.join(parts)})" if parts else ""
                         error = f" — {p['error']}" if p["error"] else ""
                         print(f"  {status} {p['name']}{version}{detail}{error}")
-            except Exception as e:
+            except (KeyError, TypeError) as e:
                 print(f"Plugin system error: {e}")
         elif canonical == "rollback":
             self._handle_rollback_command(cmd_original)
@@ -6256,7 +6256,7 @@ class HermesCLI:
             elif self._agent_running and self.agent is not None and hasattr(self.agent, "steer"):
                 try:
                     accepted = self.agent.steer(payload)
-                except Exception as exc:
+                except (AttributeError, TypeError, ValueError) as exc:
                     _cprint(f"  Steer failed: {exc}")
                 else:
                     if accepted:
@@ -6295,7 +6295,7 @@ class HermesCLI:
                                 self._console_print("[dim]Command returned no output[/]")
                         except subprocess.TimeoutExpired:
                             self._console_print("[bold red]Quick command timed out (30s)[/]")
-                        except Exception as e:
+                        except (FileNotFoundError, OSError, subprocess.CalledProcessError) as e:
                             self._console_print(f"[bold red]Quick command error: {e}[/]")
                     else:
                         self._console_print(f"[bold red]Quick command '{base_cmd}' has no command defined[/]")
@@ -6320,7 +6320,7 @@ class HermesCLI:
                         result = plugin_handler(user_args)
                         if result:
                             _cprint(str(result))
-                    except Exception as e:
+                    except (AttributeError, TypeError, ValueError) as e:
                         _cprint(f"\033[1;31mPlugin command error: {e}{_RST}")
             # Check for skill slash commands (/gif-search, /axolotl, etc.)
             elif base_cmd in _skill_commands:
@@ -6413,7 +6413,7 @@ class HermesCLI:
             set_approval_callback(self._approval_callback)
             try:
                 set_secret_capture_callback(self._secret_capture_callback)
-            except Exception:
+            except (AttributeError, TypeError, ValueError):
                 pass
             try:
                 bg_agent = AIAgent(
@@ -6481,7 +6481,7 @@ class HermesCLI:
                         label = _skin.get_branding("response_label", "⚕ Hermes")
                         _resp_color = _skin.get_color("response_border", "#CD7F32")
                         _resp_text = _skin.get_color("banner_text", "#FFF8DC")
-                    except Exception:
+                    except (AttributeError, TypeError, ValueError):
                         label = "⚕ Hermes"
                         _resp_color = "#CD7F32"
                         _resp_text = "#FFF8DC"
@@ -6504,7 +6504,7 @@ class HermesCLI:
                     sys.stdout.write("\a")
                     sys.stdout.flush()
 
-            except Exception as e:
+            except (KeyError, TypeError) as e:
                 # Same TUI refresh pattern as success path (#2718)
                 if self._app:
                     self._app.invalidate()
@@ -6516,7 +6516,7 @@ class HermesCLI:
                     set_sudo_password_callback(None)
                     set_approval_callback(None)
                     set_secret_capture_callback(None)
-                except Exception:
+                except (AttributeError, TypeError, ValueError):
                     pass
                 self._background_tasks.pop(task_id, None)
                 # Clear spinner only if no foreground agent owns it
@@ -6564,7 +6564,7 @@ class HermesCLI:
                 start_new_session=True,  # detach from terminal
             )
             return True
-        except Exception:
+        except (FileNotFoundError, OSError):
             return False
 
     def _handle_browser_command(self, cmd: str):
@@ -6814,7 +6814,7 @@ class HermesCLI:
             parts = (cmd_original or "").strip().split(None, 1)
             if len(parts) > 1:
                 arg = parts[1].strip().lower()
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
             arg = ""
 
         cfg = load_config() or {}
@@ -7011,7 +7011,7 @@ class HermesCLI:
             agent = getattr(self, "agent", None)
             model = getattr(agent, "model", None) or getattr(self, "model", None)
             feature_name = "Anthropic Fast Mode" if _is_anthropic_fast_model(model) else "Priority Processing"
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
             feature_name = "Fast mode"
 
         parts = cmd.strip().split(maxsplit=1)
@@ -7127,7 +7127,7 @@ class HermesCLI:
                 if summary["note"]:
                     print(f"     {summary['note']}")
 
-            except Exception as e:
+            except (KeyError, TypeError) as e:
                 print(f"  ❌ Archiving failed: {e}")
 
     # Backward compat alias for tests and legacy code
@@ -7281,7 +7281,7 @@ class HermesCLI:
             report = engine.generate(days=days, source=source)
             print(engine.format_terminal(report))
             db.close()
-        except Exception as e:
+        except (AttributeError, TypeError, ValueError) as e:
             print(f"  Error generating insights: {e}")
 
     def _check_config_mcp_changes(self) -> None:
@@ -7319,7 +7319,7 @@ class HermesCLI:
         try:
             with open(cfg_path, encoding="utf-8") as f:
                 new_cfg = _yaml.safe_load(f) or {}
-        except Exception:
+        except (OSError, PermissionError, ValueError, yaml.YAMLError):
             return
 
         new_mcp = new_cfg.get("mcp_servers") or {}
@@ -7417,12 +7417,12 @@ class HermesCLI:
                         self.conversation_history,
                         self.conversation_history,
                     )
-                except Exception:
+                except (AttributeError, TypeError, ValueError):
                     pass  # Best-effort
 
             print(f"  ✅ Agent updated — {len(self.agent.tools if self.agent else [])} tool(s) available")
 
-        except Exception as e:
+        except (KeyError, TypeError) as e:
             print(f"  ❌ MCP reload failed: {e}")
 
     # ====================================================================
@@ -7486,7 +7486,7 @@ class HermesCLI:
                     if is_error:
                         line = f"{line} [error]"
                     _cprint(f"  {line}")
-                except Exception:
+                except (AttributeError, TypeError, ValueError):
                     pass
                 # First-touch onboarding: on the first tool in this process
                 # that takes longer than the threshold while we're in the
@@ -7511,7 +7511,7 @@ class HermesCLI:
                             _cprint(f"  {_DIM}{tool_progress_hint_cli()}{_RST}")
                             mark_seen(_hermes_home / "config.yaml", TOOL_PROGRESS_FLAG)
                             CLI_CONFIG.setdefault("onboarding", {}).setdefault("seen", {})[TOOL_PROGRESS_FLAG] = True
-                except Exception:
+                except (AttributeError, TypeError, ValueError):
                     pass
             self._invalidate()
             return
@@ -7544,7 +7544,7 @@ class HermesCLI:
                 kwargs={"frequency": 1200, "duration": 0.06, "count": 1},
                 daemon=True,
             ).start()
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
             pass
 
     def _on_tool_start(self, tool_call_id: str, function_name: str, function_args: dict):
@@ -7555,7 +7555,7 @@ class HermesCLI:
             snapshot = capture_local_edit_snapshot(function_name, function_args)
             if snapshot is not None:
                 self._pending_edit_snapshots[tool_call_id] = snapshot
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
             logger.debug("Edit snapshot capture failed for %s", function_name, exc_info=True)
 
     def _on_tool_complete(self, tool_call_id: str, function_name: str, function_args: dict, function_result: str):
@@ -7571,7 +7571,7 @@ class HermesCLI:
                 snapshot=snapshot,
                 print_fn=_cprint,
             )
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
             logger.debug("Edit diff preview failed for %s", function_name, exc_info=True)
 
     # ====================================================================
@@ -7652,7 +7652,7 @@ class HermesCLI:
 
         try:
             self._voice_recorder.start(on_silence_stop=_on_silence)
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
             with self._voice_lock:
                 self._voice_recording = False
             raise
@@ -7737,7 +7737,7 @@ class HermesCLI:
                 error = result.get("error", "Unknown error")
                 _cprint(f"\n{_DIM}Transcription failed: {error}{_RST}")
 
-        except Exception as e:
+        except (KeyError, TypeError) as e:
             _cprint(f"\n{_DIM}Voice processing error: {e}{_RST}")
         finally:
             with self._voice_lock:
@@ -7748,7 +7748,7 @@ class HermesCLI:
             try:
                 if wav_path and os.path.isfile(wav_path):
                     os.unlink(wav_path)
-            except Exception:
+            except (OSError, PermissionError):
                 pass
 
             # Track consecutive no-speech cycles to avoid infinite restart loops.
@@ -7772,7 +7772,7 @@ class HermesCLI:
                         self._voice_start_recording()
                         if hasattr(self, '_app') and self._app:
                             self._app.invalidate()
-                    except Exception as e:
+                    except (AttributeError, TypeError, ValueError) as e:
                         _cprint(f"{_DIM}Voice auto-restart failed: {e}{_RST}")
                 threading.Thread(target=_restart_recording, daemon=True).start()
 
@@ -7822,7 +7822,7 @@ class HermesCLI:
                         os.unlink(ogg_path)
                 except OSError:
                     pass
-        except Exception as e:
+        except (OSError, PermissionError) as e:
             logger.warning("Voice TTS playback failed: %s", e)
             _cprint(f"{_DIM}TTS playback failed: {e}{_RST}")
         finally:
@@ -7858,7 +7858,7 @@ class HermesCLI:
             voice_cfg = load_config().get("voice", {})
             if isinstance(voice_cfg, dict):
                 return bool(voice_cfg.get("beep_enabled", True))
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
             pass
         return True
 
@@ -7902,7 +7902,7 @@ class HermesCLI:
             if voice_config.get("auto_tts", False):
                 with self._voice_lock:
                     self._voice_tts = True
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
             pass
 
         # Voice mode instruction is injected as a user message prefix (not a
@@ -7939,7 +7939,7 @@ class HermesCLI:
             def _bg_shutdown(rec=recorder):
                 try:
                     rec.shutdown()
-                except Exception:
+                except (AttributeError, OSError):
                     pass
             threading.Thread(target=_bg_shutdown, daemon=True).start()
             self._voice_recorder = None
@@ -8368,7 +8368,7 @@ class HermesCLI:
                 "cursor_position": buf.cursor_position,
             }
             buf.reset()
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
             self._modal_input_snapshot = None
 
     def _restore_modal_input_snapshot(self) -> None:
@@ -8381,7 +8381,7 @@ class HermesCLI:
             buf = self._app.current_buffer
             buf.text = snapshot.get("text", "")
             buf.cursor_position = min(snapshot.get("cursor_position", 0), len(buf.text))
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
             pass
 
     def _submit_secret_response(self, value: str) -> None:
@@ -8399,7 +8399,7 @@ class HermesCLI:
         if getattr(self, "_app", None):
             try:
                 self._app.current_buffer.reset()
-            except Exception:
+            except (AttributeError, TypeError):
                 pass
 
     def chat(self, message, images: list = None) -> Optional[str]:
@@ -8462,7 +8462,7 @@ class HermesCLI:
                     (self.model or "").strip(),
                     load_config(),
                 )
-            except Exception as _img_exc:
+            except (AttributeError, TypeError, ValueError) as _img_exc:
                 logging.debug("image_routing decision failed, defaulting to text: %s", _img_exc)
                 _img_mode = "text"
 
@@ -8490,7 +8490,7 @@ class HermesCLI:
                         message = self._preprocess_images_with_vision(
                             message if isinstance(message, str) else "", images
                         )
-                except Exception as _img_exc:
+                except (AttributeError, TypeError, ValueError) as _img_exc:
                     logging.warning("native image attach failed, falling back to text: %s", _img_exc)
                     message = self._preprocess_images_with_vision(
                         message if isinstance(message, str) else "", images
@@ -8520,7 +8520,7 @@ class HermesCLI:
                     if _ctx_result.blocked:
                         return "\n".join(_ctx_result.warnings) or "Context injection refused."
                     message = _ctx_result.message
-            except Exception as e:
+            except (OSError, PermissionError) as e:
                 logging.debug("@ context reference expansion failed: %s", e)
 
         # Sanitize surrogate characters that can arrive via clipboard paste from
@@ -8626,7 +8626,7 @@ class HermesCLI:
                 set_approval_callback(self._approval_callback)
                 try:
                     set_secret_capture_callback(self._secret_capture_callback)
-                except Exception:
+                except (AttributeError, TypeError, ValueError):
                     pass
                 agent_message = _voice_prefix + message if _voice_prefix else message
                 # Prepend pending model switch note so the model knows about the switch
@@ -8642,7 +8642,7 @@ class HermesCLI:
                         task_id=self.session_id,
                         persist_user_message=message if _voice_prefix else None,
                     )
-                except Exception as exc:
+                except (AttributeError, TypeError, ValueError) as exc:
                     logging.error("run_conversation raised: %s", exc, exc_info=True)
                     _summary = getattr(self.agent, '_summarize_api_error', lambda e: str(e)[:300])(exc)
                     result = {
@@ -8660,7 +8660,7 @@ class HermesCLI:
                         set_sudo_password_callback(None)
                         set_approval_callback(None)
                         set_secret_capture_callback(None)
-                    except Exception:
+                    except (AttributeError, TypeError, ValueError):
                         pass
 
             # Start agent in background thread (daemon so it cannot keep the
@@ -8704,7 +8704,7 @@ class HermesCLI:
                                              f"parent._interrupt={self.agent._interrupt_requested}\n")
                                     for _ci, _ch in enumerate(self.agent._active_children):
                                         _f.write(f"  child[{_ci}]._interrupt={_ch._interrupt_requested}\n")
-                            except Exception:
+                            except (OSError, PermissionError):
                                 pass
                             break
                     except queue.Empty:
@@ -8824,7 +8824,7 @@ class HermesCLI:
                             "api_mode": self.api_mode,
                         },
                     )
-                except Exception:
+                except (AttributeError, TypeError, ValueError):
                     pass
 
             # Handle failed or partial results (e.g., non-retryable errors, rate limits,
@@ -8881,7 +8881,7 @@ class HermesCLI:
                     label = _skin.get_branding("response_label", "⚕ Hermes")
                     _resp_color = _skin.get_color("response_border", "#CD7F32")
                     _resp_text = _skin.get_color("banner_text", "#FFF8DC")
-                except Exception:
+                except (AttributeError, TypeError, ValueError):
                     label = "⚕ Hermes"
                     _resp_color = "#CD7F32"
                     _resp_text = "#FFF8DC"
@@ -8969,7 +8969,7 @@ class HermesCLI:
 
             return response
             
-        except Exception as e:
+        except (OSError, AttributeError, TypeError, ValueError, RuntimeError) as e:
             print(f"Error: {e}")
             return None
         finally:
@@ -8980,7 +8980,7 @@ class HermesCLI:
             if text_queue is not None:
                 try:
                     text_queue.put_nowait(None)
-                except Exception:
+                except (AttributeError, TypeError, ValueError):
                     pass
             if stop_event is not None:
                 stop_event.set()
@@ -9009,7 +9009,7 @@ class HermesCLI:
             if self._session_db:
                 try:
                     session_title = self._session_db.get_session_title(self.session_id)
-                except Exception:
+                except (AttributeError, TypeError, ValueError):
                     pass
 
             print("Resume this session with:")
@@ -9054,7 +9054,7 @@ class HermesCLI:
             profile = get_active_profile_name()
             if profile not in ("default", "custom"):
                 symbol = f"{profile} {symbol}"
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
             pass
         stripped = symbol.rstrip()
         if not stripped:
@@ -9222,7 +9222,7 @@ class HermesCLI:
             _term_lines = shutil.get_terminal_size().lines
             if _term_lines > 2:
                 print("\n" * (_term_lines - 1), end="", flush=True)
-        except Exception:
+        except (OSError, shutil.Error):
             pass
 
         self.show_banner()
@@ -9241,7 +9241,7 @@ class HermesCLI:
             _welcome_skin = get_active_skin()
             _welcome_text = _welcome_skin.get_branding("welcome", "Welcome to Hermes Agent! Type your message or /help for commands.")
             _welcome_color = _welcome_skin.get_color("banner_text", "#FFF8DC")
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
             _welcome_text = "Welcome to Hermes Agent! Type your message or /help for commands."
             _welcome_color = "#FFF8DC"
         self._console_print(f"[{_welcome_color}]{_welcome_text}[/]")
@@ -9259,7 +9259,7 @@ class HermesCLI:
             if not is_seen(self.config, OPENCLAW_RESIDUE_FLAG) and detect_openclaw_residue():
                 try:
                     _resid_color = _welcome_skin.get_color("banner_dim", "#B8860B")
-                except Exception:
+                except (AttributeError, TypeError, ValueError):
                     _resid_color = "#B8860B"
                 self._console_print(f"[{_resid_color}]{openclaw_residue_hint_cli()}[/]")
                 try:
@@ -9267,7 +9267,7 @@ class HermesCLI:
                     mark_seen(_get_cfg_path_resid(), OPENCLAW_RESIDUE_FLAG)
                 except Exception:
                     pass  # best-effort — banner will fire again next session
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
             pass  # banner is non-critical — never break startup
         # Show a random tip to help users discover features
         try:
@@ -9275,10 +9275,10 @@ class HermesCLI:
             _tip = get_random_tip()
             try:
                 _tip_color = _welcome_skin.get_color("banner_dim", "#B8860B")
-            except Exception:
+            except (AttributeError, TypeError, ValueError):
                 _tip_color = "#B8860B"
             self._console_print(f"[dim {_tip_color}]✦ Tip: {_tip}[/]")
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
             pass  # Tips are non-critical — never break startup
         if self.preloaded_skills and not self._startup_skills_line_shown:
             skills_label = ", ".join(self.preloaded_skills)
@@ -9363,7 +9363,7 @@ class HermesCLI:
                 if tirith_enabled:
                     _cprint(f"  {_DIM}⚠ tirith security scanner enabled but not available "
                             f"— command scanning will use pattern matching only{_RST}")
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
             pass  # Non-fatal — fail-open at scan time if unavailable
         
         # Key bindings for the input area
@@ -9484,7 +9484,7 @@ class HermesCLI:
                             try:
                                 if self.agent is not None and hasattr(self.agent, "steer"):
                                     accepted = bool(self.agent.steer(text))
-                            except Exception as exc:
+                            except (AttributeError, TypeError, ValueError) as exc:
                                 _cprint(f"  {_DIM}Steer failed ({exc}) — queued for next turn.{_RST}")
                                 accepted = False
                             if accepted:
@@ -9505,7 +9505,7 @@ class HermesCLI:
                             with open(_dbg, "a") as _f:
                                 _f.write(f"{time.strftime('%H:%M:%S')} ENTER: queued interrupt msg={str(payload)[:60]!r}, "
                                          f"agent_running={self._agent_running}\n")
-                        except Exception:
+                        except (OSError, PermissionError):
                             pass
                     # First-touch onboarding: on the very first busy-while-running
                     # event for this install, print a one-line tip explaining the
@@ -9523,7 +9523,7 @@ class HermesCLI:
                             _cprint(f"  {_DIM}{busy_input_hint_cli(self.busy_input_mode)}{_RST}")
                             mark_seen(_hermes_home / "config.yaml", BUSY_INPUT_FLAG)
                             CLI_CONFIG.setdefault("onboarding", {}).setdefault("seen", {})[BUSY_INPUT_FLAG] = True
-                    except Exception:
+                    except (AttributeError, TypeError, ValueError):
                         pass
                 else:
                     self._pending_input.put(payload)
@@ -9907,7 +9907,7 @@ class HermesCLI:
                         cli_ref._voice_start_recording()
                         if hasattr(cli_ref, '_app') and cli_ref._app:
                             cli_ref._app.invalidate()
-                    except Exception as e:
+                    except (AttributeError, TypeError, ValueError) as e:
                         _cprint(f"\n{_DIM}Voice recording failed: {e}{_RST}")
 
                 threading.Thread(target=_start_recording, daemon=True).start()
@@ -10049,7 +10049,7 @@ class HermesCLI:
                 prompt_width = max(2, get_cwidth(self._get_tui_prompt_text()))
                 try:
                     available_width = get_app().output.get_size().columns - prompt_width
-                except Exception:
+                except (AttributeError, TypeError, ValueError):
                     available_width = shutil.get_terminal_size((80, 24)).columns - prompt_width
                 if available_width < 10:
                     available_width = 40
@@ -10063,7 +10063,7 @@ class HermesCLI:
                     else:
                         visual_lines += max(1, -(-line_width // available_width))  # ceil division
                 return min(max(visual_lines, 1), 8)
-            except Exception:
+            except (OSError, shutil.Error):
                 return 1
 
         input_area.window.height = _input_height
@@ -10785,7 +10785,7 @@ class HermesCLI:
                             x=renderer._cursor_pos.x,
                             y=renderer._cursor_pos.y + extra,
                         )
-            except Exception:
+            except (AttributeError, TypeError, ValueError):
                 pass  # never break resize handling
             _original_on_resize()
 
@@ -10835,7 +10835,7 @@ class HermesCLI:
                                         _synth = _format_process_notification(evt)
                                         if _synth:
                                             self._pending_input.put(_synth)
-                            except Exception:
+                            except (AttributeError, TypeError, ValueError):
                                 pass
                         continue
                     
@@ -10916,7 +10916,7 @@ class HermesCLI:
                                         time.sleep(0.3)
                                     self._voice_start_recording()
                                     app.invalidate()
-                                except Exception as e:
+                                except (AttributeError, TypeError, ValueError) as e:
                                     _cprint(f"{_DIM}Voice auto-restart failed: {e}{_RST}")
                             threading.Thread(target=_restart_recording, daemon=True).start()
 
@@ -10933,10 +10933,10 @@ class HermesCLI:
                                 _synth = _format_process_notification(evt)
                                 if _synth:
                                     self._pending_input.put(_synth)
-                        except Exception:
+                        except (AttributeError, TypeError, ValueError):
                             pass  # Non-fatal — don't break the main loop
 
-                except Exception as e:
+                except (KeyError, TypeError) as e:
                     print(f"Error: {e}")
         
         # Start processing thread
@@ -10975,7 +10975,7 @@ class HermesCLI:
                         _grace = 1.5
                     if _grace > 0:
                         time.sleep(_grace)
-            except Exception:
+            except (OSError, PermissionError, TypeError, ValueError):
                 pass  # never block signal handling
             raise KeyboardInterrupt()
         
@@ -10984,7 +10984,7 @@ class HermesCLI:
             _signal.signal(_signal.SIGTERM, _signal_handler)
             if hasattr(_signal, 'SIGHUP'):
                 _signal.signal(_signal.SIGHUP, _signal_handler)
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
             pass  # Signal handlers may fail in restricted environments
         
         # Install a custom asyncio exception handler that suppresses the
@@ -11028,7 +11028,7 @@ class HermesCLI:
                     import asyncio as _aio
                     _loop = _aio.get_event_loop()
                     _loop.set_exception_handler(_suppress_closed_loop_errors)
-                except Exception:
+                except (AttributeError, TypeError, ValueError):
                     pass
                 app.run()
         except (EOFError, KeyboardInterrupt, BrokenPipeError):
@@ -11055,13 +11055,13 @@ class HermesCLI:
             if self.agent and getattr(self, '_agent_running', False):
                 try:
                     self.agent.interrupt()
-                except Exception:
+                except (AttributeError, TypeError, ValueError):
                     pass
             # Shut down voice recorder (release persistent audio stream)
             if hasattr(self, '_voice_recorder') and self._voice_recorder:
                 try:
                     self._voice_recorder.shutdown()
-                except Exception:
+                except (AttributeError, TypeError, ValueError):
                     pass
                 self._voice_recorder = None
             # Clean up old temp voice recordings
@@ -11095,7 +11095,7 @@ class HermesCLI:
                         model=getattr(self.agent, 'model', None),
                         platform=getattr(self.agent, 'platform', None) or "cli",
                     )
-                except Exception:
+                except (AttributeError, TypeError, ValueError):
                     pass
             _run_cleanup()
             self._print_exit_summary()
@@ -11307,7 +11307,7 @@ def main(
                     _grace = 1.5
                 if _grace > 0:
                     time.sleep(_grace)
-        except Exception:
+        except (OSError, PermissionError, TypeError, ValueError):
             pass  # never block signal handling
         raise KeyboardInterrupt()
     try:
@@ -11315,7 +11315,7 @@ def main(
         _signal.signal(_signal.SIGTERM, _signal_handler_q)
         if hasattr(_signal, "SIGHUP"):
             _signal.signal(_signal.SIGHUP, _signal_handler_q)
-    except Exception:
+    except (AttributeError, TypeError, ValueError):
         pass  # signal handler may fail in restricted environments
     
     # Handle single query mode
