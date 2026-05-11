@@ -1,8 +1,8 @@
 ---
 type: topic
-topic: "Hermes Agent Fork — System White Paper"
+topic: "Logos — System White Paper"
 created: 2026-05-07
-last_updated: 2026-05-09
+last_updated: 2026-05-11
 confidence: high
 related_entries:
   - "Hermes Agent Architecture(topics/hermes-agent/architecture)"
@@ -14,20 +14,20 @@ related_entries:
   - "Logos Engine Overview(topics/logos-engine/overview)"
   - "Context Bridge(topics/recall/context-bridge)"
   - "Modular Plugin Architecture(topics/hermes-agent/plugins)"
-description: "Comprehensive white paper documenting the purpose, architecture, and operation of the custom Hermes Agent fork. Explains the 'what,' 'why,' and 'how' of the entire system from first principles."
+description: "Comprehensive white paper documenting the purpose, architecture, and operation of Logos, a sovereign agentic intelligence system. Explains the 'what,' 'why,' and 'how' of the entire system from first principles."
 ---
 
-# The Logos Engine: A Sovereign Agentic Intelligence System
+# Logos: A Sovereign Agentic Intelligence System
 
-*A white paper on a sovereign agentic intelligence system built on the Hermes Agent framework*
+*A white paper on sovereign knowledge management through persistent memory, curated truth, and epistemic sovereignty*
 
-**Version:** 1.1  |  **Date:** May 2026  |  **Repository:** cluricaun28/hermes-agent
+**Version:** 2.0  |  **Date:** May 2026  |  **Repository:** cluricaun28/logos
 
 ---
 
 ## 1. Executive Summary
 
-This document describes a custom fork of the [Hermes Agent](https://github.com/NousResearch/hermes-agent) framework by Nous Research, transformed from a general-purpose local AI agent into a *sovereign agentic intelligence system* designed for a single user with specific epistemic requirements. The system — collectively termed the **Logos Engine** — provides:
+This document describes **Logos**, a *sovereign agentic intelligence system* designed for a single user with specific epistemic requirements. Logos originated from the [Hermes Agent](https://github.com/NousResearch/hermes-agent) framework by Nous Research and has diverged substantially, transforming from a general-purpose local AI agent into a persistent knowledge system. Logos provides:
 
 - **Infinite recall** across all sessions through a SQLite + FTS5 perpetual memory database
 - **Worldview-aligned research** through a curated reference library and a multi-phase deep research pipeline with bias detection
@@ -100,7 +100,7 @@ The system comprises four major subsystems that work together:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                     Hermes Agent Base                            │
+│                     Logos Core                                   │
 │   (Gateway, CLI, Tool Orchestration, Plugin Infrastructure)     │
 └───────────────────────────────┬─────────────────────────────────┘
                                 │
@@ -485,15 +485,15 @@ The system runs several autonomous jobs that maintain and improve itself overnig
 
 ### What This Is
 
-- A *fork* of Hermes Agent with substantial custom extensions
-- A *sovereign system* — all processing is local, all data stays local
+- A *sovereign knowledge management system* — all processing is local, all data stays local
 - A *growing intelligence* — the Reference Library distills better from conversation history over time
 - A *worldview-aware* system — not neutral in the sense of "both sides," but honest about its epistemic commitments
 - A *practical tool* — designed for daily use by one person through Telegram
+- Originated from [Hermes Agent](https://github.com/NousResearch/hermes-agent) and has since diverged substantially
 
 ### What This Is Not
 
-- The base Hermes Agent — base Hermes provides the framework; everything described here is custom
+- Hermes Agent — Logos originated from Hermes but has diverged into its own system
 - A commercial product — built for one user's needs, not a general-purpose solution
 - An attempt at objectivity in the journalistic sense — truth is not consensus, and the system knows this
 
@@ -507,7 +507,7 @@ The system runs several autonomous jobs that maintain and improve itself overnig
 | 2026-04-23 | Context Bridge structured extraction |
 | 2026-04-25 | vLLM Docker setup, OpenRouter fallback removed |
 | 2026-04-26 | Deep Research Engine Phases 2-4 built and wired |
-| 2026-04-27 | Fork created at hermes-agent/custom-fork |
+|| 2026-04-27 | Project forked from Hermes Agent at cluricaun28/hermes-agent |
 | 2026-04-30 | Compress→archive rename, Batch #1 cherry-picks (20 commits), StreamingContextScrubber |
 | 2026-05-02 | RL Growth, Logos Intelligence Scout, Retrieval Quality crons deployed |
 | 2026-05-03 | PM Signal Scanner, Nightly Distillation, RL hybrid index with 831 embeddings |
@@ -546,4 +546,4 @@ The system is not perfect — it is a work in progress maintained by one person 
 
 ---
 
-*This white paper was compiled from the live codebase, Reference Library documentation, and Perpetual Memory records of a custom Hermes Agent fork. Last updated 2026-05-10.*
+*This white paper was compiled from the live codebase, Reference Library documentation, and Perpetual Memory records of Logos. Last updated 2026-05-11.*

@@ -1,8 +1,8 @@
 # Logos — Sovereign Knowledge Management System
 
-**Built on Hermes Agent as a foundation. Logos pursues a fundamentally different direction: persistent memory, epistemic filtering, and user-defined worldview alignment.**
+**A sovereign agentic intelligence system built on local hardware with persistent memory, curated knowledge, and user-defined worldview alignment.**
 
-Most AI agents are stateless—they forget who you are and what you've decided once a conversation ends. Logos transforms the agent into a sovereign knowledge system that builds a permanent, local library of truth.
+Most AI agents are stateless — they forget who you are and what you've decided once a conversation ends. Logos is a sovereign knowledge system that builds a permanent, local library of truth, anchored in your worldview.
 
 ### The Core Philosophy
 - **Sovereignty:** All memory and knowledge live on your hardware. No cloud sync, no external API dependencies for recall.
@@ -14,9 +14,9 @@ For a comprehensive architectural deep-dive covering all subsystems, the epistem
 
 ---
 
-## What Logos Adds
+## What Logos Is
 
-Logos transforms Hermes Agent from a stateless chat interface into an agent with **persistent memory**, **curated knowledge**, and **proactive retrieval**. The key additions:
+Logos is an agent with **persistent memory**, **curated knowledge**, and **proactive retrieval**. The key subsystems:
 
 ### 1. Perpetual Context Database (`agent/perpetual_context_db.py`)
 SQLite-backed conversation archive with FTS5 full-text search and optional semantic embeddings (ONNX/SentenceTransformers). Every turn is stored locally — no cloud sync, no external API calls. Hybrid retrieval: keyword + vector similarity in a single query.
@@ -42,7 +42,7 @@ Key components and optimizations:
 
 ### Modified Core Files (7 files)
 
-These are the upstream Hermes Agent files we changed. The diffs are committed in this repo — you can see exactly what changed with `git log -- <file>`. Key changes:
+These core files were modified from the Hermes Agent base. The diffs are committed in this repo — you can see exactly what changed with `git log -- <file>`. Key changes:
 
 || File | What Changed | Why It Matters |
 |------|-------------|----------------|
@@ -97,8 +97,8 @@ Follow these steps to set up Logos with perpetual memory, reference library, and
 
 ```bash
 # Clone
-git clone https://github.com/cluricaun28/hermes-agent.git
-cd hermes-agent
+git clone https://github.com/cluricaun28/logos.git
+cd logos
 
 # Install in development mode
 pip install -e ".[dev]"
@@ -190,7 +190,7 @@ For web search with source extraction (SearXNG + Firecrawl), see [`extras/deep-r
 
 ```
 ┌─────────────────────────────────────────────┐
-│  Hermes Agent (upstream core)               │
+│  Logos Core                                 │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  │
 │  │   CLI    │  │ Gateway  │  │  Tools   │  │
 │  └────┬─────┘  └────┬─────┘  └────┬─────┘  │
@@ -206,7 +206,7 @@ For web search with source extraction (SearXNG + Firecrawl), see [`extras/deep-r
 │  │  Perpetual Context Plugin    │           │
 │  │  - Hybrid search (FTS5+vec)  │           │
 │  │  - Smart retrieval routing   │           │
-│  │  - Logos Deep Research       │           │
+│  │  - Deep Research Pipeline    │           │
 │  └──────────────┬───────────────┘           │
 │                 ▼                            │
 │  ┌──────────────────────────────┐           │
@@ -305,9 +305,9 @@ The agent will:
 
 ## Maintenance
 
-### Selectively Integrating External Improvements
+### Upstream Changes
 
-Logos was built on Hermes Agent but has pursued its own direction. The upstream remote is retained for cherry-picking useful improvements:
+Logos originated from the Hermes Agent project. The upstream remote is retained for cherry-picking useful improvements:
 
 ```bash
 # Fetch latest from upstream
@@ -320,7 +320,7 @@ git log upstream/main --oneline -10
 git cherry-pick <commit-hash>
 ```
 
-**Do NOT merge blindly** — custom plugin files may conflict with upstream context engine changes. Cherry-pick selectively and test after each change.
+**Do NOT merge blindly** — custom plugin files may conflict with upstream changes. Cherry-pick selectively and test after each change. For a documented record of cherry-picked commits and the rationale, see [`docs/upstream_tracking.md`](docs/upstream_tracking.md).
 
 Other projects (OpenClaw, Claude Code, Codex) may also yield useful patterns. The same approach applies: review, cherry-pick what's useful, test, commit.
 
@@ -393,5 +393,5 @@ MIT. All custom additions are MIT licensed.
 
 ---
 
-**Provenance:** Built on [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent).  \
-**Project:** [cluricaun28/hermes-agent](https://github.com/cluricaun28/hermes-agent) — Logos
+**Provenance:** Originated from [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent).  \
+**Project:** [cluricaun28/logos](https://github.com/cluricaun28/logos)
