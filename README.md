@@ -1,8 +1,8 @@
-# Hermes Agent Fork — The Logos Engine
+# Logos — Sovereign Knowledge Management System
 
-**The Logos Engine is a modification of the Hermes Agent designed to move from 'chatting' to 'knowledge management.'**
+**Built on Hermes Agent as a foundation. Logos pursues a fundamentally different direction: persistent memory, epistemic filtering, and user-defined worldview alignment.**
 
-Most AI agents are stateless—they forget who you are and what you've decided once a conversation ends. This fork transforms the agent into a sovereign knowledge system that builds a permanent, local library of truth.
+Most AI agents are stateless—they forget who you are and what you've decided once a conversation ends. Logos transforms the agent into a sovereign knowledge system that builds a permanent, local library of truth.
 
 ### The Core Philosophy
 - **Sovereignty:** All memory and knowledge live on your hardware. No cloud sync, no external API dependencies for recall.
@@ -14,9 +14,9 @@ For a comprehensive architectural deep-dive covering all subsystems, the epistem
 
 ---
 
-## What This Fork Adds
+## What Logos Adds
 
-This fork transforms Hermes Agent from a stateless chat interface into an agent with **persistent memory**, **curated knowledge**, and **proactive retrieval**. The key additions:
+Logos transforms Hermes Agent from a stateless chat interface into an agent with **persistent memory**, **curated knowledge**, and **proactive retrieval**. The key additions:
 
 ### 1. Perpetual Context Database (`agent/perpetual_context_db.py`)
 SQLite-backed conversation archive with FTS5 full-text search and optional semantic embeddings (ONNX/SentenceTransformers). Every turn is stored locally — no cloud sync, no external API calls. Hybrid retrieval: keyword + vector similarity in a single query.
@@ -27,7 +27,7 @@ Full plugin suite providing perpetual memory tools to the agent:
 - **Smart retrieval** — auto-routes queries to optimal strategy (recent, topic-specific, decision trace, file history)
 - **Context bridge builder** — extracts active tasks, errors, and decisions for injection at archival boundaries
 - **Source analysis** — `source_analyze` examines web search results for ideological alignment, omissions, and deviations. `deep=true` mode extracts full article content via Firecrawl before analyzing. Auto-creates source dossiers in `sources/` for new domains.
-- **Logos Engine (Deep Research & Continuity)** — Sovereign knowledge acquisition pipeline:
+- **Logos Deep Research & Continuity** — Sovereign knowledge acquisition pipeline:
     - **Three-Tier Web Stack:** SearXNG (Discovery) $\rightarrow$ Firecrawl (Extraction) $\rightarrow$ Camofox (Anti-detection Browser).
     - **Epistemic Filtering:** Integrated scrutiny gate that filters raw web data through a user-defined worldview baseline before RL ingestion.
     - **Adaptive Retrieval Cascade:** A reasoning-driven flow (Immediate Context $\rightarrow$ PM Recall $\rightarrow$ RL Authority $\rightarrow$ Deep Research) to ensure the most accurate source is used for every query.
@@ -42,11 +42,11 @@ Key components and optimizations:
 
 ### Modified Core Files (7 files)
 
-These are the upstream Hermes Agent files we changed. The diffs are committed in this repo — you can see exactly what changed with `git diff upstream/main -- <file>`. Key changes:
+These are the upstream Hermes Agent files we changed. The diffs are committed in this repo — you can see exactly what changed with `git log -- <file>`. Key changes:
 
-| File | What Changed | Why It Matters |
+|| File | What Changed | Why It Matters |
 |------|-------------|----------------|
-| `run_agent.py` | Renamed "compression" $ightarrow$ "archiving", added Context Bridge injection at archival boundary, selective tool loading | Enables rolling window + perpetual memory integration. Config key is now `archiving:` instead of `compression:` |
+| `run_agent.py` | Renamed "compression" $\rightarrow$ "archiving", added Context Bridge injection at archival boundary, selective tool loading | Enables rolling window + perpetual memory integration. Config key is now `archiving:` instead of `compression:` |
 | `agent/prompt_builder.py` | Skills section changed from mandatory to on-demand loading with validation | Prevents context bloat — only loads skills actually relevant to the task |
 | `agent/context_engine.py` | Integrated rolling window engine, context bridge injection at archival boundary | Core archiving logic that preserves active tasks across compression boundaries |
 | `plugins/context_engine/__init__.py` | Added rolling window engine loader with config passthrough | Pluggable context archiving strategy |
@@ -69,8 +69,8 @@ archiving:
 
 ## 🧠 Research Priority Matrix (Epistemic Routing)
 The agent uses a tiered priority system to determine where to find truth:
-- **Bedrock Topics (Worldview, Theology, Core Logic):** RL $ightarrow$ PM $ightarrow$ Web. The Reference Library is the ultimate authority; web search is only for filling gaps.
-- **Volatile Topics (News, Tech Specs, Pricing):** Web $ightarrow$ RL. Fresh data is prioritized over archived knowledge.
+- **Bedrock Topics (Worldview, Theology, Core Logic):** RL $\rightarrow$ PM $\rightarrow$ Web. The Reference Library is the ultimate authority; web search is only for filling gaps.
+- **Volatile Topics (News, Tech Specs, Pricing):** Web $\rightarrow$ RL. Fresh data is prioritized over archived knowledge.
 
 ---
 
@@ -82,17 +82,21 @@ This repository provides the **engine**, not the **knowledge**. To duplicate thi
 - **Local Embeddings:** For hybrid search to function without cloud APIs, you must install `onnxruntime` and `sentence-transformers`. The system defaults to `all-MiniLM-L6-v2` for local, private vectorization.
 - **Hardware:** A machine capable of running LLMs locally (via LM Studio or vLLM) is strongly recommended to maintain total data sovereignty.
 - **Storage:** All memory and the Reference Library are stored in your local home directory (`~/.hermes/`), ensuring that your personal knowledge base never leaves your hardware.
+- **Local Services:** The deep research pipeline requires three local services (all self-hosted, no cloud API calls):
+    - **SearXNG** — Local meta-search engine (Docker container)
+    - **Firecrawl** — Local web content extraction (Docker container)
+    - **Camofox** — Anti-detection browser for sites that block scrapers
 
 ---
 
 ## Quick Start — Full Setup Guide
 
-Follow these steps to set up the fork with perpetual memory, reference library, and skills. Each step builds on the previous one.
+Follow these steps to set up Logos with perpetual memory, reference library, and skills. Each step builds on the previous one.
 
-### Step 1: Install the Fork
+### Step 1: Install
 
 ```bash
-# Clone the fork
+# Clone
 git clone https://github.com/cluricaun28/hermes-agent.git
 cd hermes-agent
 
@@ -202,7 +206,7 @@ For web search with source extraction (SearXNG + Firecrawl), see [`extras/deep-r
 │  │  Perpetual Context Plugin    │           │
 │  │  - Hybrid search (FTS5+vec)  │           │
 │  │  - Smart retrieval routing   │           │
-│  │  - Logos Engine              │           │
+│  │  - Logos Deep Research       │           │
 │  └──────────────┬───────────────┘           │
 │                 ▼                            │
 │  ┌──────────────────────────────┐           │
@@ -301,22 +305,24 @@ The agent will:
 
 ## Maintenance
 
-### Updating from Upstream
+### Selectively Integrating External Improvements
 
-This fork tracks upstream via the `upstream` remote:
+Logos was built on Hermes Agent but has pursued its own direction. The upstream remote is retained for cherry-picking useful improvements:
 
 ```bash
-# Fetch latest from NousResearch
+# Fetch latest from upstream
 git fetch upstream main
 
-# Review changes before cherry-picking
+# Review changes before selectively applying
 git log upstream/main --oneline -10
 
-# Selectively apply commits
+# Apply specific commits that add value
 git cherry-pick <commit-hash>
 ```
 
 **Do NOT merge blindly** — custom plugin files may conflict with upstream context engine changes. Cherry-pick selectively and test after each change.
+
+Other projects (OpenClaw, Claude Code, Codex) may also yield useful patterns. The same approach applies: review, cherry-pick what's useful, test, commit.
 
 ### Backup Your Data
 
@@ -345,7 +351,7 @@ tar czf hermes-data-$(date +%Y%m%d).tar.gz \
 
 ### Troubleshooting
 
-| Problem | Solution |
+|| Problem | Solution |
 |---------|----------|
 | Agent doesn't use perpetual memory tools | Check SOUL.md has "Knowledge Architecture" and "Active Retrieval" sections |
 | Plugin not loading | Verify `perpetual_context` is in `config.yaml` plugins.enabled list |
@@ -359,7 +365,7 @@ tar czf hermes-data-$(date +%Y%m%d).tar.gz \
 
 ## What's Not Here (By Design)
 
-This fork does **not** include:
+This project does **not** include:
 - Personal data, tokens, or credentials — those live in your local `~/.hermes/` directory
 - Reference library content — starts as a template, grows through use (including `sources/` dossiers created by `source_analyze`)
 - Skill definitions — starts with examples, grows as you solve problems
@@ -371,7 +377,7 @@ This fork does **not** include:
 
 ## Extras Directory
 
-| File | Purpose |
+|| File | Purpose |
 |------|---------|
 | [`system-prompt-guide.md`](extras/system-prompt-guide.md) | Exact SOUL.md sections needed for perpetual memory to work |
 | [`soul-template.md`](extras/soul-template.md) | Ready-to-use SOUL.md template with all system prompt additions |
@@ -383,9 +389,9 @@ This fork does **not** include:
 
 ## License
 
-Same as upstream: MIT. Custom additions are also MIT licensed.
+MIT. All custom additions are MIT licensed.
 
 ---
 
-**Upstream:** [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent)  
-**Fork:** [cluricaun28/hermes-agent](https://github.com/cluricaun28/hermes-agent)
+**Provenance:** Built on [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent).  \
+**Project:** [cluricaun28/hermes-agent](https://github.com/cluricaun28/hermes-agent) — Logos
