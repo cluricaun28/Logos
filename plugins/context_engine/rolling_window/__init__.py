@@ -1,57 +1,48 @@
-"""Rolling Window Context Engine with Task-Aware Pruning.
+"""Incremental Tail-Off Context Engine.
 
-Replaces LLM-based compression with a deterministic rolling window architecture.
-Instead of summarizing old turns, drop them entirely and rely on Perpetual Memory
-for historical retrieval. Designed for models with large native context windows (131k+ tokens).
+Replaces the old rolling_window engine. Instead of aggressive archival
+to a fixed message count, this engine:
 
-Architecture:
-- Context = working RAM (short-term, rolling window)
-- Perpetual Memory/Wiki = long-term storage (infinite recall via SQLite/FTS5)
-- [ACTIVE TASKS] anchor survives pruning to prevent mid-session drift
+  1. Fires when prompt tokens exceed threshold (config-driven)
+  2. Strips tool_calls and truncates verbose tool results (cheap pre-pass)
+  3. Drops oldest messages one at a time until token count falls
+     below archive_target (config-driven fraction of context_length)
+  4. Enforces a hard ceiling as last resort (drops to 50/50 split)
 
-Pruning Rules:
-1. Strip raw assistant tool calls entirely (verbose JSON bloat)
-2. Truncate role:"tool" results to first/last 3 lines
-3. Task-aware scoring: preserve turns from active/incomplete tasks
-4. Drop lowest-scoring messages when window_size is exceeded
-5. Enforce hard token budget with aggressive truncation as last resort
+No LLM summarization. No task tracking. No semantic vectors.
+Perpetual Memory saves everything verbatim — the model can retrieve.
 
-Task Markers (injected into system prompt):
-- [TASK_START: id] — New task initiated
-- [TASK_COMPLETE: id] — Task finished successfully  
-- [TASK_DEFERRED: id] — Task postponed for later
-- [TASK_CANCELLED: id] — Task abandoned/cancelled
-- [TASK_SWITCH: from -> to] — Context switching between tasks
+Config-driven parameters (all from config.yaml context.rolling_window):
+  - threshold_percent:    fire when prompt_tokens exceed this fraction (default 0.75)
+  - archive_target:       prune down to this fraction (default 0.65)
+  - hard_ceiling_percent: absolute max before emergency cut (default 0.85)
+  - context_length:       from model metadata or vLLM --max-model-len
 """
 
 from __future__ import annotations
 
-import importlib.util
 import logging
-import os
-import sys
 from typing import Any
 
 from agent.context_engine import ContextEngine
+from agent.model_metadata import estimate_messages_tokens_rough
 
 logger = logging.getLogger(__name__)
 
 
 class RollingWindowContextEngine(ContextEngine):
-    """Rolling window context engine with task-aware pruning.
+    """Incremental tail-off context engine.
 
-    Inherits from ContextEngine ABC — all abstract methods must be implemented.
-    
-    Task-aware pruning preserves turns belonging to active, incomplete tasks
-    while aggressively dropping completed or low-value turns. This prevents
-    mid-session drift when the model is in the middle of multi-step work.
+    Keeps the context window as full as possible. When threshold is
+    exceeded, drops oldest messages until we're back under archive_target.
+    No task tracking, no semantic vectors, no LLM summarization.
     """
 
     @property
     def name(self) -> str:
         return "rolling_window"
 
-    # Token state — initialised in __init__ (not class-level defaults)
+    # Token state -- initialised in __init__ (not class-level defaults)
     last_prompt_tokens: int
     last_completion_tokens: int
     last_total_tokens: int
@@ -59,64 +50,32 @@ class RollingWindowContextEngine(ContextEngine):
     context_length: int
     archive_count: int
 
-    # Compaction parameters (override defaults as needed)
-    threshold_percent: float = 0.75
-    protect_first_n: int = 3
-    protect_last_n: int = 6
-
     def __init__(self, **kwargs):
         super().__init__()
 
-        # Initialise token-tracking instance attributes
         self.last_prompt_tokens = 0
         self.last_completion_tokens = 0
         self.last_total_tokens = 0
         self.threshold_tokens = 0
         self.context_length = 0
         self.archive_count = 0
-        # Set engine-specific config from kwargs or defaults
-        self.window_size: int = kwargs.get("window_size", 20)
-        self.max_tokens: int = kwargs.get("max_tokens", 131072)
-        
-        # Update protection parameters from kwargs
-        self.protect_first_n: int = kwargs.get("protect_first_n", self.protect_first_n)
-        self.protect_last_n: int = kwargs.get("protect_last_n", self.protect_last_n)
-        
-        # Lazy-import task-aware components (avoid circular imports)
-        try:
-            # Try relative import first (when loaded as package)
-            from .task_aware_pruner import TaskAwarePruner
-            from .task_marker_injector import TaskMarkerInjector
-        except ImportError:
-            try:
-                # Fallback: use importlib to load modules without polluting sys.path
-                plugin_dir = os.path.dirname(os.path.abspath(__file__))
 
-                spec_pruner = importlib.util.spec_from_file_location(
-                    "task_aware_pruner", os.path.join(plugin_dir, "task_aware_pruner.py")
-                )
-                mod_pruner = importlib.util.module_from_spec(spec_pruner)
-                spec_pruner.loader.exec_module(mod_pruner)
-                TaskAwarePruner = mod_pruner.TaskAwarePruner
+        # Config-driven parameters with defaults matching current config.yaml
+        self.threshold_percent: float = kwargs.get("threshold_percent", 0.75)
+        self.archive_target: float = kwargs.get("archive_target", 0.65)
+        self.hard_ceiling_percent: float = kwargs.get("hard_ceiling_percent", 0.85)
+        self.protect_first_n: int = kwargs.get("protect_first_n", 3)
+        self.protect_last_n: int = kwargs.get("protect_last_n", 6)
 
-                spec_injector = importlib.util.spec_from_file_location(
-                    "task_marker_injector", os.path.join(plugin_dir, "task_marker_injector.py")
-                )
-                mod_injector = importlib.util.module_from_spec(spec_injector)
-                spec_injector.loader.exec_module(mod_injector)
-                TaskMarkerInjector = mod_injector.TaskMarkerInjector
-            except ImportError as e:
-                logger.warning("Task-aware pruning unavailable: %s", e)
-                self._pruner = None
-                self._injector = None
-                return
-        
-        self._pruner = TaskAwarePruner(
-            window_size=self.window_size,
-            protect_first_n=self.protect_first_n,
-            protect_last_n=self.protect_last_n,
+        logger.info(
+            "RollingWindowContextEngine (tail-off) initialized: "
+            "threshold=%.0f%%, archive_target=%.0f%%, hard_ceiling=%.0f%%",
+            self.threshold_percent * 100,
+            self.archive_target * 100,
+            self.hard_ceiling_percent * 100,
         )
-        self._injector = TaskMarkerInjector()
+
+    # -- ContextEngine ABC --------------------------------------------------
 
     def update_from_response(self, usage: dict[str, Any]) -> None:
         """Update tracked token usage from an API response."""
@@ -134,87 +93,90 @@ class RollingWindowContextEngine(ContextEngine):
         self,
         messages: list[dict[str, Any]],
         current_tokens: int = None,
-        focus_topic: str = None,  # ignored (deterministic pruning)
+        focus_topic: str = None,
     ) -> list[dict[str, Any]]:
-        """Compact the message list and return the new message list.
+        """Incremental tail-off archive.
 
-        Rolling window approach — deterministic pruning without LLM summarization.
-        Designed for models with large native context windows (131k+ tokens).
-
-        Algorithm:
-          1. Strip raw assistant tool calls entirely (verbose JSON bloat)
-          2. Truncate role:"tool" results to first/last 3 lines
-          3. Task-aware scoring + selection (preserves active task context)
-          4. Enforce hard token budget with aggressive truncation as last resort
+        Strategy:
+          1. Strip assistant tool_calls (verbose JSON bloat)
+          2. Truncate verbose tool results to first/last 3 lines
+          3. Incrementally drop oldest unprotected messages until
+             estimated tokens fall below archive_target
+          4. Hard ceiling: if still over hard_ceiling_percent, do 50/50 split
         """
         if not messages:
             return messages
 
-        # Step 1: Strip raw assistant tool calls (verbose JSON bloat)
-        stripped = []
+        target_tokens = int(self.context_length * self.archive_target)
+        hard_ceiling_tokens = int(self.context_length * self.hard_ceiling_percent)
+        before = len(messages)
+
+        # Step 1: Strip assistant tool_calls
+        pruned = []
         for msg in messages:
             if msg.get("role") == "assistant" and msg.get("tool_calls"):
-                # Keep the message but remove tool_calls to save space
-                stripped.append({**msg, "tool_calls": None})
+                pruned.append({**msg, "tool_calls": None})
             else:
-                stripped.append(msg)
+                pruned.append(msg)
 
-        # Step 2: Truncate role:"tool" results to first/last 3 lines
+        # Step 2: Truncate verbose tool results
         truncated = []
-        for msg in stripped:
+        for msg in pruned:
             if msg.get("role") == "tool":
                 content = msg.get("content", "")
                 if isinstance(content, str) and len(content.split("\n")) > 6:
                     lines = content.split("\n")
-                    # Keep first 3 and last 3 lines
-                    truncated_content = "\n".join(lines[:3]) + "\n...[truncated]...\n" + "\n".join(lines[-3:])
+                    truncated_content = (
+                        "\n".join(lines[:3])
+                        + "\n...[truncated]...\n"
+                        + "\n".join(lines[-3:])
+                    )
                     msg = {**msg, "content": truncated_content}
             truncated.append(msg)
 
-        # Step 3: Task-aware pruning (preserves active task context)
-        if self._pruner is not None and len(truncated) > self.window_size:
-            try:
-                keep_indices = self._pruner.select_turns_to_keep(
-                    truncated, target_count=self.window_size
-                )
-                pruned = [truncated[i] for i in keep_indices]
-                
-                # Log pruning stats if debug enabled
-                if logger.isEnabledFor(logging.DEBUG):
-                    report = self._pruner.get_pruning_report(truncated, keep_indices)
-                    logger.debug("Task-aware prune: %s", report)
-            except Exception as e:
-                logger.warning("Task-aware pruning failed, falling back to simple window: %s", e)
-                pruned = self._fallback_window_prune(truncated)
-        elif len(truncated) > self.window_size:
-            # Fallback if task-aware components unavailable
-            pruned = self._fallback_window_prune(truncated)
-        else:
-            pruned = truncated
+        # Step 3: Incremental tail-off -- drop oldest until under target
+        # Protect first N (system prompt area) and last N (current conversation)
+        protected_first = min(self.protect_first_n, len(truncated))
+        drop_idx = 1  # start dropping after system prompt at index 0
 
-        # Step 4: Enforce hard token budget with aggressive truncation as last resort
-        if current_tokens and current_tokens > self.max_tokens:
-            # Aggressive truncation — reduce to first/last N messages only
-            keep_first = max(1, len(pruned) // 4)
-            keep_last = max(1, len(pruned) // 4)
-            pruned = pruned[:keep_first] + pruned[-keep_last:]
+        estimated = estimate_messages_tokens_rough(truncated)
 
-        return pruned
-    
-    def _fallback_window_prune(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Simple window-based pruning fallback when task-aware components fail."""
-        if len(messages) <= self.window_size:
-            return messages
-        
-        protected_first = min(self.protect_first_n, len(messages))
-        protected_last = min(self.protect_last_n, len(messages))
+        while True:
+            protected_last_end = max(
+                protected_first, len(truncated) - self.protect_last_n
+            )
+            if (
+                drop_idx >= protected_last_end
+                or estimated <= target_tokens
+                or len(truncated) <= protected_first + self.protect_last_n
+            ):
+                break
 
-        keep_count = max(protected_first + protected_last, self.window_size)
-        if len(messages) > keep_count:
-            # Drop oldest messages beyond window_size
-            return messages[-keep_count:]
-        
-        return messages
+            # Remove message at drop_idx (oldest unprotected)
+            truncated.pop(drop_idx)
+            estimated = estimate_messages_tokens_rough(truncated)
+            # Don't advance drop_idx -- next message is now at same index
+
+        # Step 4: Hard ceiling safety net
+        step4_cut = False
+        if estimated > hard_ceiling_tokens and len(truncated) > protected_first + self.protect_last_n:
+            keep_first = max(1, len(truncated) // 4)
+            keep_last = max(1, len(truncated) // 4)
+            truncated = truncated[:keep_first] + truncated[-keep_last:]
+            step4_cut = True
+
+        self.archive_count += 1
+
+        logger.info(
+            "RollingWindow tail-off archive: %d->%d msgs, est_tokens=%d, "
+            "target=%d, ceiling=%d, hard_cut=%s",
+            before, len(truncated), estimated,
+            target_tokens, hard_ceiling_tokens, step4_cut,
+        )
+
+        return truncated
+
+    # -- Session lifecycle ---------------------------------------------------
 
     def should_compress_preflight(self, messages: list[dict[str, Any]]) -> bool:
         """Quick rough check before the API call. Default returns False."""
@@ -229,11 +191,13 @@ class RollingWindowContextEngine(ContextEngine):
         pass
 
     def on_session_reset(self) -> None:
-        """Called on /new or /reset."""
+        """Called on /new or /reset. Reset per-session state."""
         self.last_prompt_tokens = 0
         self.last_completion_tokens = 0
         self.last_total_tokens = 0
         self.archive_count = 0
+
+    # -- Tools ---------------------------------------------------------------
 
     def get_tool_schemas(self) -> list[dict[str, Any]]:
         """Return tool schemas this engine provides. Default returns empty list."""
@@ -244,9 +208,11 @@ class RollingWindowContextEngine(ContextEngine):
         import json
         return json.dumps({"error": f"Unknown context engine tool: {name}"})
 
+    # -- Status --------------------------------------------------------------
+
     def get_status(self) -> dict[str, Any]:
         """Return status dict for display/logging."""
-        status = {
+        return {
             "last_prompt_tokens": self.last_prompt_tokens,
             "threshold_tokens": self.threshold_tokens,
             "context_length": self.context_length,
@@ -256,14 +222,6 @@ class RollingWindowContextEngine(ContextEngine):
             ),
             "archive_count": self.archive_count,
         }
-        
-        # Add task-aware status if available
-        if self._injector is not None:
-            active_tasks = self._injector.get_active_task_ids()
-            if active_tasks:
-                status["active_tasks"] = active_tasks
-        
-        return status
 
     def update_model(self, model: str, context_length: int, **kwargs) -> None:
         """Called when the user switches models."""
