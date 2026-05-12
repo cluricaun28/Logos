@@ -139,7 +139,11 @@ class RollingWindowContextEngine(ContextEngine):
         protected_first = min(self.protect_first_n, len(truncated))
         drop_idx = 1  # start dropping after system prompt at index 0
 
-        estimated = estimate_messages_tokens_rough(truncated)
+        # Use gateway's actual token count if available; otherwise estimate
+        if current_tokens is not None:
+            estimated = current_tokens
+        else:
+            estimated = estimate_messages_tokens_rough(truncated)
 
         while True:
             protected_last_end = max(
@@ -154,6 +158,7 @@ class RollingWindowContextEngine(ContextEngine):
 
             # Remove message at drop_idx (oldest unprotected)
             truncated.pop(drop_idx)
+            # After first drop, use rough estimate on the reduced set
             estimated = estimate_messages_tokens_rough(truncated)
             # Don't advance drop_idx -- next message is now at same index
 
