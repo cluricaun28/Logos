@@ -35,10 +35,10 @@ Full plugin suite providing perpetual memory tools to the agent:
 ### 3. Rolling Window Context Archiving (`plugins/context_engine/rolling_window/`)
 Replaces passive context retention with active archiving: compress completed conversation turns to permanent storage while keeping the working window lean for deep present-moment reasoning. State continuity through retrieval, not retention.
 
-Key components and optimizations:
-- **`task_tagger.py`** — Task detection engine with precompiled regex patterns (module-level constants), 10-message detection window, and role-aware outcome extraction
-- **`task_pruner.py`** — O(n) pruning via index-based lookups instead of list slicing; deduped summary logic through shared `build_task_summary()`
-- **`test_task_pruning.py`** — Full test suite covering task tagging (10 tests), pruning strategies (8 tests), and edge cases (4 tests) = 22 total
+Key design:
+- **Incremental tail-off** — When the context window approaches its threshold (~75%), the engine strips tool calls, truncates verbose tool results, then drops the oldest unprotected messages until token count falls below the archive target (65%). No LLM calls, no semantic clustering, no task tracking — simple and deterministic.
+- **Hard ceiling at 85%** — Emergency safety net that performs a drastic split if the incremental pruning isn't enough, preventing OOM mid-turn.
+- **Single-file implementation** — The rolling window directory contains only `__init__.py`. All task-aware and semantic-vector code has been removed as unnecessary overhead.
 
 ### Modified Core Files (7 files)
 
@@ -46,10 +46,10 @@ These core files were modified from the Hermes Agent base. The diffs are committ
 
 || File | What Changed | Why It Matters |
 |------|-------------|----------------|
-| `run_agent.py` | Renamed "compression" $\rightarrow$ "archiving", added Context Bridge injection at archival boundary, selective tool loading | Enables rolling window + perpetual memory integration. Config key is now `archiving:` instead of `compression:` |
+| `run_agent.py` | Renamed "compression" $\\rightarrow$ "archiving", selective tool loading | Enables rolling window + perpetual memory integration. Config key is now `archiving:` instead of `compression:` |
 | `agent/prompt_builder.py` | Skills section changed from mandatory to on-demand loading with validation | Prevents context bloat — only loads skills actually relevant to the task |
-| `agent/context_engine.py` | Integrated rolling window engine, context bridge injection at archival boundary | Core archiving logic that preserves active tasks across compression boundaries |
-| `plugins/context_engine/__init__.py` | Added rolling window engine loader with config passthrough | Pluggable context archiving strategy |
+| `agent/context_engine.py` | Rolling window engine with incremental tail-off, removed semantic vector engine | Deterministic pruning: no LLM calls, no task tracking, no overhead |
+| `plugins/context_engine/__init__.py` | Rolling window engine loader with config passthrough | Pluggable context archiving strategy |
 | `model_tools.py` | Added `get_selective_tool_definitions()` and deferred tools index | Essential tools loaded inline, deferred tools listed for RL lookup — saves context tokens |
 | `cli.py` | Perpetual memory CLI commands (`hermes pm search`, etc.) | Query your conversation history from the terminal |
 | `tools/skill_manager_tool.py` | Fork-aware skill path resolution | Skills find custom categories correctly |
@@ -369,7 +369,7 @@ The agent will:
 
 ### Upstream Changes
 
-Logos originated from the Hermes Agent project. The upstream remote is retained for cherry-picking useful improvements:
+Logos is a fully independent project, detached from upstream Hermes Agent on 2026-05-11. The upstream remote is retained for selective cherry-picking of useful improvements:
 
 ```bash
 # Fetch latest from upstream
@@ -455,5 +455,5 @@ MIT. All custom additions are MIT licensed.
 
 ---
 
-**Provenance:** Originated from [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent).  \
-**Project:** [cluricaun28/logos](https://github.com/cluricaun28/logos)
+**Provenance:** Detached from [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent) on 2026-05-11.  \
+**Project:** [cluricaun28/Logos](https://github.com/cluricaun28/Logos) — fully independent, selective cherry-picking only.
