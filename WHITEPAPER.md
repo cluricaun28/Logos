@@ -27,7 +27,7 @@ description: "Comprehensive white paper documenting the purpose, architecture, a
 
 ## 1. Executive Summary
 
-This document describes **Logos**, a *sovereign agentic intelligence system* designed for a single user with specific epistemic requirements. Logos originated from the [Hermes Agent](https://github.com/NousResearch/hermes-agent) framework by Nous Research and has diverged substantially, transforming from a general-purpose local AI agent into a persistent knowledge system. Logos provides:
+This document describes **Logos**, a *sovereign agentic intelligence system* designed for a single user with specific epistemic requirements. Logos was originally built on the [Hermes Agent](https://github.com/NousResearch/hermes-agent) framework by Nous Research and has since diverged substantially, transforming from a general-purpose local AI agent into a persistent knowledge system. Logos provides:
 
 - **Infinite recall** across all sessions through a SQLite + FTS5 perpetual memory database
 - **Worldview-aligned research** through a curated reference library and a multi-phase deep research pipeline with bias detection
@@ -161,7 +161,7 @@ Every conversation turn across all sessions is stored verbatim in a local SQLite
 5. **`file_history`** — All edits to a specific file path with turn references
 6. **`hybrid_search`** — Combined BM25 + cosine similarity search
 
-**Key classes:** `PerpetualContextDB` (~2,400 lines), `PerpetualContextProvider` (512 lines as thin orchestrator), `SmartRetriever` (247 lines), `ExtractionEngine` (444 lines)
+**Key classes:** `PerpetualContextDB` (~391 lines), `PerpetualContextProvider` (560 lines as thin orchestrator), `SmartRetriever` (250 lines), `ExtractionEngine` (450 lines)
 
 ### 4.2 Context Bridge — Structured Session Continuity
 
@@ -210,7 +210,7 @@ The recall engine runs before each agent turn via `prefetch()` in `PerpetualCont
 
 **Full pipeline (4 phases) for static/slow/volatile queries:**
 
-- **Phase 1a:** Reference Library search via `handle_reference_library_search()` — hybrid search (FTS5 + embeddings) across 32,676 entries, sub-10ms latency
+- **Phase 1a:** Reference Library search via `handle_reference_library_search()` — hybrid search (FTS5 + embeddings) across 32,762 entries, sub-10ms latency
 - **Phase 1b:** Perpetual Memory hybrid search via `db.hybrid_search()` with configured depth limit
 - **Phase 1c:** Gap detection — if total results < 2, or PM scores below stability threshold, mark as gap
 - **Phase 2:** If gap detected, web search via `WebResearchClient` (SearXNG → Firecrawl → Camofox escalation)
@@ -231,7 +231,7 @@ The Reference Library (`~/.hermes/reference-library/`) is a structured knowledge
 - **`sources/`** — Source intelligence dossiers auto-created by `source_analyze`. Each tracks domain, alignment, reliability, `truthful_on` and `omits` lists. Compounds over time — each analysis enriches the dossier.
 - **`britannica/`** — Full 1911 Encyclopædia Britannica (32,169 entries)
 
-**Current scale:** 509 curated non-Britannica entries (297 entities, 56 topics, 85 tools) + 4 source intelligence dossiers in `sources/` + 32,169 Britannica entries = 32,682 total entries indexed.
+**Current scale:** 593 non-Britannica entries (146 entities, 309 topics, 87 tools, 17 sources, 14 categories, 20 system) + 32,169 Britannica entries = 32,762 total entries indexed.
 
 **Hybrid search index (`rl_index.db`):**
 
@@ -293,20 +293,33 @@ The Logos Engine operates as a three-stage verification pipeline:
 
 Supporting bridges: `britannica_bridge.py` and `aquinas_bridge.py` provide content-aware search across the Britannica 1911 and Aquinas Research Library corpora respectively, integrated into the distillation pipeline.
 
-### 4.7 Rolling Window Context Engine with Task-Aware Pruning
+### 4.7 Rolling Window Context Engine — Incremental Tail-Off
 
-**Purpose:** Deterministic context management that replaces LLM-based summarization.
+**Purpose:** Deterministic context management that maximizes VRAM utilization without LLM-based summarization.
 
 Rather than asking the LLM to summarize old turns (which introduces errors and bias), the rolling window engine:
 
-1. Strips raw assistant tool calls entirely (verbose JSON bloat)
-2. Truncates tool results to first/last 3 lines
-3. Applies task-aware scoring: preserves turns from active/incomplete tasks
-4. Drops lowest-scoring messages when `window_size` is exceeded
-5. Enforces hard token budget with aggressive truncation as last resort
+1. Fires when the context window approaches `threshold_percent` (default 75% of max-model-len)
+2. Strips raw assistant `tool_calls` arrays from messages (verbose JSON bloat)
+3. Truncates verbose `tool_content` to first/last 3 lines
+4. Counts tokens (chars // 4) and drops the oldest unprotected messages one at a time until token estimate falls at or below `archive_target` (default 65% of max-model-len)
+5. Enforces `hard_ceiling_percent` (default 85%) — if still over, does a drastic quarter-split as last resort
 
-**Task markers** (`[TASK_START: id]`, `[TASK_COMPLETE: id]`) are injected into the system prompt. Custom `task_aware_pruner.py` and `task_marker_injector.py` provide fine-grained control over which turns survive compression by tagging tasks as active or complete.
+**No task tracking, no bridge injection, no semantic vectors.** The engine is a single file (~200 lines) with zero external dependencies. It prunes incrementally, keeping the context window between 65–85% utilization. All pruned turns are saved verbatim to Perpetual Memory — the model can retrieve anything it needs via `perpetual_search` or `query_messages`.
 
+**Configuration** (from `config.yaml`):
+
+```yaml
+context.engine: rolling_window
+context.archiving:
+  threshold_percent: 0.75      # When to fire
+  archive_target: 0.65         # Prune down to this level
+  hard_ceiling_percent: 0.85   # Absolute safety net
+```
+
+**Key class:** `RollingWindowTailOffEngine` in `plugins/context_engine/rolling_window/__init__.py` (200 lines).
+
+---
 
 ### 4.8 Source Analysis — `source_analyze` Tool
 
@@ -347,44 +360,43 @@ Each analysis enriches the dossier — appending new patterns to `truthful_on` a
 
 ## 5. Codebase Organization
 
-### 5.1 Custom Plugin Modules (39 modules, ~12,079 lines)
+### 5.1 Custom Plugin Modules (37 modules, ~10,933 lines)
 
-All custom code lives in `hermes-agent/plugins/memory/perpetual_context/`:
+All custom code lives in `plugins/memory/perpetual_context/`:
 
 **Core modules:**
 
 | Module | Lines | Purpose |
 |--------|-------|---------|
-| `__init__.py` | 543 | Thin orchestrator (was 1,735 — reduced 70% via refactoring) |
+| `__init__.py` | 560 | Thin orchestrator (reduced 68% from original 1,735) |
 | `component_factory.py` | 197 | Lazy-init factory for all sub-components |
 | `context_bridge_builder.py` | 286 | Builds Context Bridge content |
 | `extraction_engine.py` | 450 | Extracts structured data from conversation turns |
 | `retrieval_engine.py` | 250 | SmartRetriever with auto-routing |
 | `schemas.py` | 544 | 11 tool schemas (added `SOURCE_ANALYZE_SCHEMA` May 2026) |
-| `injection_router.py` | 322 | Data-driven injection strategy |
 | `topic_classifier.py` | 126 | Keyword sets + stability function |
 | `tool_handler.py` | 661 | Tool dispatch to DB operations + `source_analyze` handler with deep mode (delegates to `agent/source_analysis.py:SourceAnalyzer`) |
 | `quality_scorer.py` | 189 | Message relevance scoring |
-| `feedback_state.py` | 212 | Compression feedback tracking |
-| `prefetch_pipeline.py` | 277 | 4-phase Deep Research pipeline |
-| `decision_trace.py` | 116 | Decision trace retrieval |
-| `file_history.py` | 69 | File edit history |
+| `feedback_state.py` | 210 | Compression feedback tracking |
+| `prefetch_pipeline.py` | 286 | 4-phase Deep Research pipeline |
+| `decision_trace.py` | 117 | Decision trace retrieval |
+| `file_history.py` | 70 | File edit history |
 | `session_end_extractor.py` | 60 | Topic extraction from messages |
 | `utils.py` | 35 | Shared utilities |
-| `retrieval_quality.py` | 429 | Retrieval quality tracking |
+| `retrieval_quality.py` | 427 | Retrieval quality tracking |
 
 **Deep Research Engine:**
 
 | Module | Lines | Purpose |
 |--------|-------|---------|
-| `web_research.py` | 435 | SearXNG/Firecrawl/Camofox client |
+| `web_research.py` | 446 | SearXNG/Firecrawl/Camofox client |
 | `scrutiny_gate.py` | 222 | Facade for bias detection module family (split May 8, 2026) |
 | `bias_detector.py` | 248 | Linguistic marker detection |
 | `sensitivity_classifier.py` | 130 | Topic sensitivity classification |
 | `worldview_checker.py` | 292 | Worldview divergence checking |
 | `rl_ingestion_gate.py` | 162 | Controls what enters Reference Library |
 | `source_assessment.py` | 137 | Source quality assessment |
-| `synthesis_engine.py` | 549 | Multi-pass synthesis |
+| `synthesis_engine.py` | 548 | Multi-pass synthesis |
 
 **Reference Library integration:**
 
@@ -395,17 +407,20 @@ All custom code lives in `hermes-agent/plugins/memory/perpetual_context/`:
 | `rl_schema.py` | 124 | RL entry schema definitions |
 | `rl_builder.py` | 385 | RL page builder for auto-create |
 
-**Test suite:** 289 tests, ~4,600 lines across 8 test files. All passing as of 2026-05-07.
+**Deprecated (kept in `deprecated/` subdirectory):**
+- `injection_router.py` — superseded by `injection_router.py` in the prefetch pipeline
+
+**Test suite:** 242 test functions across 8 test files (~2,469 lines). All passing as of 2026-05-11.
 
 ### 5.2 Core Database Engine
 
-`agent/perpetual_context_db.py` (~2,400 lines) — the SQLite database with FTS5, embeddings, topic flow, and hybrid search. This is a new file not in upstream.
+`agent/perpetual_context_db.py` (~391 lines) — the SQLite database with FTS5, embeddings, topic flow, and hybrid search. This is a new file not in upstream.
 
 ### 5.3 Modified Upstream Files (8 files)
 
 | File | Lines Changed | Modification |
 |------|--------------|--------------|
-| `run_agent.py` | ~95 | Context Bridge injection, rolling window integration, compression timing |
+| `run_agent.py` | ~95 | Rolling window integration, compression timing |
 | `agent/prompt_builder.py` | ~21 | System prompt mods for PM context injection |
 | `plugins/context_engine/__init__.py` | ~228 | Config passing for context engines |
 | `acp_adapter/server.py` | ~9 | ACP server customizations |
@@ -458,7 +473,7 @@ Something being pushed simultaneously by multiple "reputable sources" is a *red 
 | Inference | vLLM (Docker: `vllm-qwen-stable`) | 8000 | Lorbus/Qwen3.6-27B-int4-AutoRound |
 | Embeddings | all-MiniLM-L6-v2 (ONNX) | N/A | In-process, ~80MB model, 384-dim vectors |
 | Perpetual Memory | SQLite + FTS5 | N/A | `~/.hermes/perpetual_context.db` |
-| RL Hybrid Index | SQLite + FTS5 + embeddings | N/A | `rl_index.db`, 32,676 entries |
+| RL Hybrid Index | SQLite + FTS5 + embeddings | N/A | `rl_index.db`, 32,762 entries |
 | SearXNG | Docker | Self-hosted | 251+ search services, Tier 1 |
 | Firecrawl | Docker stack | Self-hosted | API + Playwright + RabbitMQ + Redis + Postgres, Tier 2 |
 | Camofox | Native | 9377 | Anti-detection Firefox fork, Tier 3 |
@@ -489,11 +504,11 @@ The system runs several autonomous jobs that maintain and improve itself overnig
 - A *growing intelligence* — the Reference Library distills better from conversation history over time
 - A *worldview-aware* system — not neutral in the sense of "both sides," but honest about its epistemic commitments
 - A *practical tool* — designed for daily use by one person through Telegram
-- Originated from [Hermes Agent](https://github.com/NousResearch/hermes-agent) and has since diverged substantially
+- Originally built on [Hermes Agent](https://github.com/NousResearch/hermes-agent) — now fully detached and standalone
 
 ### What This Is Not
 
-- Hermes Agent — Logos originated from Hermes but has diverged into its own system
+- A fork of Hermes Agent — Logos was built on Hermes but is now a fully detached standalone project
 - A commercial product — built for one user's needs, not a general-purpose solution
 - An attempt at objectivity in the journalistic sense — truth is not consensus, and the system knows this
 
@@ -517,6 +532,7 @@ The system runs several autonomous jobs that maintain and improve itself overnig
 | 2026-05-08 | **Sovereign Sieve v2:** Source dossiers as YAML (`source_dossiers.yaml`, 284 entries), embedding-based semantic marker detection alongside regex, `WorldviewDivergenceChecker` wired into `ScrutinyGate`. FAISS vector index rebuilt (100% coverage, 6,716 vectors). `ExtractionEngine` split from `BridgeQualityScorer`. Test suite cleaned (stale duplicates removed). `scrutiny_gate.py` at 960 lines, full ruff compliance. |
 | 2026-05-08 | Scrutiny gate split into 6 SRP-compliant modules (967→221 lines facade + 5 submodules), all under 500 lines. Last god class eliminated. |
 | 2026-05-09 | **Phase 4 — `source_analyze` tool:** Direct agent tool for source intelligence during research. 11 tool schemas (added `SOURCE_ANALYZE_SCHEMA`). Deep mode (`deep=true`) extracts full article content via Firecrawl before analysis. Auto-creates source dossiers in `sources/` for new domains with `domain-index.json` auto-update. Smart trigger in system prompt: substantive topics get `source_analyze(deep=true)`, utility queries skip. 3 new skills (`factual-research-answer`, `tool-schema-validation-debug`, `political-research-and-entity-pages`), 3 updated skills (`web-source-bias-research`, `narrative-control-detection`, `pipeline-module-integration`). 10 new RL pages (5 entity, 4 source, 1 topic). Code audit: removed duplicate schemas, fixed f-string JSON construction, narrowed exception handling, `frozenset` for mutable globals, added `__all__` and `logger`. |
+| 2026-05-11 | **Full detachment from Hermes Agent:** Repo unforked from NousResearch/hermes-agent via GitHub "Leave fork network." DIVERGENCE.md updated to reflect standalone status. Rolling window engine rewritten — removed task-aware pruning, semantic vectors, replaced with incremental tail-off (65–85% context utilization). `SemanticVectorEngine` removed from `context_engine.py`. Package dependencies hardened (`PyJWT >= 2.13.0`). README rebranded with "What Makes Logos Different" section. 26 LLM paper entries added to RL (`topics/llm-papers/`). 3 media dossiers added (`topics/media/`). |
 
 ---
 
@@ -526,7 +542,6 @@ The system runs several autonomous jobs that maintain and improve itself overnig
 
 - **Production server deployment:** Dual RTX Pro 6000 Blackwell, migrate vLLM to 256GB VRAM
 - **Async pacing:** Deep research pipeline blocks prefetch; needs async execution with periodic Telegram updates
-- **Compression threshold tuning:** 50% may be too conservative for 131K context window
 - **Worldview quiz configuration:** Generalize Sovereign Sieve to questionnaire-based filters for portability
 
 ### Long-term
