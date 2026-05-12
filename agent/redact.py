@@ -57,11 +57,11 @@ _SENSITIVE_BODY_KEYS = frozenset({
 })
 
 # Snapshot at import time so runtime env mutations (e.g. LLM-generated
-# `export HERMES_REDACT_SECRETS=true`) cannot enable/disable redaction
-# mid-session.  OFF by default — user must opt in via
+# `export HERMES_REDACT_SECRETS=***`) cannot enable/disable redaction
+# mid-session.  OFF by default in upstream Hermes — user must opt in via
 # `security.redact_secrets: true` in config.yaml (bridged to this env var
-# in hermes_cli/main.py and gateway/run.py) or `HERMES_REDACT_SECRETS=true`
-# in ~/.hermes/.env.
+# in hermes_cli/main.py and gateway/run.py) or `HERMES_REDACT_SECRETS=***`
+# in ~/.hermes/.env. This fork enables it by default.
 _REDACT_ENABLED = os.getenv("HERMES_REDACT_SECRETS", "").lower() in ("1", "true", "yes", "on")
 
 # Known API key prefixes -- match the prefix + contiguous token chars
@@ -262,7 +262,7 @@ def redact_sensitive_text(text: str) -> str:
     """Apply all redaction patterns to a block of text.
 
     Safe to call on any string -- non-matching text passes through unchanged.
-    Disabled by default — enable via security.redact_secrets: true in config.yaml.
+    Default is ON in this fork (see config.py security.redact_secrets default).
     """
     if text is None:
         return None

@@ -852,7 +852,10 @@ def build_skills_system_prompt(
                 if name in seen:
                     continue
                 seen.add(name)
-                index_lines.append(f"    - '''{name}'''")
+                if desc:
+                    index_lines.append(f"    - '''{name}''' — {desc}")
+                else:
+                    index_lines.append(f"    - '''{name}'''")
 
         result = (
             "## Skills (on-demand)\n"

@@ -13,6 +13,8 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+import yaml
+
 from hermes_constants import get_config_path, get_skills_dir
 
 logger = logging.getLogger(__name__)
@@ -25,7 +27,7 @@ PLATFORM_MAP = {
     "windows": "win32",
 }
 
-EXCLUDED_SKILL_DIRS = frozenset((".git", ".github", ".hub"))
+EXCLUDED_SKILL_DIRS = frozenset((".git", ".github", ".hub", "venv", "node_modules", "__pycache__", ".tox", ".mypy_cache"))
 
 # ── Lazy YAML loader ─────────────────────────────────────────────────────
 
@@ -76,7 +78,7 @@ def parse_frontmatter(content: str) -> Tuple[Dict[str, Any], str]:
         parsed = yaml_load(yaml_content)
         if isinstance(parsed, dict):
             frontmatter = parsed
-    except (yaml.YAMLError):
+    except yaml.YAMLError:
         # Fallback: simple key:value parsing for malformed YAML
         for line in yaml_content.strip().split("\n"):
             if ":" not in line:

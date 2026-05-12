@@ -486,6 +486,23 @@ class ContextCompressor(ContextEngine):
             return False
         return True
 
+    # -- ContextEngine ABC alias methods ---------------------------------
+    # run_agent.py calls should_archive()/archive() on the ContextEngine
+    # interface.  ContextCompressor historically used should_compress()/
+    # compress().  These aliases keep the fallback alive when a plugin
+    # engine fails to load.
+
+    def should_archive(self, prompt_tokens: int = None) -> bool:
+        return self.should_compress(prompt_tokens)
+
+    def archive(
+        self,
+        messages: List[Dict[str, Any]],
+        current_tokens: int = None,
+        focus_topic: str = None,
+    ) -> List[Dict[str, Any]]:
+        return self.compress(messages, current_tokens=current_tokens, focus_topic=focus_topic)
+
     # ------------------------------------------------------------------
     # Tool output pruning (cheap pre-pass, no LLM call)
     # ------------------------------------------------------------------

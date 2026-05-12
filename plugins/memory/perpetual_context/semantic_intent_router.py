@@ -345,7 +345,7 @@ def _ensure_centroids() -> bool:
 # Public API
 # ---------------------------------------------------------------------------
 
-_SIMILARITY_THRESHOLD = 0.45  # Minimum cosine similarity to fire an intent
+_SIMILARITY_THRESHOLD = 0.65  # Minimum cosine similarity to fire an intent — high bar to prevent noise injections
 
 
 def classify_injection_intent(query: str) -> dict[str, Any]:
@@ -408,15 +408,8 @@ def _classify_semantic(
     if best_intent is not None and best_score >= _SIMILARITY_THRESHOLD:
         return _intent_to_routing(best_intent, best_score)
 
-    # No intent exceeded threshold — but if we have a decent match, use it
-    # at lower confidence. This prevents falling to 'empty' for queries that
-    # are close but not quite over the threshold.
-    if best_intent is not None and best_score >= _SIMILARITY_THRESHOLD * 0.7:
-        result = _intent_to_routing(best_intent, best_score)
-        result["confidence"] = "low"
-        return result
-
-    return None  # No match — fall back to keyword router
+    # No intent exceeded threshold — don't inject. Better to inject nothing than noise.
+    return None  # Fall back to keyword router which is more conservative
 
 
 def _intent_to_routing(intent: IntentDef, score: float) -> dict[str, Any]:
@@ -549,14 +542,12 @@ def _keyword_classify(query: str) -> dict[str, Any]:
     if _phrase_match(_KEYWORD_TRIGGERS["opinion"], lower):
         return _fallback_opinion()
 
-    # Factual fallback for short wh- queries
-    if len(words) <= 8 and _word_match(_KEYWORD_TRIGGERS["factual_words"], words):
+    # Factual fallback for short wh- queries — but only if the query is short
+    # AND contains multiple wh- words (genuine question, not just a statement with "what")
+    if len(words) <= 4 and _word_match(_KEYWORD_TRIGGERS["factual_words"], words):
         return _fallback_factual_fallback()
 
-    # Ambiguous — but more permissive than before: fire prefetch for substantial queries
-    if len(words) > 5:
-        return _fallback_factual_fallback()
-
+    # Ambiguous — don't inject. Better to inject nothing than noise.
     return _fallback_ambiguous()
 
 
