@@ -483,7 +483,7 @@ This is not moral relativism disguised as "both sides." It is epistemic honesty 
 ### 7.1 Hardware
 
 - **Hardware:** 24GB+ VRAM GPU (e.g., RTX 3090/4090/5090), WSL2 or native Linux
-- **Planned (~June 2026):** Production server — dual RTX Pro 6000 Blackwell (96GB each, 256GB total VRAM) for BF16 inference
+- **Future:** Scale to larger models and longer context windows as hardware and open-weight models improve
 
 ### 7.2 Software Stack
 
@@ -559,8 +559,8 @@ The system runs several autonomous jobs that maintain and improve itself overnig
 
 ### Near-term (through June 2026)
 
-- **Production server deployment:** Dual RTX Pro 6000 Blackwell, migrate vLLM to 256GB VRAM
-- **Async pacing:** Deep research pipeline blocks prefetch; needs async execution with periodic Telegram updates
+- **Model scaling:** Migrate to larger open-weight models as they become available
+- **Async deep research:** Pipeline blocks prefetch; async execution with periodic updates
 - **Worldview quiz configuration:** Generalize Sovereign Sieve to questionnaire-based filters for portability
 
 ### Long-term
@@ -574,7 +574,7 @@ The system runs several autonomous jobs that maintain and improve itself overnig
 
 The Logos Engine represents a fundamental departure from standard agent architectures. Where most agents are built to serve everyone with maximum neutrality, this system is built to serve one person with maximum clarity. Where most agents forget everything after context compression, this one remembers everything and retrieves on demand. Where most agents are trained on web noise, this one anchors in a curated knowledge base that grows denser and more internally consistent over time.
 
-The system is not perfect — it is a work in progress maintained by one person with one GPU (soon two). But it is *honest* about what it is, and it is *sovereign* in how it operates. It cannot be captured by a corporate update, corrupted by a cloud API change, or silenced by a policy shift. It belongs to the person who built it.
+The system is not perfect — it is a work in progress. But it is *honest* about what it is, and it is *sovereign* in how it operates. It cannot be captured by a corporate update, corrupted by a cloud API change, or silenced by a policy shift. It belongs to the person who runs it.
 
 > *"Codifying truth in the Reference Library is planting a flag that no corporate update can erase."*
 
