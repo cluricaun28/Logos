@@ -127,7 +127,14 @@ class _DossierLookup:
                 try:
                     with open(idx_path, encoding="utf-8") as f:
                         data = json.load(f)
-                    self._index = data.get("domains", {})
+                    # Support both new flat format and old {"domains": {...}} wrapper
+                    if "domains" in data and isinstance(data["domains"], dict):
+                        self._index = data["domains"]
+                    elif isinstance(data, dict) and any(k.endswith(".com") or k.endswith(".org") or k.endswith(".net") for k in data):
+                        # Flat format: keys are URL domains, values are dossier entries
+                        self._index = data
+                    else:
+                        self._index = data
                     logger.debug("Loaded %d domain entries from %s", len(self._index), idx_path)
                     break
                 except (json.JSONDecodeError, OSError) as e:
@@ -273,9 +280,20 @@ class _DossierLookup:
     def _extract_domain(url: str) -> str | None:
         if not url:
             return None
+        url = url.strip()
+        # Handle bare domains like "bbc.com" or "nytimes.com"
+        # urlparse needs a scheme; add one temporarily if missing
+        if not url.startswith(("http://", "https://", "//")):
+            url = "https://" + url
         try:
             parsed = urlparse(url)
-            return parsed.netloc.lower().replace("www.", "") or None
+            domain = parsed.netloc.lower().replace("www.", "")
+            if not domain:
+                return None
+            # Strip port if present
+            if ":" in domain:
+                domain = domain.split(":")[0]
+            return domain or None
         except ValueError:
             return None
 
@@ -669,7 +687,7 @@ class _RLWriter:
     """
 
     def __init__(self, rl_path: Path) -> None:
-        self._entities_dir = rl_path / "entities"
+        self._entities_dir = rl_path / "organizations"
 
     def write(self, findings: list[NewFinding]) -> Path | None:
         """Write findings back to the appropriate dossier files.
