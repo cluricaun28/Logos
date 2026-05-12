@@ -103,8 +103,15 @@ class _DossierLookup:
     def __init__(self, rl_path: Path | None = None) -> None:
         default_rl = Path.home() / ".hermes" / "reference-library"
         self._rl_path = rl_path or default_rl
-        self._index_path = self._rl_path / "entities" / "domain-index.json"
-        self._entities_dir = self._rl_path / "entities"
+        # Search both organizations/ (primary for media sources) and entities/ (legacy)
+        self._index_paths = [
+            self._rl_path / "organizations" / "domain-index.json",
+            self._rl_path / "entities" / "domain-index.json",
+        ]
+        self._scan_dirs = [
+            self._rl_path / "organizations",
+            self._rl_path / "entities",
+        ]
         self._index: dict[str, dict[str, Any]] = {}
         self._dossiers: dict[str, str] = {}  # domain -> raw markdown
         self._loaded = False
@@ -114,23 +121,31 @@ class _DossierLookup:
         if self._loaded:
             return
 
-        # Load domain index
-        if self._index_path.is_file():
-            try:
-                with open(self._index_path, encoding="utf-8") as f:
-                    data = json.load(f)
-                self._index = data.get("domains", {})
-                logger.debug("Loaded %d domain entries from index", len(self._index))
-            except (json.JSONDecodeError, OSError) as e:
-                logger.warning("Failed to load domain-index.json: %s", e)
-        else:
-            logger.debug("domain-index.json not found at %s", self._index_path)
+        # Load domain index from first available path
+        for idx_path in self._index_paths:
+            if idx_path.is_file():
+                try:
+                    with open(idx_path, encoding="utf-8") as f:
+                        data = json.load(f)
+                    self._index = data.get("domains", {})
+                    logger.debug("Loaded %d domain entries from %s", len(self._index), idx_path)
+                    break
+                except (json.JSONDecodeError, OSError) as e:
+                    logger.warning("Failed to load domain-index.json from %s: %s", idx_path, e)
 
-        # Pre-scan entities directory for dossier files
-        if self._entities_dir.is_dir():
-            for md_file in self._entities_dir.glob("*-v1.md"):
+        if not self._index:
+            logger.debug("No domain-index.json found in any search path")
+
+        # Pre-scan all directories for dossier files (both *.md and *-v1.md patterns)
+        for scan_dir in self._scan_dirs:
+            if not scan_dir.is_dir():
+                continue
+            for md_file in scan_dir.glob("*.md"):
+                # Skip index files and master lists
+                if md_file.name in ("index.md", "domain-index.json"):
+                    continue
                 self._dossiers[md_file.stem] = md_file.read_text(encoding="utf-8")
-            logger.debug("Cached %d entity dossiers", len(self._dossiers))
+            logger.debug("Cached %d dossiers from %s", len(list(scan_dir.glob("*.md"))), scan_dir)
 
         self._loaded = True
 
@@ -145,22 +160,33 @@ class _DossierLookup:
         # Check index for this domain
         entry = self._index.get(domain)
         if not entry:
-            # Try partial match (subdomains, www prefix)
-            # Require the index domain to appear as a right-aligned suffix
-            # of the extracted domain to avoid "the" matching "thelancet.com".
+            # Try partial match (subdomains, www prefix, domain aliases)
+            # Strategy: check if our domain ends with an index domain,
+            # or if an index domain (stripped of TLD) is contained in our domain
+            best_match = None
+            best_len = 0
             for idx_domain, idx_entry in self._index.items():
-                if domain.endswith(idx_domain) or idx_domain.endswith(domain):
-                    entry = idx_entry
-                    domain = idx_domain
-                    break
+                # Exact suffix match (handles subdomain.foo.com -> foo.com)
+                if domain.endswith(idx_domain) and len(idx_domain) > best_len:
+                    best_match = (idx_domain, idx_entry)
+                    best_len = len(idx_domain)
+                # Stem match: if idx_domain is a short name like "bbc" or "fox-news"
+                # and it appears in our domain (e.g. "bbc.com" contains "bbc")
+                idx_stem = idx_domain.split(".")[0].lower()
+                if len(idx_stem) >= 3 and idx_stem in domain and len(idx_stem) > best_len:
+                    best_match = (idx_domain, idx_entry)
+                    best_len = len(idx_stem)
+            if best_match:
+                entry = best_match[1]
+                domain = best_match[0]
 
         if not entry:
             return None
 
         dossier_file = entry.get("file", "")
-        cluster = self._strip_md(entry.get("cluster", "unknown"))
-        alignment = self._strip_md(entry.get("alignment", "unknown"))
-        reliability = self._strip_md(entry.get("reliability", "unknown"))
+        cluster = self._strip_md(entry.get("cluster", ""))
+        alignment = self._strip_md(entry.get("alignment", ""))
+        reliability = self._strip_md(entry.get("reliability", ""))
 
         # Parse behavioral patterns from the Markdown dossier
         truthful_on: list[str] = []
@@ -172,6 +198,14 @@ class _DossierLookup:
         raw = self._dossiers.get(dossier_key)
         if raw:
             truthful_on, omits, shibboleths, motive = self._parse_patterns(raw)
+
+            # Backfill cluster/alignment/reliability from dossier body if index is empty
+            if not cluster or cluster == "unknown":
+                cluster = self._extract_dossier_field(raw, "cluster")
+            if not alignment or alignment == "unknown":
+                alignment = self._extract_dossier_field(raw, "alignment")
+            if not reliability or reliability == "unknown":
+                reliability = self._extract_dossier_field(raw, "reliability")
 
         return SourceProfile(
             domain=domain,
@@ -188,6 +222,52 @@ class _DossierLookup:
     # -----------------------------------------------------------------------
     # Internal helpers
     # -----------------------------------------------------------------------
+
+    @staticmethod
+    def _extract_dossier_field(raw: str, field: str) -> str:
+        """Extract cluster/alignment/reliability from dossier frontmatter or body."""
+        # Try frontmatter first
+        if raw.startswith("---"):
+            try:
+                fm_end = raw.index("---", 3)
+                for line in raw[3:fm_end].splitlines():
+                    line = line.strip()
+                    if line.lower().startswith(f"{field}:"):
+                        val = line.split(":", 1)[1].strip().strip('"').replace("**", "").strip()
+                        if val:
+                            return val
+            except ValueError:
+                pass
+
+        # Try body — look for "**cluster:**", "**alignment:**", "**reliability:**" patterns
+        field_lower = field.lower()
+        for line in raw.splitlines():
+            stripped = line.strip()
+            stripped_lower = stripped.lower()
+            if f"**{field_lower}**" in stripped_lower or f"**{field_lower}:" in stripped_lower:
+                val = stripped.split(":", 1)[-1].strip().replace("**", "").strip()
+                if val:
+                    return val
+
+        # Fallback: extract from dossier body prose
+        if field_lower == "cluster":
+            for line in raw.splitlines():
+                s = line.strip().lower()
+                if "primary worldview" in s or "foundational bias" in s:
+                    return line.strip().replace("**", "").strip()
+                # Handle "Actual editorial posture" sections
+                if "actual editorial posture" in s or "editorial posture" in s:
+                    # Next meaningful line after this
+                    pass
+        elif field_lower == "alignment":
+            for line in raw.splitlines():
+                s = line.strip().lower()
+                if "**aligned" in s and "relative to worldview" in s:
+                    return line.strip().replace("**", "").strip()
+                if "opposed" in s and ("relative to" in s or "to the" in s):
+                    return line.strip().replace("**", "").strip()
+
+        return ""
 
     @staticmethod
     def _extract_domain(url: str) -> str | None:
@@ -208,6 +288,12 @@ class _DossierLookup:
         """Extract behavioral patterns from Markdown dossier.
 
         Returns (truthful_on, omits, shibboleths, motive).
+
+        Handles multiple dossier schemas:
+        - Original: ## Behavioral Patterns with ✅/❌ markers
+        - Our format: ## What it does well / ## What it cannot be trusted with
+        - Inline: **What it does well:** and **What it cannot be trusted with:**
+        - Generic: ## Assessment with prose + bullet lists
         """
         truthful_on: list[str] = []
         omits: list[str] = []
@@ -215,22 +301,45 @@ class _DossierLookup:
         motive = ""
 
         current_section = ""
+        in_good = False
+        in_bad = False
+
         for line in raw.splitlines():
             stripped = line.strip()
 
-            # Track which section we're in
+            # Track which ## section we're in
             if stripped.startswith("## "):
                 current_section = stripped[3:].lower()
+                in_good = False
+                in_bad = False
                 continue
 
-            if not stripped or stripped.startswith("- **") and ":":
-                pass  # skip headers and bold labels
+            # Detect inline **What it does well:** / **What it cannot be trusted with:**
+            lower_stripped = stripped.lower()
+            if "**what it does well" in lower_stripped:
+                in_good = True
+                in_bad = False
+                # Check if there's content after the label on the same line
+                after = stripped.split(":", 1)[-1].strip().lstrip("**")
+                if after and not stripped.startswith("- "):
+                    entry = after.strip()
+                    if entry and entry not in truthful_on:
+                        truthful_on.append(entry)
+                continue
+            if "**what it cannot be trusted" in lower_stripped or "**what it gets wrong**" in lower_stripped:
+                in_bad = True
+                in_good = False
+                continue
 
-            # Primary motive
-            if ("primary motive" in current_section or "motivation" in current_section) and stripped.startswith("-") and ":" in stripped:
-                motive = stripped.lstrip("- ").split(":", 1)[-1].strip()
+            # Reset inline flags when we hit a blank line or new header
+            if not stripped and (in_good or in_bad):
+                in_good = False
+                in_bad = False
 
-            # Behavioral Patterns section (auto-updated or manual)
+            if not stripped:
+                continue
+
+            # --- Original schema: ## Behavioral Patterns with ✅/❌ ---
             if "behavioral pattern" in current_section or "truthful" in current_section:
                 if stripped.startswith("- ") and "✅" in stripped:
                     entry = stripped.lstrip("- ").replace("✅", "").strip()
@@ -241,20 +350,77 @@ class _DossierLookup:
                     if entry and entry not in omits:
                         omits.append(entry)
                 elif stripped.startswith("- ") and "(" in stripped:
-                    # e.g. "- Soros/OSF funding trails (12 sessions...)"
                     entry = stripped.lstrip("- ").split("(")[0].strip()
                     if entry and entry not in omits:
                         omits.append(entry)
 
-            # Shibboleth section
-            if ("shibboleth" in current_section or "linguistic" in current_section) and stripped.startswith("- **") and ":" in stripped:
-                # "Key Shibboleths: term1, term2, term3"
-                after_label = stripped.split(":", 1)[-1].strip()
-                if after_label:
-                    for term in after_label.split(","):
-                        t = term.strip().strip('"')
-                        if t and t not in shibboleths:
-                            shibboleths.append(t)
+            # --- Our dossier schema: ## What it does well / cannot be trusted ---
+            if ("what it does well" in current_section or
+                "what it's truthful about" in current_section or
+                "truthful" in current_section or
+                "strengths" in current_section or
+                "does well" in current_section):
+                if stripped.startswith("- ") and ":" in stripped:
+                    entry = stripped.lstrip("- ").split(":", 1)[1].strip()
+                    if entry and entry not in truthful_on:
+                        truthful_on.append(entry)
+                elif stripped.startswith("- ") and len(stripped) > 3:
+                    # Plain bullet point — add as-is
+                    entry = stripped.lstrip("- ")
+                    if entry and entry not in truthful_on:
+                        truthful_on.append(entry)
+
+            if ("cannot be trusted" in current_section or
+                "what it gets wrong" in current_section or
+                "consistently omits" in current_section or
+                "notable failures" in current_section or
+                "misreporting" in current_section or
+                "bias" in current_section or
+                "weaknesses" in current_section or
+                "omissions" in current_section or
+                "key takeaways" in current_section or
+                "assessment" in current_section):
+                if stripped.startswith("- ") and ":" in stripped:
+                    entry = stripped.lstrip("- ").split(":", 1)[1].strip()
+                    if entry and entry not in omits:
+                        omits.append(entry)
+
+            # --- Inline mode: bullets after **What it cannot be trusted with:** ---
+            if in_bad and stripped.startswith("- ") and ":" in stripped:
+                # e.g. "- **Israel/Palestine:** Systematically anti-Israel..."
+                label = stripped.lstrip("- **").split(":")[0].strip()
+                entry = stripped.lstrip("- **").split(":", 1)[1].strip()
+                combined = f"{label}: {entry}"
+                if combined not in omits:
+                    omits.append(combined)
+
+            # --- Inline mode: bullets after **What it does well:** ---
+            if in_good and stripped.startswith("- ") and ":" in stripped:
+                entry = stripped.lstrip("- **").split(":", 1)[1].strip()
+                if entry and entry not in truthful_on:
+                    truthful_on.append(entry)
+
+            # --- Primary motive ---
+            if ("primary motive" in current_section or "motivation" in current_section) and stripped.startswith("-") and ":" in stripped:
+                motive = stripped.lstrip("- ").split(":", 1)[-1].strip()
+
+            # --- Shibboleths ---
+            if ("shibboleth" in current_section or "linguistic" in current_section):
+                if stripped.startswith("- **") and ":" in stripped:
+                    after_label = stripped.split(":", 1)[-1].strip()
+                    if after_label:
+                        for term in after_label.split(","):
+                            t = term.strip().strip('"')
+                            if t and t not in shibboleths:
+                                shibboleths.append(t)
+
+            # --- Assessment section: extract motive from prose ---
+            if "assessment" in current_section:
+                lower = stripped.lower()
+                if "primary worldview" in lower:
+                    motive = stripped.strip()
+                elif "is the media arm" in lower or "is a propaganda arm" in lower:
+                    motive = stripped.strip()
 
         return truthful_on, omits, shibboleths, motive
 
