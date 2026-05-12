@@ -9,6 +9,23 @@ Most AI agents are stateless — they forget who you are and what you've decided
 - **Truth Hierarchy:** The system prioritizes curated, verified facts (Reference Library) over the volatile noise of the open web.
 - **Continuity:** It remembers not just what was said, but the *decisions* made and the *tasks* deferred, ensuring work continues exactly where it left off across sessions.
 
+---
+
+### What Makes Logos Different
+
+This isn't a chatbot. It's a research tool with memory.
+
+The distinguishing features:
+
+- **Frame-Stripping Skill** — 10 rules for separating facts from framing. Strips loaded language, extracts verifiable claims, cross-references independent sources, and presents findings through your stated worldview.
+- **Narrative-Control-Detection** — Identifies six-phase information warfare patterns (initial break → narrative shift → article removal → flood the zone → entrenchment) when they appear in research results.
+- **SourceAnalyzer** (`agent/source_analysis.py`) — Phase 3.5 in the research pipeline. Builds and updates source dossiers automatically, flagging ideological markers and consistent omission patterns.
+- **Nightly Learning Loop** — Scheduled jobs run deep research, apply frame-stripping, and distill findings into the Reference Library. The knowledge base grows through use.
+
+The system runs locally. No cloud APIs for memory or retrieval. No moral relativism baked in.
+
+---
+
 ### 📄 White Paper
 For a comprehensive architectural deep-dive covering all subsystems, the epistemic framework, and the design philosophy in detail, see [WHITEPAPER.md](WHITEPAPER.md).
 
