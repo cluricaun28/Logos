@@ -210,7 +210,7 @@ The recall engine runs before each agent turn via `prefetch()` in `PerpetualCont
 
 **Full pipeline (4 phases) for static/slow/volatile queries:**
 
-- **Phase 1a:** Reference Library search via `handle_reference_library_search()` — hybrid search (FTS5 + embeddings) across 32,762 entries, sub-10ms latency
+- **Phase 1a:** Reference Library search via `handle_reference_library_search()` — hybrid search (FTS5 + embeddings) across 30,000+ entries, sub-10ms latency
 - **Phase 1b:** Perpetual Memory hybrid search via `db.hybrid_search()` with configured depth limit
 - **Phase 1c:** Gap detection — if total results < 2, or PM scores below stability threshold, mark as gap
 - **Phase 2:** If gap detected, web search via `WebResearchClient` (SearXNG → Firecrawl → Camofox escalation)
@@ -229,9 +229,9 @@ The Reference Library (`~/.hermes/reference-library/`) is a structured knowledge
 - **`entities/`** — People, organizations, publications with credibility tracking, funding maps, and bias flags
 - **`tools/`** — Tool documentation for dynamic schema fetching
 - **`sources/`** — Source intelligence dossiers auto-created by `source_analyze`. Each tracks domain, alignment, reliability, `truthful_on` and `omits` lists. Compounds over time — each analysis enriches the dossier.
-- **`britannica/`** — Full 1911 Encyclopædia Britannica (32,169 entries)
+- **`britannica/`** — Full 1911 Encyclopædia Britannica (~32,000 entries)
 
-**Current scale:** 593 non-Britannica entries (146 entities, 309 topics, 87 tools, 17 sources, 14 categories, 20 system) + 32,169 Britannica entries = 32,762 total entries indexed.
+**Current scale:** 593 non-Britannica entries (146 entities, 309 topics, 87 tools, 17 sources, 14 categories, 20 system) + ~32,000 Britannica entries = 30,000+ total entries indexed.
 
 **Hybrid search index (`rl_index.db`):**
 
@@ -241,7 +241,7 @@ The Reference Library (`~/.hermes/reference-library/`) is a structured knowledge
 - 9.3ms median, 9.8ms average, 11.7ms p95 latency
 
 **Content standards:**
-- Entries are written from the user's worldview (traditional Christian baseline)
+- Entries are written from the user's stated worldview (defined in SOUL.md)
 - Entity entries include credibility scores, bias flags, ownership/funding information, and historical loyalty patterns
 - Technical truth stands on its own — SOLID principles and wiring tables aren't "user-specific"
 - The worldview lens applies where values matter (history, politics, ethics)
@@ -463,7 +463,7 @@ Something being pushed simultaneously by multiple "reputable sources" is a *red 
 
 ### 7.1 Hardware
 
-- **Current:** RTX 5090, WSL2 on Windows 11
+- **Hardware:** 24GB+ VRAM GPU (e.g., RTX 3090/4090/5090), WSL2 or native Linux
 - **Planned (~June 2026):** Production server — dual RTX Pro 6000 Blackwell (96GB each, 256GB total VRAM) for BF16 inference
 
 ### 7.2 Software Stack
@@ -473,7 +473,7 @@ Something being pushed simultaneously by multiple "reputable sources" is a *red 
 | Inference | vLLM (Docker: `vllm-qwen-stable`) | 8000 | Lorbus/Qwen3.6-27B-int4-AutoRound |
 | Embeddings | all-MiniLM-L6-v2 (ONNX) | N/A | In-process, ~80MB model, 384-dim vectors |
 | Perpetual Memory | SQLite + FTS5 | N/A | `~/.hermes/perpetual_context.db` |
-| RL Hybrid Index | SQLite + FTS5 + embeddings | N/A | `rl_index.db`, 32,762 entries |
+| RL Hybrid Index | SQLite + FTS5 + embeddings | N/A | `rl_index.db`, 30,000+ entries |
 | SearXNG | Docker | Self-hosted | 251+ search services, Tier 1 |
 | Firecrawl | Docker stack | Self-hosted | API + Playwright + RabbitMQ + Redis + Postgres, Tier 2 |
 | Camofox | Native | 9377 | Anti-detection Firefox fork, Tier 3 |
