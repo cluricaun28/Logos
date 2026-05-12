@@ -163,13 +163,15 @@ Every conversation turn across all sessions is stored verbatim in a local SQLite
 
 **Key classes:** `PerpetualContextDB` (~391 lines), `PerpetualContextProvider` (560 lines as thin orchestrator), `SmartRetriever` (250 lines), `ExtractionEngine` (450 lines)
 
-### 4.2 Context Bridge — Structured Session Continuity
+### 4.2 Context Bridge — Tested Fallback for Session Continuity
 
-**Purpose:** Prevent the agent from "waking up" after archival with no sense of what it was doing.
+**Purpose:** A safety net for preserving context across archival — tested, proven functional, but not the active path.
 
-When context archival evicts old turns from the model's context window, the Context Bridge injects a structured summary of what was being worked on. This is a *fix to upstream Hermes Agent* — the original `on_pre_archive()` (née `on_pre_compress()`) hook existed but its return value was discarded as dead code. Our modification captures the return value and injects it into the archived message list.
+The Context Bridge was fully built and validated: it injects a structured summary of active tasks, file edits, errors, and knowledge gaps when context archival fires. It works correctly. However, the current configuration uses the simpler rolling window engine (`context.engine: rolling_window`), which does *not* invoke the bridge — it prunes incrementally without summarization.
 
-**Content structure (up to 4,000 characters):**
+The bridge remains as a tested fallback path: if a different context engine is active (e.g., the legacy context compressor), the bridge fires via `PerpetualContextProvider.on_pre_archive()` and injects its summary into the archived message list.
+
+**Content structure (when active, up to 4,000 characters):**
 
 1. **Active Tasks** — User requests and pending work from recent turns
 2. **Files Currently Being Edited** — Paths from `write_file`, `patch`, `read_file` tool calls
@@ -178,9 +180,9 @@ When context archival evicts old turns from the model's context window, the Cont
 5. **Cross-Session Connections** — Topics from current session that have co-occurrence relationships with topics in other sessions (strength ≥ 0.3)
 6. **Skill-RL Sync** — Automatic generation of Reference Library pages when skills are created or modified
 
-**Implementation:** `ContextBridgeBuilder` (292 lines) constructs structured summaries from data extracted by `ExtractionEngine`. Output is formatted as structured blocks the model can parse efficiently. Bounded at ~4KB worst case.
+**Key classes:** `ContextBridgeBuilder` (292 lines) constructs structured summaries from data extracted by `ExtractionEngine` (450 lines). `SemanticVectorEngine` was removed from `agent/context_engine.py` in May 2026 (superseded by simpler rolling window).
 
-**The hook chain:**
+**The hook chain (tested, not active with rolling window):**
 
 ```
 PerpetualContextProvider.on_pre_archive() → returns str (Context Bridge)
@@ -421,7 +423,7 @@ All custom code lives in `plugins/memory/perpetual_context/`:
 | File | Lines Changed | Modification |
 |------|--------------|--------------|
 | `run_agent.py` | ~95 | Rolling window integration, compression timing |
-| `agent/prompt_builder.py` | ~21 | System prompt mods for PM context injection |
+|| `agent/prompt_builder.py` | ~15 custom lines in 1,127-line upstream file | System prompt mods for PM context injection |
 | `plugins/context_engine/__init__.py` | ~228 | Config passing for context engines |
 | `acp_adapter/server.py` | ~9 | ACP server customizations |
 | `cli.py` | ~48 | CLI customizations for PM commands |
@@ -438,7 +440,7 @@ Three-tier survival model for `hermes update`:
 
 ---
 
-## 6. Epistemic Framework
+## 6. Epistemic Framework — How the System Judges Truth
 
 ### 6.1 The Sovereign Sieve
 
@@ -454,9 +456,26 @@ The methodology for filtering external information before it enters the Referenc
 
 Something being pushed simultaneously by multiple "reputable sources" is a *red flag*, not evidence of verification. Truth is *discovered*; propaganda is *distributed*. Simultaneous alignment across supposedly independent outlets indicates coordination, not organic discovery.
 
-### 6.3 Truth Vector Architecture
+### 6.3 Source Analysis — The `source_analyze` Tool
 
+The Sovereign Sieve is operationalized through the `source_analyze` tool. After every `web_search` on substantive topics (politics, religion, economics, culture, current events), the model calls `source_analyze` which:
 
+- **Shallow mode (default):** Analyzes search result snippets against existing source dossiers. Fast — no additional network calls. Returns domain, alignment, reliability, `truthful_on`, `omits`, and deviations from known patterns.
+- **Deep mode (`deep=true`):** Extracts full article content via `web_extract` before analysis. Detects specific omissions, loaded language, and framing patterns. Slower but significantly more accurate.
+- **Auto-creates dossiers:** Encounters a new domain? Creates a source dossier in `sources/` with placeholders, updated by future analyses. Over time, source intelligence compounds.
+
+**Key class:** `SourceAnalyzer` (`agent/source_analysis.py`, 950 lines) — reimplements bias detection internally to avoid circular imports from the plugins directory. Shared by the prefetch pipeline and the direct tool.
+
+### 6.4 Truth Vector Architecture
+
+The Reference Library serves as the system's truth vector — the curated knowledge base that anchors all reasoning. Combined with source analysis and the Sovereign Sieve, the framework operates as a complete truth-pipeline:
+
+1. **Anchor:** Reference Library is the primary truth source (checked before training data or web search)
+2. **Verify:** Source analysis profiles every web result before the model uses it
+3. **Filter:** The Sovereign Sieve detects framing, motive, and double standards
+4. **Distill:** High-signal findings are promoted to the Reference Library via the Logos Engine
+
+This is not moral relativism disguised as "both sides." It is epistemic honesty about how information is weaponized in the modern media ecosystem.
 ---
 
 ## 7. Infrastructure
