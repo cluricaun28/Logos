@@ -16,6 +16,42 @@ The three things that set it apart:
 
 ## Setup
 
+### Hardware Requirements
+
+Logos is designed for local inference. The original setup runs a 27B-parameter int4 model on an RTX 5090 (32GB VRAM) with 64GB RAM.
+
+- **Minimum:** Single GPU with 24GB+ VRAM (RTX 4090, RTX 5090)
+- **RAM:** 64GB recommended (the agent, Docker services, and embedding model need headroom)
+- **OS:** WSL2 on Windows 11, or native Linux
+
+If you have less VRAM, use a smaller model and reduce `--max-model-len` accordingly.
+
+### Local Services and Ports
+
+Logos depends on several local services. Their default ports:
+
+| Service | Port | Purpose |
+|---------|------|---------|
+| vLLM | 8000 | Local model inference |
+| SearXNG | 8080 | Metasearch engine |
+| Firecrawl | 3002 | Web content extraction |
+| Camofox | 9377 | Anti-detection browser |
+| Quartz v4 | 8081 | Reference Library static site |
+
+These are referenced throughout the codebase and config files.
+
+### Key Configuration Values
+
+In `~/.hermes/config.yaml`, the most important values to understand:
+
+- **`context.engine: rolling_window`** — The context management strategy
+- **`context.archiving.threshold_percent`** — When to archive (default: 0.75)
+- **`context.archiving.archive_target`** — Prune down to this level (default: 0.65)
+- **`context.archiving.hard_ceiling_percent`** — Safety net (default: 0.85)
+- **Custom provider `context_length`** — Must match your vLLM `--max-model-len`
+
+All file paths are relative to `~/.hermes/`. If you install elsewhere, update these accordingly.
+
 ### 1. Install
 
 ```bash
