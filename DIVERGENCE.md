@@ -4,7 +4,7 @@
 
 Logos was built on NousResearch/hermes-agent as a foundation. It has since pursued a fundamentally different direction: sovereign knowledge management with persistent memory, epistemic filtering, and user-defined worldview alignment.
 
-This is no longer a fork in the traditional sense. It is its own project.
+Logos is now a fully detached, independent project — no longer in any fork network (unlinked May 2026).
 
 ## Relationship to Upstream
 
