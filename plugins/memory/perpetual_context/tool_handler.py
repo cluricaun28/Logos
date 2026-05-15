@@ -521,9 +521,20 @@ def _handle_source_analyze(
                         len(urls),
                         query[:50],
                     )
-                    extract_result = _asyncio.get_event_loop().run_until_complete(
-                        web_extract_tool(urls)
-                    )
+                    try:
+                        loop = _asyncio.get_running_loop()
+                    except RuntimeError:
+                        # No running event loop in this thread — create one
+                        loop = _asyncio.new_event_loop()
+                        own_loop = True
+                    else:
+                        own_loop = False
+
+                    try:
+                        extract_result = loop.run_until_complete(web_extract_tool(urls))
+                    finally:
+                        if own_loop:
+                            loop.close()
                     extract_data = (
                         json.loads(extract_result)
                         if isinstance(extract_result, str)

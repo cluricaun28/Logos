@@ -59,16 +59,17 @@ Two pluggable engines work together:
 
 Both are deterministic — no LLM calls, no semantic clustering overhead. State continuity through retrieval, not retention.
 
-### Modified Core Files (7 files)
+### Modified Core Files (8 files)
 
 These core files were modified from the Hermes Agent base. The diffs are committed in this repo — you can see exactly what changed with `git log -- <file>`. Key changes:
 
 || File | What Changed | Why It Matters |
 |------|-------------|----------------|
-| `run_agent.py` | Renamed "compression" $\\rightarrow$ "archiving", selective tool loading | Enables rolling window + perpetual memory integration. Config key is now `archiving:` instead of `compression:` |
+| `run_agent.py` | Renamed "compression" $\rightarrow$ "archiving", plugin context engine loading, selective tool loading | Enables semantic vector + rolling window integration. Plugin engines receive `update_model()` during init |
 | `agent/prompt_builder.py` | Skills section changed from mandatory to on-demand loading with validation | Prevents context bloat — only loads skills actually relevant to the task |
-| `agent/context_engine.py` | ABC for context engines, rolling window engine with incremental tail-off | Deterministic pruning baseline
-| `plugins/context_engine/__init__.py` | Rolling window engine loader with config passthrough | Pluggable context archiving strategy |
+| `agent/context_engine.py` | ABC for context engines, removed `SemanticVectorEngine` (now a plugin) | Clean separation: base defines the interface, plugins provide implementations |
+| `agent/context_compressor.py` | Plugin context engine hooks, `on_session_reset()` callback for engine state | Engine state properly resets on `/new` — no stale vectors or leaked memory |
+| `plugins/context_engine/__init__.py` | Loader for semantic vector and rolling window engines with config passthrough | Pluggable context archiving strategy |
 | `model_tools.py` | Added `get_selective_tool_definitions()` and deferred tools index | Essential tools loaded inline, deferred tools listed for RL lookup — saves context tokens |
 | `cli.py` | Perpetual memory CLI commands (`hermes pm search`, etc.) | Query your conversation history from the terminal |
 | `tools/skill_manager_tool.py` | Fork-aware skill path resolution | Skills find custom categories correctly |

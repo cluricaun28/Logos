@@ -2,7 +2,7 @@
 type: topic
 topic: "Logos — System White Paper"
 created: 2026-05-07
-last_updated: 2026-05-11
+last_updated: 2026-05-12
 confidence: high
 related_entries:
   - "Hermes Agent Architecture(topics/hermes-agent/architecture)"
@@ -167,9 +167,9 @@ Every conversation turn across all sessions is stored verbatim in a local SQLite
 
 **Purpose:** A safety net for preserving context across archival — tested, proven functional, but not the active path.
 
-The Context Bridge was fully built and validated: it injects a structured summary of active tasks, file edits, errors, and knowledge gaps when context archival fires. It works correctly. However, the current configuration uses the simpler rolling window engine (`context.engine: rolling_window`), which does *not* invoke the bridge — it prunes incrementally without summarization.
+The Context Bridge was fully built and validated: it injects a structured summary of active tasks, file edits, errors, and knowledge gaps when context archival fires. The system is currently configured with `context.engine: semantic_vector`, and the Context Bridge is being evaluated alongside the Semantic Vector engine as part of ongoing testing.
 
-The bridge remains as a tested fallback path: if a different context engine is active (e.g., the legacy context compressor), the bridge fires via `PerpetualContextProvider.on_pre_archive()` and injects its summary into the archived message list.
+The bridge remains available as a fallback path: if a different context engine is active (e.g., the legacy context compressor), the bridge fires via `PerpetualContextProvider.on_pre_archive()` and injects its summary into the archived message list.
 
 **Content structure (when active, up to 4,000 characters):**
 
@@ -180,7 +180,7 @@ The bridge remains as a tested fallback path: if a different context engine is a
 5. **Cross-Session Connections** — Topics from current session that have co-occurrence relationships with topics in other sessions (strength ≥ 0.3)
 6. **Skill-RL Sync** — Automatic generation of Reference Library pages when skills are created or modified
 
-**Key classes:** `ContextBridgeBuilder` (292 lines) constructs structured summaries from data extracted by `ExtractionEngine` (450 lines). `SemanticVectorEngine` was removed from `agent/context_engine.py` in May 2026 (superseded by simpler rolling window).
+**Key classes:** `ContextBridgeBuilder` (292 lines) constructs structured summaries from data extracted by `ExtractionEngine` (450 lines). `SemanticVectorEngine` lives as a plugin (`plugins/context_engine/semantic_vector/`) since May 12, 2026 — no longer in `agent/context_engine.py`.
 
 **The hook chain (tested, not active with rolling window):**
 
@@ -295,31 +295,42 @@ The Logos Engine operates as a three-stage verification pipeline:
 
 Supporting bridges: `britannica_bridge.py` and `aquinas_bridge.py` provide content-aware search across the Britannica 1911 and Aquinas Research Library corpora respectively, integrated into the distillation pipeline.
 
-### 4.7 Rolling Window Context Engine — Incremental Tail-Off
+### 4.7 Context Archiving — Dual Engine
 
-**Purpose:** Deterministic context management that maximizes VRAM utilization without LLM-based summarization.
+Two pluggable engines work together for context management:
 
-Rather than asking the LLM to summarize old turns (which introduces errors and bias), the rolling window engine:
+**Primary — Semantic Vector Context Engine** (`context.engine: semantic_vector`)
 
-1. Fires when the context window approaches `threshold_percent` (default 75% of max-model-len)
-2. Strips raw assistant `tool_calls` arrays from messages (verbose JSON bloat)
-3. Truncates verbose `tool_content` to first/last 3 lines
-4. Counts tokens (chars // 4) and drops the oldest unprotected messages one at a time until token estimate falls at or below `archive_target` (default 65% of max-model-len)
-5. Enforces `hard_ceiling_percent` (default 85%) — if still over, does a drastic quarter-split as last resort
+Loads a local embedding model (all-MiniLM-L6-v2 on CPU, zero GPU contention with vLLM) and clusters conversation turns into topic vectors using cosine similarity. Each vector tracks its status as **Active** (discussed within `dormancy_decay` turns), **Dormant** (inactive for `dormancy_decay` turns), or **Resolved** (dormant for an additional `resolution_decay` turns). On archive, only Dormant and Resolved turns are pruned — Active topics remain in full. A `[Conversation State]` map is injected into the last assistant message so the model knows which topics survive.
 
-**No task tracking, no bridge injection, no semantic vectors.** The engine is a single file (~200 lines) with zero external dependencies. It prunes incrementally, keeping the context window between 65–85% utilization. All pruned turns are saved verbatim to Perpetual Memory — the model can retrieve anything it needs via `perpetual_search` or `query_messages`.
+The embedding model is cached in a module-level singleton so that new engine instances (created after session splits) reuse it instantly — no disk I/O. `on_session_reset()` preserves the model.
+
+**Fallback — Rolling Window** (`context.rolling_window`)
+
+Incremental tail-off: strips tool calls, truncates verbose tool results, drops the oldest unprotected messages one at a time until under the archive target. Fires when the semantic engine hasn't trimmed enough and context nears the hard ceiling (~85%).
+
+Both are deterministic — no LLM calls. All pruned turns are saved verbatim to Perpetual Memory.
 
 **Configuration** (from `config.yaml`):
 
 ```yaml
-context.engine: rolling_window
-context.archiving:
-  threshold_percent: 0.75      # When to fire
-  archive_target: 0.65         # Prune down to this level
-  hard_ceiling_percent: 0.85   # Absolute safety net
+context.engine: semantic_vector
+context.semantic_vector:
+  similarity_threshold: 0.45   # cosine sim to assign turn to existing vector
+  dormancy_decay: 5            # turns before vector becomes Dormant
+  resolution_decay: 20         # turns before Dormant becomes Resolved
+  protect_last_n: 6            # recent turns always kept
+  state_map_max_chars: 400     # cap on injected state header
+  threshold_percent: 0.75      # fire archive at 75% of context_length
+context.rolling_window:
+  threshold_percent: 0.60      # emergency fallback threshold
+  archive_target: 0.50
+  hard_ceiling_percent: 0.85
 ```
 
-**Key class:** `RollingWindowTailOffEngine` in `plugins/context_engine/rolling_window/__init__.py` (200 lines).
+**Observability:** Every archive logs vector counts, pruned message count, and state map injection to `agent.log`. Check with: `grep 'SemanticVector' ~/.hermes/logs/agent.log | tail -20`.
+
+**Key classes:** `SemanticVectorContextEngine` in `plugins/context_engine/semantic_vector/__init__.py` (705 lines), `RollingWindowContextEngine` in `plugins/context_engine/rolling_window/__init__.py` (241 lines).
 
 ---
 
@@ -362,9 +373,9 @@ Each analysis enriches the dossier — appending new patterns to `truthful_on` a
 
 ## 5. Codebase Organization
 
-### 5.1 Custom Plugin Modules (37 modules, ~10,933 lines)
+### 5.1 Custom Plugin Modules (39 modules, ~11,599 lines)
 
-All custom code lives in `plugins/memory/perpetual_context/`:
+All custom plugin code lives flat under `plugins/memory/perpetual_context/`:
 
 **Core modules:**
 
@@ -377,7 +388,7 @@ All custom code lives in `plugins/memory/perpetual_context/`:
 | `retrieval_engine.py` | 250 | SmartRetriever with auto-routing |
 | `schemas.py` | 544 | 11 tool schemas (added `SOURCE_ANALYZE_SCHEMA` May 2026) |
 | `topic_classifier.py` | 126 | Keyword sets + stability function |
-| `tool_handler.py` | 661 | Tool dispatch to DB operations + `source_analyze` handler with deep mode (delegates to `agent/source_analysis.py:SourceAnalyzer`) |
+| `tool_handler.py` | 672 | Tool dispatch to DB operations + `source_analyze` handler with deep mode (delegates to `agent/source_analysis.py:SourceAnalyzer`) |
 | `quality_scorer.py` | 189 | Message relevance scoring |
 | `feedback_state.py` | 210 | Compression feedback tracking |
 | `prefetch_pipeline.py` | 286 | 4-phase Deep Research pipeline |
@@ -387,7 +398,7 @@ All custom code lives in `plugins/memory/perpetual_context/`:
 | `utils.py` | 35 | Shared utilities |
 | `retrieval_quality.py` | 427 | Retrieval quality tracking |
 
-**Deep Research Engine:**
+**Deep Research Engine** (flat under `plugins/memory/perpetual_context/`):
 
 | Module | Lines | Purpose |
 |--------|-------|---------|
@@ -400,7 +411,7 @@ All custom code lives in `plugins/memory/perpetual_context/`:
 | `source_assessment.py` | 137 | Source quality assessment |
 | `synthesis_engine.py` | 548 | Multi-pass synthesis |
 
-**Reference Library integration:**
+**Reference Library integration** (flat under `plugins/memory/perpetual_context/`):
 
 | Module | Lines | Purpose |
 |--------|-------|---------|
@@ -409,7 +420,14 @@ All custom code lives in `plugins/memory/perpetual_context/`:
 | `rl_schema.py` | 124 | RL entry schema definitions |
 | `rl_builder.py` | 385 | RL page builder for auto-create |
 
-**Deprecated (kept in `deprecated/` subdirectory):**
+**Context Engines** (in `plugins/context_engine/`):
+
+| Module | Lines | Purpose |
+|--------|-------|---------|
+| `semantic_vector/__init__.py` | 705 | Primary context engine — topic-aware pruning via embedding-based clustering |
+| `rolling_window/__init__.py` | 241 | Fallback engine — deterministic incremental tail-off |
+
+**Deprecated** (kept in `deprecated/` subdirectory):
 - `injection_router.py` — superseded by `injection_router.py` in the prefetch pipeline
 
 **Test suite:** 242 test functions across 8 test files (~2,469 lines). All passing as of 2026-05-11.
@@ -418,12 +436,15 @@ All custom code lives in `plugins/memory/perpetual_context/`:
 
 `agent/perpetual_context_db.py` (~391 lines) — the SQLite database with FTS5, embeddings, topic flow, and hybrid search. This is a new file not in upstream.
 
-### 5.3 Modified Upstream Files (8 files)
+### 5.3 Modified Upstream Files (9 files)
+
+**Note:** Most upstream files listed below are heavily modified from their original form — the custom lines are interspersed with the large upstream file, so the "lines changed" counts represent only the custom additions/modifications.
 
 | File | Lines Changed | Modification |
 |------|--------------|--------------|
-| `run_agent.py` | ~95 | Rolling window integration, compression timing |
-|| `agent/prompt_builder.py` | ~15 custom lines in 1,127-line upstream file | System prompt mods for PM context injection |
+| `run_agent.py` | ~95 | Plugin context engine integration (semantic vector + rolling window), selective tool loading, archiving config |
+| `agent/context_compressor.py` | ~70 | Plugin context engine hooks, compression cooldown, on_session_reset fix |
+| `agent/prompt_builder.py` | ~15 custom lines in 1,127-line upstream file | System prompt mods for PM context injection |
 | `plugins/context_engine/__init__.py` | ~228 | Config passing for context engines |
 | `acp_adapter/server.py` | ~9 | ACP server customizations |
 | `cli.py` | ~48 | CLI customizations for PM commands |
@@ -552,6 +573,7 @@ The system runs several autonomous jobs that maintain and improve itself overnig
 | 2026-05-08 | Scrutiny gate split into 6 SRP-compliant modules (967→221 lines facade + 5 submodules), all under 500 lines. Last god class eliminated. |
 | 2026-05-09 | **Phase 4 — `source_analyze` tool:** Direct agent tool for source intelligence during research. 11 tool schemas (added `SOURCE_ANALYZE_SCHEMA`). Deep mode (`deep=true`) extracts full article content via Firecrawl before analysis. Auto-creates source dossiers in `sources/` for new domains with `domain-index.json` auto-update. Smart trigger in system prompt: substantive topics get `source_analyze(deep=true)`, utility queries skip. 3 new skills (`factual-research-answer`, `tool-schema-validation-debug`, `political-research-and-entity-pages`), 3 updated skills (`web-source-bias-research`, `narrative-control-detection`, `pipeline-module-integration`). 10 new RL pages (5 entity, 4 source, 1 topic). Code audit: removed duplicate schemas, fixed f-string JSON construction, narrowed exception handling, `frozenset` for mutable globals, added `__all__` and `logger`. |
 | 2026-05-11 | **Full detachment from Hermes Agent:** Repo unforked from NousResearch/hermes-agent via GitHub "Leave fork network." DIVERGENCE.md updated to reflect standalone status. Rolling window engine rewritten — removed task-aware pruning, semantic vectors, replaced with incremental tail-off (65–85% context utilization). `SemanticVectorEngine` removed from `context_engine.py`. Package dependencies hardened (`PyJWT >= 2.13.0`). README rebranded with "What Makes Logos Different" section. 26 LLM paper entries added to RL (`topics/llm-papers/`). 3 media dossiers added (`topics/media/`). |
+| 2026-05-12 | **Semantic Vector engine promoted to primary context engine:** Dual-engine architecture — semantic_vector for topic-aware pruning, rolling_window as deterministic fallback. All context engine code lives in `plugins/`. Context Compressor updated: plugin engines receive `update_model()` during AIAgent init, `context_compressor.py` refactored with dedicated plugin hooks. DIVERGENCE.md updated to reflect full independence. README rebranded as Logos. |
 
 ---
 
@@ -580,4 +602,4 @@ The system is not perfect — it is a work in progress. But it is *honest* about
 
 ---
 
-*This white paper was compiled from the live codebase, Reference Library documentation, and Perpetual Memory records of Logos. Last updated 2026-05-11.*
+*This white paper was compiled from the live codebase, Reference Library documentation, and Perpetual Memory records of Logos. Last updated 2026-05-12.*

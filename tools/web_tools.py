@@ -235,7 +235,13 @@ def _local_firecrawl_scrape(url: str) -> dict[str, Any]:
 
     resp = _httpx.post(
         f"{LOCAL_FIRECRAWL_URL}/v1/scrape",
-        json={"url": url, "formats": ["markdown"]},
+        json={
+            "url": url,
+            "formats": ["markdown"],
+            "onlyMainContent": True,
+            "removeBase64Images": True,
+            "blockAds": True,
+        },
         headers=headers,
         timeout=LOCAL_REQUEST_TIMEOUT,
     )
@@ -256,25 +262,27 @@ def _camofox_scrape(url: str) -> dict[str, Any]:
         health = _httpx.get(f"{LOCAL_CAMOFOX_URL}/health", timeout=5)
         if health.status_code != 200:
             raise ConnectionError("Camofox unhealthy")
-    except (AttributeError, KeyError, TypeError) as e:
+    except (AttributeError, KeyError, TypeError, OSError, ConnectionError) as e:
         raise ConnectionError(f"Camofox not available: {e}") from e
 
     # Create a new tab, navigate, extract, and close
     tab_id: str | None = None
+    user_id = "extract"
+    session_key = "extract"
     try:
-        # Create tab
+        # Create tab (POST /tabs with userId + sessionKey)
         create_resp = _httpx.post(
-            f"{LOCAL_CAMOFOX_URL}/tabs/create",
-            json={"key": "extract"},
+            f"{LOCAL_CAMOFOX_URL}/tabs",
+            json={"userId": user_id, "sessionKey": session_key},
             timeout=10,
         )
         create_resp.raise_for_status()
         tab_id = create_resp.json().get("tabId")
 
-        # Navigate
+        # Navigate (POST /tabs/:tabId/navigate with userId + url)
         nav_resp = _httpx.post(
-            f"{LOCAL_CAMOFOX_URL}/tabs/navigate",
-            json={"tabId": tab_id, "url": url, "key": "extract"},
+            f"{LOCAL_CAMOFOX_URL}/tabs/{tab_id}/navigate",
+            json={"userId": user_id, "url": url},
             timeout=30,
         )
         nav_resp.raise_for_status()
@@ -284,12 +292,11 @@ def _camofox_scrape(url: str) -> dict[str, Any]:
 
         _time.sleep(1.5)
 
-        # Extract content
+        # Extract content (POST /tabs/:tabId/evaluate with userId + expression)
         extract_resp = _httpx.post(
-            f"{LOCAL_CAMOFOX_URL}/tabs/evaluate",
+            f"{LOCAL_CAMOFOX_URL}/tabs/{tab_id}/evaluate",
             json={
-                "tabId": tab_id,
-                "key": "extract",
+                "userId": user_id,
                 "expression": "document.body.innerText",
             },
             timeout=10,
@@ -299,12 +306,11 @@ def _camofox_scrape(url: str) -> dict[str, Any]:
 
         return {"markdown": text[:5000], "success": True}
     finally:
-        # Always clean up the tab
+        # Always clean up the tab (DELETE /tabs/:tabId)
         if tab_id:
             try:
-                _httpx.post(
-                    f"{LOCAL_CAMOFOX_URL}/tabs/close",
-                    json={"tabId": tab_id, "key": "extract"},
+                _httpx.delete(
+                    f"{LOCAL_CAMOFOX_URL}/tabs/{tab_id}",
                     timeout=5,
                 )
             except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
@@ -322,13 +328,13 @@ def _local_extract_with_fallback(url: str) -> dict[str, Any]:
         if result.get("success") and result.get("markdown"):
             return result
         logger.info("Firecrawl returned empty for %s, trying Camofox", url)
-    except (AttributeError, KeyError, TypeError) as e:
+    except (AttributeError, KeyError, TypeError, OSError, ConnectionError) as e:
         logger.debug("Firecrawl scrape failed for %s: %s, trying Camofox", url, e)
 
     # Camofox fallback
     try:
         return _camofox_scrape(url)
-    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError, ConnectionError) as e:
         logger.debug("Camofox also failed for %s: %s", url, e)
         return {"success": False, "error": str(e), "markdown": ""}
 
