@@ -106,9 +106,9 @@ class SemanticVectorContextEngine(ContextEngine):
 
     # Configurable parameters (can be overridden via config.yaml)
     similarity_threshold: float = 0.75
-    dormancy_decay: int = 8
-    resolution_decay: int = 30
-    state_map_max_chars: int = 500
+    dormancy_decay: int = 10
+    resolution_decay: int = 40
+    state_map_max_chars: int = 800
     max_dormant_vectors: int = 10
 
     # Embedding state
