@@ -19,10 +19,13 @@ class _StubEngine(ContextEngine):
     def update_from_response(self, usage):
         pass
 
-    def should_compress(self, prompt_tokens=None):
+    def should_archive(self, prompt_tokens=None):
         return False
 
-    def compress(self, messages, current_tokens=None):
+    def archive(self, messages, current_tokens=None, focus_topic=None):
+        return messages
+
+    def compress(self, messages, current_tokens=None, focus_topic=None):
         return messages
 
 
@@ -40,6 +43,11 @@ def test_plugin_engine_gets_context_length_on_init():
         patch("run_agent.get_tool_definitions", return_value=[]),
         patch("run_agent.check_toolset_requirements", return_value={}),
         patch("run_agent.OpenAI"),
+        # Patch inside the module where it's imported locally
+        patch(
+            "agent.auxiliary_client.get_text_auxiliary_client",
+            return_value=(MagicMock(), "test-model"),
+        ),
     ):
         from run_agent import AIAgent
 
@@ -51,7 +59,7 @@ def test_plugin_engine_gets_context_length_on_init():
             skip_memory=True,
         )
 
-    assert agent.context_compressor is engine
+    assert agent.context_archiver is engine
     assert engine.context_length == 204_800
     assert engine.threshold_tokens == int(204_800 * engine.threshold_percent)
 
@@ -70,6 +78,10 @@ def test_plugin_engine_update_model_args():
         patch("run_agent.get_tool_definitions", return_value=[]),
         patch("run_agent.check_toolset_requirements", return_value={}),
         patch("run_agent.OpenAI"),
+        patch(
+            "agent.auxiliary_client.get_text_auxiliary_client",
+            return_value=(MagicMock(), "test-model"),
+        ),
     ):
         from run_agent import AIAgent
 
