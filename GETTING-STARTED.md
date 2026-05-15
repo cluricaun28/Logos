@@ -8,7 +8,7 @@ Logos is a research agent with permanent memory. It doesn't forget. Every conver
 
 The three things that set it apart:
 
-1. **Frame-Stripping** — When the agent researches something, it doesn't just accept web content at face value. It applies a 10-rule filter that separates facts from framing, replaces loaded terminology, and cross-references sources. The result is presented through your stated worldview, not through whatever bias the source carries.
+1. **Frame-Stripping** — When the agent researches something, it doesn't just accept web content at face value. It separates facts from framing, cross-references sources, and presents findings aligned with your worldview. The methodology is generic — *your* positions come from the worldview profile you build in step 4.
 
 2. **Source Analysis** — Every domain the agent researches gets a dossier: what the source is truthful about, what it consistently omits, its ideological alignment, and its primary motive. These compound over time. The more you research, the sharper the analysis becomes.
 
@@ -80,9 +80,19 @@ plugins:
 
 The database (`~/.hermes/perpetual_context.db`) is created automatically on first run.
 
-### 4. Create Your SOUL.md
+### 4. Set Up Your Worldview Profile
 
-This is the most important step. The code provides infrastructure — SOUL.md tells the agent *how* to use it. Without the right sections, the plugins load but the agent never calls them.
+This is where the research pipeline gets personalized. The frame-stripping and source analysis skills ship with generic methodology — they need *your* positions to work.
+
+Ask the agent: **"Build my worldview profile"**
+
+It will walk you through a short interview — your foundational beliefs, political views, source preferences, and reasoning style. The results are saved as `~/.hermes/skills/worldview-profile/SKILL.md` and automatically used for all future research.
+
+If you skip this step, the agent defaults to neutral fact presentation with source attribution. It will still work, just less aligned.
+
+### 5. Create Your SOUL.md
+
+The code provides infrastructure — SOUL.md tells the agent *how* to use it.
 
 ```bash
 cp extras/soul-template.md ~/.hermes/SOUL.md
@@ -96,7 +106,7 @@ Then edit `~/.hermes/SOUL.md`:
 
 For detailed guidance, see [`extras/system-prompt-guide.md`](extras/system-prompt-guide.md).
 
-### 5. Initialize the Reference Library
+### 6. Initialize the Reference Library
 
 ```bash
 cp -r extras/reference-library-template ~/.hermes/reference-library
@@ -104,7 +114,7 @@ cp -r extras/reference-library-template ~/.hermes/reference-library
 
 This creates the directory structure. It starts empty and grows as you work.
 
-### 6. (Optional) Set Up Deep Research
+### 7. (Optional) Set Up Deep Research
 
 For web search, content extraction, and anti-detection browsing, see [`extras/deep-research-setup.md`](extras/deep-research-setup.md). Requires three local services:
 
@@ -127,6 +137,7 @@ What happens automatically:
 - Perpetual Memory is searched when topics reference past work
 - Skills load on demand — only when relevant
 - Web sources are analyzed for bias via `source_analyze`
+- If a worldview profile exists, research results are reframed through your lens
 - Completed turns are archived to keep the context window lean
 
 ## What Grows Over Time

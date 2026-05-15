@@ -46,16 +46,18 @@ Full plugin suite providing perpetual memory tools to the agent:
 - **Source analysis** — `source_analyze` examines web search results for ideological alignment, omissions, and deviations. `deep=true` mode extracts full article content via Firecrawl before analyzing. Auto-creates source dossiers in `sources/` for new domains.
 - **Logos Deep Research & Continuity** — Sovereign knowledge acquisition pipeline:
     - **Three-Tier Web Stack:** SearXNG (Discovery) $\rightarrow$ Firecrawl (Extraction) $\rightarrow$ Camofox (Anti-detection Browser).
-    - **Epistemic Filtering:** Integrated scrutiny gate that filters raw web data through a user-defined worldview baseline before RL ingestion.
+    - **Epistemic Filtering:** Integrated scrutiny gate that filters raw web data through a user-defined worldview baseline (built via the `worldview-profile-builder` skill) before RL ingestion.
     - **Adaptive Retrieval Cascade:** A reasoning-driven flow (Immediate Context $\rightarrow$ PM Recall $\rightarrow$ RL Authority $\rightarrow$ Deep Research) to ensure the most accurate source is used for every query.
 
-### 3. Rolling Window Context Archiving (`plugins/context_engine/rolling_window/`)
-Replaces passive context retention with active archiving: compress completed conversation turns to permanent storage while keeping the working window lean for deep present-moment reasoning. State continuity through retrieval, not retention.
+### 3. Context Archiving
 
-Key design:
-- **Incremental tail-off** — When the context window approaches its threshold (~75%), the engine strips tool calls, truncates verbose tool results, then drops the oldest unprotected messages until token count falls below the archive target (65%). No LLM calls, no semantic clustering, no task tracking — simple and deterministic.
-- **Hard ceiling at 85%** — Emergency safety net that performs a drastic split if the incremental pruning isn't enough, preventing OOM mid-turn.
-- **Single-file implementation** — The rolling window directory contains only `__init__.py`. All task-aware and semantic-vector code has been removed as unnecessary overhead.
+Two pluggable engines work together:
+
+- **Semantic Vector (primary)** — Tracks conversation topics via local embeddings. Prunes only dormant or resolved turns, preserving active topics in full. Injects a conversation state map for model awareness. CPU-only, no GPU contention.
+
+- **Rolling Window (fallback)** — Incremental tail-off that drops the oldest unprotected messages. Fires when the semantic engine isn't aggressive enough and context nears the hard ceiling (~85%).
+
+Both are deterministic — no LLM calls, no semantic clustering overhead. State continuity through retrieval, not retention.
 
 ### Modified Core Files (7 files)
 
@@ -65,7 +67,7 @@ These core files were modified from the Hermes Agent base. The diffs are committ
 |------|-------------|----------------|
 | `run_agent.py` | Renamed "compression" $\\rightarrow$ "archiving", selective tool loading | Enables rolling window + perpetual memory integration. Config key is now `archiving:` instead of `compression:` |
 | `agent/prompt_builder.py` | Skills section changed from mandatory to on-demand loading with validation | Prevents context bloat — only loads skills actually relevant to the task |
-| `agent/context_engine.py` | Rolling window engine with incremental tail-off, removed semantic vector engine | Deterministic pruning: no LLM calls, no task tracking, no overhead |
+| `agent/context_engine.py` | ABC for context engines, rolling window engine with incremental tail-off | Deterministic pruning baseline
 | `plugins/context_engine/__init__.py` | Rolling window engine loader with config passthrough | Pluggable context archiving strategy |
 | `model_tools.py` | Added `get_selective_tool_definitions()` and deferred tools index | Essential tools loaded inline, deferred tools listed for RL lookup — saves context tokens |
 | `cli.py` | Perpetual memory CLI commands (`hermes pm search`, etc.) | Query your conversation history from the terminal |
