@@ -284,17 +284,37 @@ class SemanticVectorContextEngine(ContextEngine):
         ]
 
         # Safety check: if result is still too large after semantic pruning,
-        # fall back to tail-off
+        # fall back to rolling window for aggressive pruning.
+        # Two triggers:
+        #   1. Pruning insufficient — result still over threshold_tokens (75%)
+        #   2. Danger zone — current_tokens > 90% of context_length, regardless
+        #      of semantic pruning outcome. This is the emergency brake to
+        #      prevent OOM/crash.
         result_chars = sum(len(m.get("content", "")) for m in result)
         result_tokens = result_chars // 4
-        if result_tokens > self.threshold_tokens and self.threshold_tokens > 0:
+        effective_tokens = (
+            current_tokens if current_tokens is not None else result_tokens
+        )
+        danger_zone = int(self.context_length * 0.90) if self.context_length else 0
+        needs_fallback = False
+        if self.threshold_tokens > 0 and result_tokens > self.threshold_tokens:
             logger.info(
                 "SemanticVector pruning insufficient (%d > %d tokens), "
-                "applying tail-off fallback",
+                "engaging rolling_window fallback",
                 result_tokens,
                 self.threshold_tokens,
             )
-            return self._tailoff_archive(result)
+            needs_fallback = True
+        elif danger_zone > 0 and effective_tokens > danger_zone:
+            logger.info(
+                "SemanticVector danger zone: %d > %d tokens (90%% ceiling), "
+                "engaging rolling_window emergency fallback",
+                effective_tokens,
+                danger_zone,
+            )
+            needs_fallback = True
+        if needs_fallback:
+            return self._rolling_window_fallback(result)
 
         # Inject state map
         state_map = self._build_state_map()
@@ -350,6 +370,87 @@ class SemanticVectorContextEngine(ContextEngine):
         )
         self.archive_count += 1
         return keep
+
+    # -- Rolling window fallback (hard prune when nearing OOM) -----------------
+
+    def _rolling_window_fallback(
+        self, messages: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """Hard prune using rolling window logic: strip tool calls,
+        truncate verbose results, then drop oldest until under ceiling.
+
+        This is the emergency brake when semantic pruning hasn't trimmed
+        enough and we're approaching the hard ceiling."""
+        if not messages:
+            return messages
+
+        # Step 1: Strip raw assistant tool calls (verbose JSON bloat)
+        stripped = []
+        for msg in messages:
+            if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                stripped.append({**msg, "tool_calls": None})
+            else:
+                stripped.append(msg)
+
+        # Step 2: Truncate verbose tool results to first/last 3 lines
+        truncated = []
+        for msg in stripped:
+            if msg.get("role") == "tool":
+                content = msg.get("content", "")
+                if isinstance(content, str) and len(content.split("\n")) > 6:
+                    lines = content.split("\n")
+                    truncated_content = "\n".join(lines[:3]) + "\n...[truncated]...\n" + "\n".join(lines[-3:])
+                    msg = {**msg, "content": truncated_content}
+            truncated.append(msg)
+
+        # Step 3: Drop oldest unprotected messages until under threshold again
+        # The hard ceiling (85% of context_length) is the absolute maximum —
+        # we prune down to threshold_tokens (75%) to restore headroom.
+        target_tokens = self.threshold_tokens if self.threshold_tokens > 0 else int(self.context_length * 0.75)
+        hard_ceiling_tokens = int(self.context_length * 0.85) if self.context_length else 0
+
+        # Safety: never let target exceed the hard ceiling
+        if hard_ceiling_tokens > 0 and target_tokens > hard_ceiling_tokens:
+            target_tokens = hard_ceiling_tokens
+
+        # Estimate current tokens
+        current_chars = sum(len(m.get("content", "")) for m in truncated)
+        current_tokens = current_chars // 4
+
+        # Protect system messages and last N messages
+        system_msgs = [m for m in truncated if m.get("role") == "system"]
+        non_system_msgs = [m for m in truncated if m.get("role") != "system"]
+
+        # Drop oldest non-system messages until under target
+        while (len(non_system_msgs) > self.protect_last_n * 2 and
+               current_tokens > target_tokens):
+            # Drop one message from the oldest unprotected
+            dropped = non_system_msgs.pop(0)
+            dropped_chars = len(dropped.get("content", ""))
+            current_tokens -= dropped_chars // 4
+            logger.debug(
+                "Rolling window fallback: dropped oldest message, "
+                "tokens %d -> %d (target %d)",
+                current_tokens + dropped_chars // 4,
+                current_tokens,
+                target_tokens,
+            )
+
+        result = system_msgs + non_system_msgs
+        pruned_count = len(messages) - len(result)
+
+        logger.info(
+            "Rolling window fallback: %d -> %d messages, "
+            "pruned %d (tokens %d, target %d, hard_ceiling %d)",
+            len(messages),
+            len(result),
+            pruned_count,
+            current_tokens,
+            target_tokens,
+            hard_ceiling_tokens,
+        )
+        self.archive_count += 1
+        return result
 
     # -- Embedding helpers ----------------------------------------------------
 

@@ -44,6 +44,7 @@ class ComponentFactory:
         self._source_analyzer: Any = None
         self._synthesis_engine: Any = None
         self._retriever: Any = None
+        self._quality_scorer: Any = None
 
     # -- Properties for external access ---------------------------------------
 
@@ -87,6 +88,10 @@ class ComponentFactory:
     def retriever(self) -> Any:
         return self._retriever
 
+    @property
+    def quality_scorer(self) -> Any:
+        return self._quality_scorer
+
     # -- Ensure methods ------------------------------------------------------
 
     def ensure_all(self) -> None:
@@ -94,6 +99,7 @@ class ComponentFactory:
         with self._lock:
             self.ensure_feedback()
             self.ensure_core()
+            self.ensure_quality_scorer()
             if self._deep_research_enabled:
                 self.ensure_deep_research()
 
@@ -195,3 +201,11 @@ class ComponentFactory:
                 from .retrieval_engine import SmartRetriever  # noqa: PLC0415
 
                 self._retriever = SmartRetriever(self._db)
+
+    def ensure_quality_scorer(self) -> None:
+        """Ensure RetrievalQualityScorer is ready (for prefetch quality tracking)."""
+        with self._lock:
+            if self._quality_scorer is None:
+                from .retrieval_quality import RetrievalQualityScorer  # noqa: PLC0415
+
+                self._quality_scorer = RetrievalQualityScorer()

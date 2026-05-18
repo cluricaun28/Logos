@@ -87,9 +87,9 @@ class AuditService:
             audit_text = response.choices[0].message.content.strip()
 
         except (ImportError, ModuleNotFoundError) as e:
-            logger.warning(f"Audit LLM call failed (defaulting to PASS): {e}")
-            # If critic is unavailable, default to PASS but log warning
-            return self._pass_report("Audit skipped — LLM unavailable")
+            logger.warning(f"Audit LLM call failed (defaulting to FAIL): {e}")
+            # If critic is unavailable, default to FAIL — cannot verify fidelity
+            return self._fail_report("Audit skipped — LLM unavailable, cannot verify fidelity")
 
         # Parse audit response
         report = self._parse_audit_response(audit_text)
@@ -134,18 +134,26 @@ class AuditService:
 
     def _build_audit_prompt(self, draft_content: str, raw_turns: List[Dict[str, Any]]) -> str:
         """Build the LLM prompt for auditing a synthesized draft."""
-        # Build audit prompt — feed full raw turns, not truncated
-        raw_text = "\n\n".join(
-            f"[{t['role'].upper()}]: {t['content']}" for t in raw_turns
-        )
+        # Build audit prompt — label each turn with its ID so the critic can verify citations
+        labeled: list[str] = []
+        for t in raw_turns:
+            tid = t.get("id", "?")
+            labeled.append(f"--- turn_{tid} [{t['role'].upper()}] ---\n{t['content']}")
+        raw_text = "\n\n".join(labeled)
         # Cap total at ~32K to stay within reasonable context
         if len(raw_text) > 32000:
             raw_text = raw_text[:31000] + "\n\n[... remaining turns truncated for length ...]\n"
+
+        # Extract visible turn IDs from the (possibly truncated) content
+        import re
+        visible_turn_ids = sorted(set(int(m) for m in re.findall(r'turn_(\d+)', raw_text)))
 
         return f"""You are the CRITIC in a knowledge distillation pipeline. Your job is to perform a FIDELITY CHECK on a synthesized Reference Library draft against raw conversation transcripts.
 
 DRAFT TO AUDIT:
 {draft_content}
+
+VISIBLE TURN IDs (these are the only turns provided below — the draft may cite other turn IDs that were truncated and are NOT present): {visible_turn_ids}
 
 RAW SOURCE TRANSCRIPTS:
 {raw_text}
@@ -154,8 +162,10 @@ AUDIT DIMENSIONS (check each):
 
 1. HALLUCINATIONS: Claims in the draft that are NOT supported by the raw turns.
    - Each factual bullet claims a source turn ID (e.g., [turn_47]). Verify that the cited turn actually contains that fact.
-   - If a bullet cites [turn_N] but turn N doesn't contain that information, flag it.
-   - Any specific value (model name, version, price, file path, port, command) must appear in the cited turn.
+   - If a bullet cites [turn_N] but turn N is NOT in the VISIBLE TURN IDs list, flag it as hallucinated — that turn was truncated and the synthesizer fabricated the citation.
+   - If a bullet cites [turn_N] and turn N IS visible but doesn't contain that information, flag it.
+   - If a bullet uses [uncited], check that the claim IS present somewhere in the raw turns. [uncited] is valid when the fact is in the transcripts but the synthesizer couldn't pinpoint the exact turn. Only flag [uncited] claims that are genuinely absent from ALL turns.
+   - Any specific value (model name, version, price, file path, port, command) must appear in the source.
    - If the draft says the user chose X, but the cited turn shows the user saying "I don't need X" or "let's not do X", flag it as a directional inversion.
 
 2. NUANCE LOSS: Critical details smoothed over during summarization.
@@ -163,8 +173,9 @@ AUDIT DIMENSIONS (check each):
    - If important caveats or conditions were dropped, flag them.
 
 3. CITATION COVERAGE: Are all bullets properly cited?
-   - Every factual claim should have a [turn_N] citation. Uncited claims are unverifiable.
-   - If a bullet has no citation, flag it.
+   - Every factual claim should have a [turn_N] or [uncited] marker. Completely uncited claims (no bracket at all) are unverifiable.
+   - [uncited] is an acceptable marker when the synthesizer couldn't pinpoint the exact turn.
+   - Only flag bullets that have NO citation marker of any kind.
 
 4. WORLDVIEW DRIFT: Ensure output aligns with these baseline principles:
    - Truth is declarative, not relativistic
@@ -175,23 +186,21 @@ AUDIT DIMENSIONS (check each):
 5. NARRATIVE INVENTION: Did the synthesizer write connecting prose between facts that isn't in the source?
    - If paragraphs of connecting narrative appear that aren't backed by source turns, flag them.
 
-OUTPUT FORMAT (JSON only, no preamble):
+OUTPUT FORMAT (JSON only, no preamble, keep it concise):
 {{
   "passed": true/false,
-  "hallucinations": ["Specific claim in draft not supported by source: ...", ...],
-  "nuance_loss": ["Detail that was smoothed over: ...", ...],
-  "worldview_drift": ["Alignment issue: ...", ...],
-  "corrections": ["Specific actionable fix: change X to Y, remove unsupported claim about Z", ...],
-  "verdict": "PASS or FAIL with one-sentence reasoning"
+  "hallucinations": ["Quote the exact false claim and say why"],
+  "corrections": ["Brief fix: 'change X to Y'"],
+  "verdict": "One sentence"
 }}
 
-CRITICAL: Each entry in "corrections" must be specific enough that a reviser can implement it without re-reading the entire source. Describe what to change and what to change it to. Be strict. If the draft contains ANY hallucination, mark passed=false and list it."""
+Keep lists SHORT — at most 3 items each. Only list the MOST serious issues. If there are no hallucinations and no critical corrections, passed=true. Be strict but concise."""
 
     def _parse_audit_response(self, text: str) -> Dict[str, Any]:
         """Parse the JSON audit response from LLM."""
         if not text or not text.strip():
-            logger.warning("Critic returned empty response — auto-passing (synthesis already validated)")
-            return self._pass_report("Empty critic response — auto-pass")
+            logger.warning("Critic returned empty response — auto-failing (cannot verify fidelity)")
+            return self._fail_report("Empty critic response — cannot verify fidelity")
 
         # Try to extract JSON from markdown code blocks or raw text
         import re
@@ -219,7 +228,32 @@ CRITICAL: Each entry in "corrections" must be specific enough that a reviser can
                 "corrections": report.get("corrections", []),
                 "verdict": report.get("verdict", "FAIL — malformed response"),
             }
-        except json.JSONDecodeError as e:
+        except json.JSONDecodeError:
+            # Try to fix common JSON issues: trailing commas, unescaped quotes, unclosed braces
+            fixed = json_text.strip()
+            # Remove trailing commas before closing braces
+            fixed = re.sub(r',\s*}', '}', fixed)
+            fixed = re.sub(r',\s*]', ']', fixed)
+            # Try to close unclosed braces
+            open_b = fixed.count('{') - fixed.count('}')
+            open_s = fixed.count('[') - fixed.count(']')
+            if open_b > 0:
+                fixed = fixed + '}' * open_b
+            if open_s > 0:
+                fixed = fixed + ']' * open_s
+            try:
+                report = json.loads(fixed)
+                return {
+                    "passed": bool(report.get("passed", False)),
+                    "hallucinations": report.get("hallucinations", []),
+                    "nuance_loss": report.get("nuance_loss", []),
+                    "worldview_drift": report.get("worldview_drift", []),
+                    "corrections": report.get("corrections", []),
+                    "verdict": report.get("verdict", "FAIL — recovered from malformed JSON"),
+                }
+            except json.JSONDecodeError:
+                pass
+
             # Last resort: try to find JSON-like structure anywhere in text
             brace_match = re.search(r'\{.*\}', text, re.DOTALL)
             if brace_match:
@@ -237,8 +271,8 @@ CRITICAL: Each entry in "corrections" must be specific enough that a reviser can
                     pass
 
             logger.warning(f"Critic returned unparseable JSON ({len(text)} chars): {text[:100]}...")
-            return self._pass_report(
-                f"Critic output not parseable — auto-passing. First 100 chars: {text[:100]}"
+            return self._fail_report(
+                f"Critic output not parseable — cannot verify fidelity. First 100 chars: {text[:100]}"
             )
 
     def _pass_report(self, reason: str = "All checks passed") -> Dict[str, Any]:

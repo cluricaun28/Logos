@@ -810,6 +810,7 @@ class _RLWriter:
             f"alignment, motive, and behavioral patterns.\n"
         )
 
+        dossier_path.parent.mkdir(parents=True, exist_ok=True)
         dossier_path.write_text(template, encoding="utf-8")
         logger.info("Created new dossier for %s: %s", domain, dossier_path.name)
 

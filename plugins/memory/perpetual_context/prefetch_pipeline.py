@@ -42,6 +42,7 @@ def run_prefetch_pipeline(
     web_search_top_k: int,
     worldview_blocked_domains: set[str],
     deep_research_master: bool,
+    quality_scorer: Any = None,
 ) -> str:
     """Run the full 4-phase prefetch pipeline.
 
@@ -260,6 +261,30 @@ def run_prefetch_pipeline(
             footer_parts.append(f"[Pipeline failures: {', '.join(failures[:3])}]")
 
     result_text += "\n\n" + " ".join(footer_parts)
+
+    # Quality scoring — record this prefetch event for trend analysis
+    if quality_scorer is not None:
+        try:
+            # Build unified scored results from all sources
+            all_scored: list[dict[str, Any]] = []
+            for r in rl_data.get("results", [])[:rl_search_top_k]:
+                all_scored.append({"source": "rl", "score": r.get("score", 0), "name": r.get("name", "")})
+            for m in pm_results[:depth_limit]:
+                all_scored.append({"source": "pm", "score": m.get("_score", 0)})
+            for w in vetted_results[:web_search_top_k]:
+                all_scored.append({"source": "web", "score": w.get("score", 0)})
+
+            priorities = routing.get("priorities", {"pm": 0.35, "rl": 0.40, "web": 0.25})
+            quality_scorer.score(
+                query=query,
+                priorities=priorities,
+                scored_results=all_scored,
+                formatted_text=result_text,
+                top_k_requested=rl_search_top_k,
+            )
+        except (KeyError, TypeError, AttributeError) as e:
+            logger.debug("Quality scoring failed (non-fatal): %s", e)
+
     return result_text
 
 

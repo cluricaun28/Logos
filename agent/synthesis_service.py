@@ -184,10 +184,16 @@ class SynthesisService:
         Produces structured factual notes with source turn citations, not prose.
         This prevents the model from inventing connecting narrative.
         """
+        # Extract only the turn IDs that actually appear in the (possibly truncated) content
+        # so the model doesn't cite turns it can't see.
+        import re
+        visible_turn_ids = [int(m) for m in re.findall(r'turn_(\d+)', content_text)]
+        visible_turn_ids = sorted(set(visible_turn_ids))
+
         return f"""You are extracting factual information from raw conversation transcripts into a Reference Library entry.
 
 CLUSTER ID: {cluster_id}
-SOURCE TURN IDs: {turn_ids}
+VISIBLE TURN IDs (the only turns provided below — do NOT cite any others): {visible_turn_ids}
 
 RAW TRANSCRIPTS (use these as your ONLY source of facts):
 {content_text}
@@ -200,7 +206,7 @@ YOUR OUTPUT FORMAT — EXACTLY THIS STRUCTURE:
 [2-3 sentences describing what this conversation cluster is about. Only state what is clearly evident from the transcripts.]
 
 ## Factual Notes
-Each bullet must be a single, verifiable fact. Every bullet MUST end with its source turn ID in square brackets.
+Each bullet should be a single, verifiable fact. Every bullet SHOULD end with its source turn ID in square brackets when you can identify it.
 
 Format: `- Fact statement [turn_N]`
 
@@ -210,12 +216,14 @@ Example:
 - LM Studio embedding support remains as optional manual configuration [turn_47]
 
 RULES FOR EACH BULLET:
-- Only include information that appears EXPLICITLY in the cited turn
-- If a fact spans multiple turns, cite the most relevant one
-- If two turns contradict, include both with their respective turn IDs and note the contradiction
-- DO NOT combine information from multiple turns into one bullet unless you cite all relevant turns
+- Only include information that appears EXPLICITLY in the transcripts
+- If you can identify the specific turn, cite it: [turn_N]
+- If the fact is in the transcripts but you cannot pinpoint the exact turn, use [uncited] — do NOT invent a turn ID
+- If two turns contradict, cite both and note the contradiction
+- DO NOT combine information from multiple turns into one bullet unless you cite all relevant turns or use [uncited]
 - DO NOT infer conclusions not stated in the source
 - DO NOT write narrative prose between bullets
+- NEVER fabricate a turn ID to satisfy the citation requirement
 
 ## Code & Commands
 [Any exact code snippets, commands, or config values shown in the transcripts. Cite turn ID after each block.]

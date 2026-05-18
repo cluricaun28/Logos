@@ -266,6 +266,7 @@ class PerpetualContextProvider(MemoryProvider):
             web_search_top_k=WEB_SEARCH_TOP_K,
             worldview_blocked_domains=WORLDVIEW_BLOCKED_DOMAINS,
             deep_research_master=DEEP_RESEARCH_ENABLED,
+            quality_scorer=factory.quality_scorer,
         )
 
     # -- Queued prefetch / recall --------------------------------------------

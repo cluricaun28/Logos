@@ -197,5 +197,7 @@ class ContextEngine(ABC):
         self.context_length = context_length
         self.threshold_tokens = int(context_length * self.threshold_percent)
 
-# NOTE: SemanticVectorEngine removed — replaced by rolling_window plugin
-# with incremental tail-off. See plugins/context_engine/rolling_window/
+# NOTE: Both SemanticVectorEngine and RollingWindowEngine are available
+# as plugins. Selection is config-driven via context.engine in config.yaml.
+# SemanticVector is the primary engine; RollingWindow is the fallback
+# when semantic pruning hasn't trimmed enough (see semantic_vector plugin).
