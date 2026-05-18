@@ -173,6 +173,11 @@ class SynthesisEngine:
                     "RLUpdateDetector flagged %d page(s) for potential update",
                     len(rl_update_flags),
                 )
+                # Persist flags to disk so the update runner can act on them
+                try:
+                    detector.persist_flags(rl_update_flags)
+                except OSError as persist_err:
+                    logger.debug("Failed to persist rl_update_flags: %s", persist_err)
         except (OSError, KeyError, TypeError, AttributeError) as e:
             logger.debug("RLUpdateDetector failed (non-fatal): %s", e)
 
@@ -529,7 +534,47 @@ class RLUpdateDetector:
         if len(unique_to_fact) > 20:  # Significant new content
             return "Substantial new information not covered in existing page"
 
-        return None
+    def persist_flags(self, flags: list[dict[str, Any]], persist_path: str | None = None) -> None:
+        """Persist update flags to disk so the update runner can act on them.
+
+        Writes to a JSON file that survives between synthesis sessions.
+        The update runner reads this file and processes flagged pages.
+        """
+        import json as _json
+
+        target = Path(os.path.expanduser(persist_path)) if persist_path else Path(
+            os.path.expanduser("~/.hermes/data/rl_update_flags.json")
+        )
+
+        # Read existing flags to merge (don't overwrite unprocessed ones)
+        existing: list[dict[str, Any]] = []
+        if target.exists():
+            try:
+                existing = _json.loads(target.read_text(encoding="utf-8"))
+            except (_json.JSONDecodeError, OSError):
+                existing = []
+
+        # Merge: add new flags, keep unprocessed ones
+        # Use a dict keyed by page path to deduplicate
+        merged: dict[str, dict[str, Any]] = {}
+
+        for flag in existing:
+            page = flag.get("page", "")
+            if page:
+                merged[page] = flag
+
+        for flag in flags:
+            page = flag.get("page", "")
+            if page:
+                merged[page] = {
+                    **flag,
+                    "flagged_at": datetime.now().isoformat(),
+                    "processed": flag.get("processed", False),
+                }
+
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(_json.dumps(list(merged.values()), indent=2, ensure_ascii=False), encoding="utf-8")
+        logger.debug("Persisted %d RL update flags to %s", len(merged), target)
 
 
 # ---------------------------------------------------------------------------

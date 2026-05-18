@@ -667,8 +667,12 @@ def _skill_should_show(
 def build_skills_system_prompt(
     available_tools: "set[str] | None" = None,
     available_toolsets: "set[str] | None" = None,
+    user_message: str = "",
 ) -> str:
     """Build a compact skill index for the system prompt.
+
+    Uses tiered injection: Tier 0 (core) skills always injected,
+    Tier 1+ skills injected based on detected task type from user message.
 
     Two-layer cache:
       1. In-process LRU dict keyed by (skills_dir, tools, toolsets)
@@ -705,6 +709,7 @@ def build_skills_system_prompt(
         tuple(sorted(str(ts) for ts in (available_toolsets or set()))),
         _platform_hint,
         tuple(sorted(disabled)),
+        user_message[:200] if user_message else "",  # Include task context
     )
     with _SKILLS_PROMPT_CACHE_LOCK:
         cached = _SKILLS_PROMPT_CACHE.get(cache_key)
@@ -717,6 +722,7 @@ def build_skills_system_prompt(
 
     skills_by_category: dict[str, list[tuple[str, str]]] = {}
     category_descriptions: dict[str, str] = {}
+    skill_configs: dict[str, dict[str, Any]] = {}
 
     if snapshot is not None:
         # Fast path: use pre-parsed metadata from disk
@@ -740,6 +746,13 @@ def build_skills_system_prompt(
             skills_by_category.setdefault(category, []).append(
                 (frontmatter_name, entry.get("description", ""), entry.get("priority", "high"))
             )
+            # Store config for dependency resolution
+            skill_configs[frontmatter_name] = {
+                "category": category,
+                "dependencies": [],
+                "description": entry.get("description", ""),
+                "priority": entry.get("priority", "high"),
+            }
         category_descriptions = {
             str(k): str(v)
             for k, v in (snapshot.get("category_descriptions") or {}).items()
@@ -765,6 +778,13 @@ def build_skills_system_prompt(
             skills_by_category.setdefault(entry["category"], []).append(
                 (entry["frontmatter_name"], entry["description"], entry.get("priority", "high"))
             )
+            # Store config for dependency resolution
+            skill_configs[entry["frontmatter_name"]] = {
+                "category": entry["category"],
+                "dependencies": frontmatter.get("dependencies", []),
+                "description": entry["description"],
+                "priority": entry.get("priority", "high"),
+            }
 
         # Read category-level DESCRIPTION.md files
         for desc_file in iter_skill_index_files(skills_dir, "DESCRIPTION.md"):
@@ -821,6 +841,13 @@ def build_skills_system_prompt(
                 skills_by_category.setdefault(entry["category"], []).append(
                     (frontmatter_name, entry["description"], entry.get("priority", "high"))
                 )
+                # Store config for dependency resolution
+                skill_configs[frontmatter_name] = {
+                    "category": entry["category"],
+                    "dependencies": frontmatter.get("dependencies", []),
+                    "description": entry["description"],
+                    "priority": entry.get("priority", "high"),
+                }
             except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
                 logger.debug("Error reading external skill %s: %s", skill_file, e)
 
@@ -841,46 +868,132 @@ def build_skills_system_prompt(
     if not skills_by_category:
         result = ""
     else:
-        index_lines = []
-        for category in sorted(skills_by_category.keys()):
-            cat_desc = category_descriptions.get(category, "")
-            if cat_desc:
-                index_lines.append(f"  {category}: {cat_desc}")
-            else:
-                index_lines.append(f"  {category}:")
-            # Deduplicate and sort skills within each category
-            seen = set()
-            for name, desc, priority in sorted(skills_by_category[category], key=lambda x: x[0]):
-                if name in seen:
-                    continue
-                seen.add(name)
-                if priority == "high" and desc:
-                    index_lines.append(f"    - '''{name}''' — {desc}")
-                else:
-                    index_lines.append(f"    - '''{name}'''")
+        # ── Tiered skill injection ──────────────────────────────────────
+        # Use the new injection manager for task-aware skill selection
+        try:
+            from agent.skill_injection import SkillInjectionManager
 
-        result = (
-            "## Skills (on-demand)\n"
-            "Before replying, scan the skills below and load only those DIRECTLY relevant "
-            "to your task — validate relevance before loading. Do NOT load a skill just because it "
-            "shares keywords; ensure its instructions actually apply to what you're doing. "
-            "Load with skill_view(name) when genuinely needed, not as a reflexive step.\n"
-            "Whenever the user asks you to configure, set up, install, enable, disable, modify, "
-            "or troubleshoot Hermes Agent itself — its CLI, config, models, providers, tools, "
-            "skills, voice, gateway, plugins, or any feature — load the `hermes-agent` skill "
-            "first. It has the actual commands (e.g. `hermes config set …`, `hermes tools`, "
-            "`hermes setup`) so you don't have to guess or invent workarounds.\n"
-            "If a skill has issues, fix it with skill_manage(action='patch').\n"
-            "After difficult/iterative tasks, offer to save as a skill. "
-            "If a skill you loaded was missing steps, had wrong commands, or needed "
-            "pitfalls you discovered, update it before finishing.\n"
-            "\n"
-            "<available_skills>\n"
-            + "\n".join(index_lines) + "\n"
-            "</available_skills>\n"
-            "\n"
-            "Only proceed without loading a skill if genuinely none are relevant to the task."
-        )
+            task_type = SkillInjectionManager.detect_task_type(user_message) if user_message else None
+
+            manager = SkillInjectionManager()
+            manager.build_graph(skill_configs)
+
+            # Get tiered injection set
+            injected_skills = manager.get_injection_set(task_type=task_type, max_tier=1)
+
+            # Format the injection block
+            result = manager.format_injection_block(injected_skills)
+
+            # Add remaining skills by category (Tier 2+)
+            remaining_skills = set(skills_by_category.keys()) - set(
+                manager.get_skill_category(s) for s in injected_skills if s in manager.graph
+            )
+
+            if remaining_skills:
+                index_lines = []
+                for category in sorted(remaining_skills):
+                    cat_desc = category_descriptions.get(category, "")
+                    if cat_desc:
+                        index_lines.append(f"  {category}: {cat_desc}")
+                    else:
+                        index_lines.append(f"  {category}:")
+                    # Deduplicate and sort skills within each category
+                    seen = set()
+                    for name, desc, priority in sorted(skills_by_category[category], key=lambda x: x[0]):
+                        if name in seen:
+                            continue
+                        seen.add(name)
+                        if priority == "high" and desc:
+                            index_lines.append(f"    - '''{name}''' — {desc}")
+                        else:
+                            index_lines.append(f"    - '''{name}'''")
+
+                result += "\n\n<remaining_skills>\n" + "\n".join(index_lines) + "\n</remaining_skills>"
+
+        except ImportError:
+            logger.debug("Tiered injection not available, using original format")
+            index_lines = []
+            for category in sorted(skills_by_category.keys()):
+                cat_desc = category_descriptions.get(category, "")
+                if cat_desc:
+                    index_lines.append(f"  {category}: {cat_desc}")
+                else:
+                    index_lines.append(f"  {category}:")
+                # Deduplicate and sort skills within each category
+                seen = set()
+                for name, desc, priority in sorted(skills_by_category[category], key=lambda x: x[0]):
+                    if name in seen:
+                        continue
+                    seen.add(name)
+                    if priority == "high" and desc:
+                        index_lines.append(f"    - '''{name}''' — {desc}")
+                    else:
+                        index_lines.append(f"    - '''{name}'''")
+
+            result = (
+                "## Skills (on-demand)\n"
+                "Before replying, scan the skills below and load only those DIRECTLY relevant "
+                "to your task — validate relevance before loading. Do NOT load a skill just because it "
+                "shares keywords; ensure its instructions actually apply to what you're doing. "
+                "Load with skill_view(name) when genuinely needed, not as a reflexive step.\n"
+                "Whenever the user asks you to configure, set up, install, enable, disable, modify, "
+                "or troubleshoot Hermes Agent itself — its CLI, config, models, providers, tools, "
+                "skills, voice, gateway, plugins, or any feature — load the `hermes-agent` skill "
+                "first. It has the actual commands (e.g. `hermes config set …`, `hermes tools`, "
+                "`hermes setup`) so you don't have to guess or invent workarounds.\n"
+                "If a skill has issues, fix it with skill_manage(action='patch').\n"
+                "After difficult/iterative tasks, offer to save as a skill. "
+                "If a skill you loaded was missing steps, had wrong commands, or needed "
+                "pitfalls you discovered, update it before finishing.\n"
+                "\n"
+                "<available_skills>\n"
+                + "\n".join(index_lines) + "\n"
+                "</available_skills>\n"
+                "\n"
+                "Only proceed without loading a skill if genuinely none are relevant to the task."
+            )
+        except Exception as e:
+            logger.warning("Tiered skill injection failed: %s", e)
+            # Fall back to original format
+            index_lines = []
+            for category in sorted(skills_by_category.keys()):
+                cat_desc = category_descriptions.get(category, "")
+                if cat_desc:
+                    index_lines.append(f"  {category}: {cat_desc}")
+                else:
+                    index_lines.append(f"  {category}:")
+                seen = set()
+                for name, desc, priority in sorted(skills_by_category[category], key=lambda x: x[0]):
+                    if name in seen:
+                        continue
+                    seen.add(name)
+                    if priority == "high" and desc:
+                        index_lines.append(f"    - '''{name}''' — {desc}")
+                    else:
+                        index_lines.append(f"    - '''{name}'''")
+
+            result = (
+                "## Skills (on-demand)\n"
+                "Before replying, scan the skills below and load only those DIRECTLY relevant "
+                "to your task — validate relevance before loading. Do NOT load a skill just because it "
+                "shares keywords; ensure its instructions actually apply to what you're doing. "
+                "Load with skill_view(name) when genuinely needed, not as a reflexive step.\n"
+                "Whenever the user asks you to configure, set up, install, enable, disable, modify, "
+                "or troubleshoot Hermes Agent itself — its CLI, config, models, providers, tools, "
+                "skills, voice, gateway, plugins, or any feature — load the `hermes-agent` skill "
+                "first. It has the actual commands (e.g. `hermes config set …`, `hermes tools`, "
+                "`hermes setup`) so you don't have to guess or invent workarounds.\n"
+                "If a skill has issues, fix it with skill_manage(action='patch').\n"
+                "After difficult/iterative tasks, offer to save as a skill. "
+                "If a skill you loaded was missing steps, had wrong commands, or needed "
+                "pitfalls you discovered, update it before finishing.\n"
+                "\n"
+                "<available_skills>\n"
+                + "\n".join(index_lines) + "\n"
+                "</available_skills>\n"
+                "\n"
+                "Only proceed without loading a skill if genuinely none are relevant to the task."
+            )
 
     # ── Store in LRU cache ────────────────────────────────────────────
     with _SKILLS_PROMPT_CACHE_LOCK:

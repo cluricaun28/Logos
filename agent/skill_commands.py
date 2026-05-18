@@ -351,11 +351,40 @@ def build_skill_invocation_message(
     )
 
 
+def _resolve_skill_dependencies(
+    skill_configs: dict[str, dict[str, Any]],
+    requested: list[str],
+) -> list[str]:
+    """Resolve skill loading order using topological sort.
+
+    Args:
+        skill_configs: Mapping of skill_name -> parsed frontmatter.
+        requested: List of skill names to load.
+
+    Returns:
+        Ordered list of skill names (dependencies first).
+    """
+    try:
+        from agent.skill_dependency_resolver import SkillDependencyResolver
+
+        resolver = SkillDependencyResolver.from_skill_configs(skill_configs)
+        return resolver.resolve(requested)
+    except ImportError:
+        logger.debug("Dependency resolver not available, using original order")
+        return requested
+    except Exception as e:
+        logger.warning("Skill dependency resolution failed: %s", e)
+        return requested
+
+
 def build_preloaded_skills_prompt(
     skill_identifiers: list[str],
     task_id: str | None = None,
 ) -> tuple[str, list[str], list[str]]:
     """Load one or more skills for session-wide CLI preloading.
+
+    Skills are loaded in topological dependency order — dependencies load
+    before dependents so chained analysis workflows function correctly.
 
     Returns (prompt_text, loaded_skill_names, missing_identifiers).
     """
@@ -363,7 +392,11 @@ def build_preloaded_skills_prompt(
     loaded_names: list[str] = []
     missing: list[str] = []
 
+    # First pass: load all skills and collect their configs
+    skill_configs: dict[str, dict[str, Any]] = {}
+    skill_payloads: dict[str, tuple] = {}
     seen: set[str] = set()
+
     for raw_identifier in skill_identifiers:
         identifier = (raw_identifier or "").strip()
         if not identifier or identifier in seen:
@@ -376,6 +409,28 @@ def build_preloaded_skills_prompt(
             continue
 
         loaded_skill, skill_dir, skill_name = loaded
+
+        # Store for second pass
+        skill_payloads[skill_name] = (loaded_skill, skill_dir, skill_name)
+
+        # Extract frontmatter for dependency resolution
+        try:
+            raw_content = str(loaded_skill.get("raw_content") or loaded_skill.get("content") or "")
+            if raw_content:
+                from agent.skill_utils import parse_frontmatter
+                frontmatter, _ = parse_frontmatter(raw_content)
+                skill_configs[skill_name] = frontmatter
+        except Exception:
+            skill_configs[skill_name] = {}
+
+    # Second pass: resolve dependencies and load in order
+    ordered_names = _resolve_skill_dependencies(skill_configs, list(skill_payloads.keys()))
+
+    for skill_name in ordered_names:
+        if skill_name not in skill_payloads:
+            continue
+
+        loaded_skill, skill_dir, _ = skill_payloads[skill_name]
 
         # Track active usage for Curator lifecycle management (#17782)
         try:
