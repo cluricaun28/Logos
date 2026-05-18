@@ -415,6 +415,22 @@ def resolve_skill_config_values(
     return resolved
 
 
+# ── Priority extraction ───────────────────────────────────────────────────
+
+
+def extract_skill_priority(frontmatter: Dict[str, Any]) -> str:
+    """Extract priority level from parsed frontmatter.
+
+    Returns ``"high"`` (default) or ``"low"``. High-priority skills get
+    full descriptions in the system prompt index. Low-priority skills get
+    name-only entries.
+    """
+    raw = frontmatter.get("priority", "high")
+    if not isinstance(raw, str):
+        return "high"
+    return raw.strip().lower() if raw.strip().lower() in ("high", "low") else "high"
+
+
 # ── Description extraction ────────────────────────────────────────────────
 
 

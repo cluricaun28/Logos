@@ -19,6 +19,7 @@ from typing import Optional
 from agent.skill_utils import (
     extract_skill_conditions,
     extract_skill_description,
+    extract_skill_priority,
     get_all_skills_dirs,
     get_disabled_skill_names,
     iter_skill_index_files,
@@ -603,6 +604,7 @@ def _build_snapshot_entry(
         "category": category,
         "frontmatter_name": str(frontmatter.get("name", skill_name)),
         "description": description,
+        "priority": extract_skill_priority(frontmatter),
         "platforms": [str(p).strip() for p in platforms if str(p).strip()],
         "conditions": extract_skill_conditions(frontmatter),
     }
@@ -736,7 +738,7 @@ def build_skills_system_prompt(
             ):
                 continue
             skills_by_category.setdefault(category, []).append(
-                (frontmatter_name, entry.get("description", ""))
+                (frontmatter_name, entry.get("description", ""), entry.get("priority", "high"))
             )
         category_descriptions = {
             str(k): str(v)
@@ -761,7 +763,7 @@ def build_skills_system_prompt(
             ):
                 continue
             skills_by_category.setdefault(entry["category"], []).append(
-                (entry["frontmatter_name"], entry["description"])
+                (entry["frontmatter_name"], entry["description"], entry.get("priority", "high"))
             )
 
         # Read category-level DESCRIPTION.md files
@@ -791,7 +793,7 @@ def build_skills_system_prompt(
     # precedence: we track seen names and skip duplicates from external dirs.
     seen_skill_names: set[str] = set()
     for cat_skills in skills_by_category.values():
-        for name, _desc in cat_skills:
+        for name, _desc, _priority in cat_skills:
             seen_skill_names.add(name)
 
     for ext_dir in external_dirs:
@@ -817,7 +819,7 @@ def build_skills_system_prompt(
                     continue
                 seen_skill_names.add(frontmatter_name)
                 skills_by_category.setdefault(entry["category"], []).append(
-                    (frontmatter_name, entry["description"])
+                    (frontmatter_name, entry["description"], entry.get("priority", "high"))
                 )
             except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
                 logger.debug("Error reading external skill %s: %s", skill_file, e)
@@ -848,11 +850,11 @@ def build_skills_system_prompt(
                 index_lines.append(f"  {category}:")
             # Deduplicate and sort skills within each category
             seen = set()
-            for name, desc in sorted(skills_by_category[category], key=lambda x: x[0]):
+            for name, desc, priority in sorted(skills_by_category[category], key=lambda x: x[0]):
                 if name in seen:
                     continue
                 seen.add(name)
-                if desc:
+                if priority == "high" and desc:
                     index_lines.append(f"    - '''{name}''' — {desc}")
                 else:
                     index_lines.append(f"    - '''{name}'''")
