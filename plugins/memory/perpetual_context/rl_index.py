@@ -27,6 +27,9 @@ import time
 from pathlib import Path
 from typing import Any
 
+import tqdm
+tqdm.disable = True
+
 logger = logging.getLogger(__name__)
 
 RL_INDEX_DB_PATH = os.path.expanduser("~/.hermes/rl_index.db")
@@ -179,8 +182,7 @@ class RLIndex:
                 batch = [t[:RL_EMBED_MAX_CONTENT_LEN] for t in texts[i: i + batch_size]]
                 try:
                     vectors = model.encode(
-                        batch, convert_to_numpy=True,
-                        show_progress_bar=False, batch_size=batch_size,
+                        batch, convert_to_numpy=True, batch_size=batch_size,
                     )
                     if hasattr(vectors, "__len__") and not isinstance(vectors, str):
                         results.extend(v.tolist() for v in vectors)
