@@ -669,9 +669,7 @@ class SemanticVectorContextEngine(ContextEngine):
             tqdm.disable = True
 
             if os.path.isdir(self._model_path):
-                self.model = SentenceTransformer(
-                    self._model_path, device="cpu", show_progress_bar=False
-                )
+                self.model = SentenceTransformer(self._model_path, device="cpu")
                 logger.info(
                     "SemanticVectorContextEngine: loaded local model from %s "
                     "on CPU",
