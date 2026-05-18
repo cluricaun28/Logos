@@ -661,9 +661,13 @@ class SemanticVectorContextEngine(ContextEngine):
         try:
             from sentence_transformers import SentenceTransformer
 
+            # Suppress tqdm progress bars during load and all future encode() calls
+            import tqdm
+            tqdm.disable = True
+
             if os.path.isdir(self._model_path):
                 self.model = SentenceTransformer(
-                    self._model_path, device="cpu"
+                    self._model_path, device="cpu", show_progress_bar=False
                 )
                 logger.info(
                     "SemanticVectorContextEngine: loaded local model from %s "
