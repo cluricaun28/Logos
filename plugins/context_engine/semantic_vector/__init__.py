@@ -18,6 +18,9 @@ import math
 import os
 from typing import Any, Dict, List
 
+import tqdm
+tqdm.disable = True
+
 from agent.context_engine import ContextEngine
 
 logger = logging.getLogger(__name__)
