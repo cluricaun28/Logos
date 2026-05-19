@@ -213,11 +213,24 @@ class RetrievalQualityScorer:
     # Metric calculations
     # -----------------------------------------------------------------------
 
+    # Conversational/meta-query signals — these are about the agent's reasoning,
+    # not information retrieval. Penalizing keyword mismatch for these is misleading.
+    _CONVERSATIONAL_MARKERS = {
+        "you", "your", "yours", "wrong", "seems", "struggling", "apply",
+        "accept", "rationale", "hoped", "afraid", "still", "failing",
+        "lets", "clarify", "alright", "another", "next", "topic",
+        "yes", "no", "dont", "didnt", "arent", "isnt", "wasnt", "werent",
+        "havent", "havent", "wouldnt", "couldnt", "shouldnt", "didnt",
+    }
+
     def _keyword_relevance(self, query: str, results: list[dict[str, Any]]) -> float:
         """Fraction of query content words found in retrieved text.
 
         Extracts content words from the query (excluding stop words), then checks
         how many appear anywhere in the combined result snippets/content.
+        For conversational/meta-queries (about the agent's reasoning, not info retrieval),
+        uses a relaxed threshold since keyword mismatch is expected and not a signal
+        of poor retrieval quality.
         Returns 0.0-1.0.
         """
         # Extract content words from query
@@ -226,6 +239,10 @@ class RetrievalQualityScorer:
 
         if not content_words:
             return 1.0  # No meaningful words to check — can't penalize
+
+        # Detect conversational/meta-queries: high ratio of conversational markers
+        conversational_count = sum(1 for w in query_words if w in self._CONVERSATIONAL_MARKERS)
+        is_conversational = conversational_count >= 3
 
         # Combine all result text
         combined_text = ""
@@ -236,7 +253,14 @@ class RetrievalQualityScorer:
 
         # Count how many query content words appear in results
         matches = sum(1 for w in content_words if w in combined_text)
-        return min(matches / len(content_words), 1.0)
+        raw_score = min(matches / len(content_words), 1.0)
+
+        # For conversational queries, don't penalize hard — the retrieval is serving
+        # its purpose by providing context even if keywords don't literally match.
+        if is_conversational and raw_score < 0.5:
+            return max(raw_score, 0.5)  # Floor at 0.5 for meta-queries
+
+        return raw_score
 
     def _source_alignment(self, priorities: dict[str, float], results: list[dict[str, Any]]) -> float:
         """Whether the classifier's top-priority source actually returned results.
@@ -244,12 +268,16 @@ class RetrievalQualityScorer:
         Returns 1.0 if top priority source has results, 0.0 if it doesn't but others do,
         or 0.5 if no results at all (ambiguous — could be empty DB).
         """
-        # Find top priority source
-        pm_p = priorities.get("pm_priority", 0)
-        rl_p = priorities.get("rl_priority", 0)
-        web_p = priorities.get("web_priority", 0)
+        # Find top priority source — accept both old and new key formats
+        pm_p = priorities.get("pm_priority", priorities.get("pm", 0))
+        rl_p = priorities.get("rl_priority", priorities.get("rl", 0))
+        web_p = priorities.get("web_priority", priorities.get("web", 0))
 
         sources = {"PM": pm_p, "RL": rl_p, "Web": web_p}
+        # If all priorities are zero (classifier didn't set them), treat as neutral
+        if all(v == 0 for v in sources.values()):
+            return 0.5  # Ambiguous — no classifier signal to evaluate against
+
         top_source = max(sources, key=sources.get)  # type: ignore[arg-type]
         top_priority = sources[top_source]
 

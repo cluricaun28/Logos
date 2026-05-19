@@ -268,11 +268,24 @@ def run_prefetch_pipeline(
             # Build unified scored results from all sources
             all_scored: list[dict[str, Any]] = []
             for r in rl_data.get("results", [])[:rl_search_top_k]:
-                all_scored.append({"source": "rl", "score": r.get("score", 0), "name": r.get("name", "")})
+                all_scored.append({
+                    "source": "rl",
+                    "score": r.get("score", 0),
+                    "name": r.get("name", ""),
+                    "snippet": r.get("snippet", "")[:300],
+                })
             for m in pm_results[:depth_limit]:
-                all_scored.append({"source": "pm", "score": m.get("_score", 0)})
+                all_scored.append({
+                    "source": "pm",
+                    "score": m.get("_score", 0),
+                    "content": m.get("content", "")[:prefetch_trunc_chars],
+                })
             for w in vetted_results[:web_search_top_k]:
-                all_scored.append({"source": "web", "score": w.get("score", 0)})
+                all_scored.append({
+                    "source": "web",
+                    "score": w.get("score", 0),
+                    "snippet": (w.get("extracted_content") or w.get("snippet", ""))[:300],
+                })
 
             priorities = routing.get("priorities", {"pm": 0.35, "rl": 0.40, "web": 0.25})
             quality_scorer.score(
