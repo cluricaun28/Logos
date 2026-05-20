@@ -8573,10 +8573,7 @@ class AIAgent:
             api_msg["reasoning_content"] = existing
             return
 
-        needs_thinking_pad = (
-            self._needs_kimi_tool_reasoning()
-            or self._needs_deepseek_tool_reasoning()
-        )
+        needs_thinking_pad = self._needs_thinking_reasoning_pad()
 
         # 2. Cross-provider poisoned history (#15748): on DeepSeek/Kimi,
         # if the source turn has tool_calls AND a 'reasoning' field but no
@@ -12908,8 +12905,17 @@ class AIAgent:
                     # Token tracking still happens here so should_compress() has
                     # fresh data on the next preflight check.
                     _compressor = self.context_archiver
+                    # Always use a fresh estimate of the *current* messages list
+                    # (which now includes new tool results) rather than stale
+                    # last_prompt_tokens from the previous API response.  With the
+                    # tail-off engine keeping large windows, stale counts cause
+                    # the archive to skip turns where tool results have pushed
+                    # us well over threshold.  (#2026-05-12)
                     if _compressor.last_prompt_tokens > 0:
-                        _real_tokens = _compressor.last_prompt_tokens
+                        _real_tokens = max(
+                            _compressor.last_prompt_tokens,
+                            estimate_messages_tokens_rough(messages),
+                        )
                     else:
                         _real_tokens = estimate_messages_tokens_rough(messages)
 

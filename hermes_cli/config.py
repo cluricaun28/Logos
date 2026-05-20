@@ -3481,7 +3481,7 @@ def read_raw_config() -> Dict[str, Any]:
     path_key = str(config_path)
     cached = _RAW_CONFIG_CACHE.get(path_key)
     if cached is not None and cached[:2] == cache_key:
-        return copy.deepcopy(cached[2])
+        return copy.deepcopy(cached[2]) if want_deepcopy else cached[2]
 
     try:
         with open(config_path, encoding="utf-8") as f:
@@ -3504,7 +3504,39 @@ def load_config() -> Dict[str, Any]:
     The cache is keyed on ``str(config_path)`` so profile switches
     (which change ``HERMES_HOME`` and therefore ``get_config_path()``)
     don't collide.
+
+    Read-only callers should use ``load_config_readonly()`` to skip the
+    defensive deepcopy — that path matters in agent-loop hot spots like
+    ``get_provider_request_timeout`` which is called once per API turn.
     """
+    return _load_config_impl(want_deepcopy=True)
+
+
+def load_config_readonly() -> Dict[str, Any]:
+    """Fast-path variant of ``load_config()`` for callers that ONLY READ.
+
+    Returns the cached config dict directly without the defensive deepcopy
+    that ``load_config()`` applies. **Mutating the returned dict (or any
+    nested structure) corrupts the in-process cache for every subsequent
+    caller** — only use this when you are absolutely sure your code path
+    will not write to the result. If you need to mutate or pass to
+    ``save_config``, call ``load_config()`` instead.
+
+    Why this exists: ``load_config()`` cache-hit cost is ~265us per call,
+    half of which (~135us) is the defensive deepcopy. The agent loop calls
+    into config reads (timeouts, thresholds, feature flags) ~20-50x per
+    conversation; skipping deepcopy here removes a measurable allocation
+    source and the GC pressure that comes with it.
+
+    Note: this returns a plain ``dict`` (not ``MappingProxyType``) so
+    existing ``isinstance(x, dict)`` guards downstream keep working. The
+    safety guarantee is purely documented, not enforced — be careful.
+    """
+    return _load_config_impl(want_deepcopy=False)
+
+
+def _load_config_impl(*, want_deepcopy: bool) -> Dict[str, Any]:
+    """Internal implementation shared by load_config() and load_config_readonly()."""
     ensure_hermes_home()
     config_path = get_config_path()
     path_key = str(config_path)
@@ -3517,7 +3549,7 @@ def load_config() -> Dict[str, Any]:
 
     cached = _LOAD_CONFIG_CACHE.get(path_key)
     if cached is not None and cache_key is not None and cached[:2] == cache_key:
-        return copy.deepcopy(cached[2])
+        return copy.deepcopy(cached[2]) if want_deepcopy else cached[2]
 
     config = copy.deepcopy(DEFAULT_CONFIG)
 

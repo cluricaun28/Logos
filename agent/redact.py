@@ -273,8 +273,9 @@ def redact_sensitive_text(text: str) -> str:
     if not _REDACT_ENABLED:
         return text
 
-    # Known prefixes (sk-, ghp_, etc.)
-    text = _PREFIX_RE.sub(lambda m: _mask_token(m.group(1)), text)
+    # Known prefixes (sk-, ghp_, etc.) — gate on substring presence
+    if _has_known_prefix_substring(text):
+        text = _PREFIX_RE.sub(lambda m: _mask_token(m.group(1)), text)
 
     # ENV assignments: OPENAI_API_KEY=sk-abc...
     def _redact_env(m):
@@ -289,50 +290,100 @@ def redact_sensitive_text(text: str) -> str:
     text = _JSON_FIELD_RE.sub(_redact_json, text)
 
     # Authorization headers
-    text = _AUTH_HEADER_RE.sub(
+    if "uthorization" in text or "UTHORIZATION" in text:
+        text = _AUTH_HEADER_RE.sub(
         lambda m: m.group(1) + _mask_token(m.group(2)),
         text,
     )
 
     # Telegram bot tokens
-    def _redact_telegram(m):
-        prefix = m.group(1) or ""
-        digits = m.group(2)
-        return f"{prefix}{digits}:***"
-    text = _TELEGRAM_RE.sub(_redact_telegram, text)
+    if ":" in text:
+        def _redact_telegram(m):
+            prefix = m.group(1) or ""
+            digits = m.group(2)
+            return f"{prefix}{digits}:***"
+        text = _TELEGRAM_RE.sub(_redact_telegram, text)
 
     # Private key blocks
-    text = _PRIVATE_KEY_RE.sub("[REDACTED PRIVATE KEY]", text)
+    if "BEGIN" in text and "-----" in text:
+        text = _PRIVATE_KEY_RE.sub("[REDACTED PRIVATE KEY]", text)
 
     # Database connection string passwords
-    text = _DB_CONNSTR_RE.sub(lambda m: f"{m.group(1)}***{m.group(3)}", text)
+    if "://" in text:
+        text = _DB_CONNSTR_RE.sub(lambda m: f"{m.group(1)}***{m.group(3)}", text)
 
     # JWT tokens (eyJ... — base64-encoded JSON headers)
-    text = _JWT_RE.sub(lambda m: _mask_token(m.group(0)), text)
+    if "eyJ" in text:
+        text = _JWT_RE.sub(lambda m: _mask_token(m.group(0)), text)
 
     # URL userinfo (http(s)://user:pass@host) — redact for non-DB schemes.
     # DB schemes are handled above by _DB_CONNSTR_RE.
-    text = _redact_url_userinfo(text)
+    if "://" in text:
+        text = _redact_url_userinfo(text)
 
-    # URL query params containing opaque tokens (?access_token=…&code=…)
-    text = _redact_url_query_params(text)
+        # URL query params containing opaque tokens (?access_token=…&code=…)
+        if "?" in text:
+            text = _redact_url_query_params(text)
 
     # Form-urlencoded bodies (only triggers on clean k=v&k=v inputs).
-    text = _redact_form_body(text)
+    if "&" in text and "=" in text:
+        text = _redact_form_body(text)
 
     # Discord user/role mentions (<@snowflake_id>)
-    text = _DISCORD_MENTION_RE.sub(lambda m: f"<@{'!' if '!' in m.group(0) else ''}***>", text)
+    if "<@" in text:
+        text = _DISCORD_MENTION_RE.sub(lambda m: f"<@{'!' if '!' in m.group(0) else ''}***>", text)
 
     # E.164 phone numbers (Signal, WhatsApp)
-    def _redact_phone(m):
-        phone = m.group(1)
-        if len(phone) <= 8:
-            return phone[:2] + "****" + phone[-2:]
-        return phone[:4] + "****" + phone[-4:]
-    text = _SIGNAL_PHONE_RE.sub(_redact_phone, text)
+    if "+" in text:
+        def _redact_phone(m):
+            phone = m.group(1)
+            if len(phone) <= 8:
+                return phone[:2] + "****" + phone[-2:]
+            return phone[:4] + "****" + phone[-4:]
+        text = _SIGNAL_PHONE_RE.sub(_redact_phone, text)
 
     return text
 
+
+
+
+# Substrings used to gate _PREFIX_RE execution. If none of these appear in
+# the input string, the prefix regex cannot match anything, so we skip it.
+# False positives are fine (they just run the regex, which then matches
+# nothing) — the bound is "no false negatives" and that holds because every
+# pattern in _PREFIX_PATTERNS has at least one of these as a literal
+# substring of its leading characters.
+#
+# Derived automatically from _PREFIX_PATTERNS at module load time so a
+# future PR that adds a new prefix to the regex list can't silently break
+# the screen.
+
+def _extract_literal_prefix(pattern: str) -> str:
+    """Return the leading literal characters of a regex pattern.
+
+    Stops at the first regex metacharacter ([ , (, \\, .,
+    ?, *, +, |, {, ^, $).  Returns the literal
+    that any match of the pattern MUST contain as a substring, so the
+    pre-screen never produces false negatives.
+    """
+    meta = "[(\\.?*+|{^$"
+    for i, ch in enumerate(pattern):
+        if ch in meta:
+            return pattern[:i]
+    return pattern
+
+
+_PREFIX_SUBSTRINGS = tuple(
+    _extract_literal_prefix(p) for p in _PREFIX_PATTERNS
+)
+
+
+def _has_known_prefix_substring(text: str) -> bool:
+    """Return True if text contains any known credential prefix substring.
+
+    Used as a cheap pre-check before invoking the expensive _PREFIX_RE.
+    """
+    return any(p in text for p in _PREFIX_SUBSTRINGS)
 
 class RedactingFormatter(logging.Formatter):
     """Log formatter that redacts secrets from all log messages."""
