@@ -3481,7 +3481,7 @@ def read_raw_config() -> Dict[str, Any]:
     path_key = str(config_path)
     cached = _RAW_CONFIG_CACHE.get(path_key)
     if cached is not None and cached[:2] == cache_key:
-        return copy.deepcopy(cached[2]) if want_deepcopy else cached[2]
+        return copy.deepcopy(cached[2])
 
     try:
         with open(config_path, encoding="utf-8") as f:
