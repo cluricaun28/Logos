@@ -2181,7 +2181,7 @@ class AIAgent:
             ensure_lmstudio_model_loaded(
                 self.model, self.base_url, getattr(self, "api_key", ""), target_ctx,
             )
-        except (ConnectionError, TimeoutError, OSError, AttributeError) as err:
+        except (ConnectionError, TimeoutError, OSError, AttributeError, Exception) as err:
             logger.debug("LM Studio preload skipped: %s", err)
 
     def switch_model(self, new_model, new_provider, api_key='', base_url='', api_mode=''):
@@ -2627,7 +2627,7 @@ class AIAgent:
             # Hard rejections (aux below minimum context) must propagate
             # so the session refuses to start.
             raise
-        except (AttributeError, TypeError, ConnectionError, TimeoutError, OSError) as exc:
+        except (AttributeError, TypeError, ConnectionError, TimeoutError, OSError, Exception) as exc:
             logger.debug(
                 "Compression feasibility check failed (non-fatal): %s", exc
             )
@@ -6872,7 +6872,7 @@ class AIAgent:
                         else:
                             result["response"] = _call_chat_completions()
                         return  # success
-                    except (ConnectionError, TimeoutError, OSError) as e:
+                    except (ConnectionError, TimeoutError, OSError, Exception) as e:
                         _is_timeout = isinstance(
                             e, (_httpx.ReadTimeout, _httpx.ConnectTimeout, _httpx.PoolTimeout)
                         )
