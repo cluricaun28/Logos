@@ -170,7 +170,7 @@ def _is_backend_available(backend: str) -> bool:
 # ─── Local Backend (SearXNG + Firecrawl + Camofox) ──────────────────────────
 
 LOCAL_SEARXNG_URL = os.getenv("SEARXNG_URL", "http://localhost:8080").rstrip("/")
-LOCAL_FIRECRAWL_URL = os.getenv("FIRECRAWL_URL", "http://localhost:3002").rstrip("/")
+LOCAL_FIRECRAWL_URL = os.getenv("FIRECRAWL_URL", "http://localhost:3003").rstrip("/")
 LOCAL_CAMOFOX_URL = os.getenv("CAMOFOX_URL", "http://localhost:9377").rstrip("/")
 LOCAL_REQUEST_TIMEOUT = 30  # seconds
 
@@ -225,7 +225,16 @@ def _local_searxng_search(query: str, limit: int) -> dict[str, Any]:
 
 
 def _local_firecrawl_scrape(url: str) -> dict[str, Any]:
-    """Scrape a URL via local Firecrawl instance."""
+    """Scrape a URL via local Firecrawl instance.
+
+    Uses optimized parameters for LLM-ready output:
+    - onlyMainContent: strips nav, footer, headers
+    - removeBase64Images: removes inline base64 bloat
+    - blockAds: blocks ad networks at scrape time
+
+    Note: maxAge/storeInCache caching is not effective on self-hosted
+    (requires separate REDIS_CACHE_URL), so those params are omitted.
+    """
     import httpx as _httpx  # noqa: F811
 
     api_key = os.getenv("FIRECRAWL_API_KEY", "").strip()
@@ -325,7 +334,9 @@ def _local_extract_with_fallback(url: str) -> dict[str, Any]:
     """
     try:
         result = _local_firecrawl_scrape(url)
-        if result.get("success") and result.get("markdown"):
+        # Firecrawl v2 returns {success, data: {markdown, metadata}}
+        md = (result.get("data") or {}).get("markdown") if isinstance(result.get("data"), dict) else result.get("markdown")
+        if result.get("success") and md:
             return result
         logger.info("Firecrawl returned empty for %s, trying Camofox", url)
     except (AttributeError, KeyError, TypeError, OSError, ConnectionError) as e:
@@ -1488,7 +1499,9 @@ async def web_extract_tool(
                 for url in safe_urls:
                     scraped = _local_extract_with_fallback(url)
                     if scraped.get("success"):
-                        content = (scraped.get("markdown") or "").strip()
+                        # Firecrawl v2 returns {success, data: {markdown, metadata}}
+                        content = (scraped.get("data") or {}).get("markdown") if isinstance(scraped.get("data"), dict) else scraped.get("markdown")
+                        content = (content or "").strip()
                         title = scraped.get("title", url)
                         results.append(
                             {
@@ -1558,6 +1571,11 @@ async def web_extract_tool(
                                     _get_firecrawl_client().scrape,
                                     url=url,
                                     formats=formats,
+                                    only_main_content=True,
+                                    remove_base64_images=True,
+                                    block_ads=True,
+                                    max_age=3600000,
+                                    store_in_cache=True,
                                 ),
                                 timeout=60,
                             )

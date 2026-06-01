@@ -240,20 +240,16 @@ class PerpetualContextProvider(MemoryProvider):
             factory.ensure_all()
             db = self._db
             tools = factory.tools
-            web_research = factory.web_research
-            scrutiny_gate = factory.scrutiny_gate
-            source_analyzer = factory.source_analyzer
-            synthesis_engine = factory.synthesis_engine
 
         return prefetch_pipeline.run_prefetch_pipeline(
             query=query,
             routing=routing,
             db=db,
             tools=tools,
-            web_research=web_research,
-            scrutiny_gate=scrutiny_gate,
-            source_analyzer=source_analyzer,
-            synthesis_engine=synthesis_engine,
+            web_research=None,
+            scrutiny_gate=None,
+            source_analyzer=None,
+            synthesis_engine=None,
             session_id=effective_session,
             depth_limit=self._get_depth_limit(),
             prefetch_enabled=self._prefetch_enabled,

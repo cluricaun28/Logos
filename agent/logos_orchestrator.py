@@ -81,6 +81,7 @@ class LogosOrchestrator:
                 - stage: which stage completed ("synthesis", "audit", "commit")
                 - draft_path: path to synthesized draft (if reached)
                 - audit_report: audit results (if reached)
+                - web_verification: web verification results (if reached)
                 - rl_path: final RL page path (if committed)
                 - error: error message if failed
         """
@@ -91,6 +92,7 @@ class LogosOrchestrator:
             "turn_ids": turn_ids,
             "draft_path": None,
             "audit_report": None,
+            "web_verification": None,
             "rl_path": None,
             "error": None,
         }
@@ -106,12 +108,35 @@ class LogosOrchestrator:
             result["stage"] = "synthesis"
             result["draft_path"] = str(draft_path)
 
-            # STAGE 2: Audit
+            # STAGE 2: Web Verification
+            logger.info(f"Distillation pipeline: cluster {cluster_id} → WEB VERIFICATION")
+            try:
+                from agent.web_verification_service import WebVerificationService
+
+                verifier = WebVerificationService(main_runtime=main_runtime)
+                report = verifier.verify_draft(draft_path=draft_path, turn_ids=turn_ids)
+                formatted = verifier.format_for_audit(report)
+                web_verification_data = {
+                    "report": report,
+                    "formatted": formatted,
+                }
+                result["web_verification"] = web_verification_data
+                logger.info(
+                    f"Web verification: worldview_relevant={report.worldview_relevant}, "
+                    f"claims={len(report.claims)}, errors={len(report.errors)}"
+                )
+            except Exception as e:
+                logger.warning(f"Web verification failed (proceeding without it): {e}")
+                web_verification_data = None
+                result["web_verification"] = {"error": str(e)}
+
+            # STAGE 3: Audit (with web verification data if available)
             logger.info(f"Distillation pipeline: cluster {cluster_id} → AUDIT")
             audit_report = self.audit.audit_draft(
                 draft_path=draft_path,
                 turn_ids=turn_ids,
                 main_runtime=main_runtime,
+                web_verification=web_verification_data,
             )
             result["stage"] = "audit"
             result["audit_report"] = audit_report
@@ -137,12 +162,13 @@ class LogosOrchestrator:
                     # Write revised draft back to staging
                     draft_path.write_text(revised_content)
 
-                    # Re-audit the revised draft
+                    # Re-audit with web verification data preserved
                     logger.info(f"Distillation pipeline: cluster {cluster_id} → RE-AUDIT")
                     audit_report = self.audit.audit_draft(
                         draft_path=draft_path,
                         turn_ids=turn_ids,
                         main_runtime=main_runtime,
+                        web_verification=web_verification_data,
                     )
                     result["audit_report"] = audit_report
 
@@ -171,6 +197,7 @@ class LogosOrchestrator:
                             draft_path=draft_path,
                             turn_ids=turn_ids,
                             main_runtime=main_runtime,
+                            web_verification=web_verification_data,
                         )
                         result["audit_report"] = audit_report
 

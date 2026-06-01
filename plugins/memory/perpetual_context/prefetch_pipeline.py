@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sqlite3
 import time as _time
 from typing import Any
 
@@ -99,26 +100,28 @@ def run_prefetch_pipeline(
             logger.exception("Phase 1a RL search failed: %s", e)
             failures.append(f"RL search: {type(e).__name__}")
 
-    # Phase 1b: Perpetual Memory Hybrid Search
-    if routing.get("fire_prefetch") and prefetch_enabled:
-        try:
-            pm_results = db.hybrid_search(
-                query=query,
-                session_id=session_id if session_id else None,
-                top_k=depth_limit,
-            )
-            if pm_results:
-                pm_formatted = []
-                for msg in pm_results[:depth_limit]:
-                    role_label = msg["role"].upper()
-                    content = msg.get("content", "")[:prefetch_trunc_chars]
-                    score = msg.get("_score", 0)
-                    pm_formatted.append(f"[PM: {role_label} (relevance: {score:.2f})]\n{content}")
-                parts.append("\n\n---\n\n".join(pm_formatted))
-                pm_results_count = len(pm_results)
-        except (sqlite3.OperationalError, KeyError, TypeError, AttributeError) as e:
-            logger.exception("Phase 1b PM hybrid search failed: %s", e)
-            failures.append(f"PM search: {type(e).__name__}")
+    # Phase 1b: Perpetual Memory Hybrid Search — DISABLED (RL-only mode)
+    # pm_results: list[dict] = []
+    # if routing.get("fire_prefetch") and prefetch_enabled:
+    #     try:
+    #         pm_results = db.hybrid_search(
+    #             query=query,
+    #             session_id=session_id if session_id else None,
+    #             top_k=depth_limit,
+    #         )
+    #         if pm_results:
+    #             pm_formatted = []
+    #             for msg in pm_results[:depth_limit]:
+    #                 role_label = msg["role"].upper()
+    #                 content = msg.get("content", "")[:prefetch_trunc_chars]
+    #                 score = msg.get("_score", 0)
+    #                 pm_formatted.append(f"[PM: {role_label} (relevance: {score:.2f})]\n{content}")
+    #             parts.append("\n\n---\n\n".join(pm_formatted))
+    #             pm_results_count = len(pm_results)
+    #     except (sqlite3.OperationalError, KeyError, TypeError, AttributeError) as e:
+    #         logger.exception("Phase 1b PM hybrid search failed: %s", e)
+    #         failures.append(f"PM search: {type(e).__name__}")
+    pm_results: list[dict] = []  # Guard: used in gap detection even if Phase 1b is disabled
 
     # Phase 1c: Stability-Aware Gap Detection
     stability, half_life, web_threshold = _classify_topic_stability(query)
@@ -157,91 +160,93 @@ def run_prefetch_pipeline(
                     best_pm_norm,
                 )
 
-    # Phase 2: Web Research
+      # Phase 2: Web Research — DISABLED (model can search via web_search tool)
+    # web_results: list[dict] = []
+    # should_search_web = routing.get("fire_web") or gaps_detected
+    # if deep_research_enabled and should_search_web and web_research is not None:
+    #     try:
+    #         _t0 = _time.monotonic()
+    #         raw = web_research.search(query, top_k=web_search_top_k)
+    #         _elapsed = _time.monotonic() - _t0
+    #         logger.debug("Web search for '%s' returned %d results in %.1fs", query[:50], len(raw), _elapsed)
+    #         for sr in raw:
+    #             web_results.append(
+    #                 {
+    #                     "title": sr.title,
+    #                     "url": sr.url,
+    #                     "snippet": sr.snippet,
+    #                     "source": sr.source,
+    #                     "score": sr.score,
+    #                     "extracted_content": sr.extracted_content,
+    #                 }
+    #             )
+    #     except (ConnectionError, TimeoutError, KeyError, AttributeError) as e:
+    #         logger.exception("Phase 2 web research failed: %s", e)
+    #         failures.append(f"Web search: {type(e).__name__}")
     web_results: list[dict] = []
-    should_search_web = routing.get("fire_web") or gaps_detected
-    if deep_research_enabled and should_search_web and web_research is not None:
-        try:
-            _t0 = _time.monotonic()
-            raw = web_research.search(query, top_k=web_search_top_k)
-            _elapsed = _time.monotonic() - _t0
-            logger.debug("Web search for '%s' returned %d results in %.1fs", query[:50], len(raw), _elapsed)
-            for sr in raw:
-                web_results.append(
-                    {
-                        "title": sr.title,
-                        "url": sr.url,
-                        "snippet": sr.snippet,
-                        "source": sr.source,
-                        "score": sr.score,
-                        "extracted_content": sr.extracted_content,
-                    }
-                )
-        except (ConnectionError, TimeoutError, KeyError, AttributeError) as e:
-            logger.exception("Phase 2 web research failed: %s", e)
-            failures.append(f"Web search: {type(e).__name__}")
 
-    # Phase 3: Scrutiny Gate
+    # Phase 3: Scrutiny Gate — DISABLED (no web results to vet)
+    # vetted_results: list[dict] = []
+    # if web_results and scrutiny_gate is not None:
+    #     try:
+    #         filtered = [r for r in web_results if not any(blocked in r.get("url", "") for blocked in worldview_blocked_domains)]
+    #         scrutiny = scrutiny_gate.vet_results(filtered, query)
+    #         vetted_results = scrutiny.get("vetted_results", [])
+    #         flagged = scrutiny.get("rejected_results", [])
+    #         if flagged:
+    #             logger.debug("Scrutiny flagged %d results: %s", len(flagged), [f.get("reason", "") for f in flagged[:3]])
+    #     except (KeyError, TypeError, AttributeError) as e:
+    #         logger.exception("Phase 3 scrutiny gate failed, using unvetted results: %s", e)
+    #         failures.append(f"Scrutiny gate: {type(e).__name__}")
+    #         vetted_results = web_results  # Fallback: use unvetted
     vetted_results: list[dict] = []
-    if web_results and scrutiny_gate is not None:
-        try:
-            filtered = [r for r in web_results if not any(blocked in r.get("url", "") for blocked in worldview_blocked_domains)]
-            scrutiny = scrutiny_gate.vet_results(filtered, query)
-            vetted_results = scrutiny.get("vetted_results", [])
-            flagged = scrutiny.get("rejected_results", [])
-            if flagged:
-                logger.debug("Scrutiny flagged %d results: %s", len(flagged), [f.get("reason", "") for f in flagged[:3]])
-        except (KeyError, TypeError, AttributeError) as e:
-            logger.exception("Phase 3 scrutiny gate failed, using unvetted results: %s", e)
-            failures.append(f"Scrutiny gate: {type(e).__name__}")
-            vetted_results = web_results  # Fallback: use unvetted
 
-    # Phase 3.5: Source Analysis enrichment
-    if vetted_results and source_analyzer is not None:
-        try:
-            vetted_results = source_analyzer.enrich_results(vetted_results, query)
-        except (KeyError, TypeError, AttributeError) as e:
-            logger.exception("Phase 3.5 source analysis failed: %s", e)
-            failures.append(f"Source analysis: {type(e).__name__}")
+    # Phase 3.5: Source Analysis enrichment — DISABLED
+    # if vetted_results and source_analyzer is not None:
+    #     try:
+    #         vetted_results = source_analyzer.enrich_results(vetted_results, query)
+    #     except (KeyError, TypeError, AttributeError) as e:
+    #         logger.exception("Phase 3.5 source analysis failed: %s", e)
+    #         failures.append(f"Source analysis: {type(e).__name__}")
 
-    # Phase 4: Synthesis
-    footer_parts: list[str] = []
-    if vetted_results and synthesis_engine is not None:
-        try:
-            _t2 = _time.monotonic()
-            sensitivity = "high" if stability == "volatile" else "low"
-            synthesis = synthesis_engine.synthesize(
-                facts=vetted_results,
-                query=query,
-                sensitivity=sensitivity,
-            )
-            _e2 = _time.monotonic() - _t2
-            context_block = synthesis.get("context_block", "")
-            if context_block:
-                sources = ", ".join(r.get("source", "web") for r in vetted_results[:3])
-                web_section = f"[Web Research Results (from {sources})]\n{context_block}"
-                parts.append(web_section)
-                logger.debug("Phase 4 synthesis produced %d bytes in %.1fs", len(context_block), _e2)
-
-            rl_update_flags = synthesis.get("rl_update_flags", [])
-            if rl_update_flags:
-                relevant_flags = [f for f in rl_update_flags[:10] if "britannica" not in f.get("page", "").lower()][:2]
-                if relevant_flags:
-                    logger.info(
-                        "RLUpdateDetector flagged %d relevant page(s) for review",
-                        len(relevant_flags),
-                    )
-                    for flag in relevant_flags:
-                        footer_parts.append(f"[RL Update: {flag.get('page', '').split('/')[-1]} — {flag.get('reason', '')[:120]}]")
-        except (AttributeError, KeyError, TypeError, ValueError) as e:
-            logger.exception("Phase 4 synthesis failed: %s", e)
-            failures.append(f"Synthesis: {type(e).__name__}")
-            if vetted_results:
-                snippets = []
-                for r in vetted_results[:3]:
-                    snippets.append(f"[Web: {r.get('title', 'Unknown')} ({r.get('source', '')})]\n{r.get('snippet', '')[:200]}")
-                if snippets:
-                    parts.append("\n\n".join(snippets))
+    # Phase 4: Synthesis — DISABLED
+    # footer_parts_synthesis: list[str] = []
+    # if vetted_results and synthesis_engine is not None:
+    #     try:
+    #         _t2 = _time.monotonic()
+    #         sensitivity = "high" if stability == "volatile" else "low"
+    #         synthesis = synthesis_engine.synthesize(
+    #             facts=vetted_results,
+    #             query=query,
+    #             sensitivity=sensitivity,
+    #         )
+    #         _e2 = _time.monotonic() - _t2
+    #         context_block = synthesis.get("context_block", "")
+    #         if context_block:
+    #             sources = ", ".join(r.get("source", "web") for r in vetted_results[:3])
+    #             web_section = f"[Web Research Results (from {sources})]\n{context_block}"
+    #             parts.append(web_section)
+    #             logger.debug("Phase 4 synthesis produced %d bytes in %.1fs", len(context_block), _e2)
+    #
+    #         rl_update_flags = synthesis.get("rl_update_flags", [])
+    #         if rl_update_flags:
+    #             relevant_flags = [f for f in rl_update_flags[:10] if "britannica" not in f.get("page", "").lower()][:2]
+    #             if relevant_flags:
+    #                 logger.info(
+    #                     "RLUpdateDetector flagged %d relevant page(s) for review",
+    #                     len(relevant_flags),
+    #                 )
+    #                 for flag in relevant_flags:
+    #                     footer_parts_synthesis.append(f"[RL Update: {flag.get('page', '').split('/')[-1]} — {flag.get('reason', '')[:120]}]")
+    #     except (AttributeError, KeyError, TypeError, ValueError) as e:
+    #         logger.exception("Phase 4 synthesis failed: %s", e)
+    #         failures.append(f"Synthesis: {type(e).__name__}")
+    #         if vetted_results:
+    #             snippets = []
+    #             for r in vetted_results[:3]:
+    #                 snippets.append(f"[Web: {r.get('title', 'Unknown')} ({r.get('source', '')})]\n{r.get('snippet', '')[:200]}")
+    #             if snippets:
+    #                 parts.append("\n\n".join(snippets))
 
     # Combine and format
     if not parts:
@@ -249,23 +254,19 @@ def run_prefetch_pipeline(
 
     result_text = "\n\n---\n\n".join(parts)
 
+    # Footer — RL-only mode
+    footer_parts: list[str] = []
     if deep_research_master:
-        web_results_count = len(vetted_results)
-        footer_parts.append(
-            f"[Recall: {rl_results_count} RL, {pm_results_count} PM{', ' + str(web_results_count) + ' web' if web_results_count else ''}]"
-        )
+        footer_parts.append(f"[Recall: {rl_results_count} RL]")
         footer_parts.append(f"[Topic: {stability}]")
-        if gaps_detected and not web_results_count:
-            footer_parts.append("[Gap detected — local recall insufficient. Consider web research for current/external data.]")
         if failures:
             footer_parts.append(f"[Pipeline failures: {', '.join(failures[:3])}]")
 
     result_text += "\n\n" + " ".join(footer_parts)
 
-    # Quality scoring — record this prefetch event for trend analysis
+    # Quality scoring — record this prefetch event for trend analysis (RL-only)
     if quality_scorer is not None:
         try:
-            # Build unified scored results from all sources
             all_scored: list[dict[str, Any]] = []
             for r in rl_data.get("results", [])[:rl_search_top_k]:
                 all_scored.append({
@@ -274,20 +275,8 @@ def run_prefetch_pipeline(
                     "name": r.get("name", ""),
                     "snippet": r.get("snippet", "")[:300],
                 })
-            for m in pm_results[:depth_limit]:
-                all_scored.append({
-                    "source": "pm",
-                    "score": m.get("_score", 0),
-                    "content": m.get("content", "")[:prefetch_trunc_chars],
-                })
-            for w in vetted_results[:web_search_top_k]:
-                all_scored.append({
-                    "source": "web",
-                    "score": w.get("score", 0),
-                    "snippet": (w.get("extracted_content") or w.get("snippet", ""))[:300],
-                })
 
-            priorities = routing.get("priorities", {"pm": 0.35, "rl": 0.40, "web": 0.25})
+            priorities = {"rl": 1.0}  # RL-only mode
             quality_scorer.score(
                 query=query,
                 priorities=priorities,

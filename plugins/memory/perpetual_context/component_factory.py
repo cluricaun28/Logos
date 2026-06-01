@@ -100,8 +100,9 @@ class ComponentFactory:
             self.ensure_feedback()
             self.ensure_core()
             self.ensure_quality_scorer()
-            if self._deep_research_enabled:
-                self.ensure_deep_research()
+            # Deep research components disabled — web phases removed from prefetch pipeline
+            # if self._deep_research_enabled:
+            #     self.ensure_deep_research()
 
     def ensure_core(self) -> None:
         """Ensure extraction engine, bridge builder, and tool handler are ready."""

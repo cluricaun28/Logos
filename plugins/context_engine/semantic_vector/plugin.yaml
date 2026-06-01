@@ -1,0 +1,6 @@
+name: semantic_vector
+description: >-
+  Semantic vector tracking context engine. Groups conversation turns into
+  topic vectors using local embeddings, preserves active topic context,
+  and evicts dormant/resolved topics. Falls back to incremental tail-off
+  if embedding is unavailable.

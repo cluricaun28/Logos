@@ -44,6 +44,16 @@ from tools.tool_backend_helpers import managed_nous_tools_enabled, resolve_opena
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
+# HuggingFace cache: force a user-writable download directory
+# ---------------------------------------------------------------------------
+# The faster-whisper WhisperModel downloads models via huggingface_hub.
+# The default cache (~/.cache/huggingface/hub/) is often root-owned on WSL
+# after a previous install with sudo.  Pass a user-writable download_root
+# so downloads don't hit [Errno 13] Permission denied.
+_HF_DOWNLOAD_ROOT = Path.home() / ".local" / "share" / "huggingface"
+_HF_DOWNLOAD_ROOT.mkdir(parents=True, exist_ok=True)
+
+# ---------------------------------------------------------------------------
 # Optional imports — graceful degradation
 # ---------------------------------------------------------------------------
 
@@ -362,7 +372,10 @@ def _load_local_whisper_model(model_name: str):
     """
     from faster_whisper import WhisperModel
     try:
-        return WhisperModel(model_name, device="auto", compute_type="auto")
+        return WhisperModel(
+            model_name, device="auto", compute_type="auto",
+            download_root=str(_HF_DOWNLOAD_ROOT),
+        )
     except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
         if not _looks_like_cuda_lib_error(exc):
             raise
@@ -371,7 +384,10 @@ def _load_local_whisper_model(model_name: str):
             "Install the NVIDIA CUDA runtime (libcublas/libcudnn) to use GPU.",
             exc,
         )
-        return WhisperModel(model_name, device="cpu", compute_type="int8")
+        return WhisperModel(
+            model_name, device="cpu", compute_type="int8",
+            download_root=str(_HF_DOWNLOAD_ROOT),
+        )
 
 
 def _transcribe_local(file_path: str, model_name: str) -> Dict[str, Any]:
@@ -417,7 +433,10 @@ def _transcribe_local(file_path: str, model_name: str) -> Dict[str, Any]:
             _local_model = None
             _local_model_name = None
             from faster_whisper import WhisperModel
-            _local_model = WhisperModel(model_name, device="cpu", compute_type="int8")
+            _local_model = WhisperModel(
+                model_name, device="cpu", compute_type="int8",
+                download_root=str(_HF_DOWNLOAD_ROOT),
+            )
             _local_model_name = model_name
             segments, info = _local_model.transcribe(file_path, **transcribe_kwargs)
             transcript = " ".join(segment.text.strip() for segment in segments)

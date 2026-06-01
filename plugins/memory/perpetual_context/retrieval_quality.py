@@ -133,7 +133,11 @@ class RetrievalQualityScorer:
         source_align = self._source_alignment(priorities, scored_results)
         noise_ratio = self._noise_ratio(formatted_text) if formatted_text else 0.0
         score_spread = self._score_spread(scored_results)
-        coverage = min(len(scored_results) / max(top_k_requested * 3, 1), 1.0)
+        # RL-only mode: coverage measures results vs requested (not *3 for multi-source)
+        # In three-source mode, we request from 3 sources, so expected results = top_k * 3
+        # In RL-only mode, we request from 1 source, so expected results = top_k
+        expected_results = top_k_requested * 3 if not self._is_rl_only_mode(priorities) else top_k_requested
+        coverage = min(len(scored_results) / max(expected_results, 1), 1.0)
 
         # Weighted overall score
         # Keyword relevance and source alignment are the strongest signals of usefulness
@@ -152,6 +156,7 @@ class RetrievalQualityScorer:
             "noise_ratio": round(noise_ratio, 3),
             "score_spread": round(score_spread, 3),
             "coverage": round(coverage, 3),
+            "mode": "rl_only" if self._is_rl_only_mode(priorities) else "three_source",
         }
 
         # Record to sliding window
@@ -192,6 +197,7 @@ class RetrievalQualityScorer:
             "noise_ratio": 0.0,
             "score_spread": 0.0,
             "coverage": 0.0,
+            "mode": "rl_only" if self._is_rl_only_mode(priorities) else "three_source",
         }
 
         entry = {
@@ -212,6 +218,15 @@ class RetrievalQualityScorer:
     # -----------------------------------------------------------------------
     # Metric calculations
     # -----------------------------------------------------------------------
+
+    @staticmethod
+    def _is_rl_only_mode(priorities: dict[str, float]) -> bool:
+        """Detect if we're in RL-only mode based on priorities format.
+
+        RL-only mode has priorities == {"rl": 1.0}
+        Three-source mode has priorities like {"pm": 0.35, "rl": 0.4, "web": 0.25}
+        """
+        return priorities == {"rl": 1.0}
 
     # Conversational/meta-query signals — these are about the agent's reasoning,
     # not information retrieval. Penalizing keyword mismatch for these is misleading.
@@ -265,44 +280,30 @@ class RetrievalQualityScorer:
     def _source_alignment(self, priorities: dict[str, float], results: list[dict[str, Any]]) -> float:
         """Whether the classifier's top-priority source actually returned results.
 
+        For RL-only mode: checks if RL returned results (should be all of them)
+        For three-source mode: checks if top priority source returned results
         Returns 1.0 if top priority source has results, 0.0 if it doesn't but others do,
         or 0.5 if no results at all (ambiguous — could be empty DB).
         """
-        # Find top priority source — accept both old and new key formats
-        pm_p = priorities.get("pm_priority", priorities.get("pm", 0))
-        rl_p = priorities.get("rl_priority", priorities.get("rl", 0))
-        web_p = priorities.get("web_priority", priorities.get("web", 0))
-
-        sources = {"PM": pm_p, "RL": rl_p, "Web": web_p}
-        # If all priorities are zero (classifier didn't set them), treat as neutral
-        if all(v == 0 for v in sources.values()):
-            return 0.5  # Ambiguous — no classifier signal to evaluate against
-
-        top_source = max(sources, key=sources.get)  # type: ignore[arg-type]
-        top_priority = sources[top_source]
-
-        # Count results per source
-        source_counts = {"PM": 0, "RL": 0, "Web": 0}
-        for r in results:
-            src = r.get("source", "")
-            if src in source_counts:
-                source_counts[src] += 1
-
-        top_count = source_counts[top_source]
-
         if not results:
             return 0.5  # No results at all — ambiguous
 
-        if top_count > 0:
-            return 1.0  # Top priority source returned results — good alignment
+        if self._is_rl_only_mode(priorities):
+            # RL-only mode: all results should be from RL
+            rl_count = sum(1 for r in results if r.get("source") == "rl")
+            if rl_count > 0:
+                return 1.0  # RL returned results — good alignment
+            return 0.0  # Other sources present but RL didn't — misalignment
 
-        # Top priority source returned nothing but others did — misalignment
-        total_other = sum(v for k, v in source_counts.items() if k != top_source)
-        if total_other > 0 and top_priority >= 0.5:
-            return 0.0  # Clear misclassification or search failure
-
-        # Low priority on top source — maybe it wasn't supposed to return much
-        return 0.3
+        # Three-source mode: check if top priority source returned results
+        top_source = max(priorities, key=priorities.get)  # type: ignore[arg-type]
+        # Map source names to result source field values
+        source_map = {"pm": "pm", "rl": "rl", "web": "web", "pm_priority": "pm", "rl_priority": "rl", "web_priority": "web"}
+        result_source = source_map.get(top_source, top_source)
+        top_source_count = sum(1 for r in results if r.get("source") == result_source)
+        if top_source_count > 0:
+            return 1.0  # Top priority source returned results
+        return 0.0  # Top priority source didn't return results — misalignment
 
     def _noise_ratio(self, text: str) -> float:
         """Fraction of injected text that is structural filler vs actual content.
