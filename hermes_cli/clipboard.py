@@ -205,7 +205,12 @@ def _run_powershell(exe: str, script: str, timeout: int) -> subprocess.Completed
 
 
 def _write_base64_image(dest: Path, b64_data: str) -> bool:
-    image_bytes = base64.b64decode(b64_data, validate=True)
+    try:
+        image_bytes = base64.b64decode(b64_data, validate=True)
+    except Exception as e:
+        logger.debug("Failed to decode base64 image data: %s", e)
+        dest.unlink(missing_ok=True)
+        return False
     dest.write_bytes(image_bytes)
     return dest.exists() and dest.stat().st_size > 0
 
@@ -239,6 +244,10 @@ def _powershell_save_image(exe: str, dest: Path, *, timeout: int, label: str) ->
                 return True
         except FileNotFoundError:
             logger.debug("%s not found — clipboard unavailable", exe)
+            return False
+        except subprocess.TimeoutExpired:
+            logger.debug("%s clipboard image extraction timed out after %ds", label, timeout)
+            dest.unlink(missing_ok=True)
             return False
         except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
             logger.debug("%s clipboard image extraction failed: %s", label, e)
@@ -425,6 +434,10 @@ def _convert_to_png(path: Path) -> bool:
         logger.debug("ImageMagick not installed — cannot convert BMP to PNG")
         if tmp.exists() and not path.exists():
             tmp.rename(path)
+    except subprocess.TimeoutExpired:
+        logger.debug("ImageMagick convert timed out — restoring original file")
+        if tmp.exists() and not path.exists():
+            tmp.rename(path)
     except (FileNotFoundError, OSError, PermissionError, subprocess.CalledProcessError) as e:
         logger.debug("ImageMagick BMP→PNG conversion failed: %s", e)
         if tmp.exists() and not path.exists():
@@ -476,7 +489,7 @@ def _xclip_save(dest: Path) -> bool:
             )
         if dest.exists() and dest.stat().st_size > 0:
             return True
-    except (FileNotFoundError, OSError, PermissionError, subprocess.CalledProcessError) as e:
+    except (FileNotFoundError, OSError, PermissionError, subprocess.SubprocessError) as e:
         logger.debug("xclip image extraction failed: %s", e)
         dest.unlink(missing_ok=True)
     return False
