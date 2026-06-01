@@ -2748,7 +2748,7 @@ def _force_close_async_httpx(client: Any) -> None:
         inner = getattr(client, "_client", None)
         if inner is not None and not getattr(inner, "is_closed", True):
             inner._state = ClientState.CLOSED
-    except (ConnectionError, ImportError, ModuleNotFoundError, OSError, TimeoutError):
+    except Exception:
         pass
 
 

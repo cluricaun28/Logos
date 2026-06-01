@@ -2061,7 +2061,7 @@ class AIAgent:
                 _detected = query_ollama_num_ctx(self.model, self.base_url, api_key=self.api_key or "")
                 if _detected and _detected > 0:
                     self._ollama_num_ctx = _detected
-            except (ConnectionError, TimeoutError, OSError, AttributeError) as exc:
+            except (ConnectionError, TimeoutError, OSError, AttributeError, Exception) as exc:
                 logger.debug("Ollama num_ctx detection failed: %s", exc)
         # Cap auto-detected ollama_num_ctx to the user's explicit context_length.
         # Without this, GGUF metadata can advertise 256K+ which Ollama honours

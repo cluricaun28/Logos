@@ -552,7 +552,7 @@ def fetch_model_metadata(force_refresh: bool = False) -> Dict[str, Dict[str, Any
         logger.debug("Fetched metadata for %s models from OpenRouter", len(cache))
         return cache
 
-    except (AttributeError, ConnectionError, ImportError, KeyError, ModuleNotFoundError, OSError, TimeoutError, TypeError) as e:
+    except Exception as e:
         logging.warning(f"Failed to fetch model metadata from OpenRouter: {e}")
         return _model_metadata_cache or {}
 
@@ -687,13 +687,13 @@ def fetch_endpoint_model_metadata(
                         model_alias = props.get("model_alias", "")
                         if n_ctx and model_alias and model_alias in cache:
                             cache[model_alias]["context_length"] = n_ctx
-                except (AttributeError, ConnectionError, KeyError, OSError, TimeoutError, TypeError):
+                except Exception:
                     pass
 
             _endpoint_model_metadata_cache[normalized] = cache
             _endpoint_model_metadata_cache_time[normalized] = time.time()
             return cache
-        except (AttributeError, ConnectionError, KeyError, OSError, TimeoutError, TypeError) as exc:
+        except Exception as exc:
             last_error = exc
 
     if last_error:
@@ -881,7 +881,7 @@ def query_ollama_num_ctx(model: str, base_url: str, api_key: str = "") -> Option
 
     try:
         server_type = detect_local_server_type(base_url, api_key=api_key)
-    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
+    except Exception:
         return None
     if server_type != "ollama":
         return None
@@ -934,7 +934,7 @@ def _query_local_context_length(model: str, base_url: str, api_key: str = "") ->
 
     try:
         server_type = detect_local_server_type(base_url, api_key=api_key)
-    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
+    except Exception:
         server_type = None
 
     try:
