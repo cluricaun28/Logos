@@ -224,6 +224,9 @@ def _powershell_has_image(exe: str, *, timeout: int, label: str) -> bool:
         except FileNotFoundError:
             logger.debug("%s not found — clipboard unavailable", exe)
             return False
+        except subprocess.TimeoutExpired:
+            logger.debug("%s clipboard image check timed out after %ds", label, timeout)
+            return False
         except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
             logger.debug("%s clipboard image check failed: %s", label, e)
     return False
@@ -477,7 +480,7 @@ def _xclip_save(dest: Path) -> bool:
     except FileNotFoundError:
         logger.debug("xclip not installed — X11 clipboard image paste unavailable")
         return False
-    except (FileNotFoundError, subprocess.CalledProcessError):
+    except (FileNotFoundError, subprocess.SubprocessError):
         return False
 
     # Extract PNG data
