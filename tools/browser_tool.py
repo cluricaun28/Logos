@@ -1232,7 +1232,7 @@ def _get_session_info(task_id: Optional[str] = None) -> Dict[str, str]:
                     # CDP discovery URL instead of a raw websocket endpoint.
                     session_info = dict(session_info)
                     session_info["cdp_url"] = _resolve_cdp_override(str(session_info["cdp_url"]))
-            except (AttributeError, KeyError, TypeError) as e:
+            except (AttributeError, KeyError, TypeError, RuntimeError, ValueError, Exception) as e:
                 provider_name = type(provider).__name__
                 logger.warning(
                     "Cloud provider %s failed (%s); attempting fallback to local "
