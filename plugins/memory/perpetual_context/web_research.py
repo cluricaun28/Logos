@@ -171,7 +171,7 @@ class WebResearchClient:
                 if results:
                     logger.debug("SearXNG returned %d results for '%s'", len(results), query[:QUERY_LOG_MAX_CHARS])
                     return results
-            except (*_HTTPX_NETWORK_EXCEPTIONS, ConnectionError, TimeoutError, KeyError, AttributeError) as e:
+            except Exception as e:  # noqa: S110 — degradation wrapper, must never crash agent
                 logger.warning("SearXNG search failed: %s", e)
 
         # Try Firecrawl API
@@ -180,7 +180,7 @@ class WebResearchClient:
             if results:
                 logger.debug("Firecrawl returned %d results for '%s'", len(results), query[:QUERY_LOG_MAX_CHARS])
                 return results
-        except (*_HTTPX_NETWORK_EXCEPTIONS, ConnectionError, TimeoutError, KeyError, AttributeError) as e:
+        except Exception as e:  # noqa: S110 — degradation wrapper, must never crash agent
             logger.warning("Firecrawl search failed: %s", e)
 
         # No backends available — graceful degradation
@@ -232,7 +232,7 @@ class WebResearchClient:
                 headers={"Content-Type": "application/json"},
             )
             resp.raise_for_status()
-        except (*_HTTPX_NETWORK_EXCEPTIONS, TimeoutError, json.JSONDecodeError, KeyError) as e:  # noqa: S110 — graceful degradation, must not raise
+        except Exception as e:  # noqa: S110 — graceful degradation, must not raise
             logger.debug("Firecrawl search request failed: %s", e)
             return []
 
@@ -261,7 +261,7 @@ class WebResearchClient:
             content = self._extract_firecrawl(url)
             if content:
                 return content
-        except (*_HTTPX_NETWORK_EXCEPTIONS, ConnectionError, TimeoutError, KeyError, AttributeError) as e:
+        except Exception as e:  # noqa: S110 — degradation wrapper, must never crash agent
             logger.warning("Firecrawl extraction failed for %s: %s", str(url)[:80], e)
 
         # Fallback to Camofox browser scraping
@@ -269,7 +269,7 @@ class WebResearchClient:
             content = self._extract_camofox(url)
             if content:
                 return content
-        except (*_HTTPX_NETWORK_EXCEPTIONS, ConnectionError, TimeoutError, KeyError, AttributeError) as e:
+        except Exception as e:  # noqa: S110 — degradation wrapper, must never crash agent
             logger.warning("Camofox extraction failed for %s: %s", str(url)[:80], e)
 
         return None
@@ -294,7 +294,7 @@ class WebResearchClient:
                 timeout=WEB_EXTRACT_TIMEOUT,
             )
             resp.raise_for_status()
-        except (*_HTTPX_NETWORK_EXCEPTIONS, TimeoutError, json.JSONDecodeError, KeyError) as e:
+        except Exception as e:  # noqa: S110 — graceful degradation, must not raise
             logger.debug("Firecrawl extraction request failed for %s: %s", str(url)[:URL_LOG_MAX_CHARS], e)
             return None
 
@@ -323,7 +323,7 @@ class WebResearchClient:
                 timeout=WEB_EXTRACT_TIMEOUT,
             )
             resp.raise_for_status()
-        except (*_HTTPX_NETWORK_EXCEPTIONS, TimeoutError, json.JSONDecodeError, KeyError) as e:
+        except Exception as e:  # noqa: S110 — graceful degradation, must not raise
             logger.debug("Camofox tab creation failed for %s: %s", str(url)[:URL_LOG_MAX_CHARS], e)
             return None
 
@@ -351,7 +351,7 @@ class WebResearchClient:
                 timeout=WEB_EXTRACT_TIMEOUT,
             )
             resp.raise_for_status()
-        except (*_HTTPX_NETWORK_EXCEPTIONS, TimeoutError, json.JSONDecodeError, KeyError) as e:
+        except Exception as e:  # noqa: S110 — graceful degradation, must not raise
             logger.debug("Camofox evaluate failed for tab %s: %s", tab_id, e)
             return None
 
@@ -368,7 +368,7 @@ class WebResearchClient:
                 params={"userId": user_id},
                 timeout=CAMOFOX_CLEANUP_TIMEOUT,
             )
-        except (*_HTTPX_NETWORK_EXCEPTIONS, TimeoutError) as e:
+        except Exception as e:  # noqa: S110 — graceful degradation, must not raise
             logger.debug("Camofox tab cleanup failed for %s: %s", tab_id, e)
 
     def _extract_camofox(self, url: str) -> str | None:
@@ -413,7 +413,7 @@ class WebResearchClient:
         for url in urls:
             try:
                 results[url] = self.extract(url)
-            except (*_HTTPX_NETWORK_EXCEPTIONS, ConnectionError, TimeoutError, KeyError, AttributeError) as e:
+            except Exception as e:  # noqa: S110 — graceful degradation, must not raise
                 logger.debug("Batch extract failed for %s: %s", str(url)[:URL_LOG_MAX_CHARS], e)
                 results[url] = None
         return results

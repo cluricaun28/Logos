@@ -182,7 +182,7 @@ class SmartRetriever:
             # Cache the result for future use
             self.cache.set(cache_key, result)
             return result
-        except (sqlite3.Error, KeyError, TypeError, AttributeError) as e:
+        except Exception as e:  # noqa: S110 — degradation wrapper, must never crash agent
             logger.exception("Retrieval failed for type '%s'", query_type)
             return []
 
@@ -195,7 +195,7 @@ class SmartRetriever:
         try:
             # Direct recent lookup — bypasses FTS5 entirely for O(1) turn-ID access
             return self.db.get_recent_messages(n=20)
-        except (sqlite3.Error, KeyError, TypeError, AttributeError) as e:
+        except Exception as e:  # noqa: S110 — degradation wrapper, must never crash agent
             logger.exception("Failed to retrieve recent messages")
             return []
 
@@ -209,7 +209,7 @@ class SmartRetriever:
             return self.db.hybrid_search(
                 query=query_text, session_id=None, top_k=10
             )
-        except (sqlite3.Error, KeyError, TypeError, AttributeError) as e:
+        except Exception as e:  # noqa: S110 — degradation wrapper, must never crash agent
             logger.exception("Failed to retrieve topic '%s'", query_text)
             return []
 
@@ -231,7 +231,7 @@ class SmartRetriever:
             # Get ±5 turn window around the decision
             context = engine.get_decision_context(decision['turn_id'])
             return context
-        except (sqlite3.Error, KeyError, TypeError, AttributeError) as e:
+        except Exception as e:  # noqa: S110 — degradation wrapper, must never crash agent
             logger.exception("Failed to retrieve decision trace for '%s'", query_text)
             return []
 
@@ -245,6 +245,6 @@ class SmartRetriever:
         try:
             tracker = self._get_file_tracker()
             return tracker.get_file_history(query_text)
-        except (sqlite3.Error, KeyError, TypeError, AttributeError) as e:
+        except Exception as e:  # noqa: S110 — degradation wrapper, must never crash agent
             logger.exception("Failed to retrieve file history for '%s'", query_text)
             return []

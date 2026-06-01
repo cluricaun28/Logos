@@ -104,7 +104,7 @@ def search(
 
         return final
 
-    except (sqlite3.Error, KeyError, TypeError, AttributeError) as e:
+    except Exception as e:  # noqa: S110 — degradation wrapper, must never fail RL search
         logger.error("RLIndex search failed: %s", e)
         return []
 
@@ -153,7 +153,7 @@ def _fts_search(
 
         return results
 
-    except (sqlite3.Error, KeyError, TypeError, AttributeError) as e:
+    except Exception as e:  # noqa: S110 — degradation wrapper, must never fail FTS5 search
         logger.error("FTS5 search failed: %s", e)
         return []
 
@@ -244,7 +244,7 @@ def _semantic_search(
 
         return results
 
-    except (sqlite3.Error, KeyError, TypeError, AttributeError) as e:
+    except Exception as e:  # noqa: S110 — degradation wrapper, must never fail semantic search
         logger.error("Semantic search failed: %s", e)
         return []
 
@@ -302,7 +302,7 @@ def _extract_snippets_batch(
 
         return snippets
 
-    except (sqlite3.Error, KeyError, TypeError, AttributeError, OSError) as e:
+    except Exception as e:  # noqa: S110 — degradation wrapper, must never fail snippet extraction
         logger.debug("Snippet extraction failed: %s", e)
         return {}
 
@@ -335,6 +335,6 @@ def get_stats(*, conn: Any) -> dict:
             "categories": categories,
             "total_bytes": total_size,
         }
-    except (sqlite3.Error, KeyError, TypeError, AttributeError) as e:
+    except Exception as e:  # noqa: S110 — degradation wrapper, must never fail stats fetch
         logger.error("RLIndex stats failed: %s", e)
         return {"error": str(e)}

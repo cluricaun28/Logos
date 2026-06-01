@@ -137,7 +137,7 @@ def _handle_session_recent(tool_handler: ToolHandler, limit: int) -> str:
                 )
                 if first_user:
                     preview = (first_user[0].get("content") or "")[:200]
-            except (sqlite3.Error, KeyError, TypeError, AttributeError) as e:
+            except Exception as e:  # noqa: S110 — degradation wrapper, must never fail session preview query
                 logger.debug("Session preview query failed: %s", e)
 
             sessions.append({
@@ -155,7 +155,7 @@ def _handle_session_recent(tool_handler: ToolHandler, limit: int) -> str:
             "total_returned": len(sessions),
         })
 
-    except (sqlite3.Error, KeyError, TypeError, AttributeError) as e:
+    except Exception as e:  # noqa: S110 — degradation wrapper, must never fail session search
         logger.error("Session search (recent) failed: %s", e)
         return json.dumps({"error": str(e), "sessions": []})
 
@@ -209,7 +209,7 @@ def _handle_session_query(tool_handler: ToolHandler, query: str, limit: int) -> 
             "total_returned": len(sessions),
         })
 
-    except (sqlite3.Error, KeyError, TypeError, AttributeError) as e:
+    except Exception as e:  # noqa: S110 — degradation wrapper, must never fail session search
         logger.error("Session search (query) failed: %s", e)
         return json.dumps({"error": str(e), "sessions": []})
 
@@ -256,7 +256,7 @@ def _handle_smart_retrieve(tool_handler: ToolHandler, args: dict[str, Any], **kw
             "total_found": len(result),
         })
 
-    except (KeyError, TypeError, AttributeError) as e:
+    except Exception as e:  # noqa: S110 — degradation wrapper, must never fail smart retrieve
         logger.exception("Smart retrieve handler failed for type '%s'", query_type)
         return json.dumps({"error": str(e)})
 
@@ -340,7 +340,7 @@ def _handle_query_messages(tool_handler: ToolHandler, args: dict[str, Any]) -> s
         )
         return json.dumps(result)
 
-    except (sqlite3.Error, KeyError, TypeError, AttributeError) as e:
+    except Exception as e:  # noqa: S110 — degradation wrapper, must never fail query messages
         logger.exception("Query messages handler failed")
         return json.dumps({"error": str(e)})
 
@@ -470,7 +470,7 @@ def _handle_reference_library_search(tool_handler: ToolHandler, args: dict[str, 
                     "score": score,
                     "snippet": snippet + "...",
                 })
-            except (OSError, PermissionError, AttributeError) as e:
+            except Exception as e:  # noqa: S110 — degradation wrapper, must never fail RL search
                 logger.debug("Ref library search failed for %s: %s", md_file.name, e)
 
     results.sort(key=lambda r: -r["score"])
@@ -560,7 +560,7 @@ def _handle_source_analyze(
                                 len(content_map[url]),
                             )
 
-                except (ImportError, json.JSONDecodeError, KeyError, TypeError, AttributeError) as e:
+                except Exception as e:  # noqa: S110 — degradation wrapper, must never fail deep mode extraction
                     logger.warning(
                         "Deep mode extraction failed: %s — continuing with snippets", e
                     )
@@ -591,7 +591,7 @@ def _handle_source_analyze(
                 analyzer.write_findings(report)
 
         return json.dumps({"results": output_results, "count": len(output_results)})
-    except (AttributeError, KeyError, TypeError, OSError) as e:
+    except Exception as e:  # noqa: S110 — degradation wrapper, must never fail source analyze
         logger.debug("source_analyze failed: %s", e)
         return json.dumps(
             {

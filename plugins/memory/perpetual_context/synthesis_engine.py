@@ -144,7 +144,7 @@ class SynthesisEngine:
                     logger.debug("Pass %d refinement complete (%d chars)", pass_num, len(current_text))
                 else:
                     warnings.append(f"Provider returned empty response on pass {pass_num} — using previous draft")
-            except (AttributeError, TypeError, ConnectionError, TimeoutError) as e:
+            except Exception as e:  # noqa: S110 — degradation wrapper, must never fail synthesis
                 warnings.append(f"Provider unavailable for pass {pass_num}: {e}")
                 logger.warning("Synthesis pass %d failed, falling back to current draft: %s", pass_num, e)
 
@@ -178,7 +178,7 @@ class SynthesisEngine:
                     detector.persist_flags(rl_update_flags)
                 except OSError as persist_err:
                     logger.debug("Failed to persist rl_update_flags: %s", persist_err)
-        except (OSError, KeyError, TypeError, AttributeError) as e:
+        except Exception as e:  # noqa: S110 — degradation wrapper, must never fail synthesis
             logger.debug("RLUpdateDetector failed (non-fatal): %s", e)
 
         return {
@@ -327,7 +327,7 @@ class SynthesisEngine:
 
             return content.strip()
 
-        except (ConnectionError, TimeoutError, KeyError, AttributeError) as e:
+        except Exception as e:  # noqa: S110 — degradation wrapper, must never fail synthesis
             logger.warning("Provider inference failed on pass %d: %s — using current draft", pass_number, e)
             return None  # Caller will use original draft
 
@@ -493,10 +493,10 @@ class RLUpdateDetector:
                                         "overlap_terms": list(overlap)[:5],
                                     }
                                 )
-                    except (KeyError, TypeError, AttributeError) as e:
+                    except Exception as e:  # noqa: S110 — degradation wrapper, must never fail RL check
                         logger.debug("Failed to check RL page %s: %s", md_file.name, e)
 
-            except (KeyError, TypeError, AttributeError) as e:
+            except Exception as e:  # noqa: S110 — degradation wrapper, must never fail synthesis
                 logger.debug("Fact comparison failed: %s", e)
 
         # Deduplicate recommendations by page

@@ -294,7 +294,7 @@ class PerpetualContextProvider(MemoryProvider):
                 exclude_session_id=exclude_session_id,
                 max_chars=max_chars,
             )
-        except (sqlite3.Error, KeyError, TypeError) as e:
+        except Exception as e:  # noqa: S110 — degradation wrapper, must never crash agent
             logger.exception("recall_past_discussions failed: %s", e)
             return ""
 
@@ -330,7 +330,7 @@ class PerpetualContextProvider(MemoryProvider):
                 content=assistant_content,
                 metadata={"synced_at": time.time()},
             )
-        except (sqlite3.Error, KeyError, TypeError, AttributeError) as e:
+        except Exception as e:  # noqa: S110 — degradation wrapper, must never crash agent
             logger.exception("Perpetual sync_turn failed: %s", e)
 
     # -- Tools ---------------------------------------------------------------
@@ -360,7 +360,7 @@ class PerpetualContextProvider(MemoryProvider):
                     smart_retrieve_fn=self.smart_retrieve,
                 )
             return tools.dispatch(tool_name, args)
-        except (KeyError, TypeError, AttributeError) as e:
+        except Exception as e:  # noqa: S110 — degradation wrapper, must never crash agent
             logger.exception("Perpetual context tool error (%s)", tool_name)
             return json.dumps({"error": str(e)})
 
@@ -369,7 +369,7 @@ class PerpetualContextProvider(MemoryProvider):
             if self._db and self._db._initialized:
                 try:
                     self._db.optimize()
-                except (sqlite3.Error, AttributeError) as e:
+                except Exception as e:  # noqa: S110 — degradation wrapper, must never crash agent
                     logger.debug("optimize() failed during shutdown: %s", e)
                 self._db.shutdown()
 
@@ -384,7 +384,7 @@ class PerpetualContextProvider(MemoryProvider):
         if turn_number % 100 == 0:
             try:
                 db.optimize()
-            except (sqlite3.Error, AttributeError) as e:
+            except Exception as e:  # noqa: S110 — degradation wrapper, must never crash agent
                 logger.warning(
                     "optimize() failed during on_turn_start: %s",
                     e,
@@ -404,7 +404,7 @@ class PerpetualContextProvider(MemoryProvider):
             topics = extract_topics_from_messages(messages[-10:], _STOPWORDS)
             for topic in topics:
                 db.add_topic(session_id=sid, topic_name=topic, confidence=0.6)
-        except (KeyError, TypeError, AttributeError, sqlite3.Error) as e:
+        except Exception as e:  # noqa: S110 — degradation wrapper, must never crash agent
             logger.warning("on_session_end extraction failed: %s", e)
 
     def on_pre_compress(self, messages: list[dict[str, Any]]) -> str:
@@ -420,7 +420,7 @@ class PerpetualContextProvider(MemoryProvider):
             if factory.feedback and factory.feedback.needs_correction():
                 correction_params = factory.feedback.get_correction_params()
             return bridge.build_bridge(messages, correction_params)
-        except (AttributeError, KeyError, TypeError) as e:
+        except Exception as e:  # noqa: S110 — degradation wrapper, must never crash agent
             logger.warning("Context Bridge generation failed: %s", e)
             return "## Context Bridge\n- Error generating retrieval index. See logs for details."
 
@@ -442,7 +442,7 @@ class PerpetualContextProvider(MemoryProvider):
                 content=f"[{action}] {target}: {content[:500]}",
                 metadata={"mirror": True, "original_action": action},
             )
-        except (sqlite3.Error, KeyError, TypeError, AttributeError) as e:
+        except Exception as e:  # noqa: S110 — degradation wrapper, must never crash agent
             logger.warning("on_memory_write failed: %s", e)
 
     # -- Periodic injection --------------------------------------------------
@@ -469,7 +469,7 @@ class PerpetualContextProvider(MemoryProvider):
                     turn_number = len(recent)
                 else:
                     return None
-            except (sqlite3.Error, KeyError, TypeError, AttributeError) as e:
+            except Exception as e:  # noqa: S110 — degradation wrapper, must never crash agent
                 logger.warning("Periodic injection DB fallback failed: %s", e)
                 return None
 
@@ -493,7 +493,7 @@ class PerpetualContextProvider(MemoryProvider):
             if len(injected_text) > PERIODIC_INJECTION_MAX_CHARS:
                 injected_text = injected_text[: PERIODIC_INJECTION_MAX_CHARS - 3] + "..."
             return f"\n[Periodic Context Injection]\n{injected_text}\n"
-        except (KeyError, TypeError, AttributeError) as e:
+        except Exception as e:  # noqa: S110 — degradation wrapper, must never crash agent
             logger.exception(
                 "Periodic injection failed (turn %d): %s",
                 turn_number,
@@ -525,7 +525,7 @@ class PerpetualContextProvider(MemoryProvider):
                 logger.warning("Unknown retrieval type: %s", query_type)
                 return []
             return retriever.retrieve(strategy, query_text)
-        except (sqlite3.Error, KeyError, TypeError, AttributeError) as e:
+        except Exception as e:  # noqa: S110 — degradation wrapper, must never crash agent
             logger.exception(
                 "Smart retrieve failed for type '%s'",
                 query_type,
@@ -545,7 +545,7 @@ class PerpetualContextProvider(MemoryProvider):
             return 5
         try:
             return factory.tools.get_depth_limit()
-        except (AttributeError, TypeError) as e:
+        except Exception as e:  # noqa: S110 — degradation wrapper, must never crash agent
             logger.debug("_get_depth_limit failed: %s", e)
             return 5
 

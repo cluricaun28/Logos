@@ -114,8 +114,7 @@ class ContextBridgeBuilder:
 
             return bridge_text if bridge_text.strip() else ""
 
-        except (AttributeError, KeyError, TypeError) as e:
-            # Robust error handling: never break compression due to bridge generation failure
+        except Exception as e:  # noqa: S110 — degradation wrapper, must never break compression
             logger.warning("Context Bridge generation failed: %s", e)
             return "## Context Bridge\n- Error generating retrieval index. See logs for details."
 

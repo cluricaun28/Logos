@@ -96,7 +96,7 @@ def run_prefetch_pipeline(
                     rl_parts.append(f"[RL: {name} (score: {score})]\n{snippet}")
                 parts.append("\n\n---\n\n".join(rl_parts))
                 rl_results_count = len(rl_results)
-        except (json.JSONDecodeError, KeyError, TypeError) as e:
+        except Exception as e:  # noqa: S110 — degradation wrapper, must never fail pipeline
             logger.exception("Phase 1a RL search failed: %s", e)
             failures.append(f"RL search: {type(e).__name__}")
 
@@ -284,7 +284,7 @@ def run_prefetch_pipeline(
                 formatted_text=result_text,
                 top_k_requested=rl_search_top_k,
             )
-        except (KeyError, TypeError, AttributeError) as e:
+        except Exception as e:  # noqa: S110 — degradation wrapper, must never fail pipeline
             logger.debug("Quality scoring failed (non-fatal): %s", e)
 
     return result_text
@@ -308,6 +308,6 @@ def format_recent_context(db: Any, max_turns: int = 15) -> str:
         if parts:
             return "\n\n---\n\n".join(parts)
         return ""
-    except (sqlite3.Error, KeyError, TypeError, AttributeError) as e:
+    except Exception as e:  # noqa: S110 — degradation wrapper, must never fail recent context fetch
         logger.exception("Recent context fetch failed: %s", e)
         return ""
