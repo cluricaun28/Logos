@@ -107,6 +107,8 @@ def test_cron_run_job_codex_path_handles_internal_401_refresh(monkeypatch):
         },
     )
     monkeypatch.setattr("hermes_cli.runtime_provider.format_runtime_provider_error", lambda exc: str(exc))
+    # Prevent actual codex credential lookup during test
+    monkeypatch.setattr("agent.auxiliary_client._read_codex_access_token", lambda: None)
 
     _Codex401ThenSuccessAgent.refresh_attempts = 0
     _Codex401ThenSuccessAgent.last_init = {}
@@ -140,6 +142,8 @@ def test_gateway_run_agent_codex_path_handles_internal_401_refresh(monkeypatch):
     )
     monkeypatch.setenv("HERMES_TOOL_PROGRESS", "false")
     monkeypatch.setenv("HERMES_MODEL", "gpt-5.3-codex")
+    # Prevent actual codex credential lookup during test
+    monkeypatch.setattr("agent.auxiliary_client._read_codex_access_token", lambda: None)
 
     _Codex401ThenSuccessAgent.refresh_attempts = 0
     _Codex401ThenSuccessAgent.last_init = {}

@@ -327,7 +327,7 @@ def _send_media_via_adapter(
                     "Job '%s': media send failed for %s: %s",
                     job.get("id", "?"), media_path, getattr(result, "error", "unknown"),
                 )
-        except (AttributeError, KeyError, TypeError) as e:
+        except (AttributeError, KeyError, TypeError, TimeoutError) as e:
             logger.warning("Job '%s': failed to send media %s: %s", job.get("id", "?"), media_path, e)
 
 
@@ -1368,6 +1368,11 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
                 _session_db.close()
             except (Exception, KeyboardInterrupt) as e:
                 logger.debug("Job '%s': failed to close SQLite session store: %s", job_id, e)
+        # Close the ephemeral cron agent to release its resources.
+        try:
+            agent.close()
+        except (Exception, AttributeError) as e:
+            logger.debug("Job '%s': failed to close agent: %s", job_id, e)
 
 
 def tick(verbose: bool = True, adapters=None, loop=None) -> int:

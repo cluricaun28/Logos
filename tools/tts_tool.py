@@ -156,6 +156,9 @@ PROVIDER_MAX_TEXT_LENGTH: Dict[str, int] = {
     "piper": 5000,        # local VITS model, phoneme-based; practical cap
 }
 
+# Central registry of all supported TTS provider names.
+BUILTIN_TTS_PROVIDERS = frozenset(PROVIDER_MAX_TEXT_LENGTH.keys())
+
 # ElevenLabs caps vary by model_id. https://elevenlabs.io/docs/overview/models
 ELEVENLABS_MODEL_MAX_TEXT_LENGTH: Dict[str, int] = {
     "eleven_v3": 5000,
