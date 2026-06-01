@@ -7628,7 +7628,7 @@ class AIAgent:
             )
             time.sleep(wait_time)
             return True
-        except (OSError, AttributeError) as e:
+        except (OSError, AttributeError, Exception) as e:
             logging.warning("Primary transport recovery failed: %s", e)
             return False
 
