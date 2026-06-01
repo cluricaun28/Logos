@@ -5870,6 +5870,11 @@ class AIAgent:
         except (ConnectionError, TimeoutError, OSError, AttributeError) as exc:
             logger.debug("Nous credential refresh failed: %s", exc)
             return False
+        except Exception:
+            # Catch AuthError, credential store failures, etc.
+            # Never let missing credentials block agent startup.
+            logger.debug("Nous credentials not available, skipping refresh")
+            return False
 
         api_key = creds.get("api_key")
         base_url = creds.get("base_url")

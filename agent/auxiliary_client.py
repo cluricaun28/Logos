@@ -961,6 +961,11 @@ def _resolve_nous_runtime_api(*, force_refresh: bool = False) -> Optional[tuple[
     except (ImportError, ModuleNotFoundError, OSError) as exc:
         logger.debug("Auxiliary Nous runtime credential resolution failed: %s", exc)
         return None
+    except Exception:
+        # Catch AuthError, credential store failures, etc.
+        # Never let missing credentials block agent startup.
+        logger.debug("Auxiliary Nous credentials not available")
+        return None
 
     api_key = str(creds.get("api_key") or "").strip()
     base_url = str(creds.get("base_url") or "").strip().rstrip("/")
@@ -1007,8 +1012,10 @@ def _read_codex_access_token() -> Optional[str]:
             pass  # Non-JWT token or decode error — use as-is
 
         return access_token.strip()
-    except (AttributeError, ImportError, json.JSONDecodeError, KeyError, ModuleNotFoundError, TypeError, ValueError) as exc:
-        logger.debug("Could not read Codex auth for auxiliary client: %s", exc)
+    except Exception:
+        # Catch AuthError, credential store failures, etc.
+        # Never let missing credentials block agent startup.
+        logger.debug("Codex credentials not available")
         return None
 
 
@@ -1633,17 +1640,22 @@ def _refresh_provider_credentials(provider: str) -> bool:
             _evict_cached_clients(normalized)
             return True
         if normalized == "nous":
-            from hermes_cli.auth import resolve_nous_runtime_credentials
+            try:
+                from hermes_cli.auth import resolve_nous_runtime_credentials
 
-            creds = resolve_nous_runtime_credentials(
-                min_key_ttl_seconds=max(60, int(os.getenv("HERMES_NOUS_MIN_KEY_TTL_SECONDS", "1800"))),
-                timeout_seconds=float(os.getenv("HERMES_NOUS_TIMEOUT_SECONDS", "15")),
-                force_mint=True,
-            )
-            if not str(creds.get("api_key", "") or "").strip():
+                creds = resolve_nous_runtime_credentials(
+                    min_key_ttl_seconds=max(60, int(os.getenv("HERMES_NOUS_MIN_KEY_TTL_SECONDS", "1800"))),
+                    timeout_seconds=float(os.getenv("HERMES_NOUS_TIMEOUT_SECONDS", "15")),
+                    force_mint=True,
+                )
+                if not str(creds.get("api_key", "") or "").strip():
+                    return False
+                _evict_cached_clients(normalized)
+                return True
+            except Exception:
+                # Catch AuthError, credential store failures, etc.
+                logger.debug("Nous credential refresh failed: %s", exc_info=True)
                 return False
-            _evict_cached_clients(normalized)
-            return True
         if normalized == "anthropic":
             from agent.anthropic_adapter import read_claude_code_credentials, _refresh_oauth_token, resolve_anthropic_token
 

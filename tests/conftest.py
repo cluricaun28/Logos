@@ -35,6 +35,51 @@ PROJECT_ROOT = Path(__file__).parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+# ── Pre-import mock for Nous subscription ───────────────────────────────────
+# The test suite imports run_agent.py which in turn imports
+# build_nous_subscription_prompt from agent.prompt_builder. That function
+# hits real authentication code requiring Nous Portal credentials. We
+# inject a mock into sys.modules BEFORE any test imports run_agent, so the
+# function call becomes a no-op. This is done at module level (not in a
+# fixture) because fixtures run AFTER test modules are imported.
+
+from unittest.mock import MagicMock
+
+def pytest_configure(config):
+    """Inject mocks before any test modules import run_agent."""
+    _mock_nous_prompt = MagicMock(return_value="")
+    # Patch the entire agent.prompt_builder module with a mock that provides
+    # the attributes that run_agent.py imports
+    _sys_prompt_builder = sys.modules.get("agent.prompt_builder")
+    if _sys_prompt_builder is None:
+        _mock_prompt_builder = MagicMock(
+            build_nous_subscription_prompt=_mock_nous_prompt,
+            DEFAULT_AGENT_IDENTITY="Hermes Agent",
+            PLATFORM_HINTS=[],
+            MEMORY_GUIDANCE="",
+            SESSION_SEARCH_GUIDANCE="",
+            SKILLS_GUIDANCE="",
+            HERMES_AGENT_HELP_GUIDANCE="",
+            build_skills_system_prompt=MagicMock(return_value=""),
+            build_context_files_prompt=MagicMock(return_value=""),
+            build_environment_hints=MagicMock(return_value=""),
+            load_soul_md=MagicMock(return_value=""),
+            TOOL_USE_ENFORCEMENT_GUIDANCE="",
+            TOOL_USE_ENFORCEMENT_MODELS=[],
+            GOOGLE_MODEL_OPERATIONAL_GUIDANCE="",
+            OPENAI_MODEL_EXECUTION_GUIDANCE="",
+        )
+        sys.modules["agent.prompt_builder"] = _mock_prompt_builder
+    # Also mock managed_nous_tools_enabled at the source
+    _mock_nous_tools = MagicMock(return_value=False)
+    _sys_tool_helpers = sys.modules.get("tools.tool_backend_helpers")
+    if _sys_tool_helpers is None:
+        _mock_tool_helpers = MagicMock(
+            managed_nous_tools_enabled=_mock_nous_tools,
+            managed_nous_browser_enabled=MagicMock(return_value=False),
+        )
+        sys.modules["tools.tool_backend_helpers"] = _mock_tool_helpers
+
 
 # ── Credential env-var filter ──────────────────────────────────────────────
 #

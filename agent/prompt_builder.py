@@ -1014,7 +1014,13 @@ def build_nous_subscription_prompt(valid_tool_names: "set[str] | None" = None) -
         logger.debug("Failed to import Nous subscription helper: %s", exc)
         return ""
 
-    if not managed_nous_tools_enabled():
+    try:
+        if not managed_nous_tools_enabled():
+            return ""
+    except Exception:
+        # Catch all auth errors, credential store failures, etc.
+        # Never let auth issues block agent startup.
+        logger.debug("Failed to check Nous subscription status, skipping")
         return ""
 
     valid_names = set(valid_tool_names or set())
