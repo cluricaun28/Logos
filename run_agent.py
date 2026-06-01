@@ -7461,7 +7461,7 @@ class AIAgent:
                 old_model, fb_model, fb_provider,
             )
             return True
-        except (ImportError, ModuleNotFoundError, OSError) as e:
+        except (ImportError, ModuleNotFoundError, OSError, RuntimeError, Exception) as e:
             logging.error("Failed to activate fallback %s: %s", fb_model, e)
             return self._try_activate_fallback()  # try next in chain
 
