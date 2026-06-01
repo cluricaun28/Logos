@@ -70,7 +70,7 @@ def _macos_has_image() -> bool:
             capture_output=True, text=True, timeout=3,
         )
         return "«class PNGf»" in info.stdout or "«class TIFF»" in info.stdout
-    except (FileNotFoundError, subprocess.CalledProcessError):
+    except (FileNotFoundError, subprocess.SubprocessError, Exception):
         return False
 
 
@@ -85,7 +85,7 @@ def _macos_pngpaste(dest: Path) -> bool:
             return True
     except FileNotFoundError:
         pass  # pngpaste not installed
-    except (FileNotFoundError, OSError, PermissionError, subprocess.CalledProcessError) as e:
+    except (FileNotFoundError, OSError, PermissionError, subprocess.SubprocessError) as e:
         logger.debug("pngpaste failed: %s", e)
     return False
 
