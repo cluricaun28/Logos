@@ -1211,7 +1211,7 @@ class DiscordAdapter(BasePlatformAdapter):
             try:
                 msg = await thread_channel.send(content=chunk)
                 message_ids.append(str(msg.id))
-            except (RuntimeError) as e:
+            except Exception as e:
                 warning = f"Failed to send follow-up chunk to forum thread {thread_id}: {e}"
                 logger.warning("[%s] %s", self.name, warning)
                 warnings.append(warning)
@@ -1265,7 +1265,7 @@ class DiscordAdapter(BasePlatformAdapter):
 
         try:
             thread = await forum_channel.create_thread(**kwargs)
-        except (RuntimeError) as e:
+        except Exception as e:
             logger.error(
                 "[%s] Failed to create forum thread with file in %s: %s",
                 self.name,
