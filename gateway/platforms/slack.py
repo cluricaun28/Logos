@@ -669,7 +669,7 @@ class SlackAdapter(BasePlatformAdapter):
                 thread_ts=thread_ts,
                 status="is thinking...",
             )
-        except (RuntimeError) as e:
+        except (RuntimeError, Exception) as e:
             # Silently ignore — may lack assistant:write scope or not be
             # in an assistant-enabled context. Falls back to reactions.
             logger.debug("[Slack] assistant.threads.setStatus failed: %s", e)
@@ -687,7 +687,7 @@ class SlackAdapter(BasePlatformAdapter):
                 thread_ts=thread_ts,
                 status="",
             )
-        except (RuntimeError) as e:
+        except (RuntimeError, Exception) as e:
             logger.debug("[Slack] assistant.threads.setStatus clear failed: %s", e)
 
     def _dm_top_level_threads_as_sessions(self) -> bool:
@@ -770,7 +770,7 @@ class SlackAdapter(BasePlatformAdapter):
                 )
                 self._record_uploaded_file_thread(chat_id, thread_ts)
                 return SendResult(success=True, raw_response=result)
-            except (RuntimeError) as exc:
+            except (RuntimeError, Exception) as exc:
                 last_exc = exc
                 if not self._is_retryable_upload_error(exc) or attempt >= 2:
                     raise
@@ -1043,7 +1043,7 @@ class SlackAdapter(BasePlatformAdapter):
                 channel=channel, timestamp=timestamp, name=emoji
             )
             return True
-        except (RuntimeError) as e:
+        except (RuntimeError, Exception) as e:
             # Don't log as error — may fail if already reacted or missing scope
             logger.debug("[Slack] reactions.add failed (%s): %s", emoji, e)
             return False
@@ -1059,7 +1059,7 @@ class SlackAdapter(BasePlatformAdapter):
                 channel=channel, timestamp=timestamp, name=emoji
             )
             return True
-        except (RuntimeError) as e:
+        except (RuntimeError, Exception) as e:
             logger.debug("[Slack] reactions.remove failed (%s): %s", emoji, e)
             return False
 
@@ -1122,7 +1122,7 @@ class SlackAdapter(BasePlatformAdapter):
             )
             self._user_name_cache[user_id] = name
             return name
-        except (AttributeError, KeyError, RuntimeError, TypeError) as e:
+        except (AttributeError, KeyError, RuntimeError, TypeError, Exception) as e:
             logger.debug("[Slack] users.info failed for %s: %s", user_id, e)
             self._user_name_cache[user_id] = user_id
             return user_id
@@ -1140,7 +1140,7 @@ class SlackAdapter(BasePlatformAdapter):
             return await self._upload_file(chat_id, image_path, caption, reply_to, metadata)
         except FileNotFoundError:
             return SendResult(success=False, error=f"Image file not found: {image_path}")
-        except (RuntimeError) as e:  # pragma: no cover - defensive logging:
+        except (RuntimeError, Exception) as e:  # pragma: no cover - defensive logging:
             logger.error(
                 "[%s] Failed to send local Slack image %s: %s",
                 self.name,
@@ -1269,7 +1269,7 @@ class SlackAdapter(BasePlatformAdapter):
                     )
                     self._record_uploaded_file_thread(chat_id, thread_ts)
                     return SendResult(success=True, raw_response=result)
-                except (RuntimeError) as exc:
+                except (RuntimeError, Exception) as exc:
                     last_exc = exc
                     if not self._is_retryable_upload_error(exc) or attempt >= 2:
                         raise
@@ -1283,7 +1283,7 @@ class SlackAdapter(BasePlatformAdapter):
 
             raise last_exc
 
-        except (RuntimeError) as e:  # pragma: no cover - defensive logging:
+        except (RuntimeError, Exception) as e:  # pragma: no cover - defensive logging:
             logger.error(
                 "[%s] Failed to send video %s: %s",
                 self.name,
@@ -1328,7 +1328,7 @@ class SlackAdapter(BasePlatformAdapter):
                     )
                     self._record_uploaded_file_thread(chat_id, thread_ts)
                     return SendResult(success=True, raw_response=result)
-                except (RuntimeError) as exc:
+                except (RuntimeError, Exception) as exc:
                     last_exc = exc
                     if not self._is_retryable_upload_error(exc) or attempt >= 2:
                         raise
@@ -1342,7 +1342,7 @@ class SlackAdapter(BasePlatformAdapter):
 
             raise last_exc
 
-        except (RuntimeError) as e:  # pragma: no cover - defensive logging:
+        except (RuntimeError, Exception) as e:  # pragma: no cover - defensive logging:
             logger.error(
                 "[%s] Failed to send document %s: %s",
                 self.name,
