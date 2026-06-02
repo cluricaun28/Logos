@@ -99,7 +99,7 @@ async def _send_telegram_message_with_retry(bot, *, attempts: int = 3, **kwargs)
     for attempt in range(attempts):
         try:
             return await bot.send_message(**kwargs)
-        except (RuntimeError) as exc:
+        except Exception as exc:
             delay = _telegram_retry_delay(exc, attempt)
             if delay is None or attempt >= attempts - 1:
                 raise

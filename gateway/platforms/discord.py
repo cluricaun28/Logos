@@ -358,6 +358,15 @@ class VoiceReceiver:
                         if self._packet_debug_count <= 10:
                             logger.warning("DAVE decrypt failed for ssrc=%d: %s", ssrc, e)
                         return
+                except Exception as e:
+                    # DAVE decrypt failed — check if unencrypted passthrough
+                    if "Unencrypted" in str(e):
+                        # Use NaCl-decrypted data as-is (passthrough)
+                        pass
+                    else:
+                        if self._packet_debug_count <= 10:
+                            logger.warning("DAVE decrypt failed for ssrc=%d: %s", ssrc, e)
+                        return
             # If SSRC unknown (no SPEAKING event yet), skip DAVE and try
             # Opus decode directly — audio may be in passthrough mode.
             # Buffer will get a user_id when SPEAKING event arrives later.

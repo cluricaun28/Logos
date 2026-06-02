@@ -86,7 +86,7 @@ class TestMcpRegistrationE2E:
         ]
 
         with patch("tools.mcp_tool.register_mcp_servers", side_effect=mock_register), \
-             patch("model_tools.get_tool_definitions", return_value=fake_tools):
+             patch("model_tools.get_selective_tool_definitions", return_value=fake_tools):
             resp = await acp_agent.new_session(cwd="/tmp", mcp_servers=servers)
 
         assert isinstance(resp, NewSessionResponse)
@@ -274,7 +274,7 @@ class TestMcpSanitizationE2E:
         fake_tools = [{"function": {"name": "mcp_ai_exa_exa_search"}}]
 
         with patch("tools.mcp_tool.register_mcp_servers", side_effect=mock_register), \
-             patch("model_tools.get_tool_definitions", return_value=fake_tools):
+             patch("model_tools.get_selective_tool_definitions", return_value=fake_tools):
             resp = await acp_agent.new_session(cwd="/tmp", mcp_servers=servers)
 
         state = mock_manager.get_session(resp.session_id)
@@ -311,7 +311,7 @@ class TestSessionLifecycleMcpE2E:
         state.agent.valid_tool_names = set()
 
         with patch("tools.mcp_tool.register_mcp_servers", side_effect=mock_register), \
-             patch("model_tools.get_tool_definitions", return_value=[]):
+             patch("model_tools.get_selective_tool_definitions", return_value=[]):
             await acp_agent.load_session(cwd="/tmp", session_id=sid, mcp_servers=servers)
 
         assert "srv" in registered
@@ -338,7 +338,7 @@ class TestSessionLifecycleMcpE2E:
         state.agent.valid_tool_names = set()
 
         with patch("tools.mcp_tool.register_mcp_servers", side_effect=mock_register), \
-             patch("model_tools.get_tool_definitions", return_value=[]):
+             patch("model_tools.get_selective_tool_definitions", return_value=[]):
             await acp_agent.resume_session(cwd="/tmp", session_id=sid, mcp_servers=servers)
 
         assert "srv2" in registered
@@ -360,7 +360,7 @@ class TestSessionLifecycleMcpE2E:
 
         # Need to set up the forked session's agent too
         with patch("tools.mcp_tool.register_mcp_servers", side_effect=mock_register), \
-             patch("model_tools.get_tool_definitions", return_value=[]):
+             patch("model_tools.get_selective_tool_definitions", return_value=[]):
             fork_resp = await acp_agent.fork_session(
                 cwd="/tmp", session_id=sid, mcp_servers=servers
             )
