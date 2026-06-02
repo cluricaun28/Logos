@@ -3232,7 +3232,7 @@ class DiscordAdapter(BasePlatformAdapter):
         if raw_bytes is not None:
             try:
                 return cache_image_from_bytes(raw_bytes, ext=ext)
-            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
+            except (AttributeError, KeyError, OSError, ValueError, RuntimeError, TypeError) as e:
                 logger.debug(
                     "[Discord] cache_image_from_bytes rejected att.read() data; falling back to URL: %s",
                     e,
@@ -3251,7 +3251,7 @@ class DiscordAdapter(BasePlatformAdapter):
         if raw_bytes is not None:
             try:
                 return cache_audio_from_bytes(raw_bytes, ext=ext)
-            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
+            except (AttributeError, KeyError, OSError, ValueError, RuntimeError, TypeError) as e:
                 logger.debug(
                     "[Discord] cache_audio_from_bytes failed; falling back to URL: %s",
                     e,
