@@ -323,14 +323,14 @@ def _select_pool_entry(provider: str) -> Tuple[bool, Optional[Any]]:
     """Return (pool_exists_for_provider, selected_entry)."""
     try:
         pool = load_pool(provider)
-    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
+    except Exception as exc:
         logger.debug("Auxiliary client: could not load pool for %s: %s", provider, exc)
         return False, None
     if not pool or not pool.has_credentials():
         return False, None
     try:
         return True, pool.select()
-    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
+    except Exception as exc:
         logger.debug("Auxiliary client: could not select pool entry for %s: %s", provider, exc)
         return True, None
 
@@ -877,7 +877,7 @@ def _maybe_wrap_anthropic(
 
     try:
         real_client = build_anthropic_client(api_key, base_url)
-    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
+    except Exception as exc:
         logger.warning(
             "Failed to build Anthropic client for %s (%s) — falling back to "
             "OpenAI-wire client.", base_url, exc,
@@ -1187,7 +1187,7 @@ def _try_nous(vision: bool = False) -> Tuple[Optional[OpenAI], Optional[str]]:
                 "Auxiliary/%s: no Portal recommendation, falling back to %s",
                 "vision" if vision else "text", model,
             )
-    except (ImportError, ModuleNotFoundError) as exc:
+    except Exception as exc:
         logger.debug(
             "Auxiliary/%s: recommended-models lookup failed (%s); "
             "falling back to %s",
@@ -1259,7 +1259,7 @@ def _resolve_custom_runtime() -> Tuple[Optional[str], Optional[str], Optional[st
         from hermes_cli.runtime_provider import resolve_runtime_provider
 
         runtime = resolve_runtime_provider(requested="custom")
-    except (ImportError, ModuleNotFoundError) as exc:
+    except Exception as exc:
         logger.debug("Auxiliary client: custom runtime resolution failed: %s", exc)
         runtime = None
 
@@ -1622,7 +1622,7 @@ def _evict_cached_clients(provider: str) -> None:
                     close_fn = getattr(client, "close", None)
                     if callable(close_fn):
                         close_fn()
-                except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
+                except Exception:
                     pass
             _client_cache.pop(key, None)
 
@@ -2650,7 +2650,7 @@ def _store_cached_client(cache_key: tuple, client: Any, default_model: Optional[
                 close_fn = getattr(old_entry[0], "close", None)
                 if callable(close_fn):
                     close_fn()
-            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
+            except Exception:
                 pass
         _client_cache[cache_key] = (client, default_model, bound_loop)
 
@@ -2774,7 +2774,7 @@ def shutdown_cached_clients() -> None:
                 close_fn = getattr(client, "close", None)
                 if close_fn and not inspect.iscoroutinefunction(close_fn):
                     close_fn()
-            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
+            except Exception:
                 pass
         _client_cache.clear()
 
@@ -3296,7 +3296,7 @@ def call_llm(
     try:
         return _validate_llm_response(
             client.chat.completions.create(**kwargs), task)
-    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as first_err:
+    except Exception as first_err:
         if "temperature" in kwargs and _is_unsupported_temperature_error(first_err):
             retry_kwargs = dict(kwargs)
             retry_kwargs.pop("temperature", None)
@@ -3307,7 +3307,7 @@ def call_llm(
             try:
                 return _validate_llm_response(
                     client.chat.completions.create(**retry_kwargs), task)
-            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as retry_err:
+            except Exception as retry_err:
                 retry_err_str = str(retry_err)
                 # If retry still fails, fall through to the max_tokens /
                 # payment / auth chains below using the temperature-stripped
@@ -3335,7 +3335,7 @@ def call_llm(
             try:
                 return _validate_llm_response(
                     client.chat.completions.create(**kwargs), task)
-            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as retry_err:
+            except Exception as retry_err:
                 # If the max_tokens retry also hits a payment or connection
                 # error, fall through to the fallback chain below.
                 if not (_is_payment_error(retry_err) or _is_connection_error(retry_err)):
@@ -3592,7 +3592,7 @@ async def async_call_llm(
     try:
         return _validate_llm_response(
             await client.chat.completions.create(**kwargs), task)
-    except (RuntimeError) as first_err:
+    except Exception as first_err:
         if "temperature" in kwargs and _is_unsupported_temperature_error(first_err):
             retry_kwargs = dict(kwargs)
             retry_kwargs.pop("temperature", None)
@@ -3603,7 +3603,7 @@ async def async_call_llm(
             try:
                 return _validate_llm_response(
                     await client.chat.completions.create(**retry_kwargs), task)
-            except (RuntimeError) as retry_err:
+            except Exception as retry_err:
                 retry_err_str = str(retry_err)
                 if not (
                     _is_payment_error(retry_err)
@@ -3627,7 +3627,7 @@ async def async_call_llm(
             try:
                 return _validate_llm_response(
                     await client.chat.completions.create(**kwargs), task)
-            except (RuntimeError) as retry_err:
+            except Exception as retry_err:
                 # If the max_tokens retry also hits a payment or connection
                 # error, fall through to the fallback chain below.
                 if not (_is_payment_error(retry_err) or _is_connection_error(retry_err)):

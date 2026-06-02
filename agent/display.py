@@ -301,7 +301,7 @@ def _display_diff_path(path: Path) -> str:
     """Prefer cwd-relative paths in diffs when available."""
     try:
         return str(path.resolve().relative_to(Path.cwd().resolve()))
-    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
+    except Exception:
         return str(path)
 
 
@@ -442,7 +442,7 @@ def _emit_inline_diff(diff_text: str, print_fn) -> bool:
         for line in diff_text.rstrip("\n").splitlines():
             print_fn(line)
         return True
-    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
+    except Exception:
         return False
 
 
@@ -667,7 +667,7 @@ class KawaiiSpinner:
         if self._print_fn is not None:
             try:
                 self._print_fn(text)
-            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
+            except Exception:
                 pass
             return
         try:

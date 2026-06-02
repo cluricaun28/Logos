@@ -735,7 +735,7 @@ def _refresh_oauth_token(creds: Dict[str, Any]) -> Optional[str]:
         )
         logger.debug("Successfully refreshed Claude Code OAuth token")
         return refreshed["access_token"]
-    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
+    except Exception as e:
         logger.debug("Failed to refresh Claude Code token: %s", e)
         return None
 
