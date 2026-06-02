@@ -59,7 +59,7 @@ class FakeTextChannel:
     def __init__(self, channel_id: int = 1, name: str = "general", guild_name: str = "Hermes Server"):
         self.id = channel_id
         self.name = name
-        self.guild = SimpleNamespace(name=guild_name)
+        self.guild = SimpleNamespace(name=guild_name, id=1)
         self.topic = None
 
 
@@ -67,7 +67,7 @@ class FakeForumChannel:
     def __init__(self, channel_id: int = 1, name: str = "support-forum", guild_name: str = "Hermes Server"):
         self.id = channel_id
         self.name = name
-        self.guild = SimpleNamespace(name=guild_name)
+        self.guild = SimpleNamespace(name=guild_name, id=1)
         self.type = 15
         self.topic = None
 
@@ -78,7 +78,7 @@ class FakeThread:
         self.name = name
         self.parent = parent
         self.parent_id = getattr(parent, "id", None)
-        self.guild = getattr(parent, "guild", None) or SimpleNamespace(name=guild_name)
+        self.guild = getattr(parent, "guild", None) or SimpleNamespace(name=guild_name, id=1)
         self.topic = None
 
 
@@ -98,6 +98,7 @@ def adapter(monkeypatch):
 
 def make_message(*, channel, content: str, mentions=None, msg_type=None):
     author = SimpleNamespace(id=42, display_name="Jezza", name="Jezza")
+    guild = getattr(channel, "guild", SimpleNamespace(name="TestGuild", id=1))
     return SimpleNamespace(
         id=123,
         content=content,
@@ -107,6 +108,7 @@ def make_message(*, channel, content: str, mentions=None, msg_type=None):
         created_at=datetime.now(timezone.utc),
         channel=channel,
         author=author,
+        guild=guild,
         type=msg_type if msg_type is not None else discord_platform.discord.MessageType.default,
     )
 
@@ -128,6 +130,7 @@ async def test_discord_defaults_to_require_mention(adapter, monkeypatch):
 @pytest.mark.asyncio
 async def test_discord_free_response_in_server_channels(adapter, monkeypatch):
     monkeypatch.setenv("DISCORD_REQUIRE_MENTION", "false")
+    monkeypatch.setenv("DISCORD_AUTO_THREAD", "false")
     monkeypatch.delenv("DISCORD_FREE_RESPONSE_CHANNELS", raising=False)
 
     message = make_message(channel=FakeTextChannel(channel_id=123), content="hello from channel")
@@ -240,6 +243,7 @@ async def test_discord_forum_parent_in_free_response_list_allows_forum_thread(ad
 @pytest.mark.asyncio
 async def test_discord_accepts_and_strips_bot_mentions_when_required(adapter, monkeypatch):
     monkeypatch.setenv("DISCORD_REQUIRE_MENTION", "true")
+    monkeypatch.setenv("DISCORD_AUTO_THREAD", "false")
     monkeypatch.delenv("DISCORD_FREE_RESPONSE_CHANNELS", raising=False)
 
     bot_user = adapter._client.user
