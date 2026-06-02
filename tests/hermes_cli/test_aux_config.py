@@ -204,7 +204,7 @@ def test_reset_aux_to_auto_clears_routing_preserves_timeouts(tmp_path, monkeypat
 
     # Configure two tasks non-auto, and bump a timeout
     _save_aux_choice("vision", provider="openrouter", model="gpt-4o")
-    _save_aux_choice("compression", provider="nous", model="gemini-3-flash")
+    _save_aux_choice("archiving", provider="nous", model="gemini-3-flash")
     from hermes_cli.config import save_config
 
     cfg = load_config()
@@ -215,7 +215,7 @@ def test_reset_aux_to_auto_clears_routing_preserves_timeouts(tmp_path, monkeypat
     assert n == 2  # both changed
 
     cfg = load_config()
-    for task in ("vision", "compression"):
+    for task in ("vision", "archiving"):
         v = cfg["auxiliary"][task]
         assert v["provider"] == "auto"
         assert v["model"] == ""
@@ -224,7 +224,7 @@ def test_reset_aux_to_auto_clears_routing_preserves_timeouts(tmp_path, monkeypat
     # User-tuned timeout survives reset
     assert cfg["auxiliary"]["vision"]["timeout"] == 300
     # Default compression timeout preserved
-    assert cfg["auxiliary"]["compression"]["timeout"] == 120
+    assert cfg["auxiliary"]["archiving"]["timeout"] == 120
 
 
 def test_reset_aux_to_auto_idempotent(tmp_path, monkeypatch):

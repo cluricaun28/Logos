@@ -331,7 +331,7 @@ def exchange_copilot_token(raw_token: str, *, timeout: float = 10.0) -> tuple[st
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read().decode())
-    except (json.JSONDecodeError, OSError, PermissionError, ValueError) as exc:
+    except (json.JSONDecodeError, OSError, PermissionError, ValueError, Exception) as exc:
         raise ValueError(f"Copilot token exchange failed: {exc}") from exc
 
     api_token = data.get("token", "")
@@ -363,7 +363,7 @@ def get_copilot_api_token(raw_token: str) -> str:
     try:
         api_token, _ = exchange_copilot_token(raw_token)
         return api_token
-    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
+    except Exception as exc:
         logger.debug("Copilot token exchange failed, using raw token: %s", exc)
         return raw_token
 

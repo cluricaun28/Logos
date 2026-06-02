@@ -540,7 +540,7 @@ def _is_skill_disabled(name: str, platform: str = None) -> bool:
             if platform_disabled is not None:
                 return name in platform_disabled
         return name in skills_cfg.get("disabled", [])
-    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, OSError, TypeError):
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, OSError, TypeError, Exception):
         return False
 
 

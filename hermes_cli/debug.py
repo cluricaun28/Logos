@@ -137,7 +137,7 @@ def _sweep_expired_pastes(now: Optional[float] = None) -> tuple[int, int]:
             if delete_paste(url):
                 deleted += 1
                 continue
-        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
+        except Exception:
             # Network hiccup, 404 (already gone), etc. — drop the entry
             # after a grace period; don't retry forever.
             pass
@@ -158,7 +158,7 @@ def _best_effort_sweep_expired_pastes() -> None:
     """Attempt pending-paste cleanup without letting /debug fail offline."""
     try:
         _sweep_expired_pastes()
-    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
+    except Exception:
         pass
 
 
@@ -312,13 +312,13 @@ def upload_to_pastebin(content: str, expiry_days: int = 7) -> str:
     # Try paste.rs first (simple, fast)
     try:
         return _upload_paste_rs(content)
-    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
+    except Exception as exc:
         errors.append(f"paste.rs: {exc}")
 
     # Fallback: dpaste.com (supports expiry)
     try:
         return _upload_dpaste_com(content, expiry_days=expiry_days)
-    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
+    except Exception as exc:
         errors.append(f"dpaste.com: {exc}")
 
     raise RuntimeError(
@@ -588,14 +588,14 @@ def run_debug_share(args):
     if agent_log:
         try:
             urls["agent.log"] = upload_to_pastebin(agent_log, expiry_days=expiry)
-        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
+        except Exception as exc:
             failures.append(f"agent.log: {exc}")
 
     # 3. Full gateway.log (optional)
     if gateway_log:
         try:
             urls["gateway.log"] = upload_to_pastebin(gateway_log, expiry_days=expiry)
-        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
+        except Exception as exc:
             failures.append(f"gateway.log: {exc}")
 
     # Print results
@@ -634,7 +634,7 @@ def run_debug_delete(args):
                 print(f"  ✗ Failed to delete: {url} (unexpected response)")
         except ValueError as exc:
             print(f"  ✗ {exc}")
-        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
+        except Exception as exc:
             print(f"  ✗ Could not delete {url}: {exc}")
 
 
@@ -647,7 +647,7 @@ def run_debug(args):
     # reliable even when offline.
     try:
         _sweep_expired_pastes()
-    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
+    except Exception:
         pass
 
     subcmd = getattr(args, "debug_command", None)

@@ -144,7 +144,7 @@ def _xai_curated_models() -> list[str]:
             ids = [mid for mid in models.keys() if isinstance(mid, str)]
             if ids:
                 return sorted(ids)
-    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError, Exception):
         # Any failure (missing file, malformed JSON, import error)
         # falls through to the static list.
         pass
@@ -579,7 +579,7 @@ def check_nous_free_tier() -> bool:
         result = is_nous_free_tier(account_info)
         _free_tier_cache = (result, now)
         return result
-    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError, Exception):
         _free_tier_cache = (False, now)
         return False  # default to paid on error — don't block users
 
@@ -664,7 +664,7 @@ def _resolve_nous_portal_url() -> str:
         if portal:
             return portal.rstrip("/")
         return str(DEFAULT_NOUS_PORTAL_URL).rstrip("/")
-    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError, Exception):
         return "https://portal.nousresearch.com"
 
 
@@ -714,7 +714,7 @@ def get_nous_recommended_aux_model(
     if free_tier is None:
         try:
             free_tier = check_nous_free_tier()
-        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError, Exception):
             # On any detection error, assume paid — paid users see both fields
             # anyway so this is a safe default that maximises model quality.
             free_tier = False
@@ -1294,7 +1294,7 @@ def _resolve_nous_pricing_credentials() -> tuple[str, str]:
         creds = resolve_nous_runtime_credentials()
         if creds:
             return (creds.get("api_key", ""), creds.get("base_url", ""))
-    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError, Exception):
         pass
     return ("", "")
 
@@ -1422,7 +1422,7 @@ def _get_custom_base_url() -> str:
         model_cfg = config.get("model", {})
         if isinstance(model_cfg, dict):
             return str(model_cfg.get("base_url", "")).strip()
-    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError, Exception):
         pass
     return ""
 
@@ -1761,7 +1761,7 @@ def _resolve_copilot_catalog_api_key() -> str:
         api_key = str(creds.get("api_key") or "").strip()
         if api_key:
             return api_key
-    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError, Exception):
         pass
 
     try:
@@ -1782,11 +1782,11 @@ def _resolve_copilot_catalog_api_key() -> str:
                 continue
             try:
                 api_token, _expires_at = exchange_copilot_token(raw)
-            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError, Exception):
                 continue
             if api_token:
                 return api_token
-    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError, Exception):
         pass
 
     return ""
@@ -1887,7 +1887,7 @@ def provider_model_ids(provider: Optional[str], *, force_refresh: bool = False) 
 
             creds = resolve_codex_runtime_credentials(refresh_if_expiring=True)
             access_token = creds.get("api_key")
-        except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
+        except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError, Exception):
             access_token = None
         return get_codex_model_ids(access_token=access_token)
     if normalized in {"copilot", "copilot-acp"}:
@@ -1895,7 +1895,7 @@ def provider_model_ids(provider: Optional[str], *, force_refresh: bool = False) 
             live = _fetch_github_models(_resolve_copilot_catalog_api_key())
             if live:
                 return live
-        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError, Exception):
             pass
         if normalized == "copilot-acp":
             return list(_PROVIDER_MODELS.get("copilot", []))
@@ -1908,7 +1908,7 @@ def provider_model_ids(provider: Optional[str], *, force_refresh: bool = False) 
                 live = fetch_nous_models(api_key=creds.get("api_key", ""), inference_base_url=creds.get("base_url", ""))
                 if live:
                     return live
-        except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
+        except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError, Exception):
             pass
     if normalized == "stepfun":
         try:
@@ -1921,7 +1921,7 @@ def provider_model_ids(provider: Optional[str], *, force_refresh: bool = False) 
                 live = fetch_api_models(api_key, base_url)
                 if live:
                     return live
-        except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
+        except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError, Exception):
             pass
     if normalized == "anthropic":
         live = _fetch_anthropic_models()
@@ -1944,7 +1944,7 @@ def provider_model_ids(provider: Optional[str], *, force_refresh: bool = False) 
                 live = fetch_api_models(api_key, base)
                 if live:
                     return live
-            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError, Exception):
                 pass
     if normalized == "custom":
         base_url = _get_custom_base_url()
@@ -2014,7 +2014,7 @@ def _fetch_anthropic_models(timeout: float = 5.0) -> Optional[list[str]]:
                 "haiku" not in m,     # then haiku
                 m,                    # alphabetical within tier
             ))
-    except (AttributeError, json.JSONDecodeError, KeyError, OSError, PermissionError, TypeError, ValueError) as e:
+    except (AttributeError, json.JSONDecodeError, KeyError, OSError, PermissionError, TypeError, ValueError, Exception) as e:
         import logging
         logging.getLogger(__name__).debug("Failed to fetch Anthropic models: %s", e)
         return None
@@ -2107,7 +2107,7 @@ def fetch_github_model_catalog(
                     models.append(item)
                 if models:
                     return models
-        except (AttributeError, json.JSONDecodeError, KeyError, OSError, PermissionError, TypeError, ValueError):
+        except (AttributeError, json.JSONDecodeError, KeyError, OSError, PermissionError, TypeError, ValueError, Exception):
             continue
     return None
 
@@ -2757,7 +2757,7 @@ def probe_api_models(
                     "suggested_base_url": alternate_base if alternate_base != candidate_base else normalized,
                     "used_fallback": is_fallback,
                 }
-        except (AttributeError, json.JSONDecodeError, KeyError, OSError, PermissionError, TypeError, ValueError):
+        except (AttributeError, json.JSONDecodeError, KeyError, OSError, PermissionError, TypeError, ValueError, Exception):
             continue
 
     return {
@@ -2795,7 +2795,7 @@ def _fetch_ai_gateway_models(timeout: float = 5.0) -> Optional[list[str]]:
                 and m.get("type") == "language"
                 and "tool-use" in (m.get("tags") or [])
             ]
-    except (AttributeError, json.JSONDecodeError, KeyError, OSError, PermissionError, TypeError, ValueError):
+    except (AttributeError, json.JSONDecodeError, KeyError, OSError, PermissionError, TypeError, ValueError, Exception):
         return None
 
 
@@ -2850,7 +2850,7 @@ def _load_ollama_cloud_cache(*, ignore_ttl: bool = False) -> Optional[dict]:
             if (time.time() - cached_at) > _OLLAMA_CLOUD_CACHE_TTL:
                 return None  # stale
         return data
-    except (AttributeError, json.JSONDecodeError, KeyError, OSError, PermissionError, TypeError, ValueError):
+    except (AttributeError, json.JSONDecodeError, KeyError, OSError, PermissionError, TypeError, ValueError, Exception):
         pass
     return None
 
@@ -3086,7 +3086,7 @@ def validate_requested_model(
     if normalized == "openai-codex":
         try:
             codex_models = provider_model_ids("openai-codex")
-        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError, Exception):
             codex_models = []
         if codex_models:
             if requested_for_lookup in set(codex_models):
@@ -3125,7 +3125,7 @@ def validate_requested_model(
     if normalized in ("minimax", "minimax-cn"):
         try:
             catalog_models = provider_model_ids(normalized)
-        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError, Exception):
             catalog_models = []
         if catalog_models:
             # Case-insensitive lookup (catalog uses mixed case like MiniMax-M2.7)
@@ -3349,7 +3349,7 @@ def validate_requested_model(
     provider_label = _PROVIDER_LABELS.get(normalized, normalized)
     try:
         catalog_models = provider_model_ids(normalized)
-    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError, Exception):
         catalog_models = []
 
     if catalog_models:

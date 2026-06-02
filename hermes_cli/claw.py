@@ -98,7 +98,7 @@ def _detect_openclaw_processes() -> list[str]:
             )
             if result.stdout.strip():
                 found.append(f"node.exe process with openclaw in command line (PID {result.stdout.strip()})")
-        except (FileNotFoundError, subprocess.CalledProcessError):
+        except Exception:
             pass
     else:
         try:

@@ -659,7 +659,7 @@ def _run_post_setup(post_setup_key: str):
             # toolset enable; they can retry with `hermes auth spotify`.
             _print_warning(f"    Spotify login did not complete: {exc}")
             _print_info("    Run later: hermes auth spotify")
-        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError, Exception) as exc:
             _print_warning(f"    Spotify login failed: {exc}")
             _print_info("    Run manually: hermes auth spotify")
 
@@ -813,6 +813,13 @@ def _get_platform_tools(
         if "homeassistant" in default_off and os.getenv("HASS_TOKEN"):
             default_off.remove("homeassistant")
         enabled_toolsets -= default_off
+
+    # Home Assistant toolset: when the platform is homeassistant or when
+    # HASS_TOKEN is set, ensure it's enabled even if the default composite
+    # toolset doesn't include it. This handles the homeassistant platform
+    # directly and also cron/CLI when the user has configured HA.
+    if platform == "homeassistant" or os.getenv("HASS_TOKEN"):
+        enabled_toolsets.add("homeassistant")
 
     # Recover non-configurable platform toolsets (e.g. discord, feishu_doc,
     # feishu_drive).  These are part of the platform's default composite but
@@ -1163,7 +1170,7 @@ def _plugin_image_gen_providers() -> list[dict]:
             continue
         try:
             schema = provider.get_setup_schema()
-        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError, Exception):
             continue
         if not isinstance(schema, dict):
             continue
@@ -1227,9 +1234,9 @@ def _toolset_needs_configuration_prompt(ts_key: str, config: dict) -> bool:
                 try:
                     if provider.is_available():
                         return False
-                except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
+                except (AttributeError, KeyError, OSError, RuntimeError, TypeError, Exception):
                     continue
-        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError, Exception):
             pass
         return True
 
@@ -1493,7 +1500,7 @@ def _plugin_image_gen_catalog(plugin_name: str):
     try:
         models = provider.list_models() or []
         default = provider.default_model()
-    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError, Exception):
         return {}, None
     catalog = {m["id"]: m for m in models if isinstance(m, dict) and "id" in m}
     return catalog, default
@@ -2210,7 +2217,7 @@ def _configure_mcp_tools_interactive(config: dict):
     try:
         from tools.mcp_tool import probe_mcp_server_tools
         server_tools = probe_mcp_server_tools()
-    except (ImportError, ModuleNotFoundError) as exc:
+    except (ImportError, ModuleNotFoundError, Exception) as exc:
         _print_error(f"Failed to probe MCP servers: {exc}")
         return
 

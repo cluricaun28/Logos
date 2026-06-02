@@ -207,7 +207,7 @@ def _load_direct_aliases() -> dict[str, DirectAlias]:
                     merged[name.strip().lower()] = DirectAlias(
                         model=model, provider=provider, base_url=base_url,
                     )
-    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError, Exception):
         pass
     return merged
 
@@ -460,7 +460,7 @@ def resolve_alias(
             for m in static:
                 if m.lower() not in seen:
                     catalog.append(m)
-    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError, Exception):
         pass
 
     # For aggregators, models are vendor/model-name format
@@ -506,7 +506,7 @@ def get_authenticated_provider_slugs(
             max_models=0,
         )
         return [p["slug"] for p in providers]
-    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError, Exception):
         return []
 
 
@@ -566,6 +566,8 @@ def resolve_display_context_length(
         if ctx:
             return int(ctx)
     except (ImportError, ModuleNotFoundError):
+        pass
+    except Exception:
         pass
     if model_info is not None and model_info.context_window:
         return int(model_info.context_window)
@@ -823,7 +825,7 @@ def switch_model(
             api_key = runtime.get("api_key", "")
             base_url = runtime.get("base_url", "")
             api_mode = runtime.get("api_mode", "")
-        except (AttributeError, KeyError, TypeError) as e:
+        except (AttributeError, KeyError, TypeError, Exception) as e:
             return ModelSwitchResult(
                 success=False,
                 target_provider=target_provider,
@@ -848,7 +850,7 @@ def switch_model(
                 api_key = runtime.get("api_key", "")
                 base_url = runtime.get("base_url", "")
                 api_mode = runtime.get("api_mode", "")
-        except (AttributeError, KeyError, TypeError):
+        except (AttributeError, KeyError, TypeError, Exception):
             pass
 
     # --- Direct alias override: use exact base_url from the alias if set ---
@@ -873,7 +875,7 @@ def switch_model(
             base_url=base_url,
             api_mode=api_mode or None,
         )
-    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError, Exception) as e:
         validation = {
             "accepted": False,
             "persist": False,
@@ -1091,7 +1093,7 @@ def list_authenticated_providers(
                 store = _load_auth_store()
                 if store and hermes_id in store.get("credential_pool", {}):
                     has_creds = True
-            except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
+            except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError, Exception):
                 pass
         if not has_creds:
             continue
@@ -1167,7 +1169,7 @@ def list_authenticated_providers(
                     or pid in pool_store or hermes_slug in pool_store
                 ):
                     has_creds = True
-            except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError) as exc:
+            except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError, Exception) as exc:
                 logger.debug("Auth store check failed for %s: %s", pid, exc)
         # Fallback: check the credential pool with full auto-seeding.
         # This catches credentials that exist in external stores (e.g.
@@ -1199,7 +1201,7 @@ def list_authenticated_providers(
                 if (hermes_creds and hermes_creds.get("accessToken")) or \
                    (cc_creds and cc_creds.get("accessToken")):
                     has_creds = True
-            except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError) as exc:
+            except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError, Exception) as exc:
                 logger.debug("Anthropic external creds check failed: %s", exc)
         if not has_creds:
             continue
@@ -1213,7 +1215,7 @@ def list_authenticated_providers(
                 from agent.bedrock_adapter import bedrock_model_ids_or_none
                 _ids = bedrock_model_ids_or_none()
                 model_ids = _ids if _ids is not None else (curated.get(hermes_slug, []) or curated.get(pid, []))
-            except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
+            except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError, Exception):
                 model_ids = curated.get(hermes_slug, []) or curated.get(pid, [])
         else:
             # Use curated list — look up by Hermes slug, fall back to overlay key
@@ -1266,7 +1268,7 @@ def list_authenticated_providers(
                     or _cp.slug in _cp_pool_store
                 ):
                     _cp_has_creds = True
-            except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
+            except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError, Exception):
                 pass
         if not _cp_has_creds:
             try:
@@ -1297,7 +1299,7 @@ def list_authenticated_providers(
                 from agent.bedrock_adapter import bedrock_model_ids_or_none
                 _ids = bedrock_model_ids_or_none()
                 _cp_model_ids = _ids if _ids is not None else curated.get(_cp.slug, [])
-            except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
+            except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError, Exception):
                 _cp_model_ids = curated.get(_cp.slug, [])
         else:
             _cp_model_ids = curated.get(_cp.slug, [])
@@ -1590,7 +1592,7 @@ def list_picker_providers(
             try:
                 live = fetch_openrouter_models()
                 live_ids = [mid for mid, _ in live]
-            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError, Exception):
                 live_ids = list(p.get("models", []))
             p = dict(p)
             p["models"] = live_ids[:max_models]

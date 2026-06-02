@@ -6135,7 +6135,7 @@ def _install_hangup_protection(gateway_mode: bool = False):
         sys.stdout = _UpdateOutputStream(state["prev_stdout"], log_file)
         sys.stderr = _UpdateOutputStream(state["prev_stderr"], log_file)
         state["installed"] = True
-    except (ImportError, ModuleNotFoundError, OSError, PermissionError):
+    except (ImportError, ModuleNotFoundError, OSError, PermissionError, RuntimeError, Exception):
         # Leave stdio untouched on any setup failure.  Update continues
         # without mirroring.
         state["log_file"] = None
