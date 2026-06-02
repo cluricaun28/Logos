@@ -582,13 +582,7 @@ def _transcribe_groq(file_path: str, model_name: str) -> Dict[str, Any]:
 
     except PermissionError:
         return {"success": False, "transcript": "", "error": f"Permission denied: {file_path}"}
-    except APIConnectionError as e:
-        return {"success": False, "transcript": "", "error": f"Connection error: {e}"}
-    except APITimeoutError as e:
-        return {"success": False, "transcript": "", "error": f"Request timeout: {e}"}
-    except APIError as e:
-        return {"success": False, "transcript": "", "error": f"API error: {e}"}
-    except (OSError, PermissionError) as e:
+    except Exception as e:  # noqa: S110
         logger.error("Groq transcription failed: %s", e, exc_info=True)
         return {"success": False, "transcript": "", "error": f"Transcription failed: {e}"}
 
@@ -683,7 +677,7 @@ def _transcribe_mistral(file_path: str, model_name: str) -> Dict[str, Any]:
 
     except PermissionError:
         return {"success": False, "transcript": "", "error": f"Permission denied: {file_path}"}
-    except (ImportError, ModuleNotFoundError, OSError, PermissionError) as e:
+    except Exception as e:  # noqa: S110
         logger.error("Mistral transcription failed: %s", e, exc_info=True)
         return {"success": False, "transcript": "", "error": f"Mistral transcription failed: {type(e).__name__}"}
 

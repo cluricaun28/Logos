@@ -1932,6 +1932,9 @@ def terminal_tool(
                         break
             except (ImportError, ModuleNotFoundError):
                 pass
+            except Exception as e:
+                # Hook failed — log and fall through with original output
+                logger.error("terminal output transform hook exception: %s", e)
             
             # Truncate output if too long, keeping both head and tail
             from tools.tool_output_limits import get_max_bytes

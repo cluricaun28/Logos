@@ -322,7 +322,7 @@ def _handle_send(args):
         if isinstance(result, dict) and "error" in result:
             result["error"] = _sanitize_error_text(result["error"])
         return json.dumps(result)
-    except (AttributeError, ImportError, json.JSONDecodeError, KeyError, ModuleNotFoundError, TypeError, ValueError) as e:
+    except (AttributeError, ImportError, json.JSONDecodeError, KeyError, ModuleNotFoundError, TypeError, ValueError, RuntimeError) as e:
         return json.dumps(_error(f"Send failed: {e}"))
 
 
@@ -667,7 +667,7 @@ async def _send_telegram(token, chat_id, message, media_files=None, thread_id=No
                     chat_id=int_chat_id, text=formatted,
                     parse_mode=send_parse_mode, **thread_kwargs
                 )
-            except (RuntimeError) as md_error:
+            except Exception as md_error:
                 # Parse failed, fall back to plain text
                 if "parse" in str(md_error).lower() or "markdown" in str(md_error).lower() or "html" in str(md_error).lower():
                     logger.warning(
@@ -816,7 +816,7 @@ async def _send_discord(token, chat_id, message, thread_id=None, media_files=Non
             try:
                 from gateway.channel_directory import lookup_channel_type
                 _channel_type = lookup_channel_type("discord", chat_id)
-            except (ImportError, ModuleNotFoundError):
+            except (ImportError, ModuleNotFoundError, Exception):
                 pass
 
             if _channel_type == "forum":
@@ -1344,7 +1344,7 @@ async def _send_dingtalk(extra, chat_id, message):
             if data.get("errcode", 0) != 0:
                 return _error(f"DingTalk API error: {data.get('errmsg', 'unknown')}")
         return {"success": True, "platform": "dingtalk", "chat_id": chat_id}
-    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
+    except Exception as e:  # noqa: S110
         return _error(f"DingTalk send failed: {e}")
 
 

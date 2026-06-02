@@ -1002,6 +1002,19 @@ def _build_child_agent(
         effective_acp_command = None
         effective_acp_args = []
 
+    # When override_provider is set, clear parent's provider filters so the
+    # child uses only the specified provider without restriction.
+    if override_provider:
+        parent_providers_allowed = None
+        parent_providers_ignored = None
+        parent_providers_order = None
+        parent_provider_sort = None
+    else:
+        parent_providers_allowed = getattr(parent_agent, "providers_allowed", None)
+        parent_providers_ignored = getattr(parent_agent, "providers_ignored", None)
+        parent_providers_order = getattr(parent_agent, "providers_order", None)
+        parent_provider_sort = getattr(parent_agent, "provider_sort", None)
+
     if override_acp_command:
         # If explicitly forcing an ACP transport override, the provider MUST be copilot-acp
         # so run_agent.py initializes the CopilotACPClient.
@@ -1057,10 +1070,10 @@ def _build_child_agent(
         thinking_callback=child_thinking_cb,
         session_db=getattr(parent_agent, "_session_db", None),
         parent_session_id=getattr(parent_agent, "session_id", None),
-        providers_allowed=parent_agent.providers_allowed,
-        providers_ignored=parent_agent.providers_ignored,
-        providers_order=parent_agent.providers_order,
-        provider_sort=parent_agent.provider_sort,
+        providers_allowed=parent_providers_allowed,
+        providers_ignored=parent_providers_ignored,
+        providers_order=parent_providers_order,
+        provider_sort=parent_provider_sort,
         tool_progress_callback=child_progress_cb,
         iteration_budget=None,  # fresh budget per subagent
     )

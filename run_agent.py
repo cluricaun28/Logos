@@ -4549,7 +4549,7 @@ class AIAgent:
         try:
             from tools.process_registry import process_registry
             process_registry.kill_all(task_id=task_id)
-        except (ImportError, AttributeError, TypeError):
+        except (ImportError, AttributeError, TypeError, RuntimeError):
             pass
 
         # 2. Clean terminal sandbox environments

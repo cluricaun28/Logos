@@ -536,9 +536,15 @@ def read_file_tool(path: str, offset: int = 1, limit: int = 500, task_id: str = 
                 pass  # stat failed — fall through to full read
 
         # ── Perform the read ──────────────────────────────────────────
-        file_ops = _get_file_ops(task_id)
-        result = file_ops.read_file(path, offset, limit)
-        result_dict = result.to_dict()
+        try:
+            file_ops = _get_file_ops(task_id)
+            result = file_ops.read_file(path, offset, limit)
+            result_dict = result.to_dict()
+        except Exception as e:
+            return json.dumps({
+                "error": f"Failed to read file: {str(e)}",
+                "path": path,
+            }, ensure_ascii=False)
 
         # ── Character-count guard ─────────────────────────────────────
         # We're model-agnostic so we can't count tokens; characters are

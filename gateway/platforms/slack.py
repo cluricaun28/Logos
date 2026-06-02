@@ -1798,7 +1798,7 @@ class SlackAdapter(BasePlatformAdapter):
                     cached = await self._download_slack_file(url, ext, team_id=team_id)
                     media_urls.append(cached)
                     media_types.append(mimetype)
-                except (RuntimeError) as e:  # pragma: no cover - defensive logging:
+                except (RuntimeError, Exception) as e:  # noqa: S110  # pragma: no cover - defensive logging:
                     detail = self._describe_slack_download_failure(e, file_obj=f)
                     if detail:
                         attachment_notices.append(detail)
@@ -1813,7 +1813,7 @@ class SlackAdapter(BasePlatformAdapter):
                     cached = await self._download_slack_file(url, ext, audio=True, team_id=team_id)
                     media_urls.append(cached)
                     media_types.append(mimetype)
-                except (RuntimeError) as e:  # pragma: no cover - defensive logging:
+                except (RuntimeError, Exception) as e:  # noqa: S110  # pragma: no cover - defensive logging:
                     detail = self._describe_slack_download_failure(e, file_obj=f)
                     if detail:
                         attachment_notices.append(detail)

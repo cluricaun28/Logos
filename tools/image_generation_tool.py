@@ -448,7 +448,7 @@ def _submit_fal_request(model: str, arguments: Dict[str, Any]):
             arguments=arguments,
             headers=request_headers,
         )
-    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
+    except Exception as exc:  # noqa: S110
         # 4xx from the managed gateway typically means the portal doesn't
         # currently proxy this model (allowlist miss, billing gate, etc.)
         # — surface a clearer message with actionable remediation instead

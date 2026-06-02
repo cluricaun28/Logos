@@ -697,7 +697,7 @@ def _get_cron_approval_mode() -> str:
         if mode in ("approve", "off", "allow", "yes"):
             return "approve"
         return "deny"
-    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
+    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError, RuntimeError):
         return "deny"
 
 

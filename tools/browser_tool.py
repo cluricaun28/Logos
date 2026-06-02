@@ -248,7 +248,7 @@ def _resolve_cdp_override(cdp_url: str) -> str:
         response = requests.get(version_url, timeout=10)
         response.raise_for_status()
         payload = response.json()
-    except (AttributeError, KeyError, TypeError) as exc:
+    except (AttributeError, KeyError, TypeError, RuntimeError) as exc:
         logger.warning("Failed to resolve CDP endpoint %s via %s: %s", raw, version_url, exc)
         return raw
 

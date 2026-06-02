@@ -999,7 +999,7 @@ def skill_view(
         # Read the file once — reused for platform check and main content below
         try:
             content = skill_md.read_text(encoding="utf-8")
-        except (OSError, PermissionError) as e:
+        except (OSError, PermissionError, UnicodeDecodeError) as e:
             return json.dumps(
                 {
                     "success": False,
