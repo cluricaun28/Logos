@@ -90,6 +90,9 @@ class TestFirecrawlClientConfig:
 
     def test_tool_gateway_scheme_can_switch_derived_gateway_origin_to_http(self):
         """Shared gateway scheme should allow local plain-http vendor hosts."""
+        # Clear any direct Firecrawl URL that would override the tool gateway
+        os.environ.pop("FIRECRAWL_URL", None)
+        os.environ.pop("FIRECRAWL_API_URL", None)
         with patch.dict(os.environ, {
             "TOOL_GATEWAY_DOMAIN": "nousresearch.com",
             "TOOL_GATEWAY_SCHEME": "http",
@@ -117,6 +120,9 @@ class TestFirecrawlClientConfig:
 
     def test_explicit_firecrawl_gateway_url_takes_precedence(self):
         """An explicit Firecrawl gateway origin should override the shared domain."""
+        # Clear any direct Firecrawl URL that would override the tool gateway
+        os.environ.pop("FIRECRAWL_URL", None)
+        os.environ.pop("FIRECRAWL_API_URL", None)
         with patch.dict(os.environ, {
             "FIRECRAWL_GATEWAY_URL": "https://firecrawl-gateway.localhost:3009/",
             "TOOL_GATEWAY_DOMAIN": "nousresearch.com",
@@ -132,6 +138,9 @@ class TestFirecrawlClientConfig:
 
     def test_default_gateway_domain_targets_nous_production_origin(self):
         """Default gateway origin should point at the Firecrawl vendor hostname."""
+        # Clear any direct Firecrawl URL that would override the tool gateway
+        os.environ.pop("FIRECRAWL_URL", None)
+        os.environ.pop("FIRECRAWL_API_URL", None)
         with patch("tools.web_tools._read_nous_access_token", return_value="nous-token"):
             with patch("tools.web_tools.Firecrawl") as mock_fc:
                 from tools.web_tools import _get_firecrawl_client
@@ -233,13 +242,17 @@ class TestFirecrawlClientConfig:
                 result = _get_firecrawl_client()
                 assert result is not None
 
-    # ── Edge cases ───────────────────────────────────────────────────
+# ── Edge cases ───────────────────────────────────────────────────
 
-    def test_empty_string_key_no_url_raises(self):
-        """FIRECRAWL_API_KEY='' with no URL → should raise."""
-        with patch.dict(os.environ, {"FIRECRAWL_API_KEY": ""}):
-            with patch("tools.web_tools.Firecrawl"):
-                with patch("tools.web_tools._read_nous_access_token", return_value=None):
+def test_empty_string_key_no_url_raises():
+    """FIRECRAWL_API_KEY=*** with no URL → should raise."""
+    # Clear any direct Firecrawl URL that would override the tool gateway
+    os.environ.pop("FIRECRAWL_URL", None)
+    os.environ.pop("FIRECRAWL_API_URL", None)
+    with patch.dict(os.environ, {"FIRECRAWL_API_KEY": ""}):
+        with patch("tools.web_tools.Firecrawl"):
+            with patch("tools.web_tools._read_nous_access_token", return_value=None):
+                with patch("tools.web_tools._is_tool_gateway_ready", return_value=False):
                     from tools.web_tools import _get_firecrawl_client
                     with pytest.raises(ValueError):
                         _get_firecrawl_client()
@@ -585,9 +598,14 @@ class TestCheckWebApiKey:
             assert check_web_api_key() is True
 
     def test_no_keys_returns_false(self):
+        # Patch all the gateway/firecrawl detection paths
         with patch("tools.web_tools._is_tool_gateway_ready", return_value=False):
-            from tools.web_tools import check_web_api_key
-            assert check_web_api_key() is False
+            with patch("tools.web_tools._has_direct_firecrawl_config", return_value=False):
+                # Clear any direct Firecrawl env vars
+                for key in ("FIRECRAWL_API_KEY", "FIRECRAWL_API_URL", "FIRECRAWL_URL"):
+                    os.environ.pop(key, None)
+                from tools.web_tools import check_web_api_key
+                assert check_web_api_key() is False
 
     def test_both_keys_returns_true(self):
         with patch.dict(os.environ, {
@@ -612,11 +630,15 @@ class TestCheckWebApiKey:
             assert check_web_api_key() is True
 
     def test_configured_backend_must_match_available_provider(self):
+        # Clear any direct Firecrawl URL that would override the tool gateway
+        os.environ.pop("FIRECRAWL_URL", None)
+        os.environ.pop("FIRECRAWL_API_URL", None)
         with patch("tools.web_tools._load_web_config", return_value={"backend": "parallel"}):
             with patch("tools.web_tools._is_tool_gateway_ready", return_value=False):
-                with patch.dict(os.environ, {"FIRECRAWL_GATEWAY_URL": "http://127.0.0.1:3002"}, clear=False):
-                    from tools.web_tools import check_web_api_key
-                    assert check_web_api_key() is False
+                with patch("tools.web_tools._has_direct_firecrawl_config", return_value=False):
+                    with patch.dict(os.environ, {"FIRECRAWL_GATEWAY_URL": "http://127.0.0.1:3002"}, clear=False):
+                        from tools.web_tools import check_web_api_key
+                        assert check_web_api_key() is False
 
     def test_configured_firecrawl_backend_accepts_managed_gateway(self):
         with patch("tools.web_tools._load_web_config", return_value={"backend": "firecrawl"}):
