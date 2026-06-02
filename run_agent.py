@@ -4478,7 +4478,7 @@ class AIAgent:
         try:
             self._memory_manager.sync_all(original_user_message, final_response)
             self._memory_manager.queue_prefetch_all(original_user_message)
-        except (AttributeError, TypeError, OSError) as _e:
+        except Exception as _e:
             logger.warning("Memory sync/queue_prefetch failed (non-fatal): %s", _e)
 
     def release_clients(self) -> None:
@@ -6205,7 +6205,7 @@ class AIAgent:
                         api_kwargs=api_kwargs,
                     )
                     result["response"] = request_client_holder["client"].chat.completions.create(**api_kwargs)
-            except (ConnectionError, TimeoutError, OSError, AttributeError, TypeError) as e:
+            except (ConnectionError, TimeoutError, OSError, AttributeError, TypeError, Exception) as e:
                 result["error"] = e
             finally:
                 request_client = request_client_holder.get("client")
@@ -7732,7 +7732,7 @@ class AIAgent:
             if caps is None:
                 return False
             return bool(caps.supports_vision)
-        except (AttributeError, TypeError):
+        except Exception:
             return False
 
     def _preprocess_anthropic_content(self, content: Any, role: str) -> Any:
