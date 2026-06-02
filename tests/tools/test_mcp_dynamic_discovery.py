@@ -88,12 +88,18 @@ class TestMessageHandler:
         from mcp.types import ServerNotification, ToolListChangedNotification
 
         server = MCPServerTask("notif_srv")
+
+        # MCPServerTask uses __slots__ so we can't override instance methods directly.
+        # Patch _refresh_tools on the class, and after the handler dispatches the
+        # notification, yield to the event loop so the background task can run.
         with patch.object(MCPServerTask, "_refresh_tools", new_callable=AsyncMock) as mock_refresh:
             handler = server._make_message_handler()
             notification = ServerNotification(
                 root=ToolListChangedNotification(method="notifications/tools/list_changed")
             )
             await handler(notification)
+            # _schedule_tools_refresh spawns a background task — yield to let it run
+            await asyncio.sleep(0)
             mock_refresh.assert_awaited_once()
 
     @pytest.mark.asyncio

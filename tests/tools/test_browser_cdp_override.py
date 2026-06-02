@@ -67,6 +67,8 @@ class TestResolveCdpOverride:
         monkeypatch.setattr(browser_tool, "_update_session_activity", lambda task_id: None)
         monkeypatch.setattr(browser_tool, "_get_cdp_override", lambda: "")
         monkeypatch.setattr(browser_tool, "_get_cloud_provider", lambda: provider)
+        # Prevent _ensure_cdp_supervisor from trying to start a real WebSocket connection
+        monkeypatch.setattr(browser_tool, "_ensure_cdp_supervisor", lambda task_id: None)
 
         with patch("tools.browser_tool.requests.get", return_value=response) as mock_get:
             session_info = browser_tool._get_session_info("task-browser-use")

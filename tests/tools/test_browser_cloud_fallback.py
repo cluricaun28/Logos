@@ -95,6 +95,8 @@ class TestCloudProviderRuntimeFallback:
         provider = Mock()
         monkeypatch.setattr(browser_tool, "_get_cloud_provider", lambda: provider)
         monkeypatch.setattr(browser_tool, "_get_cdp_override", lambda: "ws://host:9222/devtools/browser/abc")
+        # Prevent _ensure_cdp_supervisor from trying to start a real WebSocket connection
+        monkeypatch.setattr(browser_tool, "_ensure_cdp_supervisor", lambda task_id: None)
 
         session = browser_tool._get_session_info("task-5")
 
