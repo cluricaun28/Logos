@@ -47,7 +47,9 @@ from urllib.parse import urlparse, parse_qs, urlunparse
 #   (a) the single in-module `OpenAI(**client_kwargs)` call site at
 #       _create_openai_client, and
 #   (b) `patch("run_agent.OpenAI", ...)` test patterns used by ~28 test files.
-import fire
+if __name__ == "__main__":
+    import fire  # lazy import — not needed for test collection
+    fire.Fire(main)
 from datetime import datetime
 from pathlib import Path
 

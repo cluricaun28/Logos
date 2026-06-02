@@ -871,7 +871,7 @@ def get_model_info():
                 provider=provider,
                 config_context_length=None,  # ignore override — we want auto value
             )
-        except (ImportError, ModuleNotFoundError):
+        except Exception:  # noqa: S110 — any error should be handled gracefully
             auto_ctx = 0
 
         config_ctx_int = 0

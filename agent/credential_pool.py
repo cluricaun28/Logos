@@ -1266,7 +1266,7 @@ def _seed_from_singletons(provider: str, entries: List[PooledCredential]) -> Tup
                             "label": source,
                         },
                     )
-        except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError) as exc:
+        except Exception as exc:  # noqa: S110 — any error should be handled gracefully
             logger.debug("Copilot token seed failed: %s", exc)
 
     elif provider == "qwen-oauth":
@@ -1296,7 +1296,7 @@ def _seed_from_singletons(provider: str, entries: List[PooledCredential]) -> Tup
                             "label": creds.get("auth_file", source_name),
                         },
                     )
-        except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError) as exc:
+        except Exception as exc:  # noqa: S110 — any error should be handled gracefully
             logger.debug("Qwen OAuth token seed failed: %s", exc)
 
     elif provider == "openai-codex":

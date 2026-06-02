@@ -79,7 +79,7 @@ def generate_title(
         if failure_callback is not None:
             try:
                 failure_callback("title generation", e)
-            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
+            except Exception:  # noqa: S110 — callback errors must be swallowed
                 logger.debug("Title generation failure_callback raised", exc_info=True)
         return None
 

@@ -590,6 +590,7 @@ DEFAULT_CONFIG = {
     # cache_ttl must be "5m" or "1h" (Anthropic-supported tiers); other values are ignored.
     "prompt_caching": {
         "cache_ttl": "5m",
+        "cache_enabled": True,        # Enable prompt caching for Claude models
     },
 
     # AWS Bedrock provider configuration.

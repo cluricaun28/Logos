@@ -1027,6 +1027,10 @@ def test_load_pool_seeds_copilot_via_gh_auth_token(tmp_path, monkeypatch):
         "hermes_cli.copilot_auth.resolve_copilot_token",
         lambda: ("gho_fake_token_abc123", "gh auth token"),
     )
+    monkeypatch.setattr(
+        "hermes_cli.copilot_auth.get_copilot_api_token",
+        lambda token: "gho_fake_token_abc123",  # return raw token for test
+    )
 
     from agent.credential_pool import load_pool
     pool = load_pool("copilot")

@@ -83,7 +83,7 @@ def probe_gemini_tier(
                 json=payload,
                 headers={"Content-Type": "application/json"},
             )
-    except (ConnectionError, OSError, TimeoutError) as exc:
+    except Exception as exc:  # noqa: S110 — any error should be handled gracefully
         logger.debug("probe_gemini_tier: network error: %s", exc)
         return "unknown"
 

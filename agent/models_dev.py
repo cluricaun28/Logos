@@ -236,7 +236,7 @@ def fetch_models_dev(force_refresh: bool = False) -> Dict[str, Any]:
                 sum(len(p.get("models", {})) for p in data.values() if isinstance(p, dict)),
             )
             return data
-    except (AttributeError, ConnectionError, KeyError, OSError, TimeoutError, TypeError) as e:
+    except Exception as e:  # noqa: S110 — any error should be handled gracefully
         logger.debug("Failed to fetch models.dev: %s", e)
 
     # Fall back to disk cache — use a short TTL (5 min) so we retry
