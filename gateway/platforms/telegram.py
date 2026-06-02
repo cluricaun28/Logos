@@ -397,7 +397,7 @@ class TelegramAdapter(BasePlatformAdapter):
             return
         try:
             await polling_req.shutdown()
-        except (RuntimeError):
+        except Exception:
             logger.debug(
                 "[%s] Polling request shutdown failed (non-fatal)",
                 self.name, exc_info=True,
@@ -407,7 +407,7 @@ class TelegramAdapter(BasePlatformAdapter):
             logger.debug(
                 "[%s] Polling request pool drained before reconnect", self.name
             )
-        except (RuntimeError):
+        except Exception:
             logger.debug(
                 "[%s] Polling request re-initialize failed (non-fatal)",
                 self.name, exc_info=True,
@@ -455,7 +455,7 @@ class TelegramAdapter(BasePlatformAdapter):
         try:
             if self._app and self._app.updater and self._app.updater.running:
                 await self._app.updater.stop()
-        except (RuntimeError):
+        except Exception:
             pass
 
         await self._drain_polling_connections()
@@ -471,7 +471,7 @@ class TelegramAdapter(BasePlatformAdapter):
                 self.name, attempt,
             )
             self._polling_network_error_count = 0
-        except (RuntimeError) as retry_err:
+        except Exception as retry_err:
             logger.warning("[%s] Telegram polling reconnect failed: %s", self.name, retry_err)
             # start_polling failed — polling is dead and no further error
             # callbacks will fire, so schedule the next retry ourselves.

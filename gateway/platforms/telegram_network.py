@@ -95,7 +95,7 @@ class TelegramFallbackTransport(httpx.AsyncBaseTransport):
                                 ip,
                             )
                 return response
-            except (RuntimeError) as exc:
+            except Exception as exc:
                 last_error = exc
                 if not _is_retryable_connect_error(exc):
                     raise
