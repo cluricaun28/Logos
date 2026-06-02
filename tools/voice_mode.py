@@ -135,7 +135,7 @@ def detect_audio_environment() -> dict:
                     notices.append("No PortAudio devices detected, but Termux:API microphone capture is available")
                 else:
                     warnings.append("No audio input/output devices detected")
-        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError, Exception):
             # In WSL with PulseAudio, device queries can fail even though
             # recording/playback works fine. Don't block if PULSE_SERVER is set.
             if os.environ.get('PULSE_SERVER'):
@@ -355,7 +355,7 @@ class TermuxAudioRecorder:
             self._current_rms = 0
         try:
             self._stop_termux_recording()
-        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError, Exception):
             pass
         if path and os.path.isfile(path):
             try:
@@ -556,7 +556,7 @@ class AudioRecorder:
             if stream is not None:
                 try:
                     stream.close()
-                except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
+                except (AttributeError, KeyError, OSError, RuntimeError, TypeError, Exception):
                     pass
             raise RuntimeError(
                 f"Failed to open audio input stream: {e}. "
@@ -622,7 +622,7 @@ class AudioRecorder:
             try:
                 stream.stop()
                 stream.close()
-            except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError, Exception):
                 pass
 
         t = threading.Thread(target=_do_close, daemon=True)
@@ -831,13 +831,13 @@ def stop_playback() -> None:
         try:
             proc.terminate()
             logger.info("Audio playback interrupted")
-        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError, Exception):
             pass
     # Also stop sounddevice playback if active
     try:
         sd, _ = _import_audio()
         sd.stop()
-    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError, Exception):
         pass
 
 

@@ -1396,7 +1396,8 @@ class TestDelegateHeartbeat(unittest.TestCase):
         child.run_conversation.side_effect = slow_run
 
         # Patch the heartbeat interval to fire quickly
-        with patch("tools.delegate_tool._HEARTBEAT_INTERVAL", 0.05):
+        with patch("tools.delegate_tool._HEARTBEAT_INTERVAL", 0.05), \
+             patch("tools.delegate_tool._HEARTBEAT_STALE_CYCLES_IDLE", 5):
             _run_single_child(
                 task_index=0,
                 goal="Test heartbeat",
@@ -1431,7 +1432,8 @@ class TestDelegateHeartbeat(unittest.TestCase):
             "final_response": "done", "completed": True, "api_calls": 1,
         }
 
-        with patch("tools.delegate_tool._HEARTBEAT_INTERVAL", 0.05):
+        with patch("tools.delegate_tool._HEARTBEAT_INTERVAL", 0.05), \
+             patch("tools.delegate_tool._HEARTBEAT_STALE_CYCLES_IDLE", 5):
             _run_single_child(
                 task_index=0,
                 goal="Test cleanup",
@@ -1467,7 +1469,8 @@ class TestDelegateHeartbeat(unittest.TestCase):
 
         child.run_conversation.side_effect = slow_fail
 
-        with patch("tools.delegate_tool._HEARTBEAT_INTERVAL", 0.05):
+        with patch("tools.delegate_tool._HEARTBEAT_INTERVAL", 0.05), \
+             patch("tools.delegate_tool._HEARTBEAT_STALE_CYCLES_IDLE", 5):
             result = _run_single_child(
                 task_index=0,
                 goal="Test error cleanup",
@@ -1505,7 +1508,8 @@ class TestDelegateHeartbeat(unittest.TestCase):
 
         child.run_conversation.side_effect = slow_run
 
-        with patch("tools.delegate_tool._HEARTBEAT_INTERVAL", 0.05):
+        with patch("tools.delegate_tool._HEARTBEAT_INTERVAL", 0.05), \
+             patch("tools.delegate_tool._HEARTBEAT_STALE_CYCLES_IDLE", 5):
             _run_single_child(
                 task_index=0,
                 goal="Test desc fallback",
@@ -1559,7 +1563,8 @@ class TestDelegateHeartbeat(unittest.TestCase):
         # default _HEARTBEAT_STALE_CYCLES_IDLE=5, the old behavior would
         # trip after 0.25s and stop firing. We should see heartbeats
         # continuing through the full 0.4s run.
-        with patch("tools.delegate_tool._HEARTBEAT_INTERVAL", 0.05):
+        with patch("tools.delegate_tool._HEARTBEAT_INTERVAL", 0.05), \
+             patch("tools.delegate_tool._HEARTBEAT_STALE_CYCLES_IDLE", 5):
             _run_single_child(
                 task_index=0,
                 goal="Test long-running tool",
@@ -1607,7 +1612,8 @@ class TestDelegateHeartbeat(unittest.TestCase):
 
         # At interval 0.05s, idle threshold (5 cycles) trips at ~0.25s.
         # We should see the heartbeat stop firing well before 0.6s.
-        with patch("tools.delegate_tool._HEARTBEAT_INTERVAL", 0.05):
+        with patch("tools.delegate_tool._HEARTBEAT_INTERVAL", 0.05), \
+             patch("tools.delegate_tool._HEARTBEAT_STALE_CYCLES_IDLE", 5):
             _run_single_child(
                 task_index=0,
                 goal="Test wedged child",
