@@ -623,10 +623,12 @@ class _FakeThreadChannel(_discord_mod.Thread):
 
 
 def _fake_message(channel, *, content="Hello", author_id=42, display_name="Jezza"):
+    guild = getattr(channel, 'guild', SimpleNamespace(name="TestGuild", id=1))
     return SimpleNamespace(
         author=SimpleNamespace(id=author_id, display_name=display_name, bot=False),
         content=content,
         channel=channel,
+        guild=guild,
         attachments=[],
         mentions=[],
         reference=None,
