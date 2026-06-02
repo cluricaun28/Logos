@@ -56,10 +56,10 @@ class FakeDMChannel:
 
 
 class FakeTextChannel:
-    def __init__(self, channel_id: int = 1, name: str = "general", guild_name: str = "Hermes Server"):
+    def __init__(self, channel_id: int = 1, name: str = "general", guild_name: str = "Hermes Server", guild_id: int = 100):
         self.id = channel_id
         self.name = name
-        self.guild = SimpleNamespace(name=guild_name)
+        self.guild = SimpleNamespace(name=guild_name, id=guild_id)
         self.topic = None
 
 
@@ -86,9 +86,12 @@ def adapter(monkeypatch):
     return adapter
 
 
-def make_message(*, channel, content: str, mentions=None):
+def make_message(*, channel, content: str, mentions=None, guild=None, create_thread=True):
     author = SimpleNamespace(id=42, display_name="TestUser", name="TestUser")
-    return SimpleNamespace(
+    # Discord message.guild is the guild the message is in (None for DMs)
+    if guild is None and hasattr(channel, "guild"):
+        guild = channel.guild
+    msg = SimpleNamespace(
         id=123,
         content=content,
         mentions=list(mentions or []),
@@ -97,7 +100,11 @@ def make_message(*, channel, content: str, mentions=None):
         created_at=datetime.now(timezone.utc),
         channel=channel,
         author=author,
+        guild=guild,
     )
+    if create_thread:
+        msg.create_thread = AsyncMock(return_value=FakeThread(channel_id=999, name="test-thread"))
+    return msg
 
 
 # ── ignored_channels ─────────────────────────────────────────────────
