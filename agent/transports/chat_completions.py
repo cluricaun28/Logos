@@ -296,7 +296,40 @@ class ChatCompletionsTransport(ProviderTransport):
 
         # Reasoning
         if params.get("supports_reasoning", False):
-            if is_github_models:
+            is_lmstudio = params.get("is_lmstudio", False)
+            lmstudio_options = params.get("lmstudio_reasoning_options")
+            
+            if is_lmstudio:
+                # LM Studio: check if the requested effort is in allowed options
+                # If not, omit reasoning_effort so LM Studio falls back to default
+                _effort = "medium"
+                _enabled = True
+                if reasoning_config and isinstance(reasoning_config, dict):
+                    _effort = (reasoning_config.get("effort") or "medium").strip().lower()
+                    _enabled = reasoning_config.get("enabled", True)
+                    if not _enabled:
+                        _effort = "none"  # disabled reasoning maps to "none" effort
+                
+                # When no options are known (probe failed), fall back to legacy behavior
+                if lmstudio_options is None:
+                    api_kwargs["reasoning_effort"] = _effort
+                else:
+                    # Check if effort is in allowed options
+                    # LM Studio validates effort values strictly — if the user's
+                    # effort isn't in the allowed list, omit the field so the
+                    # model falls back to its default rather than rejecting the
+                    # request with 400.
+                    if _effort in lmstudio_options:
+                        api_kwargs["reasoning_effort"] = _effort
+                    elif "off" in lmstudio_options and _effort in ("none", "off"):
+                        # Toggle models: "off" aliases to none/off
+                        api_kwargs["reasoning_effort"] = "none"
+                    elif "on" in lmstudio_options and _effort in ("medium", "low"):
+                        # Toggle models: "on" aliases to medium/low (moderate reasoning)
+                        api_kwargs["reasoning_effort"] = _effort
+                    # else: omit entirely — let LM Studio fall back to default
+            
+            elif is_github_models:
                 gh_reasoning = params.get("github_reasoning_extra")
                 if gh_reasoning is not None:
                     extra_body["reasoning"] = gh_reasoning

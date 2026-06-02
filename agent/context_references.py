@@ -227,7 +227,7 @@ async def _expand_reference(
             if not content:
                 return f"{ref.raw}: no content extracted", None
             return None, f"🌐 {ref.raw} ({estimate_tokens_rough(content)} tokens)\n{content}"
-    except (RuntimeError) as exc:
+    except (RuntimeError, ValueError) as exc:
         return f"{ref.raw}: {exc}", None
 
     return f"{ref.raw}: unsupported reference type", None
