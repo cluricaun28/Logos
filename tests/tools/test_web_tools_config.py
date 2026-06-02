@@ -67,9 +67,13 @@ class TestFirecrawlClientConfig:
         """Neither key nor URL → ValueError with guidance."""
         with patch("tools.web_tools.Firecrawl"):
             with patch("tools.web_tools._read_nous_access_token", return_value=None):
-                from tools.web_tools import _get_firecrawl_client
-                with pytest.raises(ValueError, match="FIRECRAWL_API_KEY"):
-                    _get_firecrawl_client()
+                with patch("tools.web_tools._is_tool_gateway_ready", return_value=False):
+                    # Clear any direct Firecrawl env vars
+                    for key in ("FIRECRAWL_API_KEY", "FIRECRAWL_API_URL", "FIRECRAWL_URL"):
+                        os.environ.pop(key, None)
+                    from tools.web_tools import _get_firecrawl_client
+                    with pytest.raises(ValueError, match="FIRECRAWL_API_KEY"):
+                        _get_firecrawl_client()
 
     def test_tool_gateway_domain_builds_firecrawl_gateway_origin(self):
         """Shared gateway domain should derive the Firecrawl vendor hostname."""
@@ -581,8 +585,9 @@ class TestCheckWebApiKey:
             assert check_web_api_key() is True
 
     def test_no_keys_returns_false(self):
-        from tools.web_tools import check_web_api_key
-        assert check_web_api_key() is False
+        with patch("tools.web_tools._is_tool_gateway_ready", return_value=False):
+            from tools.web_tools import check_web_api_key
+            assert check_web_api_key() is False
 
     def test_both_keys_returns_true(self):
         with patch.dict(os.environ, {
@@ -608,7 +613,7 @@ class TestCheckWebApiKey:
 
     def test_configured_backend_must_match_available_provider(self):
         with patch("tools.web_tools._load_web_config", return_value={"backend": "parallel"}):
-            with patch("tools.web_tools._read_nous_access_token", return_value="nous-token"):
+            with patch("tools.web_tools._is_tool_gateway_ready", return_value=False):
                 with patch.dict(os.environ, {"FIRECRAWL_GATEWAY_URL": "http://127.0.0.1:3002"}, clear=False):
                     from tools.web_tools import check_web_api_key
                     assert check_web_api_key() is False

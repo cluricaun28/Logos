@@ -44,7 +44,7 @@ def _fake_run_on_mcp_loop(coro, timeout=30):
 def _patch_mcp_server():
     """Patch _servers and the MCP event loop so _make_tool_handler can run."""
     fake_session = MagicMock()
-    fake_server = SimpleNamespace(session=fake_session)
+    fake_server = SimpleNamespace(session=fake_session, _rpc_lock=asyncio.Lock())
     with patch.dict(mcp_tool._servers, {"test-server": fake_server}), \
          patch("tools.mcp_tool._run_on_mcp_loop", side_effect=_fake_run_on_mcp_loop):
         yield fake_session
