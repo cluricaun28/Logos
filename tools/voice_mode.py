@@ -236,7 +236,7 @@ def play_beep(frequency: int = 880, duration: float = 0.12, count: int = 1) -> N
         while sd.get_stream() and sd.get_stream().active and time.monotonic() < deadline:
             time.sleep(0.01)
         sd.stop()
-    except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
+    except Exception as e:
         logger.debug("Beep playback failed: %s", e)
 
 
@@ -538,7 +538,7 @@ class AudioRecorder:
                         def _safe_cb():
                             try:
                                 cb()
-                            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
+                            except Exception as e:
                                 logger.error("Silence callback failed: %s", e, exc_info=True)
                         threading.Thread(target=_safe_cb, daemon=True).start()
 
@@ -552,7 +552,7 @@ class AudioRecorder:
                 callback=_callback,
             )
             stream.start()
-        except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
+        except Exception as e:
             if stream is not None:
                 try:
                     stream.close()
