@@ -89,7 +89,15 @@ def _ensure_discord_mock() -> None:
     discord_mod.ForumChannel = type("ForumChannel", (), {})
     discord_mod.Interaction = object
     discord_mod.Message = type("Message", (), {})
-
+    # AllowedMentions for discord.py mention-safety helper
+    class _FakeAllowedMentions:
+        def __init__(self, *, everyone=True, roles=True, users=True, replied_user=True):
+            self.everyone = everyone
+            self.roles = roles
+            self.users = users
+            self.replied_user = replied_user
+    discord_mod.AllowedMentions = _FakeAllowedMentions
+    discord_mod.DMChannel = type("DMChannel", (), {})
     # Embed: accept the kwargs production code / tests use
     # (title, description, color). MagicMock auto-attributes work too,
     # but some tests construct and inspect .title/.description directly.
