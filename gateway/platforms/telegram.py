@@ -504,7 +504,7 @@ class TelegramAdapter(BasePlatformAdapter):
             try:
                 if self._app and self._app.updater and self._app.updater.running:
                     await self._app.updater.stop()
-            except (RuntimeError):
+            except Exception:
                 pass
             await asyncio.sleep(RETRY_DELAY)
             await self._drain_polling_connections()
@@ -517,7 +517,7 @@ class TelegramAdapter(BasePlatformAdapter):
                 logger.info("[%s] Telegram polling resumed after conflict retry %d", self.name, self._polling_conflict_count)
                 self._polling_conflict_count = 0  # reset on success
                 return
-            except (RuntimeError) as retry_err:
+            except Exception as retry_err:
                 logger.warning("[%s] Telegram polling retry failed: %s", self.name, retry_err)
                 # Don't fall through to fatal yet — wait for the next conflict
                 # to trigger another retry attempt (up to MAX_CONFLICT_RETRIES).
@@ -2137,7 +2137,7 @@ class TelegramAdapter(BasePlatformAdapter):
                         action="typing",
                         message_thread_id=message_thread_id,
                     )
-                except (RuntimeError) as e:
+                except Exception as e:
                     if message_thread_id is not None and self._is_thread_not_found_error(e):
                         await self._bot.send_chat_action(
                             chat_id=int(chat_id),
