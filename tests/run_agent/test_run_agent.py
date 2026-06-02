@@ -57,7 +57,7 @@ def agent():
     """Minimal AIAgent with mocked OpenAI client and tool loading."""
     with (
         patch(
-            "run_agent.get_tool_definitions", return_value=_make_tool_defs("web_search")
+            "run_agent.get_selective_tool_definitions", return_value=_make_tool_defs("web_search")
         ),
         patch("run_agent.check_toolset_requirements", return_value={}),
         patch("run_agent.OpenAI"),
@@ -78,7 +78,7 @@ def agent_with_memory_tool():
     """Agent whose valid_tool_names includes 'memory'."""
     with (
         patch(
-            "run_agent.get_tool_definitions",
+            "run_agent.get_selective_tool_definitions",
             return_value=_make_tool_defs("web_search", "memory"),
         ),
         patch("run_agent.check_toolset_requirements", return_value={}),
@@ -115,7 +115,7 @@ def test_aiagent_reuses_existing_errors_log_handler():
 
         with (
             patch(
-                "run_agent.get_tool_definitions",
+                "run_agent.get_selective_tool_definitions",
                 return_value=_make_tool_defs("web_search"),
             ),
             patch("run_agent.check_toolset_requirements", return_value={}),
@@ -155,7 +155,7 @@ class TestProviderModelNormalization:
     def test_aiagent_strips_matching_native_provider_prefix(self):
         with (
             patch(
-                "run_agent.get_tool_definitions", return_value=_make_tool_defs("web_search")
+                "run_agent.get_selective_tool_definitions", return_value=_make_tool_defs("web_search")
             ),
             patch("run_agent.check_toolset_requirements", return_value={}),
             patch("run_agent.OpenAI"),
@@ -175,7 +175,7 @@ class TestProviderModelNormalization:
     def test_aiagent_keeps_aggregator_vendor_slug(self):
         with (
             patch(
-                "run_agent.get_tool_definitions", return_value=_make_tool_defs("web_search")
+                "run_agent.get_selective_tool_definitions", return_value=_make_tool_defs("web_search")
             ),
             patch("run_agent.check_toolset_requirements", return_value={}),
             patch("run_agent.OpenAI"),
@@ -603,7 +603,7 @@ class TestInit:
     def test_anthropic_base_url_accepted(self):
         """Anthropic base URLs should route to native Anthropic client."""
         with (
-            patch("run_agent.get_tool_definitions", return_value=[]),
+            patch("run_agent.get_selective_tool_definitions", return_value=[]),
             patch("run_agent.check_toolset_requirements", return_value={}),
             patch("agent.anthropic_adapter._anthropic_sdk") as mock_anthropic,
         ):
@@ -620,7 +620,7 @@ class TestInit:
     def test_prompt_caching_claude_openrouter(self):
         """Claude model via OpenRouter should enable prompt caching."""
         with (
-            patch("run_agent.get_tool_definitions", return_value=[]),
+            patch("run_agent.get_selective_tool_definitions", return_value=[]),
             patch("run_agent.check_toolset_requirements", return_value={}),
             patch("run_agent.OpenAI"),
         ):
@@ -637,7 +637,7 @@ class TestInit:
     def test_prompt_caching_non_claude(self):
         """Non-Claude model should disable prompt caching."""
         with (
-            patch("run_agent.get_tool_definitions", return_value=[]),
+            patch("run_agent.get_selective_tool_definitions", return_value=[]),
             patch("run_agent.check_toolset_requirements", return_value={}),
             patch("run_agent.OpenAI"),
         ):
@@ -654,7 +654,7 @@ class TestInit:
     def test_prompt_caching_non_openrouter(self):
         """Custom base_url (not OpenRouter) should disable prompt caching."""
         with (
-            patch("run_agent.get_tool_definitions", return_value=[]),
+            patch("run_agent.get_selective_tool_definitions", return_value=[]),
             patch("run_agent.check_toolset_requirements", return_value={}),
             patch("run_agent.OpenAI"),
         ):
@@ -671,7 +671,7 @@ class TestInit:
     def test_prompt_caching_native_anthropic(self):
         """Native Anthropic provider should enable prompt caching."""
         with (
-            patch("run_agent.get_tool_definitions", return_value=[]),
+            patch("run_agent.get_selective_tool_definitions", return_value=[]),
             patch("run_agent.check_toolset_requirements", return_value={}),
             patch("agent.anthropic_adapter._anthropic_sdk"),
         ):
@@ -688,7 +688,7 @@ class TestInit:
     def test_prompt_caching_cache_ttl_defaults_without_config(self):
         """cache_ttl stays 5m when prompt_caching is absent from config."""
         with (
-            patch("run_agent.get_tool_definitions", return_value=[]),
+            patch("run_agent.get_selective_tool_definitions", return_value=[]),
             patch("run_agent.check_toolset_requirements", return_value={}),
             patch("run_agent.OpenAI"),
             patch("hermes_cli.config.load_config", return_value={}),
@@ -706,7 +706,7 @@ class TestInit:
     def test_prompt_caching_cache_ttl_custom_1h(self):
         """prompt_caching.cache_ttl 1h is applied when present in config."""
         with (
-            patch("run_agent.get_tool_definitions", return_value=[]),
+            patch("run_agent.get_selective_tool_definitions", return_value=[]),
             patch("run_agent.check_toolset_requirements", return_value={}),
             patch("run_agent.OpenAI"),
             patch(
@@ -727,7 +727,7 @@ class TestInit:
     def test_prompt_caching_cache_ttl_invalid_falls_back(self):
         """Non-Anthropic TTL values keep default 5m without raising."""
         with (
-            patch("run_agent.get_tool_definitions", return_value=[]),
+            patch("run_agent.get_selective_tool_definitions", return_value=[]),
             patch("run_agent.check_toolset_requirements", return_value={}),
             patch("run_agent.OpenAI"),
             patch(
@@ -749,7 +749,7 @@ class TestInit:
         """valid_tool_names should contain names from loaded tools."""
         tools = _make_tool_defs("web_search", "terminal")
         with (
-            patch("run_agent.get_tool_definitions", return_value=tools),
+            patch("run_agent.get_selective_tool_definitions", return_value=tools),
             patch("run_agent.check_toolset_requirements", return_value={}),
             patch("run_agent.OpenAI"),
         ):
@@ -768,7 +768,7 @@ class TestInit:
     def test_session_id_auto_generated(self):
         """Session ID should be auto-generated in YYYYMMDD_HHMMSS_<hex6> format."""
         with (
-            patch("run_agent.get_tool_definitions", return_value=[]),
+            patch("run_agent.get_selective_tool_definitions", return_value=[]),
             patch("run_agent.check_toolset_requirements", return_value={}),
             patch("run_agent.OpenAI"),
         ):
@@ -901,7 +901,7 @@ class TestBuildSystemPrompt:
         }
 
         with (
-            patch("run_agent.get_tool_definitions", return_value=tools),
+            patch("run_agent.get_selective_tool_definitions", return_value=tools),
             patch(
                 "run_agent.check_toolset_requirements",
                 side_effect=AssertionError("should not re-check toolset requirements"),
@@ -932,7 +932,7 @@ class TestToolUseEnforcementConfig:
         """Create an agent with tools and a specific enforcement config."""
         with (
             patch(
-                "run_agent.get_tool_definitions",
+                "run_agent.get_selective_tool_definitions",
                 return_value=_make_tool_defs("terminal", "web_search"),
             ),
             patch("run_agent.check_toolset_requirements", return_value={}),
@@ -1032,7 +1032,7 @@ class TestToolUseEnforcementConfig:
         """Even with enforcement=true, no injection when agent has no tools."""
         from agent.prompt_builder import TOOL_USE_ENFORCEMENT_GUIDANCE
         with (
-            patch("run_agent.get_tool_definitions", return_value=[]),
+            patch("run_agent.get_selective_tool_definitions", return_value=[]),
             patch("run_agent.check_toolset_requirements", return_value={}),
             patch("run_agent.OpenAI"),
             patch(
@@ -3896,7 +3896,7 @@ class TestFallbackAnthropicProvider:
 
 def test_aiagent_uses_copilot_acp_client():
     with (
-        patch("run_agent.get_tool_definitions", return_value=_make_tool_defs("web_search")),
+        patch("run_agent.get_selective_tool_definitions", return_value=_make_tool_defs("web_search")),
         patch("run_agent.check_toolset_requirements", return_value={}),
         patch("run_agent.OpenAI") as mock_openai,
         patch("agent.copilot_acp_client.CopilotACPClient") as mock_acp_client,
@@ -3992,7 +3992,7 @@ class TestAnthropicBaseUrlPassthrough:
 
     def test_custom_proxy_base_url_passed_through(self):
         with (
-            patch("run_agent.get_tool_definitions", return_value=_make_tool_defs("web_search")),
+            patch("run_agent.get_selective_tool_definitions", return_value=_make_tool_defs("web_search")),
             patch("run_agent.check_toolset_requirements", return_value={}),
             patch("agent.anthropic_adapter.build_anthropic_client") as mock_build,
         ):
@@ -4011,7 +4011,7 @@ class TestAnthropicBaseUrlPassthrough:
 
     def test_none_base_url_passed_as_none(self):
         with (
-            patch("run_agent.get_tool_definitions", return_value=_make_tool_defs("web_search")),
+            patch("run_agent.get_selective_tool_definitions", return_value=_make_tool_defs("web_search")),
             patch("run_agent.check_toolset_requirements", return_value={}),
             patch("agent.anthropic_adapter.build_anthropic_client") as mock_build,
         ):
@@ -4032,7 +4032,7 @@ class TestAnthropicBaseUrlPassthrough:
 class TestAnthropicCredentialRefresh:
     def test_try_refresh_anthropic_client_credentials_rebuilds_client(self):
         with (
-            patch("run_agent.get_tool_definitions", return_value=_make_tool_defs("web_search")),
+            patch("run_agent.get_selective_tool_definitions", return_value=_make_tool_defs("web_search")),
             patch("run_agent.check_toolset_requirements", return_value={}),
             patch("agent.anthropic_adapter.build_anthropic_client") as mock_build,
         ):
@@ -4068,7 +4068,7 @@ class TestAnthropicCredentialRefresh:
 
     def test_try_refresh_anthropic_client_credentials_returns_false_when_token_unchanged(self):
         with (
-            patch("run_agent.get_tool_definitions", return_value=_make_tool_defs("web_search")),
+            patch("run_agent.get_selective_tool_definitions", return_value=_make_tool_defs("web_search")),
             patch("run_agent.check_toolset_requirements", return_value={}),
             patch("agent.anthropic_adapter.build_anthropic_client", return_value=MagicMock()),
         ):
@@ -4096,7 +4096,7 @@ class TestAnthropicCredentialRefresh:
 
     def test_anthropic_messages_create_preflights_refresh(self):
         with (
-            patch("run_agent.get_tool_definitions", return_value=_make_tool_defs("web_search")),
+            patch("run_agent.get_selective_tool_definitions", return_value=_make_tool_defs("web_search")),
             patch("run_agent.check_toolset_requirements", return_value={}),
             patch("agent.anthropic_adapter.build_anthropic_client", return_value=MagicMock()),
         ):
@@ -4790,7 +4790,7 @@ class TestMemoryNudgeCounterPersistence:
 
     def test_counters_initialized_in_init(self):
         """Counters must exist on the agent after __init__."""
-        with patch("run_agent.get_tool_definitions", return_value=[]):
+        with patch("run_agent.get_selective_tool_definitions", return_value=[]):
             a = AIAgent(
                 model="test", api_key="test-key", base_url="http://localhost:1234/v1",
                 provider="openrouter", skip_context_files=True, skip_memory=True,
