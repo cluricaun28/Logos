@@ -6390,7 +6390,7 @@ class AIAgent:
             try:
                 cb(text)
                 delivered = True
-            except (AttributeError, TypeError):
+            except Exception:
                 pass
         if delivered:
             self._record_streamed_assistant_text(text)
@@ -10057,7 +10057,7 @@ class AIAgent:
                 else:
                     final_response = "I reached the iteration limit and couldn't generate a summary."
 
-        except (ConnectionError, TimeoutError, OSError, TypeError, AttributeError) as e:
+        except Exception as e:
             final_response = f"I reached the maximum iterations ({self.max_iterations}) but couldn't summarize. Error: {str(e)}"
 
         return final_response
