@@ -36,7 +36,7 @@ def cli_obj(_isolate):
         obj._provider_source = None
         # Mock agent with context archiver
         obj.agent = SimpleNamespace(
-            context_archiver=SimpleNamespace(context_length=None)
+            context_compressor=SimpleNamespace(context_length=None)
         )
         return obj
 
@@ -46,7 +46,7 @@ class TestLowContextWarning:
 
     def test_no_warning_for_normal_context(self, cli_obj):
         """No warning when context is 32k+."""
-        cli_obj.agent.context_archiver.context_length = 32768
+        cli_obj.agent.context_compressor.context_length = 32768
         with patch("cli.get_tool_definitions", return_value=[]), \
              patch("cli.build_welcome_banner"):
             cli_obj.show_banner()
@@ -58,7 +58,7 @@ class TestLowContextWarning:
 
     def test_warning_for_low_context(self, cli_obj):
         """Warning shown when context is 4096 (Ollama default)."""
-        cli_obj.agent.context_archiver.context_length = 4096
+        cli_obj.agent.context_compressor.context_length = 4096
         with patch("cli.get_tool_definitions", return_value=[]), \
              patch("cli.build_welcome_banner"):
             cli_obj.show_banner()
@@ -70,7 +70,7 @@ class TestLowContextWarning:
 
     def test_warning_for_2048_context(self, cli_obj):
         """Warning shown for 2048 tokens (common LM Studio default)."""
-        cli_obj.agent.context_archiver.context_length = 2048
+        cli_obj.agent.context_compressor.context_length = 2048
         with patch("cli.get_tool_definitions", return_value=[]), \
              patch("cli.build_welcome_banner"):
             cli_obj.show_banner()
@@ -81,7 +81,7 @@ class TestLowContextWarning:
 
     def test_no_warning_at_boundary(self, cli_obj):
         """No warning at exactly 8192 — 8192 is borderline but included in warning."""
-        cli_obj.agent.context_archiver.context_length = 8192
+        cli_obj.agent.context_compressor.context_length = 8192
         with patch("cli.get_tool_definitions", return_value=[]), \
              patch("cli.build_welcome_banner"):
             cli_obj.show_banner()
@@ -92,7 +92,7 @@ class TestLowContextWarning:
 
     def test_no_warning_above_boundary(self, cli_obj):
         """No warning at 16384."""
-        cli_obj.agent.context_archiver.context_length = 16384
+        cli_obj.agent.context_compressor.context_length = 16384
         with patch("cli.get_tool_definitions", return_value=[]), \
              patch("cli.build_welcome_banner"):
             cli_obj.show_banner()
@@ -103,7 +103,7 @@ class TestLowContextWarning:
 
     def test_ollama_specific_hint(self, cli_obj):
         """Ollama-specific fix shown when port 11434 detected."""
-        cli_obj.agent.context_archiver.context_length = 4096
+        cli_obj.agent.context_compressor.context_length = 4096
         cli_obj.base_url = "http://localhost:11434/v1"
         with patch("cli.get_tool_definitions", return_value=[]), \
              patch("cli.build_welcome_banner"):
@@ -115,7 +115,7 @@ class TestLowContextWarning:
 
     def test_lm_studio_specific_hint(self, cli_obj):
         """LM Studio-specific fix shown when port 1234 detected."""
-        cli_obj.agent.context_archiver.context_length = 2048
+        cli_obj.agent.context_compressor.context_length = 2048
         cli_obj.base_url = "http://localhost:1234/v1"
         with patch("cli.get_tool_definitions", return_value=[]), \
              patch("cli.build_welcome_banner"):
@@ -127,7 +127,7 @@ class TestLowContextWarning:
 
     def test_generic_hint_for_other_servers(self, cli_obj):
         """Generic fix shown for unknown servers."""
-        cli_obj.agent.context_archiver.context_length = 4096
+        cli_obj.agent.context_compressor.context_length = 4096
         cli_obj.base_url = "http://localhost:8080/v1"
         with patch("cli.get_tool_definitions", return_value=[]), \
              patch("cli.build_welcome_banner"):
@@ -139,7 +139,7 @@ class TestLowContextWarning:
 
     def test_no_warning_when_no_context_length(self, cli_obj):
         """No warning when context length is not yet known."""
-        cli_obj.agent.context_archiver.context_length = None
+        cli_obj.agent.context_compressor.context_length = None
         with patch("cli.get_tool_definitions", return_value=[]), \
              patch("cli.build_welcome_banner"):
             cli_obj.show_banner()
@@ -150,7 +150,7 @@ class TestLowContextWarning:
 
     def test_compact_banner_does_not_crash_on_narrow_terminal(self, cli_obj):
         """Compact mode should still have ctx_len defined for warning logic."""
-        cli_obj.agent.context_archiver.context_length = 4096
+        cli_obj.agent.context_compressor.context_length = 4096
 
         with patch("shutil.get_terminal_size", return_value=os.terminal_size((70, 40))), \
              patch("cli._build_compact_banner", return_value="compact banner"):

@@ -3196,7 +3196,7 @@ class HermesCLI:
             self._skip_paste_collapse = True
             target_buffer.open_in_editor(validate_and_handle=False)
             return True
-        except (AttributeError, TypeError, ValueError) as exc:
+        except Exception as exc:
             _cprint(f"{_DIM}Failed to open external editor: {exc}{_RST}")
             return False
 
@@ -3220,7 +3220,7 @@ class HermesCLI:
                 explicit_api_key=self._explicit_api_key,
                 explicit_base_url=self._explicit_base_url,
             )
-        except (AttributeError, TypeError, ValueError) as exc:
+        except Exception as exc:
             _primary_exc = exc
 
         # Primary provider auth failed — try fallback providers before giving up.
@@ -5289,7 +5289,7 @@ class HermesCLI:
                     base_url=result.base_url,
                     api_mode=result.api_mode,
                 )
-            except (AttributeError, TypeError, ValueError) as exc:
+            except Exception as exc:
                 _cprint(f"  ⚠ Agent swap failed ({exc}); change applied to next session.")
 
         self._pending_model_switch_note = (
@@ -5513,7 +5513,7 @@ class HermesCLI:
                     base_url=result.base_url,
                     api_mode=result.api_mode,
                 )
-            except (AttributeError, TypeError, ValueError) as exc:
+            except Exception as exc:
                 _cprint(f"  ⚠ Agent swap failed ({exc}); change applied to next session.")
 
         # Store a note to prepend to the next user message so the model
@@ -6305,7 +6305,7 @@ class HermesCLI:
             elif self._agent_running and self.agent is not None and hasattr(self.agent, "steer"):
                 try:
                     accepted = self.agent.steer(payload)
-                except (AttributeError, TypeError, ValueError) as exc:
+                except Exception as exc:
                     _cprint(f"  Steer failed: {exc}")
                 else:
                     if accepted:
@@ -8691,7 +8691,7 @@ class HermesCLI:
                         task_id=self.session_id,
                         persist_user_message=message if _voice_prefix else None,
                     )
-                except (AttributeError, TypeError, ValueError) as exc:
+                except Exception as exc:
                     logging.error("run_conversation raised: %s", exc, exc_info=True)
                     _summary = getattr(self.agent, '_summarize_api_error', lambda e: str(e)[:300])(exc)
                     result = {
@@ -9533,7 +9533,7 @@ class HermesCLI:
                             try:
                                 if self.agent is not None and hasattr(self.agent, "steer"):
                                     accepted = bool(self.agent.steer(text))
-                            except (AttributeError, TypeError, ValueError) as exc:
+                            except Exception as exc:
                                 _cprint(f"  {_DIM}Steer failed ({exc}) — queued for next turn.{_RST}")
                                 accepted = False
                             if accepted:

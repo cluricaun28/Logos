@@ -46,6 +46,7 @@ def _attach_agent(
             last_prompt_tokens=context_tokens,
             context_length=context_length,
             compression_count=compressions,
+            archive_count=0,
         ),
     )
     return cli_obj
@@ -291,7 +292,7 @@ class TestCLIUsageReport:
         assert "$" in output
         assert "0.064" in output
         assert "Session duration:" in output
-        assert "Compressions:" in output
+        assert "Archives:" in output
 
     def test_show_usage_marks_unknown_pricing(self, capsys):
         cli_obj = _attach_agent(

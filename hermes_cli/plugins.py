@@ -992,7 +992,7 @@ class PluginManager:
                 ret = cb(**kwargs)
                 if ret is not None:
                     results.append(ret)
-            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
+            except Exception as exc:
                 logger.warning(
                     "Hook '%s' callback %s raised: %s",
                     hook_name,

@@ -468,6 +468,7 @@ class TestInlineThinkBlockExtraction(unittest.TestCase):
         """Create a minimal agent with _build_assistant_message."""
         from run_agent import AIAgent
         agent = MagicMock(spec=AIAgent)
+        agent._strip_think_blocks = lambda c: c
         agent._build_assistant_message = AIAgent._build_assistant_message.__get__(agent)
         agent._extract_reasoning = AIAgent._extract_reasoning.__get__(agent)
         agent.verbose_logging = False
