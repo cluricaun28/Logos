@@ -1465,8 +1465,8 @@ def _resolve_attachment_path(raw_path: str) -> Path | None:
 def _format_process_notification(evt: dict) -> "str | None":
     """Format a process notification event into a [IMPORTANT: ...] message.
 
-    Handles both completion events (notify_on_complete) and watch pattern
-    match events from the unified completion_queue.
+    Handles completion events (notify_on_complete), watch pattern match events,
+    and async delegation completions from the unified completion_queue.
     """
     evt_type = evt.get("type", "completion")
     _sid = evt.get("session_id", "unknown")
@@ -1489,6 +1489,35 @@ def _format_process_notification(evt: dict) -> "str | None":
             text += f"\n({_sup} earlier matches were suppressed by rate limit)"
         text += "]"
         return text
+
+    # Async delegation completion — rich, self-contained task-source block.
+    if evt_type == "async_delegation":
+        _deleg_id = evt.get("delegation_id", "unknown")
+        _goal = evt.get("goal", "unknown")
+        _status = evt.get("status", "unknown")
+        _summary = evt.get("summary")
+        _error = evt.get("error")
+        _duration = evt.get("duration_seconds", 0)
+        _api_calls = evt.get("api_calls", 0)
+        _pm_session = evt.get("pm_session_id")
+        _distill = evt.get("distillation_eligible", False)
+
+        lines = [
+            f"[ASYNC_DELEGATION: {_deleg_id}",
+            f"Status: {_status}",
+            f"Goal: {_goal[:200]}",
+            f"Duration: {_duration}s, API calls: {_api_calls}",
+        ]
+        if _pm_session:
+            lines.append(f"PM session: {_pm_session}")
+        if _distill:
+            lines.append("Distillation eligible: yes")
+        if _summary:
+            lines.append(f"Summary:\n{_summary}")
+        if _error:
+            lines.append(f"Error: {_error}")
+        lines.append("]")
+        return "\n".join(lines)
 
     # Default: completion event
     _exit = evt.get("exit_code", "?")

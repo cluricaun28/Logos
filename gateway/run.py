@@ -748,7 +748,11 @@ def _parse_session_key(session_key: str) -> "dict | None":
 
 
 def _format_gateway_process_notification(evt: dict) -> "str | None":
-    """Format a watch pattern event from completion_queue into a [IMPORTANT:] message."""
+    """Format a process notification event into a [IMPORTANT:] message.
+
+    Handles watch pattern matches, watch disabled events, process completions,
+    and async delegation completions from the unified completion_queue.
+    """
     evt_type = evt.get("type", "completion")
     _sid = evt.get("session_id", "unknown")
     _cmd = evt.get("command", "unknown")
@@ -770,6 +774,35 @@ def _format_gateway_process_notification(evt: dict) -> "str | None":
             text += f"\n({_sup} earlier matches were suppressed by rate limit)"
         text += "]"
         return text
+
+    # Async delegation completion — rich, self-contained task-source block.
+    if evt_type == "async_delegation":
+        _deleg_id = evt.get("delegation_id", "unknown")
+        _goal = evt.get("goal", "unknown")
+        _status = evt.get("status", "unknown")
+        _summary = evt.get("summary")
+        _error = evt.get("error")
+        _duration = evt.get("duration_seconds", 0)
+        _api_calls = evt.get("api_calls", 0)
+        _pm_session = evt.get("pm_session_id")
+        _distill = evt.get("distillation_eligible", False)
+
+        lines = [
+            f"[ASYNC_DELEGATION: {_deleg_id}",
+            f"Status: {_status}",
+            f"Goal: {_goal[:200]}",
+            f"Duration: {_duration}s, API calls: {_api_calls}",
+        ]
+        if _pm_session:
+            lines.append(f"PM session: {_pm_session}")
+        if _distill:
+            lines.append("Distillation eligible: yes")
+        if _summary:
+            lines.append(f"Summary:\n{_summary}")
+        if _error:
+            lines.append(f"Error: {_error}")
+        lines.append("]")
+        return "\n".join(lines)
 
     return None
 
@@ -2620,6 +2653,12 @@ class GatewayRunner:
         # Start background session expiry watcher to finalize expired sessions
         asyncio.create_task(self._session_expiry_watcher())
 
+        # Start background async delegation watcher — drains completion events
+        # from delegate_task(background=true) subagents and injects each
+        # result back into its originating session as a new turn, covering the
+        # idle case where the subagent finishes with no agent turn running.
+        asyncio.create_task(self._async_delegation_watcher())
+
         # Start background reconnection watcher for platforms that failed at startup
         if self._failed_platforms:
             logger.info(
@@ -2791,6 +2830,52 @@ class GatewayRunner:
                 logger.debug("Session expiry watcher error: %s", e)
             # Sleep in small increments so we can stop quickly
             for _ in range(interval):
+                if not self._running:
+                    break
+                await asyncio.sleep(1)
+
+    async def _async_delegation_watcher(self, interval: float = 2.0) -> None:
+        """Drain async-delegation completions and inject them as new turns.
+
+        Background subagents (``delegate_task(background=true)``) run on the
+        async-delegation daemon executor — they have no per-process watcher
+        task, so their completion events would only be seen by the post-turn
+        queue drain. This watcher covers the IDLE case: when a background
+        subagent finishes while no agent turn is running, its result still
+        re-enters the originating session promptly.
+        """
+        await asyncio.sleep(5)  # let platforms finish connecting
+        from tools.process_registry import process_registry as _pr
+        while self._running:
+            try:
+                # Drain async-delegation events from the shared queue. We must
+                # NOT consume watch/completion events here (other drains own them),
+                # so requeue anything that isn't ours.
+                _requeue = []
+                _async_events = []
+                while not _pr.completion_queue.empty():
+                    try:
+                        evt = _pr.completion_queue.get_nowait()
+                    except Exception:
+                        break
+                    if evt.get("type") == "async_delegation":
+                        _async_events.append(evt)
+                    else:
+                        _requeue.append(evt)
+                for evt in _requeue:
+                    _pr.completion_queue.put(evt)
+                for evt in _async_events:
+                    synth_text = _format_gateway_process_notification(evt)
+                    if not synth_text:
+                        continue
+                    try:
+                        await self._inject_watch_notification(synth_text, evt)
+                    except Exception as e:
+                        logger.error("Async delegation injection error: %s", e)
+            except Exception as e:
+                logger.debug("Async delegation watcher error: %s", e)
+            # Sleep in small increments so we can stop quickly
+            for _ in range(int(interval)):
                 if not self._running:
                     break
                 await asyncio.sleep(1)
@@ -2972,6 +3057,18 @@ class GatewayRunner:
                     cleanup_all_browsers()
                 except (ImportError, ModuleNotFoundError) as _e:
                     logger.debug("cleanup_all_browsers (%s) error: %s", phase, _e)
+                # Interrupt any running async delegations so they don't keep
+                # burning tokens after the gateway is shutting down.
+                try:
+                    from tools.async_delegation import interrupt_all as _interrupt_async
+                    _async_n = _interrupt_async(reason=f"gateway shutdown ({phase})")
+                    if _async_n:
+                        logger.info(
+                            "Shutdown (%s): interrupted %d background delegation(s)",
+                            phase, _async_n,
+                        )
+                except (ImportError, ModuleNotFoundError) as _e:
+                    logger.debug("async interrupt_all (%s) error: %s", phase, _e)
 
             logger.info(
                 "Stopping gateway%s...",
@@ -5296,15 +5393,19 @@ class GatewayRunner:
             # Drain watch pattern notifications that arrived during the agent run.
             # Watch events and completions share the same queue; completions are
             # already handled by the per-process watcher task above, so we only
-            # inject watch-type events here.
+            # inject watch-type events here. Async delegation completions ALSO
+            # ride this shared queue and are handled below.
             try:
                 from tools.process_registry import process_registry as _pr
                 _watch_events = []
+                _async_events = []
                 while not _pr.completion_queue.empty():
                     evt = _pr.completion_queue.get_nowait()
                     evt_type = evt.get("type", "completion")
                     if evt_type in ("watch_match", "watch_disabled"):
                         _watch_events.append(evt)
+                    elif evt_type == "async_delegation":
+                        _async_events.append(evt)
                     # else: completion events are handled by the watcher task
                 for evt in _watch_events:
                     synth_text = _format_gateway_process_notification(evt)
@@ -5313,6 +5414,14 @@ class GatewayRunner:
                             await self._inject_watch_notification(synth_text, evt)
                         except (RuntimeError) as e2:
                             logger.error("Watch notification injection error: %s", e2)
+                # Inject async delegation completions as new turns.
+                for evt in _async_events:
+                    synth_text = _format_gateway_process_notification(evt)
+                    if synth_text:
+                        try:
+                            await self._inject_watch_notification(synth_text, evt)
+                        except (RuntimeError) as e2:
+                            logger.error("Async delegation injection error: %s", e2)
             except (RuntimeError) as e:
                 logger.debug("Watch queue drain error: %s", e)
 

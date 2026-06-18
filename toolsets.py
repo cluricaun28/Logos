@@ -48,8 +48,6 @@ _HERMES_CORE_TOOLS = [
     "text_to_speech",
     # Planning & memory
     "todo", "memory",
-    # Session history search
-    "session_search",
     # Clarifying questions
     "clarify",
     # Code execution + delegation
@@ -167,12 +165,6 @@ TOOLSETS = {
         "includes": []
     },
     
-    "session_search": {
-        "description": "Search and recall past conversations with summarization",
-        "tools": ["session_search"],
-        "includes": []
-    },
-    
     "clarify": {
         "description": "Ask the user clarifying questions (multiple-choice or open-ended)",
         "tools": ["clarify"],
@@ -283,7 +275,6 @@ TOOLSETS = {
             "browser_press", "browser_get_images",
             "browser_vision", "browser_console", "browser_cdp", "browser_dialog",
             "todo", "memory",
-            "session_search",
             "execute_code", "delegate_task",
         ],
         "includes": []
@@ -309,8 +300,6 @@ TOOLSETS = {
             "browser_vision", "browser_console", "browser_cdp", "browser_dialog",
             # Planning & memory
             "todo", "memory",
-            # Session history search
-            "session_search",
             # Code execution + delegation
             "execute_code", "delegate_task",
             # Cronjob management

@@ -360,6 +360,41 @@ def _get_max_concurrent_children() -> int:
     return _DEFAULT_MAX_CONCURRENT_CHILDREN
 
 
+# Async delegation capacity — separate from sync batch concurrency.
+# Controls how many background subagents can run simultaneously.
+_DEFAULT_MAX_ASYNC_CHILDREN = 3
+
+
+def _get_max_async_children() -> int:
+    """Read delegation.max_async_children from config (floor 1, no ceiling).
+
+    Caps how many background (``background=true``) subagents can run at once.
+    When at capacity, a new async dispatch is REJECTED (not queued) so a
+    runaway model can't pile up unbounded background work. Separate from
+    max_concurrent_children, which bounds a single synchronous batch.
+    """
+    cfg = _load_config()
+    val = cfg.get("max_async_children")
+    if val is not None:
+        try:
+            return max(1, int(val))
+        except (TypeError, ValueError):
+            logger.warning(
+                "delegation.max_async_children=%r is not a valid integer; "
+                "using default %d",
+                val,
+                _DEFAULT_MAX_ASYNC_CHILDREN,
+            )
+            return _DEFAULT_MAX_ASYNC_CHILDREN
+    env_val = os.getenv("DELEGATION_MAX_ASYNC_CHILDREN")
+    if env_val:
+        try:
+            return max(1, int(env_val))
+        except (TypeError, ValueError):
+            return _DEFAULT_MAX_ASYNC_CHILDREN
+    return _DEFAULT_MAX_ASYNC_CHILDREN
+
+
 def _get_child_timeout() -> float:
     """Read delegation.child_timeout_seconds from config.
 
@@ -1839,6 +1874,7 @@ def delegate_task(
     acp_command: Optional[str] = None,
     acp_args: Optional[List[str]] = None,
     role: Optional[str] = None,
+    background: Optional[bool] = None,
     parent_agent=None,
 ) -> str:
     """
@@ -1853,7 +1889,11 @@ def delegate_task(
     toolset and can spawn its own workers, bounded by
     delegation.max_spawn_depth.  Per-task role beats the top-level one.
 
-    Returns JSON with results array, one entry per task.
+    The 'background' parameter (single-task only) dispatches the child to
+    run asynchronously. The parent returns immediately with a handle, and
+    the result re-enters the conversation as a fresh turn when complete.
+
+    Returns JSON with results array (sync) or a dispatched handle (async).
     """
     if parent_agent is None:
         return tool_error("delegate_task requires a parent agent context.")
@@ -1996,6 +2036,79 @@ def delegate_task(
     if n_tasks == 1:
         # Single task -- run directly (no thread pool overhead)
         _i, _t, child = children[0]
+
+        # ----- Async / background dispatch -----
+        # When background=true, hand the already-built child to the async
+        # delegation registry and return a handle immediately. The child runs
+        # on a daemon executor; its result re-enters the conversation as a
+        # fresh turn via process_registry.completion_queue. Batch async is
+        # intentionally NOT supported in v1 — the rejection is handled above.
+        background_enabled = is_truthy_value(background, default=False)
+        if background_enabled:
+            from tools.async_delegation import (
+                dispatch_async_delegation,
+            )
+            from tools.approval import get_current_session_key
+
+            # Capture the gateway routing key on THIS (parent) thread — the
+            # daemon worker won't carry the session contextvar.
+            _session_key = get_current_session_key(default="")
+
+            # Capture parent session for PM traceability
+            _parent_session_id = getattr(parent_agent, "session_id", "") or ""
+
+            def _async_runner(_child=child, _goal=_t["goal"]):
+                return _run_single_child(0, _goal, _child, parent_agent)
+
+            def _async_interrupt(_child=child):
+                try:
+                    if hasattr(_child, "interrupt"):
+                        _child.interrupt("Async delegation cancelled")
+                    elif hasattr(_child, "_interrupt_requested"):
+                        _child._interrupt_requested = True
+                except Exception:
+                    pass
+
+            dispatch = dispatch_async_delegation(
+                goal=_t["goal"],
+                context=_t.get("context"),
+                toolsets=_t.get("toolsets") or toolsets,
+                role=_normalize_role(_t.get("role") or top_role),
+                model=creds["model"],
+                session_key=_session_key,
+                runner=_async_runner,
+                interrupt_fn=_async_interrupt,
+                max_async_children=_get_max_async_children(),
+                parent_session_id=_parent_session_id,
+            )
+
+            if dispatch.get("status") == "dispatched":
+                # Detach background child from parent's active children list.
+                # Without this, parent-turn interrupts would kill the detached
+                # subagent mid-run, defeating the point of background mode.
+                if hasattr(parent_agent, "_active_children"):
+                    try:
+                        parent_agent._active_children.remove(child)
+                    except (ValueError, AttributeError):
+                        pass  # Child wasn't tracked — fine
+                return json.dumps(
+                    {
+                        "status": "dispatched",
+                        "delegation_id": dispatch["delegation_id"],
+                        "message": (
+                            f"Background subagent dispatched. Goal: {_t['goal'][:100]}. "
+                            f"It will run asynchronously and re-enter the conversation "
+                            f"when complete. Use /agents to see active delegations."
+                        ),
+                    },
+                    ensure_ascii=False,
+                )
+            else:
+                return tool_error(
+                    f"Async dispatch rejected: {dispatch.get('error', 'unknown')}"
+                )
+
+        # Sync path — run directly
         result = _run_single_child(0, _t["goal"], child, parent_agent)
         results.append(result)
     else:
@@ -2523,6 +2636,16 @@ DELEGATE_TASK_SCHEMA = {
                     "Only used when acp_command is set. Example: ['--acp', '--stdio', '--model', 'claude-opus-4-6']"
                 ),
             },
+            "background": {
+                "type": "boolean",
+                "description": (
+                    "Dispatch as a background subagent. When true (single-task only), "
+                    "the parent returns immediately with a handle and the result "
+                    "re-enters the conversation when complete. Default: false (synchronous). "
+                    "Use this for long-running research tasks that don't need to block "
+                    "the main conversation."
+                ),
+            },
         },
         "required": [],
     },
@@ -2545,6 +2668,7 @@ registry.register(
         acp_command=args.get("acp_command"),
         acp_args=args.get("acp_args"),
         role=args.get("role"),
+        background=args.get("background"),
         parent_agent=kw.get("parent_agent"),
     ),
     check_fn=check_delegate_requirements,

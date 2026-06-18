@@ -371,6 +371,24 @@ Each analysis enriches the dossier — appending new patterns to `truthful_on` a
 
 ---
 
+### 4.9 Async Background Delegation — Non-Blocking Research
+
+**Purpose:** Enable long-running research subagents to work in the background while the main conversation continues.
+
+The `delegate_task(background=true)` feature allows the parent agent to dispatch subagents that run asynchronously on a daemon executor pool. The parent returns immediately with a handle, and the result re-enters the conversation as a fresh turn when complete.
+
+**Key behaviors:**
+
+- **Non-blocking:** The main conversation continues while research subagents work
+- **Capacity-limited:** Default 3 concurrent async children (configurable via `delegation.max_async_children`)
+- **Perpetual Memory integration:** Each async subagent's conversation is automatically persisted to PM with a distinct `deleg_` session prefix
+- **Distillation flagging:** Results are heuristically flagged for potential RL distillation based on summary length and API call count
+- **Shutdown safety:** On gateway shutdown, all running async delegations are interrupted and their results are still delivered
+
+**Completion event format:** Async delegation completions carry a rich, self-contained task-source block including goal, context, model, duration, PM session reference, distillation eligibility, and the full result summary.
+
+---
+
 ## 5. Codebase Organization
 
 ### 5.1 Custom Plugin Modules (39 modules, ~11,599 lines)
