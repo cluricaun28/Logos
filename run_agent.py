@@ -12907,6 +12907,18 @@ class AIAgent:
                         except (AttributeError, TypeError):
                             pass
 
+                    # Persist assistant tool-call turn before execution.
+                    # If a destructive tool terminates or restarts Hermes
+                    # mid-turn, resume logic still sees the exact tool-call
+                    # block that already executed.
+                    try:
+                        self._flush_messages_to_session_db(messages, conversation_history)
+                    except Exception as exc:
+                        logger.warning(
+                            "Incremental tool-call persistence failed "
+                            "(session=%s): %s",
+                            self.session_id or "none", exc,
+                        )
                     self._execute_tool_calls(assistant_message, messages, effective_task_id, api_call_count)
 
                     # Reset per-turn retry counters after successful tool

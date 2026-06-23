@@ -6001,6 +6001,28 @@ class HermesCLI:
         from hermes_cli.skills_hub import handle_skills_slash
         handle_skills_slash(cmd, ChatConsole())
 
+    def _handle_learn_command(self, cmd: str):
+        """Handle /learn slash command — distill a reusable skill from a
+        user description.
+
+        Extracts the free-text request from the command, builds a
+        standards-guided prompt, and queues it to the agent as a normal
+        turn. The agent gathers the described sources with its existing
+        tools and authors a SKILL.md via skill_manage.
+        """
+        from agent.learn_prompt import build_learn_prompt
+
+        # Extract request after "/learn " or "/learn\n"
+        parts = cmd.split(None, 1)
+        user_request = parts[1].strip() if len(parts) > 1 else ""
+
+        prompt = build_learn_prompt(user_request)
+        self._pending_input.put(prompt)
+        if user_request:
+            self._console_print(f"  Learning a skill from: {user_request[:80]}{'...' if len(user_request) > 80 else ''}")
+        else:
+            self._console_print("  Learning a skill from our recent conversation...")
+
     def _show_gateway_status(self):
         """Show status of the gateway and connected messaging platforms."""
         from gateway.config import load_gateway_config, Platform
@@ -6236,6 +6258,8 @@ class HermesCLI:
         elif canonical == "skills":
             with self._busy_command(self._slow_command_status(cmd_original)):
                 self._handle_skills_command(cmd_original)
+        elif canonical == "learn":
+            self._handle_learn_command(cmd_original)
         elif canonical == "platforms":
             self._show_gateway_status()
         elif canonical == "status":

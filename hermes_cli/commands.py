@@ -99,6 +99,8 @@ COMMAND_REGISTRY: list[CommandDef] = [
                args_hint="[name]"),
     CommandDef("distill", "Distill high-signal PM clusters into Reference Library entries", "Info",
                aliases=("logos",), args_hint="[cluster_id|hotspots]"),
+    CommandDef("learn", "Distill a reusable skill from anything you describe", "Skills",
+               args_hint="[source description]"),
 
     # Configuration
     CommandDef("config", "Show current configuration", "Configuration",
