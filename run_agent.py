@@ -1517,14 +1517,30 @@ class AIAgent:
                 print(f"🔄 Fallback chain ({len(self._fallback_chain)} providers): " +
                       " → ".join(f"{f['model']} ({f['provider']})" for f in self._fallback_chain))
 
-        # Get available tools with selective injection (essential tools only)
+        # Load selective injection config (needed before tool loading)
+        try:
+            from hermes_cli.config import load_config as _load_agent_config
+            _agent_cfg = _load_agent_config()
+        except Exception:
+            _agent_cfg = {}
+        selective_injection_cfg = _agent_cfg.get("selective_injection", True)
+        self.selective_injection = str(selective_injection_cfg).lower() in ("true", "1", "yes")
+
+        # Get available tools — selective injection (essential tools only) or full injection
         # Deferred tools are listed in system prompt and looked up from RL when needed
-        self.tools = get_selective_tool_definitions(
-            enabled_toolsets=enabled_toolsets,
-            disabled_toolsets=disabled_toolsets,
-            quiet_mode=self.quiet_mode,
-            force_essential=enabled_toolsets,
-        )
+        if self.selective_injection:
+            self.tools = get_selective_tool_definitions(
+                enabled_toolsets=enabled_toolsets,
+                disabled_toolsets=disabled_toolsets,
+                quiet_mode=self.quiet_mode,
+                force_essential=enabled_toolsets,
+            )
+        else:
+            self.tools = get_tool_definitions(
+                enabled_toolsets=enabled_toolsets,
+                disabled_toolsets=disabled_toolsets,
+                quiet_mode=self.quiet_mode,
+            )
         
         # Show tool configuration and store valid tool names for validation
         self.valid_tool_names = set()
@@ -4760,13 +4776,14 @@ class AIAgent:
 
         # Deferred tools index — compact listing of non-essential tools
         # that require RL lookup before use. Injected after skills so the
-        # model sees both indexes together.
-        try:
-            deferred_index = get_deferred_tools_index()
-            if deferred_index:
-                prompt_parts.append(deferred_index)
-        except (AttributeError, TypeError) as e:
-            logger.warning("Failed to build deferred tools index: %s", e)
+        # model sees both indexes together. Only injected when selective injection is enabled.
+        if self.selective_injection:
+            try:
+                deferred_index = get_deferred_tools_index()
+                if deferred_index:
+                    prompt_parts.append(deferred_index)
+            except (AttributeError, TypeError) as e:
+                logger.warning("Failed to build deferred tools index: %s", e)
 
         if not self.skip_context_files:
             # Use TERMINAL_CWD for context file discovery when set (gateway
@@ -12985,6 +13002,81 @@ class AIAgent:
                 
                 else:
                     # No tool calls - this is the final response
+                    
+                    # ── Tool-use describe-detection ──────────────────────
+                    # The model returned text without calling tools. If the text
+                    # describes using tools ("I'll search for...", "I'll run...",
+                    # "I'll navigate to...") but tools are available, the model is
+                    # describing instead of executing. This is the #19847 case:
+                    # Ornstein3.6-27B and similar models sometimes output plans
+                    # describing tool use rather than actually calling tools.
+                    #
+                    # Detection: if the first turn (or a turn where tools should
+                    # clearly be called) describes tool use without calling tools,
+                    # inject a nudge to actually execute.
+                    #
+                    # This is a model-correctness fix, not a fallback. The model
+                    # knows what to do — it's just not translating intent into
+                    # tool calls. One nudge usually fixes it.
+                    _tool_describe_patterns = [
+                        "i'll search for",
+                        "i'll navigate to",
+                        "i'll run",
+                        "i'll perform",
+                        "i'll execute",
+                        "i'll extract",
+                        "i'll start by searching",
+                        "i'll look up",
+                        "i'll call",
+                        "i'll use",
+                        "i'll execute multiple searches",
+                        "i'll start both",
+                        "i'll run all",
+                    ]
+                    _tool_describe_detected = False
+                    if self.valid_tool_names and api_call_count <= 2:
+                        # Only trigger on early turns where tool calls are expected
+                        _content_lower = (assistant_message.content or "").lower()
+                        if any(pat in _content_lower for pat in _tool_describe_patterns):
+                            _tool_describe_detected = True
+                    
+                    if _tool_describe_detected:
+                        if not getattr(self, "_tool_describe_retried", False):
+                            self._tool_describe_retried = True
+                            logger.info(
+                                "Tool-use describe-detection: model described using tools "
+                                "without calling them — nudging to actually execute"
+                            )
+                            self._emit_status(
+                                "⚠️ Model described using tools instead of calling them — "
+                                "nudging to actually execute"
+                            )
+                            # Append the assistant message so the sequence stays valid
+                            _describe_msg = self._build_assistant_message(
+                                assistant_message, finish_reason
+                            )
+                            messages.append(_describe_msg)
+                            messages.append({
+                                "role": "user",
+                                "content": (
+                                    "You described using tools but did not call them. "
+                                    "You have tools available. Execute them directly instead "
+                                    "of describing what you would do. For example, call "
+                                    "web_search() or browser_navigate() to actually perform "
+                                    "the search. Do not output a plan — execute the tool call."
+                                ),
+                            })
+                            # Clear the nudge flag after successful injection
+                            # so it can fire again if the model repeats the pattern
+                            self._emit_status("↻ Injected tool-call nudge — retrying")
+                            continue
+                    
+                    # If the nudge was already tried and the model still describes
+                    # without calling, let it fall through to the normal no-tool-call
+                    # path. We don't want infinite loops.
+                    if getattr(self, "_tool_describe_retried", False):
+                        self._tool_describe_retried = False  # Reset for next conversation
+                    
                     final_response = assistant_message.content or ""
                     
                     # Fix: unmute output when entering the no-tool-call branch
