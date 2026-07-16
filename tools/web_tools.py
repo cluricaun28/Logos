@@ -39,14 +39,16 @@ Usage:
     # Crawl a website
     crawl_data = web_crawl_tool("example.com", "Find contact information")
 """
+
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
 import re
-import asyncio
-from typing import List, Dict, Any, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
+
 import httpx
 
 # NOTE: `from firecrawl import Firecrawl` is deliberately NOT at module top —
@@ -59,7 +61,7 @@ import httpx
 if TYPE_CHECKING:
     from firecrawl import Firecrawl  # noqa: F401 — type hints only
 
-_FIRECRAWL_CLS_CACHE: Optional[type] = None
+_FIRECRAWL_CLS_CACHE: type | None = None
 
 
 def _load_firecrawl_cls() -> type:
@@ -97,8 +99,10 @@ from agent.auxiliary_client import (
 from tools.debug_helpers import DebugSession
 from tools.managed_tool_gateway import (
     build_vendor_gateway_url,
-    read_nous_access_token as _read_nous_access_token,
     resolve_managed_tool_gateway,
+)
+from tools.managed_tool_gateway import (
+    read_nous_access_token as _read_nous_access_token,
 )
 from tools.tool_backend_helpers import managed_nous_tools_enabled, prefers_gateway
 from tools.url_safety import is_safe_url
@@ -356,7 +360,7 @@ _firecrawl_client = None
 _firecrawl_client_config = None
 
 
-def _get_direct_firecrawl_config() -> Optional[tuple[Dict[str, str], tuple[str, Optional[str], Optional[str]]]]:
+def _get_direct_firecrawl_config() -> tuple[dict[str, str], tuple[str, str | None, str | None]] | None:
     """Return explicit direct Firecrawl kwargs + cache key, or None when unset."""
     api_key = os.getenv("FIRECRAWL_API_KEY", "").strip()
     # Support both FIRECRAWL_API_URL (official) and FIRECRAWL_URL (legacy/self-hosted convention)
@@ -367,7 +371,7 @@ def _get_direct_firecrawl_config() -> Optional[tuple[Dict[str, str], tuple[str, 
     if not api_key and not api_url:
         return None
 
-    kwargs: Dict[str, str] = {}
+    kwargs: dict[str, str] = {}
     if api_key:
         kwargs["api_key"] = api_key
     if api_url:
@@ -548,13 +552,13 @@ def _normalize_tavily_search_results(response: dict) -> dict:
     return {"success": True, "data": {"web": web_results}}
 
 
-def _normalize_tavily_documents(response: dict, fallback_url: str = "") -> List[Dict[str, Any]]:
+def _normalize_tavily_documents(response: dict, fallback_url: str = "") -> list[dict[str, Any]]:
     """Normalize Tavily /extract or /crawl response to the standard document format.
 
     Maps results to ``{url, title, content, raw_content, metadata}`` and
     includes any ``failed_results`` / ``failed_urls`` as error entries.
     """
-    documents: List[Dict[str, Any]] = []
+    documents: list[dict[str, Any]] = []
     for result in response.get("results", []):
         url = result.get("url", fallback_url)
         raw = result.get("raw_content", "") or result.get("content", "")
@@ -617,12 +621,83 @@ def _to_plain_object(value: Any) -> Any:
     return value
 
 
-def _normalize_result_list(values: Any) -> List[Dict[str, Any]]:
+def _apply_mmr_diversity(results: list[dict[str, Any]], top_k: int, lambda_param: float = 0.7) -> list[dict[str, Any]]:
+    """Apply Maximal Marginal Relevance (MMR) to web search results.
+
+    Reduces redundancy by selecting results that are both relevant to the query
+    and diverse from each other. Uses text similarity on title + description.
+
+    Args:
+        results: List of search result dicts (url, title, description).
+        top_k: Maximum number of diverse results to return.
+        lambda_param: Diversity weight (0.0 = pure relevance, 1.0 = pure diversity).
+
+    Returns:
+        Diversity-filtered list of search results.
+    """
+    if not results or len(results) <= 1:
+        return results
+
+    # If we have fewer results than top_k, return them all
+    if len(results) <= top_k:
+        return results
+
+    # Lightweight similarity: Jaccard similarity on lowercased tokens
+    def _tokenize(text: str) -> set:
+        import re as _re
+
+        return set(_re.findall(r"\w+", (text or "").lower()))
+
+    def _jaccard_similarity(a: str, b: str) -> float:
+        set_a = _tokenize(a)
+        set_b = _tokenize(b)
+        if not set_a and not set_b:
+            return 1.0
+        intersection = len(set_a & set_b)
+        union = len(set_a | set_b)
+        return intersection / union if union > 0 else 0.0
+
+    selected = []
+    remaining = list(results)
+
+    # Always select the most relevant result first
+    selected.append(remaining.pop(0))
+
+    while len(selected) < top_k and remaining:
+        best_idx = 0
+        best_score = -1.0
+
+        for i, candidate in enumerate(remaining):
+            # Relevance score (approximated by rank position)
+            relevance = 1.0 / (i + 2)  # +2 because we already selected one
+
+            # Max similarity to any already selected result
+            max_sim = 0.0
+            for sel in selected:
+                cand_text = (candidate.get("title", "") or "") + " " + (candidate.get("description", "") or "")
+                sel_text = (sel.get("title", "") or "") + " " + (sel.get("description", "") or "")
+                sim = _jaccard_similarity(cand_text, sel_text)
+                if sim > max_sim:
+                    max_sim = sim
+
+            # MMR score: balance relevance vs diversity
+            mmmr_score = ((1 - lambda_param) * relevance) - (lambda_param * max_sim)
+
+            if mmmr_score > best_score:
+                best_score = mmmr_score
+                best_idx = i
+
+        selected.append(remaining.pop(best_idx))
+
+    return selected
+
+
+def _normalize_result_list(values: Any) -> list[dict[str, Any]]:
     """Normalize mixed SDK/list payloads into a list of dicts."""
     if not isinstance(values, list):
         return []
 
-    normalized: List[Dict[str, Any]] = []
+    normalized: list[dict[str, Any]] = []
     for item in values:
         plain = _to_plain_object(item)
         if isinstance(plain, dict):
@@ -630,7 +705,7 @@ def _normalize_result_list(values: Any) -> List[Dict[str, Any]]:
     return normalized
 
 
-def _extract_web_search_results(response: Any) -> List[Dict[str, Any]]:
+def _extract_web_search_results(response: Any) -> list[dict[str, Any]]:
     """Extract Firecrawl search results across SDK/direct/gateway response shapes."""
     response_plain = _to_plain_object(response)
 
@@ -661,7 +736,7 @@ def _extract_web_search_results(response: Any) -> List[Dict[str, Any]]:
     return []
 
 
-def _extract_scrape_payload(scrape_result: Any) -> Dict[str, Any]:
+def _extract_scrape_payload(scrape_result: Any) -> dict[str, Any]:
     """Normalize Firecrawl scrape payload shape across SDK and gateway variants."""
     result_plain = _to_plain_object(scrape_result)
     if not isinstance(result_plain, dict):
@@ -686,13 +761,13 @@ def _is_nous_auxiliary_client(client: Any) -> bool:
     return host == "nousresearch.com" or host.endswith(".nousresearch.com")
 
 
-def _resolve_web_extract_auxiliary(model: Optional[str] = None) -> tuple[Optional[Any], Optional[str], Dict[str, Any]]:
+def _resolve_web_extract_auxiliary(model: str | None = None) -> tuple[Any | None, str | None, dict[str, Any]]:
     """Resolve the current web-extract auxiliary client, model, and extra body."""
     client, default_model = get_async_text_auxiliary_client("web_extract")
     configured_model = os.getenv("AUXILIARY_WEB_EXTRACT_MODEL", "").strip()
     effective_model = model or configured_model or default_model
 
-    extra_body: Dict[str, Any] = {}
+    extra_body: dict[str, Any] = {}
     if client is not None and _is_nous_auxiliary_client(client):
         from agent.auxiliary_client import get_auxiliary_extra_body
 
@@ -701,7 +776,7 @@ def _resolve_web_extract_auxiliary(model: Optional[str] = None) -> tuple[Optiona
     return client, effective_model, extra_body
 
 
-def _get_default_summarizer_model() -> Optional[str]:
+def _get_default_summarizer_model() -> str | None:
     """Return the current default model for web extraction summarization."""
     _, model, _ = _resolve_web_extract_auxiliary()
     return model
@@ -711,8 +786,8 @@ _debug = DebugSession("web_tools", env_var="WEB_TOOLS_DEBUG")
 
 
 async def process_content_with_llm(
-    content: str, url: str = "", title: str = "", model: Optional[str] = None, min_length: int = DEFAULT_MIN_LENGTH_FOR_SUMMARIZATION
-) -> Optional[str]:
+    content: str, url: str = "", title: str = "", model: str | None = None, min_length: int = DEFAULT_MIN_LENGTH_FOR_SUMMARIZATION
+) -> str | None:
     """
     Process web content using LLM to create intelligent summaries with key excerpts.
 
@@ -805,8 +880,8 @@ async def process_content_with_llm(
 
 
 async def _call_summarizer_llm(
-    content: str, context_str: str, model: Optional[str], max_tokens: int = 20000, is_chunk: bool = False, chunk_info: str = ""
-) -> Optional[str]:
+    content: str, context_str: str, model: str | None, max_tokens: int = 20000, is_chunk: bool = False, chunk_info: str = ""
+) -> str | None:
     """
     Make a single LLM call to summarize content.
 
@@ -915,9 +990,7 @@ Create a markdown summary that captures all key information in a well-organized,
     return None
 
 
-async def _process_large_content_chunked(
-    content: str, context_str: str, model: Optional[str], chunk_size: int, max_output_size: int
-) -> Optional[str]:
+async def _process_large_content_chunked(content: str, context_str: str, model: str | None, chunk_size: int, max_output_size: int) -> str | None:
     """
     Process large content by chunking, summarizing each chunk in parallel,
     then synthesizing the summaries.
@@ -941,7 +1014,7 @@ async def _process_large_content_chunked(
     logger.info("Split into %d chunks of ~%d chars each", len(chunks), chunk_size)
 
     # Summarize each chunk in parallel
-    async def summarize_chunk(chunk_idx: int, chunk_content: str) -> tuple[int, Optional[str]]:
+    async def summarize_chunk(chunk_idx: int, chunk_content: str) -> tuple[int, str | None]:
         """Summarize a single chunk."""
         try:
             chunk_info = f"[Processing chunk {chunk_idx + 1} of {len(chunks)}]"
@@ -949,7 +1022,7 @@ async def _process_large_content_chunked(
             if summary:
                 logger.info("Chunk %d/%d summarized: %d -> %d chars", chunk_idx + 1, len(chunks), len(chunk_content), len(summary))
             return chunk_idx, summary
-        except (RuntimeError) as e:
+        except RuntimeError as e:
             logger.warning("Chunk %d/%d failed: %s", chunk_idx + 1, len(chunks), str(e)[:50])
             return chunk_idx, None
 
@@ -1140,7 +1213,7 @@ def _exa_search(query: str, limit: int = 10) -> dict:
     return {"success": True, "data": {"web": web_results}}
 
 
-def _exa_extract(urls: List[str]) -> List[Dict[str, Any]]:
+def _exa_extract(urls: list[str]) -> list[dict[str, Any]]:
     """Extract content from URLs using the Exa SDK.
 
     Returns a list of result dicts matching the structure expected by the
@@ -1212,7 +1285,7 @@ def _parallel_search(query: str, limit: int = 5) -> dict:
     return {"success": True, "data": {"web": web_results}}
 
 
-async def _parallel_extract(urls: List[str]) -> List[Dict[str, Any]]:
+async def _parallel_extract(urls: list[str]) -> list[dict[str, Any]]:
     """Extract content from URLs using the Parallel async SDK.
 
     Returns a list of result dicts matching the structure expected by the
@@ -1318,7 +1391,9 @@ def web_search_tool(query: str, limit: int = 5, **kwargs) -> str:
         backend = _get_backend()
         if backend == "parallel":
             response_data = _parallel_search(query, limit)
-            debug_call_data["results_count"] = len(response_data.get("data", {}).get("web", []))
+            web_results = response_data.get("data", {}).get("web", [])
+            response_data["data"]["web"] = _apply_mmr_diversity(web_results, limit)
+            debug_call_data["results_count"] = len(response_data["data"]["web"])
             result_json = json.dumps(response_data, indent=2, ensure_ascii=False)
             debug_call_data["final_response_size"] = len(result_json)
             _debug.log_call("web_search_tool", debug_call_data)
@@ -1327,7 +1402,9 @@ def web_search_tool(query: str, limit: int = 5, **kwargs) -> str:
 
         if backend == "exa":
             response_data = _exa_search(query, limit)
-            debug_call_data["results_count"] = len(response_data.get("data", {}).get("web", []))
+            web_results = response_data.get("data", {}).get("web", [])
+            response_data["data"]["web"] = _apply_mmr_diversity(web_results, limit)
+            debug_call_data["results_count"] = len(response_data["data"]["web"])
             result_json = json.dumps(response_data, indent=2, ensure_ascii=False)
             debug_call_data["final_response_size"] = len(result_json)
             _debug.log_call("web_search_tool", debug_call_data)
@@ -1346,7 +1423,9 @@ def web_search_tool(query: str, limit: int = 5, **kwargs) -> str:
                 },
             )
             response_data = _normalize_tavily_search_results(raw)
-            debug_call_data["results_count"] = len(response_data.get("data", {}).get("web", []))
+            web_results = response_data.get("data", {}).get("web", [])
+            response_data["data"]["web"] = _apply_mmr_diversity(web_results, limit)
+            debug_call_data["results_count"] = len(response_data["data"]["web"])
             result_json = json.dumps(response_data, indent=2, ensure_ascii=False)
             debug_call_data["final_response_size"] = len(result_json)
             _debug.log_call("web_search_tool", debug_call_data)
@@ -1356,7 +1435,9 @@ def web_search_tool(query: str, limit: int = 5, **kwargs) -> str:
         if backend == "local":
             logger.info("Local SearXNG search: '%s' (limit: %d)", query, limit)
             response_data = _local_searxng_search(query, limit)
-            debug_call_data["results_count"] = len(response_data.get("data", {}).get("web", []))
+            web_results = response_data.get("data", {}).get("web", [])
+            response_data["data"]["web"] = _apply_mmr_diversity(web_results, limit)
+            debug_call_data["results_count"] = len(response_data["data"]["web"])
             result_json = json.dumps(response_data, indent=2, ensure_ascii=False)
             debug_call_data["final_response_size"] = len(result_json)
             _debug.log_call("web_search_tool", debug_call_data)
@@ -1371,11 +1452,15 @@ def web_search_tool(query: str, limit: int = 5, **kwargs) -> str:
         results_count = len(web_results)
         logger.info("Found %d search results", results_count)
 
+        # Apply MMR diversity to reduce redundancy in web results
+        web_results = _apply_mmr_diversity(web_results, limit)
+        logger.info("Selected %d diverse results via MMR", len(web_results))
+
         # Build response with just search metadata (URLs, titles, descriptions)
         response_data = {"success": True, "data": {"web": web_results}}
 
         # Capture debug information
-        debug_call_data["results_count"] = results_count
+        debug_call_data["results_count"] = len(web_results)
 
         # Convert to JSON
         result_json = json.dumps(response_data, indent=2, ensure_ascii=False)
@@ -1400,10 +1485,10 @@ def web_search_tool(query: str, limit: int = 5, **kwargs) -> str:
 
 
 async def web_extract_tool(
-    urls: List[str],
+    urls: list[str],
     format: str = None,
     use_llm_processing: bool = True,
-    model: Optional[str] = None,
+    model: str | None = None,
     min_length: int = DEFAULT_MIN_LENGTH_FOR_SUMMARIZATION,
     **kwargs,
 ) -> str:
@@ -1431,8 +1516,9 @@ async def web_extract_tool(
     """
     # Block URLs containing embedded secrets (exfiltration prevention).
     # URL-decode first so percent-encoded secrets (%73k- = sk-) are caught.
-    from agent.redact import _PREFIX_RE
     from urllib.parse import unquote
+
+    from agent.redact import _PREFIX_RE
 
     for _url in urls:
         if _PREFIX_RE.search(_url) or _PREFIX_RE.search(unquote(_url)):
@@ -1459,7 +1545,7 @@ async def web_extract_tool(
 
         # ── SSRF protection — filter out private/internal URLs before any backend ──
         safe_urls = []
-        ssrf_blocked: List[Dict[str, Any]] = []
+        ssrf_blocked: list[dict[str, Any]] = []
         for url in urls:
             if not is_safe_url(url):
                 ssrf_blocked.append(
@@ -1526,7 +1612,7 @@ async def web_extract_tool(
             else:
                 # ── Firecrawl extraction ──
                 # Determine requested formats for Firecrawl v2
-                formats: List[str] = []
+                formats: list[str] = []
                 if format == "markdown":
                     formats = ["markdown"]
                 elif format == "html":
@@ -1537,7 +1623,7 @@ async def web_extract_tool(
 
                 # Always use individual scraping for simplicity and reliability
                 # Batch scraping adds complexity without much benefit for small numbers of URLs
-                results: List[Dict[str, Any]] = []
+                results: list[dict[str, Any]] = []
 
                 from tools.interrupt import is_interrupted as _is_interrupted
 
@@ -1579,7 +1665,7 @@ async def web_extract_tool(
                                 ),
                                 timeout=60,
                             )
-                        except asyncio.TimeoutError:
+                        except TimeoutError:
                             logger.warning("Firecrawl scrape timed out for %s", url)
                             results.append(
                                 {
@@ -1787,7 +1873,7 @@ async def web_crawl_tool(
     instructions: str = None,
     depth: str = "basic",
     use_llm_processing: bool = True,
-    model: Optional[str] = None,
+    model: str | None = None,
     min_length: int = DEFAULT_MIN_LENGTH_FOR_SUMMARIZATION,
     **kwargs,
 ) -> str:
@@ -1874,7 +1960,7 @@ async def web_crawl_tool(
                 return tool_error("Interrupted", success=False)
 
             logger.info("Tavily crawl: %s", url)
-            payload: Dict[str, Any] = {
+            payload: dict[str, Any] = {
                 "url": url,
                 "limit": 20,
                 "extract_depth": depth,
@@ -2027,7 +2113,7 @@ async def web_crawl_tool(
             logger.debug("Crawl API call failed: %s", e)
             raise
 
-        pages: List[Dict[str, Any]] = []
+        pages: list[dict[str, Any]] = []
 
         # Process crawl results - the crawl method returns a CrawlJob object with data attribute
         data_list = []
