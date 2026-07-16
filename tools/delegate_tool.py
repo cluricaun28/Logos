@@ -496,6 +496,70 @@ def _get_child_timeout() -> float:
     return float(DEFAULT_CHILD_TIMEOUT)
 
 
+# ── Capability Modes ──────────────────────────────────────────────────────
+# Predefined capability modes that automatically filter toolsets for subagents.
+# This ensures research subagents can't run destructive commands, etc.
+
+# Capability mode definitions - maps mode name to allowed toolsets
+CAPABILITY_MODES = {
+    "readOnly": ["web", "search", "file"],  # Read-only: web search, file reading
+    "readWrite": ["web", "search", "file", "terminal"],  # Read-write: adds terminal
+    "execute": ["terminal", "web", "search"],  # Execute: terminal commands only
+    "all": [],  # All: no restrictions (empty list means inherit from parent)
+}
+
+
+def _get_capability_mode() -> str:
+    """Read delegation.capability_mode from config.
+
+    Returns the capability mode string that controls subagent toolset filtering.
+    Valid modes: 'readOnly', 'readWrite', 'execute', 'all' (default).
+
+    Returns:
+        The capability mode string from config, or 'all' if not configured.
+    """
+    cfg = _load_config()
+    mode = cfg.get("capability_mode", "all")
+    if mode not in CAPABILITY_MODES:
+        logger.warning(
+            "Invalid capability_mode '%s' in config, using 'all'. "
+            "Valid modes: %s",
+            mode,
+            list(CAPABILITY_MODES.keys()),
+        )
+        return "all"
+    return mode
+
+
+def _apply_capability_filter(child_toolsets: List[str], capability_mode: str) -> List[str]:
+    """Apply capability mode filtering to subagent toolsets.
+
+    Args:
+        child_toolsets: Current list of toolsets for the subagent.
+        capability_mode: The capability mode to apply.
+
+    Returns:
+        Filtered list of toolsets that match the capability mode.
+    """
+    if capability_mode == "all":
+        return child_toolsets  # No filtering for 'all' mode
+
+    allowed_toolsets = CAPABILITY_MODES.get(capability_mode, [])
+    if not allowed_toolsets:
+        return child_toolsets  # Empty list means no restriction
+
+    # Intersect current toolsets with allowed toolsets for this capability mode
+    filtered = [ts for ts in child_toolsets if ts in allowed_toolsets]
+    if len(filtered) < len(child_toolsets):
+        logger.debug(
+            "Applied capability_mode '%s' filtering: %d -> %d toolsets",
+            capability_mode,
+            len(child_toolsets),
+            len(filtered),
+        )
+    return filtered
+
+
 def _get_max_spawn_depth() -> int:
     """Read delegation.max_spawn_depth from config, clamped to [1, 3].
 
@@ -959,6 +1023,7 @@ def _build_child_agent(
     context: Optional[str],
     toolsets: Optional[List[str]],
     persona_name: Optional[str],  # NEW: skill-driven persona
+    capability_mode: Optional[str],  # NEW: capability mode filtering
     model: Optional[str],
     max_iterations: int,
     task_count: int,
@@ -1050,6 +1115,12 @@ def _build_child_agent(
     # test_intersection_preserves_delegation_bound test for the design rationale.
     if effective_role == "orchestrator" and "delegation" not in child_toolsets:
         child_toolsets.append("delegation")
+
+    # Apply capability mode filtering if configured
+    # Use the passed capability_mode parameter if provided, otherwise fall back to config
+    effective_capability_mode = capability_mode or _get_capability_mode()
+    if effective_capability_mode != "all":
+        child_toolsets = _apply_capability_filter(child_toolsets, effective_capability_mode)
 
     # Load persona instructions if persona_name is provided
     persona_instructions = None
@@ -1963,6 +2034,7 @@ def delegate_task(
     context: Optional[str] = None,
     toolsets: Optional[List[str]] = None,
     persona: Optional[str] = None,  # NEW: skill-driven persona name
+    capability_mode: Optional[str] = None,  # NEW: capability mode filtering
     tasks: Optional[List[Dict[str, Any]]] = None,
     max_iterations: Optional[int] = None,
     acp_command: Optional[str] = None,
@@ -1975,13 +2047,19 @@ def delegate_task(
     Spawn one or more child agents to handle delegated tasks.
 
     Supports two modes:
-      - Single: provide goal (+ optional context, toolsets, persona, role)
-      - Batch:  provide tasks array [{goal, context, toolsets, persona, role}, ...]
+      - Single: provide goal (+ optional context, toolsets, persona, capability_mode, role)
+      - Batch:  provide tasks array [{goal, context, toolsets, persona, capability_mode, role}, ...]
 
     The 'persona' parameter (optional) references a skill-driven persona from
     ~/.hermes/personas/registry.yaml. When set, the child agent automatically
     loads the referenced skill's instructions and applies the persona's toolset
     restrictions and reasoning effort settings.
+
+    The 'capability_mode' parameter (optional) controls subagent toolset filtering:
+    - 'readOnly': web search, file reading only (no terminal execution)
+    - 'readWrite': adds terminal capabilities
+    - 'execute': terminal commands only (no file writes)
+    - 'all': full tool access (default, inherits from config)
 
     The 'role' parameter controls whether a child can further delegate:
     'leaf' (default) cannot; 'orchestrator' retains the delegation
@@ -2065,7 +2143,7 @@ def delegate_task(
         task_list = tasks
     elif goal and isinstance(goal, str) and goal.strip():
         task_list = [
-            {"goal": goal, "context": context, "toolsets": toolsets, "persona": persona, "role": top_role}
+            {"goal": goal, "context": context, "toolsets": toolsets, "persona": persona, "capability_mode": capability_mode, "role": top_role}
         ]
     else:
         return tool_error("Provide either 'goal' (single task) or 'tasks' (batch).")
@@ -2108,6 +2186,7 @@ def delegate_task(
                 context=t.get("context"),
                 toolsets=t.get("toolsets") or toolsets,
                 persona_name=t.get("persona"),  # NEW: skill-driven persona
+                capability_mode=t.get("capability_mode"),  # NEW: capability mode filtering
                 model=creds["model"],
                 max_iterations=effective_max_iter,
                 task_count=n_tasks,
@@ -2677,6 +2756,16 @@ DELEGATE_TASK_SCHEMA = {
                     "multi-source-researcher, geopolitical-analyst."
                 ),
             },
+            "capability_mode": {
+                "type": "string",
+                "description": (
+                    "Optional capability mode for subagent toolset filtering. "
+                    "Valid modes: 'readOnly' (web/search/file only), "
+                    "'readWrite' (adds terminal), 'execute' (terminal only), "
+                    "'all' (full tool access, default). Controls what tools "
+                    "the subagent can use."
+                ),
+            },
             "tasks": {
                 "type": "array",
                 "items": {
@@ -2695,6 +2784,10 @@ DELEGATE_TASK_SCHEMA = {
                         "persona": {
                             "type": "string",
                             "description": "Optional skill-driven persona name from ~/.hermes/personas/registry.yaml.",
+                        },
+                        "capability_mode": {
+                            "type": "string",
+                            "description": "Optional capability mode for subagent toolset filtering. Valid modes: 'readOnly', 'readWrite', 'execute', 'all'.",
                         },
                         "acp_command": {
                             "type": "string",
