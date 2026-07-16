@@ -328,15 +328,14 @@ class PerpetualContextDB(
             self._initialized = False
 
     def reindex_embeddings(self) -> dict[str, Any]:
-        """Embed any unembedded messages and rebuild the FAISS index.
+        """Embed any unembedded messages.
 
         Designed for periodic maintenance (nightly cron). Skips entirely
         if the message count is below 8,000 — not worth the overhead for
         small databases.
 
         Returns:
-            dict with keys: action_taken, messages_embedded,
-            total_messages, faiss_rebuilt
+            dict with keys: action_taken, messages_embedded, total_messages
         """
         if self._conn is None:
             logger.debug("Cannot reindex — database not initialized")
@@ -347,7 +346,7 @@ class PerpetualContextDB(
                 row = self._conn.execute("SELECT COUNT(*) FROM messages").fetchone()
             total_count = row[0] if row else 0
             if total_count < 8_000:
-                logger.info("Skipping reindex — %d messages below 15,000 threshold", total_count)
+                logger.info("Skipping reindex — %d messages below threshold", total_count)
                 return {
                     "action_taken": "skipped",
                     "total_messages": total_count,
@@ -367,26 +366,12 @@ class PerpetualContextDB(
                     "reason": "all embedded",
                 }
 
-            # Rebuild FAISS index
-            try:
-                from agent.pcdb_vector_index import VectorIndex
-
-                vi = VectorIndex()
-                count = vi.build_from_db(self._conn)
-                vi.save()  # Persist to disk
-                faiss_rebuilt = True
-                logger.info("FAISS index rebuilt with %d vectors", count)
-            except (ImportError, ModuleNotFoundError) as e:
-                logger.warning("FAISS rebuild failed: %s", e)
-                faiss_rebuilt = False
-
             return {
                 "action_taken": "completed",
                 "total_messages": total_count,
                 "messages_embedded": embedded_count,
-                "faiss_rebuilt": faiss_rebuilt,
                 "backfill_stats": backfill_result,
             }
-        except (ImportError, ModuleNotFoundError) as e:
+        except Exception as e:
             logger.error("Reindex failed: %s", e)
             return {"action_taken": "failed", "reason": str(e)}

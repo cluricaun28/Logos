@@ -5,7 +5,7 @@ and cross-session recall.
 
 Search architecture:
   - FTS5: Actual BM25 ranking via SQLite FTS5 virtual table with safe query escaping
-  - Semantic: sqlite-vec vec0 KNN (primary) with FAISS fallback, then full-table Python cosine
+  - Semantic: sqlite-vec vec0 KNN (primary) with full-table Python cosine fallback
   - Hybrid: Reciprocal Rank Fusion of FTS5 rank and vector cosine similarity
   - Recall: Cross-session pointer injection with hard character cap
   - Recency: Time-based multiplicative boost after RRF (no decay, recent messages gain score)
@@ -213,12 +213,11 @@ class _SearchEngine:
         top_k: int = 10,
         exclude_session_id: str = None,
     ) -> list[dict[str, Any]]:
-        """Semantic search using sqlite-vec vec0 KNN (primary) with graceful degradation.
+        """Semantic search using sqlite-vec vec0 KNN with graceful degradation.
 
-        Three-tier fallback:
+        Two-tier fallback:
           1. sqlite-vec vec0 KNN query — single SQL, atomic with DB
-          2. FAISS index — legacy fallback for backwards compatibility
-          3. Full-table Python cosine scan — always available, slow for large DBs
+          2. Full-table Python cosine scan — always available, slow for large DBs
 
         Graceful degradation: if embedding model is unavailable or no messages
         have embeddings yet, returns empty list without error.
@@ -250,24 +249,9 @@ class _SearchEngine:
                 if sqlite_vec_results:
                     return sqlite_vec_results
             except Exception as e:
-                logger.debug("sqlite-vec search unavailable (%s), falling back to FAISS", e)
+                logger.debug("sqlite-vec search unavailable (%s), falling back to DB scan", e)
 
-            # Tier 2: FAISS index (legacy fallback)
-            try:
-                from agent.pcdb_vector_index import VectorIndex  # noqa: PLC0415
-
-                vi = VectorIndex(EMBED_DIM)
-                if not vi.load():
-                    vi.build_from_db(self._conn)
-                    vi.save()
-
-                faiss_results = vi.search(query_vector, top_k=top_k * 2)
-                if faiss_results:
-                    return self._apply_semantic_filters(faiss_results, session_id, exclude_session_id, top_k, engine)
-            except (ImportError, ModuleNotFoundError) as e:
-                logger.debug("FAISS search unavailable (%s), falling back to DB scan", e)
-
-            # Tier 3: full-table scan with Python cosine (always available)
+            # Tier 2: full-table scan with Python cosine (always available)
             return self._semantic_search_fallback(query_vector, session_id, exclude_session_id, top_k, engine)
 
         except (ImportError, ModuleNotFoundError) as e:
@@ -374,61 +358,6 @@ class _SearchEngine:
 
         return results
 
-    def _apply_semantic_filters(
-        self,
-        faiss_results: list[tuple[int, float]],
-        session_id: str = None,
-        exclude_session_id: str = None,
-        top_k: int = 10,
-        engine: Any = None,
-    ) -> list[dict[str, Any]]:
-        """Apply session filters to FAISS results and fetch full message data."""
-        # Build session filter query
-        ids_to_fetch = []
-        filtered_scores: dict[int, float] = {}
-
-        for msg_id, sim in faiss_results:
-            if sim < COSINE_SIMILARITY_THRESHOLD:
-                continue
-            ids_to_fetch.append(msg_id)
-            filtered_scores[msg_id] = sim
-
-        if not ids_to_fetch:
-            return []
-
-        time_col = self.time_column
-        placeholders = ",".join("?" for _ in ids_to_fetch)
-        sql = f"SELECT id, session_id, role, content, metadata, {time_col} FROM messages WHERE id IN ({placeholders})"
-        params: list = list(ids_to_fetch)
-
-        if session_id:
-            sql += " AND session_id = ?"
-            params.append(session_id)
-        if exclude_session_id:
-            sql += " AND session_id != ?"
-            params.append(exclude_session_id)
-
-        cursor = self._conn.execute(sql, params)
-        results = []
-        for row in cursor.fetchall():
-            msg_id = row[0]
-            sim = filtered_scores.get(msg_id, 0)
-            if sim < COSINE_SIMILARITY_THRESHOLD:
-                continue
-            msg = {
-                "id": msg_id,
-                "session_id": row[1],
-                "role": row[2],
-                "content": row[3],
-                "metadata": json.loads(row[4]) if row[4] else {},
-                "created_at": row[5],
-                "_similarity": round(sim, 4),
-            }
-            results.append(msg)
-
-        results.sort(key=lambda m: -m["_similarity"])
-        return results[:top_k]
-
     def _semantic_search_fallback(
         self,
         query_vector: list[float],
@@ -437,7 +366,7 @@ class _SearchEngine:
         top_k: int = 10,
         engine: Any = None,
     ) -> list[dict[str, Any]]:
-        """Full-table Python cosine fallback when FAISS is unavailable."""
+        """Full-table Python cosine fallback when sqlite-vec is unavailable."""
         from agent.perpetual_context_db import EmbeddingEngine  # noqa: PLC0415
 
         where_parts = ["embedding IS NOT NULL AND LENGTH(embedding) >= ?"]
