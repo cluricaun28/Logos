@@ -158,7 +158,7 @@ def check_for_updates() -> Optional[int]:
             capture_output=True, timeout=10,
             cwd=str(repo_dir),
         )
-    except (FileNotFoundError, subprocess.CalledProcessError):
+    except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
         pass  # Offline or timeout — use stale refs, that's fine
 
     # Count commits behind

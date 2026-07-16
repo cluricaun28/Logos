@@ -299,6 +299,10 @@ class _SearchEngine:
         """
         import sqlite_vec as _sqlite_vec  # noqa: PLC0415
 
+        # Load sqlite-vec extension into the connection (idempotent)
+        self._conn.enable_load_extension(True)
+        _sqlite_vec.load(self._conn)
+
         # Build KNN query — fetch extra to allow filtering
         fetch_count = top_k * 3
         vec_query = f"""
