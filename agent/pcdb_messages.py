@@ -121,6 +121,9 @@ class _MessageManager:
         Runs outside the DB lock since model inference is slow. Skips system/tool
         messages and very short content to avoid wasting compute on noise.
 
+        Writes to both the messages.embedding BLOB column AND the chunks_vec vec0
+        table for atomic sqlite-vec storage.
+
         Args:
             message_id: The ID of the just-inserted message.
             role: Message role (user, assistant, system, tool).
@@ -146,7 +149,20 @@ class _MessageManager:
 
         try:
             with self._lock:
+                # Store in messages.embedding BLOB (existing path)
                 self._conn.execute("UPDATE messages SET embedding = ? WHERE id = ?", (blob, message_id))
+
+                # Store in chunks_vec vec0 table (sqlite-vec atomic storage)
+                try:
+                    import sqlite_vec as _sqlite_vec  # noqa: PLC0415
+
+                    self._conn.execute(
+                        "INSERT OR REPLACE INTO chunks_vec (msg_id, embedding) VALUES (?, ?)",
+                        (message_id, _sqlite_vec.serialize_float32(vector)),
+                    )
+                except (sqlite3.OperationalError, ImportError) as vec_e:
+                    logger.debug("sqlite-vec write failed for message %d: %s", message_id, vec_e)
+
                 self._conn.commit()
         except sqlite3.Error as e:
             logger.debug("Failed to store embedding for message %d: %s", message_id, e)
@@ -233,6 +249,16 @@ class _MessageManager:
                             "UPDATE messages SET embedding = ? WHERE id = ?",
                             (blob, msg_id),
                         )
+                        # Also write to chunks_vec for sqlite-vec atomic storage
+                        try:
+                            import sqlite_vec as _sqlite_vec  # noqa: PLC0415
+
+                            self._conn.execute(
+                                "INSERT OR REPLACE INTO chunks_vec (msg_id, embedding) VALUES (?, ?)",
+                                (msg_id, _sqlite_vec.serialize_float32(vector)),
+                            )
+                        except (sqlite3.OperationalError, ImportError):
+                            pass  # Graceful degradation — BLOB column is still set
                         self._conn.commit()
                     stats["embedded"] += 1
 

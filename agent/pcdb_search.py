@@ -5,9 +5,10 @@ and cross-session recall.
 
 Search architecture:
   - FTS5: Actual BM25 ranking via SQLite FTS5 virtual table with safe query escaping
-  - Semantic: FAISS-based approximate nearest-neighbor (exact for <100K vectors)
-  - Hybrid: Reciprocal Rank Fusion of FTS5 rank and FAISS cosine similarity
+  - Semantic: sqlite-vec vec0 KNN (primary) with FAISS fallback, then full-table Python cosine
+  - Hybrid: Reciprocal Rank Fusion of FTS5 rank and vector cosine similarity
   - Recall: Cross-session pointer injection with hard character cap
+  - Recency: Time-based multiplicative boost after RRF (no decay, recent messages gain score)
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ import json
 import logging
 import re as _re
 import sqlite3
+import time as _time
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -30,6 +32,16 @@ RECALL_TOP_K_MULTIPLIER = 3
 RECALL_MIN_SCORE = 0.15
 RECALL_SNIPPET_MAX_LEN = 80
 RECALL_OUTPUT_MAX_CHARS = 200
+
+# Recency weighting — boost recent messages in hybrid search results.
+# After RRF fusion, recent messages get a multiplicative score boost so they
+# rank higher when semantic/text relevance is equal. No decay — old messages
+# don't lose score, recent ones gain it. This preserves data integrity while
+# favoring temporally relevant context.
+RECENT_BOOST_DAYS = 7.0  # Window for strong recency boost (days)
+RECENT_BOOST_FACTOR = 1.5  # Max multiplier within the boost window
+MODERATE_BOOST_DAYS = 30.0  # Extended window for moderate boost
+MODERATE_BOOST_FACTOR = 1.2  # Multiplier within extended window
 
 # FTS5 query operators that must be escaped to prevent injection
 _FTS5_SPECIAL_CHARS = _re.compile(r"[%*\+\-&|>()~]")
@@ -201,10 +213,12 @@ class _SearchEngine:
         top_k: int = 10,
         exclude_session_id: str = None,
     ) -> list[dict[str, Any]]:
-        """Semantic search using FAISS-based cosine similarity.
+        """Semantic search using sqlite-vec vec0 KNN (primary) with graceful degradation.
 
-        Uses FAISS index for O(log n) approximate nearest-neighbor lookup.
-        Falls back to full-table Python cosine scan if FAISS index is not built.
+        Three-tier fallback:
+          1. sqlite-vec vec0 KNN query — single SQL, atomic with DB
+          2. FAISS index — legacy fallback for backwards compatibility
+          3. Full-table Python cosine scan — always available, slow for large DBs
 
         Graceful degradation: if embedding model is unavailable or no messages
         have embeddings yet, returns empty list without error.
@@ -230,7 +244,15 @@ class _SearchEngine:
                 logger.debug("Semantic search skipped — embedding model unavailable")
                 return []
 
-            # Try FAISS index first
+            # Tier 1: sqlite-vec vec0 KNN (primary)
+            try:
+                sqlite_vec_results = self._semantic_search_sqlite_vec(query_vector, session_id, exclude_session_id, top_k, engine)
+                if sqlite_vec_results:
+                    return sqlite_vec_results
+            except Exception as e:
+                logger.debug("sqlite-vec search unavailable (%s), falling back to FAISS", e)
+
+            # Tier 2: FAISS index (legacy fallback)
             try:
                 from agent.pcdb_vector_index import VectorIndex  # noqa: PLC0415
 
@@ -245,12 +267,108 @@ class _SearchEngine:
             except (ImportError, ModuleNotFoundError) as e:
                 logger.debug("FAISS search unavailable (%s), falling back to DB scan", e)
 
-            # Fallback: full-table scan with Python cosine
+            # Tier 3: full-table scan with Python cosine (always available)
             return self._semantic_search_fallback(query_vector, session_id, exclude_session_id, top_k, engine)
 
         except (ImportError, ModuleNotFoundError) as e:
             logger.error("Semantic search failed: %s", e)
             return []
+
+    def _semantic_search_sqlite_vec(
+        self,
+        query_vector: list[float],
+        session_id: str = None,
+        exclude_session_id: str = None,
+        top_k: int = 10,
+        engine: Any = None,
+    ) -> list[dict[str, Any]]:
+        """Tier 1 semantic search: query vec0 table for KNN results.
+
+        Uses sqlite-vec's vec0 virtual table for vector similarity search.
+        Single SQL query, atomic with DB transaction.
+
+        Args:
+            query_vector: Pre-computed query embedding vector.
+            session_id: Optional session filter.
+            exclude_session_id: Optional session ID to skip.
+            top_k: Maximum results to return.
+            engine: EmbeddingEngine instance for distance-to-similarity conversion.
+
+        Returns:
+            List of message dicts with '_similarity' score field, or empty list.
+        """
+        import sqlite_vec as _sqlite_vec  # noqa: PLC0415
+
+        # Build KNN query — fetch extra to allow filtering
+        fetch_count = top_k * 3
+        vec_query = f"""
+            SELECT msg_id, distance
+            FROM chunks_vec
+            WHERE embedding MATCH ?
+            ORDER BY distance
+            LIMIT {fetch_count}
+        """
+        query_blob = _sqlite_vec.serialize_float32(query_vector)
+        vec_results = self._conn.execute(vec_query, (query_blob,)).fetchall()
+
+        if not vec_results:
+            return []
+
+        # Convert distance to similarity (sqlite-vec uses L2 distance)
+        scored: list[tuple[int, float, dict[str, Any]]] = []
+        for msg_id, distance in vec_results:
+            # Convert L2 distance to cosine similarity approximation
+            # distance 0 = identical, distance ~2 = orthogonal
+            sim = max(0.0, 1.0 - (distance / 2.0))
+            if sim < COSINE_SIMILARITY_THRESHOLD:
+                continue
+            scored.append((msg_id, sim, {"_similarity": round(sim, 4)}))
+
+        if not scored:
+            return []
+
+        # Apply session filters via DB lookup
+        ids_to_fetch = [msg_id for msg_id, _, _ in scored]
+        time_col = self.time_column
+        placeholders = ",".join("?" for _ in ids_to_fetch)
+        where_parts = []
+        params: list = list(ids_to_fetch)
+
+        if session_id:
+            where_parts.append("session_id = ?")
+            params.append(session_id)
+        if exclude_session_id:
+            where_parts.append("session_id != ?")
+            params.append(exclude_session_id)
+
+        where_clause = ""
+        if where_parts:
+            where_clause = f" AND {' AND '.join(where_parts)}"
+
+        sql = f"SELECT id, session_id, role, content, metadata, {time_col} FROM messages WHERE id IN ({placeholders}){where_clause}"
+        cursor = self._conn.execute(sql, params)
+
+        # Build lookup of filtered messages
+        msg_lookup = {}
+        for row in cursor.fetchall():
+            msg_lookup[row[0]] = {
+                "id": row[0],
+                "session_id": row[1],
+                "role": row[2],
+                "content": row[3],
+                "metadata": json.loads(row[4]) if row[4] else {},
+                "created_at": row[5],
+            }
+
+        # Assemble results — only include messages that passed session filter
+        results = []
+        for msg_id, sim, extra in scored[:top_k]:
+            if msg_id in msg_lookup:
+                msg = dict(msg_lookup[msg_id])
+                msg["_similarity"] = extra.get("_similarity", round(sim, 4))
+                results.append(msg)
+
+        return results
 
     def _apply_semantic_filters(
         self,
@@ -418,6 +536,24 @@ class _SearchEngine:
             scores[rid] = scores.get(rid, 0) + rrf_score
             if rid not in msg_cache:
                 msg_cache[rid] = msg
+
+        # Recency weighting — boost recent messages after RRF fusion.
+        # Recent messages get higher scores so they rank above equally-relevant
+        # but temporally distant matches. No decay — old messages keep their
+        # base score, recent ones gain a multiplier.
+        now = _time.time()
+        for msg_id, base_score in scores.items():
+            msg = msg_cache.get(msg_id)
+            if msg is None:
+                continue
+            created_at = msg.get("created_at")
+            if created_at is None:
+                continue
+            age_days = (now - created_at) / 86400.0
+            if age_days < RECENT_BOOST_DAYS:
+                scores[msg_id] = base_score * RECENT_BOOST_FACTOR
+            elif age_days < MODERATE_BOOST_DAYS:
+                scores[msg_id] = base_score * MODERATE_BOOST_FACTOR
 
         sorted_msgs = sorted(scores.items(), key=lambda x: -x[1])[:top_k]
 
