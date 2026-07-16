@@ -20,6 +20,10 @@ The distinguishing features:
 - **Frame-Stripping Skill** — 10 rules for separating facts from framing. Strips loaded language, extracts verifiable claims, cross-references independent sources, and presents findings through your stated worldview.
 - **Narrative-Control-Detection** — Identifies six-phase information warfare patterns (initial break → narrative shift → article removal → flood the zone → entrenchment) when they appear in research results.
 - **SourceAnalyzer** (`agent/source_analysis.py`) — Phase 3.5 in the research pipeline. Builds and updates source dossiers automatically, flagging ideological markers and consistent omission patterns.
+- **Discernment Workflow** — Skill-driven claim evaluation with explicit step-by-step reasoning chain (replaced sovereign sieve from Phase 1).
+- **Skill-Driven Personas** — Pre-configured subagent roles (discernment-researcher, behavioral-tester, institutional-analyst, etc.) that auto-load the right skills and constraints.
+- **sqlite-vec Single-DB Storage** — All 20k+ vectors live in the same SQLite database as messages. Atomic storage, no index drift. FAISS removed July 2026.
+- **Recency Weighting** — Recent messages (7 days) get 1.5x score boost, 30 days get 1.2x. No decay — old messages don't lose score, recent ones gain it.
 - **Nightly Learning Loop** — Scheduled jobs run deep research, apply frame-stripping, and distill findings into the Reference Library. The knowledge base grows through use.
 
 The system runs locally. No cloud APIs for memory or retrieval. No moral relativism baked in.
@@ -167,7 +171,7 @@ See [`WHITEPAPER.md`](WHITEPAPER.md) Section 4.6 and Section 8 for full details.
 
 ### Read the White Paper
 
-The README gives you the structure. [`WHITEPAPER.md`](WHITEPAPER.md) gives you the *why*. Read it before configuring SOUL.md — it explains the epistemic framework, the Sovereign Sieve, and the design philosophy that makes everything work together.
+The README gives you the structure. [`WHITEPAPER.md`](WHITEPAPER.md) gives you the *why*. Read it before configuring SOUL.md — it explains the epistemic framework, the discernment workflow (which replaced the sovereign sieve from Phase 1), and the design philosophy that makes everything work together.
 
 ---
 
@@ -320,15 +324,15 @@ Key design decisions:
 
 ---
 
-## Semantic Embeddings (Optional)
+## Semantic Embeddings (Included)
 
-For hybrid search with vector similarity alongside FTS5 keyword search:
+Hybrid search uses sqlite-vec vec0 virtual table for vector similarity alongside FTS5 keyword search. All vectors live in the same SQLite database — single-DB atomic storage, no index drift.
 
 ```bash
-pip install onnxruntime sentence-transformers
+pip install onnxruntime sentence-transformers sqlite-vec
 ```
 
-The default model is `all-MiniLM-L6-v2` — lightweight, runs locally. Embeddings are stored as BLOB in SQLite alongside FTS5 indexes. No configuration needed beyond installing the packages; the plugin auto-detects and enables them.
+The default model is `all-MiniLM-L6-v2` — lightweight, runs locally. Embeddings are stored as BLOB in SQLite alongside vec0 virtual table. No configuration needed beyond installing the packages; the plugin auto-detects and enables them.
 
 ---
 
