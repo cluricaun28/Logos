@@ -26,68 +26,12 @@ The distinguishing features:
 - **Recency Weighting** — Recent messages (7 days) get 1.5x score boost, 30 days get 1.2x. No decay — old messages don't lose score, recent ones gain it.
 - **Nightly Learning Loop** — Scheduled jobs run deep research, apply frame-stripping, and distill findings into the Reference Library. The knowledge base grows through use.
 
-The system runs locally. No cloud APIs for memory or retrieval. No moral relativism baked in.
+The system runs locally. No cloud APIs for memory or retrieval.
 
 ---
 
 ### 📄 White Paper
 For a comprehensive architectural deep-dive covering all subsystems, the epistemic framework, and the design philosophy in detail, see [WHITEPAPER.md](WHITEPAPER.md).
-
----
-
-## What Logos Is
-
-Logos is an agent with **persistent memory**, **curated knowledge**, and **proactive retrieval**. The key subsystems:
-
-### 1. Perpetual Context Database (`agent/perpetual_context_db.py`)
-SQLite-backed conversation archive with FTS5 full-text search and optional semantic embeddings (ONNX/SentenceTransformers). Every turn is stored locally — no cloud sync, no external API calls. Hybrid retrieval: keyword + vector similarity in a single query.
-
-### 2. Perpetual Context Plugin (`plugins/memory/perpetual_context/`)
-Full plugin suite providing perpetual memory tools to the agent:
-- **Hybrid search** — `perpetual_search` (FTS5 + semantic), `query_messages` (SQL-style filtering), `get_messages` (exact pattern matching)
-- **Smart retrieval** — auto-routes queries to optimal strategy (recent, topic-specific, decision trace, file history)
-- **Context bridge builder** — extracts active tasks, errors, and decisions for injection at archival boundaries
-- **Source analysis** — `source_analyze` examines web search results for ideological alignment, omissions, and deviations. `deep=true` mode extracts full article content via Firecrawl before analyzing. Auto-creates source dossiers in `sources/` for new domains.
-- **Logos Deep Research & Continuity** — Sovereign knowledge acquisition pipeline:
-    - **Three-Tier Web Stack:** SearXNG (Discovery) $\rightarrow$ Firecrawl (Extraction) $\rightarrow$ Camofox (Anti-detection Browser).
-    - **Epistemic Filtering:** Integrated scrutiny gate that filters raw web data through a user-defined worldview baseline (built via the `worldview-profile-builder` skill) before RL ingestion.
-    - **Adaptive Retrieval Cascade:** A reasoning-driven flow (Immediate Context $\rightarrow$ PM Recall $\rightarrow$ RL Authority $\rightarrow$ Deep Research) to ensure the most accurate source is used for every query.
-
-### 3. Context Archiving
-
-Two pluggable engines work together:
-
-- **Semantic Vector (primary)** — Tracks conversation topics via local embeddings. Prunes only dormant or resolved turns, preserving active topics in full. Injects a conversation state map for model awareness. CPU-only, no GPU contention.
-
-- **Rolling Window (fallback)** — Incremental tail-off that drops the oldest unprotected messages. Fires when the semantic engine isn't aggressive enough and context nears the hard ceiling (~85%).
-
-Both are deterministic — no LLM calls, no semantic clustering overhead. State continuity through retrieval, not retention.
-
-### Modified Core Files (8 files)
-
-These core files were modified from the Hermes Agent base. The diffs are committed in this repo — you can see exactly what changed with `git log -- <file>`. Key changes:
-
-|| File | What Changed | Why It Matters |
-|------|-------------|----------------|
-| `run_agent.py` | Renamed "compression" $\rightarrow$ "archiving", plugin context engine loading, selective tool loading | Enables semantic vector + rolling window integration. Plugin engines receive `update_model()` during init |
-| `agent/prompt_builder.py` | Skills section changed from mandatory to on-demand loading with validation | Prevents context bloat — only loads skills actually relevant to the task |
-| `agent/context_engine.py` | ABC for context engines, removed `SemanticVectorEngine` (now a plugin) | Clean separation: base defines the interface, plugins provide implementations |
-| `agent/context_compressor.py` | Plugin context engine hooks, `on_session_reset()` callback for engine state | Engine state properly resets on `/new` — no stale vectors or leaked memory |
-| `plugins/context_engine/__init__.py` | Loader for semantic vector and rolling window engines with config passthrough | Pluggable context archiving strategy |
-| `model_tools.py` | Added `get_selective_tool_definitions()` and deferred tools index | Essential tools loaded inline, deferred tools listed for RL lookup — saves context tokens |
-| `cli.py` | Perpetual memory CLI commands (`hermes pm search`, etc.) | Query your conversation history from the terminal |
-| `tools/skill_manager_tool.py` | Fork-aware skill path resolution | Skills find custom categories correctly |
-| `.gitignore` | Patterns for plugin artifacts and cache files | Keeps git clean |
-
-**Config note:** The config key changed from `compression:` to `archiving:`. Your `config.yaml` should use:
-```yaml
-archiving:
-  enabled: true
-  threshold: 0.50
-  target_ratio: 0.20
-  protect_last_n: 20
-```
-(Old `compression:` key still works for backward compatibility.)
 
 ---
 
@@ -98,80 +42,32 @@ The agent uses a tiered priority system to determine where to find truth:
 
 ---
 
-## 🛡️ Sovereignty & System Requirements
-
-This repository provides the **engine**, not the **knowledge**. To duplicate this system, you must provide your own local data and worldview.
-
-### Technical Requirements
-- **Local Embeddings:** For hybrid search to function without cloud APIs, you must install `onnxruntime` and `sentence-transformers`. The system defaults to `all-MiniLM-L6-v2` for local, private vectorization.
-- **Hardware:** A machine capable of running LLMs locally (via LM Studio or vLLM) is strongly recommended to maintain total data sovereignty.
-- **Storage:** All memory and the Reference Library are stored in your local home directory (`~/.hermes/`), ensuring that your personal knowledge base never leaves your hardware.
-- **Local Services:** The deep research pipeline requires three local services (all self-hosted, no cloud API calls):
-    - **SearXNG** — Local meta-search engine (Docker container)
-    - **Firecrawl** — Local web content extraction (Docker container)
-    - **Camofox** — Anti-detection browser for sites that block scrapers
-
----
-
 ## For Agent Operators — Critical Setup Details
 
-**Before following the Quick Start, read this if you are an AI agent tasked with setting up Logos.** The infrastructure alone is not enough — the *prompt structure* is what makes the system work.
+**Before following the Quick Start, read this if you are an AI agent tasked with setting up Logos.**
 
 ### SOUL.md — The Most Critical File
 
-The code provides the plumbing. SOUL.md tells the agent *how to use it*. Without these specific sections in SOUL.md, the plugins load but the agent never calls them:
+The code provides the plumbing. SOUL.md tells the agent *how to use it*. Without these specific sections, the plugins load but the agent never calls them:
 
-1. **Knowledge Architecture section** — Must instruct the agent to:
-   - Check `reference_library_search` BEFORE `web_search` for any knowledge question
-   - Use `recent_messages` for immediate context before acting
-   - Use `perpetual_search` / `smart_retrieve` for cross-session recall
-   - Treat the Reference Library as *authoritative truth*, training data as *suggestion*
+1. **Knowledge Architecture** — Instruct the agent to check RL before web search, treat RL as authoritative
+2. **Worldview Baseline** — Define the user's epistemic framework and tone preferences
+3. **Operational Discipline** — Anti-loop rules, memory save rules, skill loading protocol
+4. **Active Retrieval** — When to call `source_analyze`, when to use `deep=true`
 
-2. **Worldview Baseline section** — Must define the user's epistemic framework:
-   - What truth is (not relativism)
-   - How to handle contradictory worldviews (state the difference, don't false-balance)
-   - Tone and style preferences
-
-3. **Operational Discipline section** — Must include:
-   - Anti-loop rules (check recent context before repeating work)
-   - Memory save rules (what to persist vs. what to discard)
-   - Skill loading protocol (scan available skills, load only relevant ones)
-   - Three-tier web escalation (SearXNG → Firecrawl → Camofox)
-
-4. **Active Retrieval section** — Must instruct the agent to:
-   - Call `source_analyze` after `web_search` for substantive topics (politics, religion, economics, culture)
-   - Skip `source_analyze` for utility queries (weather, code docs, recipes)
-   - Use `deep=true` when source analysis is critical
-
-**See [`extras/system-prompt-guide.md`](extras/system-prompt-guide.md) for the exact SOUL.md template with all required sections.**
+**See [`extras/system-prompt-guide.md`](extras/system-prompt-guide.md) for the exact template.**
 
 ### Epistemic Hierarchy — The Truth Chain
 
 The agent must follow this order for every query:
 
-1. **Immediate context** — What the user just said
-2. **Perpetual Memory** — Past conversations on this topic
-3. **Reference Library** — Curated, verified knowledge (authoritative)
-4. **Web Research** — Only when local knowledge is insufficient
-5. **Training data** — Last resort, always suspect
-
-This is not optional. If the agent skips ahead to web search before checking the Reference Library, the system fails.
+1. **Immediate context** → 2. **Perpetual Memory** → 3. **Reference Library** → 4. **Web Research** → 5. **Training data** (last resort)
 
 ### Nightly Automation
 
-The system runs autonomous jobs that maintain and improve itself. These are configured as cron jobs and should be set up after initial install:
+Scheduled jobs maintain and grow the system. See WHITEPAPER.md Section 4.6 for details.
 
-- **PM Signal Scanner** (2:00 AM) — Scans for high-signal conversation clusters
-- **Nightly Distillation** (3:00 AM) — Processes clusters through Synthesis → Audit → Commit
-- **RL Growth** (3:00 AM) — Expands Reference Library based on gaps
-- **Logos Intelligence Scout** (4:00 AM) — Builds source intelligence dossiers
-- **System Backup** (4:00 AM) — Backs up data to Windows host
-
-See [`WHITEPAPER.md`](WHITEPAPER.md) Section 4.6 and Section 8 for full details.
-
-### Read the White Paper
-
-The README gives you the structure. [`WHITEPAPER.md`](WHITEPAPER.md) gives you the *why*. Read it before configuring SOUL.md — it explains the epistemic framework, the discernment workflow (which replaced the sovereign sieve from Phase 1), and the design philosophy that makes everything work together.
+**For the epistemic framework, discernment workflow, and design philosophy, see [WHITEPAPER.md](WHITEPAPER.md).**
 
 ---
 
@@ -269,92 +165,6 @@ For web search with source extraction (SearXNG + Firecrawl), see [`extras/deep-r
 - Search the web via a local meta-search engine
 - Extract full content from URLs using Firecrawl
 - Store research results in Perpetual Memory with source tracking
-
----
-
-## Architecture Overview
-
-```
-┌─────────────────────────────────────────────┐
-│  Logos Core                                 │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  │
-│  │   CLI    │  │ Gateway  │  │  Tools   │  │
-│  └────┬─────┘  └────┬─────┘  └────┬─────┘  │
-│       └──────────────┼─────────────┘        │
-│                      ▼                      │
-│  ┌──────────────────────────────┐           │
-│  │  Context Engine (modified)   │           │
-│  │  - Rolling window archiving  │           │
-│  │  - Context Bridge injection  │           │
-│  └──────────────┬───────────────┘           │
-│                 ▼                            │
-│  ┌──────────────────────────────┐           │
-│  │  Perpetual Context Plugin    │           │
-│  │  - Hybrid search (FTS5+vec)  │           │
-│  │  - Smart retrieval routing   │           │
-│  │  - Deep Research Pipeline    │           │
-│  └──────────────┬───────────────┘           │
-│                 ▼                            │
-│  ┌──────────────────────────────┐           │
-│  │  SQLite Database (local)     │           │
-│  │  - messages table + FTS5 idx │           │
-│  │  - embeddings BLOB column    │           │
-│  │  - topic relationships       │           │
-│  └──────────────────────────────┘           │
-└─────────────────────────────────────────────┘
-```
-
-### How the Dual-Memory System Works
-
-```
-User asks question → Agent calls recent_messages (last 10 turns)
-→ Agent reads current prompt + recent context
-→ Agent checks Reference Library for curated knowledge on topic
-→ Agent calls perpetual_search for historical discussion on topic
-→ Agent formulates response using retrieved info + present context
-→ Completed turns are archived to permanent storage
-→ Context window stays lean for next turn
-```
-
-Key design decisions:
-- **`recent_messages` is mandatory first step** — prevents loops, maintains continuity
-- **Search during thinking, not after** — tool use IS the reasoning process
-- **Archive aggressively** — if a task is done, it belongs in permanent storage, not working memory
-- **Print task status every turn** — `[Tasks: 3/5 complete]` becomes searchable PM data
-
----
-
-## Semantic Embeddings (Included)
-
-Hybrid search uses sqlite-vec vec0 virtual table for vector similarity alongside FTS5 keyword search. All vectors live in the same SQLite database — single-DB atomic storage, no index drift.
-
-```bash
-pip install onnxruntime sentence-transformers sqlite-vec
-```
-
-The default model is `all-MiniLM-L6-v2` — lightweight, runs locally. Embeddings are stored as BLOB in SQLite alongside vec0 virtual table. No configuration needed beyond installing the packages; the plugin auto-detects and enables them.
-
----
-
-## How Things Grow Over Time
-
-### Reference Library Growth
-- **Topics:** Created when you research something or solve a complex problem. The agent documents findings in `~/.hermes/reference-library/topics/`.
-- **Tools:** Created when the agent encounters deferred tools. Schemas are documented in `~/.hermes/reference-library/tools/` for future lookup.
-- **Entities:** Created when researching people, organizations, or publications. Tracks credibility and behavior patterns in `~/.hermes/reference-library/entities/`.
-- **Sources:** Auto-created by `source_analyze` when new domains are encountered. Each dossier tracks alignment, truthful_on, omits in `~/.hermes/reference-library/sources/`. Compounds over time — each analysis enriches the dossier.
-- **Index:** Updated automatically by the agent as new entries are created.
-
-### Skills Growth
-- Skills are created when you solve a complex problem (5+ tool calls) that you'll likely face again.
-- Stored in `~/.hermes/skills/CATEGORY/skill-name/SKILL.md`.
-- The system prompt's skills list grows as you add more skills.
-- See [`extras/skills-template/`](extras/skills-template/) for format examples.
-
-### Perpetual Memory Growth
-- Every conversation turn is stored automatically — no action needed.
-- Grows continuously across sessions. Search it with `perpetual_search`, `query_messages`, or `recent_messages`.
-- Old turns are pruned from the context window but remain fully searchable in the database.
 
 ---
 

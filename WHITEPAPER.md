@@ -2,7 +2,7 @@
 type: topic
 topic: "Logos — System White Paper"
 created: 2026-05-07
-last_updated: 2026-05-15
+last_updated: 2026-07-16
 confidence: high
 related_entries:
   - "Hermes Agent Architecture(topics/hermes-agent/architecture)"
@@ -312,7 +312,7 @@ The Logos Engine operates as a three-stage verification pipeline:
 | 4:00 AM | Hermes Backup | Backs up entire Hermes directory to Windows |
 | 9:00 AM | Retrieval Quality Report | Monitors retrieval quality trends |
 
-Supporting bridges: `britannica_bridge.py` and `aquinas_bridge.py` provide content-aware search across the Britannica 1911 and Aquinas Research Library corpora respectively, integrated into the distillation pipeline.
+Supporting modules handle corpus-level search and content integration within the distillation pipeline.
 
 ### 4.7 Context Archiving — Dual Engine
 
@@ -420,13 +420,13 @@ Custom code lives in `plugins/memory/perpetual_context/` and `agent/perpetual_co
 
 | Module | Lines | Purpose |
 |--------|-------|---------|
-| `__init__.py` | 512 | Thin orchestrator (reduced 68% from original 1,735) |
+| `__init__.py` | 557 | Thin orchestrator (reduced 68% from original 1,735) |
 | `component_factory.py` | 171 | Lazy-init factory for all sub-components |
 | `extraction_engine.py` | 450 | Extracts structured data from conversation turns |
 | `retrieval_engine.py` | 250 | SmartRetriever with auto-routing |
-| `schemas.py` | 410 | 12 tool schemas (added `SOURCE_ANALYZE_SCHEMA` May 2026) |
+| `schemas.py` | 544 | 12 tool schemas (added `SOURCE_ANALYZE_SCHEMA` May 2026) |
 | `topic_classifier.py` | 126 | Keyword sets + stability function |
-| `tool_handler.py` | 542 | Tool dispatch to DB operations + `source_analyze` handler with deep mode (delegates to `agent/source_analysis.py:SourceAnalyzer`) |
+| `tool_handler.py` | 707 | Tool dispatch to DB operations + `source_analyze` handler with deep mode (delegates to `agent/source_analysis.py:SourceAnalyzer`) |
 | `quality_scorer.py` | 189 | Message relevance scoring |
 | `feedback_state.py` | 210 | Compression feedback tracking |
 | `prefetch_pipeline.py` | 286 | 4-phase Deep Research pipeline |
@@ -442,7 +442,7 @@ Custom code lives in `plugins/memory/perpetual_context/` and `agent/perpetual_co
 |--------|-------|---------|
 | `web_research.py` | 446 | SearXNG/Firecrawl/Camofox client |
 | `scrutiny_gate.py` | 673 | Consolidated facade for bias detection, sensitivity classification, worldview checking, and RL ingestion gate (single file, 4 classes) |
-| `synthesis_engine.py` | 508 | Multi-pass synthesis |
+| `synthesis_engine.py` | 593 | Multi-pass synthesis |
 
 **[[system/reference-library-purpose|Reference Library]] integration:**
 
@@ -629,4 +629,4 @@ The system is not perfect — it is a work in progress. But it is *honest* about
 
 ---
 
-*This white paper was compiled from the live codebase, Reference Library documentation, and Perpetual Memory records of Logos. Last updated 2026-05-15.*
+*This white paper was compiled from the live codebase, Reference Library documentation, and Perpetual Memory records of Logos. Last updated 2026-07-16.*
