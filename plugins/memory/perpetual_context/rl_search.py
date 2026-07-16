@@ -124,7 +124,7 @@ def _fts_search(
         escaped = query.replace("'", "''")
         fts_query = f'"{escaped}"'
 
-        where = "rl_index_fts MATCH ?"
+        where = "rl_fts MATCH ?"
         params: list = [fts_query]
 
         if category:
@@ -133,7 +133,7 @@ def _fts_search(
 
         sql = (
             "SELECT r.rowid, r.file_path, r.title, r.category, rank"
-            " FROM rl_index_fts r"
+            " FROM rl_fts r"
             f" WHERE {where}"
             " ORDER BY rank LIMIT ?"
         )

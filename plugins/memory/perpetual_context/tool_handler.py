@@ -473,6 +473,41 @@ def _handle_reference_library_search(tool_handler: ToolHandler, args: dict[str, 
             except Exception as e:  # noqa: S110 — degradation wrapper, must never fail RL search
                 logger.debug("Ref library search failed for %s: %s", md_file.name, e)
 
+    # Search Britannica archive via search.db FTS index
+    try:
+        import sqlite3
+        search_db_path = os.path.expanduser("~/.hermes/reference-library/search.db")
+        if os.path.exists(search_db_path):
+            conn = sqlite3.connect(search_db_path)
+            cursor = conn.cursor()
+
+            for word in query_words:
+                cursor.execute(
+                    "SELECT path, title FROM rl_entries WHERE category='britannica' AND (lower(title) LIKE ? OR lower(path) LIKE ?) LIMIT ?",
+                    (f"%{word}%", f"%{word}%", top_k * 2),
+                )
+                for path, title in cursor.fetchall():
+                    file_path = os.path.expanduser(f"~/.hermes/reference-library/{path}")
+                    try:
+                        with open(file_path, "r", encoding="utf-8") as f:
+                            content = f.read()
+                            snippet_start = max(0, content.lower().find(query_lower) - 100)
+                            snippet = content[snippet_start:snippet_start + 300].replace("\n", " ").strip()
+
+                            results.append({
+                                "file": os.path.basename(path),
+                                "directory": "archive/britannica",
+                                "name": title,
+                                "score": len(query_words),
+                                "snippet": snippet + "...",
+                            })
+                    except Exception:
+                        pass
+
+            conn.close()
+    except Exception:
+        pass
+
     results.sort(key=lambda r: -r["score"])
     return json.dumps({"results": results[:top_k], "count": len(results[:top_k])})
 
