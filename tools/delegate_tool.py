@@ -106,6 +106,80 @@ def _get_subagent_approval_callback():
         return _subagent_auto_approve
     return _subagent_auto_deny
 
+
+# ── Skill-Driven Personas ───────────────────────────────────────────────
+# Loads persona instructions from ~/.hermes/personas/registry.yaml
+# and the referenced skill content via skill_view().
+PERSONA_REGISTRY_PATH = os.path.expanduser("~/.hermes/personas/registry.yaml")
+_persona_cache: Dict[str, str] = {}  # persona_name -> skill content
+
+
+def _load_persona_instructions(persona_name: str) -> Optional[str]:
+    """Load persona instructions from the registry and referenced skill.
+
+    Returns the skill content that gets injected into the child's system prompt,
+    or None if the persona is not found or loading fails.
+
+    Args:
+        persona_name: The persona name from the registry (e.g., "discernment-researcher")
+
+    Returns:
+        Skill content string, or None on failure.
+    """
+    # Check cache first
+    if persona_name in _persona_cache:
+        return _persona_cache[persona_name]
+
+    try:
+        # Load the persona registry
+        import yaml as _yaml
+
+        if not os.path.exists(PERSONA_REGISTRY_PATH):
+            logger.debug("Persona registry not found at %s", PERSONA_REGISTRY_PATH)
+            return None
+
+        with open(PERSONA_REGISTRY_PATH, "r") as f:
+            registry = _yaml.safe_load(f)
+
+        if not registry or "personas" not in registry:
+            logger.debug("Persona registry is empty or malformed")
+            return None
+
+        persona_def = registry["personas"].get(persona_name)
+        if not persona_def or "skill_ref" not in persona_def:
+            logger.debug("Persona '%s' not found or missing skill_ref", persona_name)
+            return None
+
+        skill_ref = persona_def["skill_ref"]
+
+        # Load the skill content via skill_view
+        from tools.skills_tool import skill_view as _skill_view
+
+        result = _skill_view(name=skill_ref, preprocess=False)
+        if not result:
+            logger.debug("skill_view returned empty for skill '%s'", skill_ref)
+            return None
+
+        # Parse the skill view result (it's JSON)
+        skill_data = json.loads(result)
+        if not skill_data.get("success"):
+            logger.debug("skill_view failed for skill '%s': %s", skill_ref, skill_data.get("error"))
+            return None
+
+        skill_content = skill_data.get("content", "")
+        if not skill_content:
+            logger.debug("Skill '%s' has no content", skill_ref)
+            return None
+
+        # Cache the result
+        _persona_cache[persona_name] = skill_content
+        return skill_content
+
+    except Exception as e:
+        logger.warning("Failed to load persona '%s': %s", persona_name, e)
+        return None
+
+
 # Build a description fragment listing toolsets available for subagents.
 # Excludes toolsets where ALL tools are blocked, composite/platform toolsets
 # (hermes-* prefixed), and scenario toolsets.
@@ -570,6 +644,7 @@ def _build_child_system_prompt(
     goal: str,
     context: Optional[str] = None,
     *,
+    persona_instructions: Optional[str] = None,  # NEW: skill-driven persona
     workspace_path: Optional[str] = None,
     role: str = "leaf",
     max_spawn_depth: int = 2,
@@ -582,12 +657,23 @@ def _build_child_system_prompt(
     inspiration/openclaw/src/agents/subagent-system-prompt.ts:63-95).
     The depth note is literal truth (grounded in the passed config) so
     the LLM doesn't confabulate nesting capabilities that don't exist.
+
+    Args:
+        goal: The task goal
+        context: Optional background context
+        persona_instructions: Optional skill-driven persona instructions
+        workspace_path: Optional workspace path
+        role: Agent role (leaf or orchestrator)
+        max_spawn_depth: Maximum delegation depth
+        child_depth: Current child depth
     """
     parts = [
         "You are a focused subagent working on a specific delegated task.",
         "",
         f"YOUR TASK:\n{goal}",
     ]
+    if persona_instructions and persona_instructions.strip():
+        parts.append(f"\nPERSONA INSTRUCTIONS:\n{persona_instructions}")
     if context and context.strip():
         parts.append(f"\nCONTEXT:\n{context}")
     if workspace_path and str(workspace_path).strip():
@@ -872,6 +958,7 @@ def _build_child_agent(
     goal: str,
     context: Optional[str],
     toolsets: Optional[List[str]],
+    persona_name: Optional[str],  # NEW: skill-driven persona
     model: Optional[str],
     max_iterations: int,
     task_count: int,
@@ -964,10 +1051,16 @@ def _build_child_agent(
     if effective_role == "orchestrator" and "delegation" not in child_toolsets:
         child_toolsets.append("delegation")
 
+    # Load persona instructions if persona_name is provided
+    persona_instructions = None
+    if persona_name:
+        persona_instructions = _load_persona_instructions(persona_name)
+    
     workspace_hint = _resolve_workspace_hint(parent_agent)
     child_prompt = _build_child_system_prompt(
         goal,
         context,
+        persona_instructions=persona_instructions,
         workspace_path=workspace_hint,
         role=effective_role,
         max_spawn_depth=max_spawn,
@@ -1869,6 +1962,7 @@ def delegate_task(
     goal: Optional[str] = None,
     context: Optional[str] = None,
     toolsets: Optional[List[str]] = None,
+    persona: Optional[str] = None,  # NEW: skill-driven persona name
     tasks: Optional[List[Dict[str, Any]]] = None,
     max_iterations: Optional[int] = None,
     acp_command: Optional[str] = None,
@@ -1881,8 +1975,13 @@ def delegate_task(
     Spawn one or more child agents to handle delegated tasks.
 
     Supports two modes:
-      - Single: provide goal (+ optional context, toolsets, role)
-      - Batch:  provide tasks array [{goal, context, toolsets, role}, ...]
+      - Single: provide goal (+ optional context, toolsets, persona, role)
+      - Batch:  provide tasks array [{goal, context, toolsets, persona, role}, ...]
+
+    The 'persona' parameter (optional) references a skill-driven persona from
+    ~/.hermes/personas/registry.yaml. When set, the child agent automatically
+    loads the referenced skill's instructions and applies the persona's toolset
+    restrictions and reasoning effort settings.
 
     The 'role' parameter controls whether a child can further delegate:
     'leaf' (default) cannot; 'orchestrator' retains the delegation
@@ -1966,7 +2065,7 @@ def delegate_task(
         task_list = tasks
     elif goal and isinstance(goal, str) and goal.strip():
         task_list = [
-            {"goal": goal, "context": context, "toolsets": toolsets, "role": top_role}
+            {"goal": goal, "context": context, "toolsets": toolsets, "persona": persona, "role": top_role}
         ]
     else:
         return tool_error("Provide either 'goal' (single task) or 'tasks' (batch).")
@@ -2008,6 +2107,7 @@ def delegate_task(
                 goal=t["goal"],
                 context=t.get("context"),
                 toolsets=t.get("toolsets") or toolsets,
+                persona_name=t.get("persona"),  # NEW: skill-driven persona
                 model=creds["model"],
                 max_iterations=effective_max_iter,
                 task_count=n_tasks,
@@ -2565,6 +2665,18 @@ DELEGATE_TASK_SCHEMA = {
                     "['terminal', 'file', 'web'] for full-stack tasks."
                 ),
             },
+            "persona": {
+                "type": "string",
+                "description": (
+                    "Optional skill-driven persona name from ~/.hermes/personas/registry.yaml. "
+                    "When set, the child agent automatically loads the referenced skill's "
+                    "instructions and applies the persona's toolset restrictions. "
+                    "Available personas: discernment-researcher, behavioral-tester, "
+                    "claim-evaluator, historical-researcher, institutional-analyst, "
+                    "constitutional-analyst, code-reviewer, content-auditor, "
+                    "multi-source-researcher, geopolitical-analyst."
+                ),
+            },
             "tasks": {
                 "type": "array",
                 "items": {
@@ -2579,6 +2691,10 @@ DELEGATE_TASK_SCHEMA = {
                             "type": "array",
                             "items": {"type": "string"},
                             "description": f"Toolsets for this specific task. Available: {_TOOLSET_LIST_STR}. Use 'web' for network access, 'terminal' for shell, 'browser' for web interaction.",
+                        },
+                        "persona": {
+                            "type": "string",
+                            "description": "Optional skill-driven persona name from ~/.hermes/personas/registry.yaml.",
                         },
                         "acp_command": {
                             "type": "string",
