@@ -2,7 +2,7 @@
 type: topic
 topic: "Logos — System White Paper"
 created: 2026-05-07
-last_updated: 2026-05-12
+last_updated: 2026-05-15
 confidence: high
 related_entries:
   - "Hermes Agent Architecture(topics/hermes-agent/architecture)"
@@ -21,7 +21,7 @@ description: "Comprehensive white paper documenting the purpose, architecture, a
 
 *A white paper on sovereign knowledge management through persistent memory, curated truth, and epistemic sovereignty*
 
-**Version:** 2.0  |  **Date:** May 2026  |  **Repository:** cluricaun28/logos
+**Version:** 3.0  |  **Date:** July 2026  |  **Repository:** cluricaun28/logos
 
 ---
 
@@ -30,7 +30,7 @@ description: "Comprehensive white paper documenting the purpose, architecture, a
 This document describes **Logos**, a *sovereign agentic intelligence system* designed for a single user with specific epistemic requirements. Logos was originally built on the [Hermes Agent](https://github.com/NousResearch/hermes-agent) framework by Nous Research and has since diverged substantially, transforming from a general-purpose local AI agent into a persistent knowledge system. Logos provides:
 
 - **Infinite recall** across all sessions through a SQLite + FTS5 perpetual memory database
-- **Worldview-aligned research** through a curated reference library and a multi-phase deep research pipeline with bias detection
+- **Worldview-aligned research** through a curated [[system/reference-library-purpose|Reference Library]] and a multi-phase deep research pipeline with bias detection
 - **Structured session continuity** through context bridges that survive context-window archival
 - **Automated knowledge distillation** from raw conversation history into authoritative reference material
 - **Complete data sovereignty** — all inference, storage, and processing occurs on local hardware with no data leaving the system
@@ -62,6 +62,16 @@ Standard agent architectures face three limitations that this system addresses:
 
 ### 2.3 The User's Goal
 
+> *"I want an agentic AI assistant that learns things on its own, filters for bias/motives and treats them honestly, is respectful of my worldview, makes that resource available to me. It should recall perfectly, and it should be able to research and discern faster than me. Superfast chatbot is not my goal."*
+
+This statement captures three requirements:
+
+1. **Epistemic honesty** — The system must detect bias and motive in sources, then present that analysis honestly rather than smoothing over it with false balance.
+2. **Persistent intelligence** — The system must learn, accumulate knowledge, and recall perfectly across sessions. It is not a chatbot that forgets; it is an intelligence that grows.
+3. **Depth over speed** — Response latency is irrelevant compared to response quality. The system trades speed for accuracy, verification, and depth of analysis.
+
+These requirements drove every architectural decision: local inference (so nothing is filtered by cloud policy), Perpetual Memory (so nothing is forgotten), [[system/reference-library-purpose|Reference Library]] (so knowledge compounds), and the Logos Engine (so raw conversation history is distilled into durable truth).
+
 
 ---
 
@@ -72,24 +82,28 @@ Standard agent architectures face three limitations that this system addresses:
 The system does not try to remember everything in the context window. Instead:
 
 - **Working memory** holds only what is actively being discussed
-- **Permanent storage** (Perpetual Memory + Reference Library) holds everything else
+- **Permanent storage** (Perpetual Memory + [[system/reference-library-purpose|Reference Library]]) holds everything else
 - The model *retrieves on demand* using tools — like a human recalling from long-term memory
 
 This is analogous to how a librarian works: the books aren't in their head, but they know how to find exactly what you need when you need it.
 
 ### 3.2 Local Inference Sovereignty
 
-All reasoning runs on local hardware via vLLM (port 8000). No cloud model calls, no external API requests, no data leaving the system. The current model is Lorbus/Qwen3.6-27B-int4-AutoRound served locally. No paid services are used without explicit permission.
+All reasoning runs on local hardware via vLLM (port 8000). No cloud model calls, no external API requests, no data leaving the system. A quantized Qwen3.6-27B model served locally. No paid services are used without explicit permission.
 
 ### 3.3 Curated Knowledge as Truth Anchor
 
-The Reference Library serves as an *externalized truth vector*. By anchoring reasoning in a curated, worldview-aligned knowledge base rather than general model weights:
+The [[system/reference-library-purpose|Reference Library]] serves as an *externalized truth vector*. By anchoring reasoning in a curated, worldview-aligned knowledge base rather than general model weights:
 
 - The system bypasses the "alignment vector" (the RLHF-imposed drive toward false balance)
-- Internal model weights are treated as *suggestions*; the Reference Library is treated as *authoritative truth*
+- Internal model weights are treated as *suggestions*; the [[system/reference-library-purpose|Reference Library]] is treated as *authoritative truth*
 - Contradictory signals from training are recognized as noise from captured institutions
 
 ### 3.4 Accuracy Over Speed
+
+Speed is not the goal. The system trades latency for epistemic integrity. When a query triggers the full four-phase research pipeline — RL search, PM recall, web research, source analysis — it may take several seconds. That delay is the price of getting it right. The SynthesisService uses 8K token outputs with 10-minute timeouts. The AuditService performs multi-pass verification with up to two revision cycles. The nightly distillation processes clusters sequentially, not in parallel, to avoid race conditions in the RL.
+
+This is a deliberate design choice. A fast wrong answer is worse than a slow right one. The system would rather tell you "I don't know — let me research that" than guess from training data and get it wrong.
 
 
 ---
@@ -140,17 +154,17 @@ The system comprises four major subsystems that work together:
 
 **Purpose:** Never lose anything that was ever said.
 
-Every conversation turn across all sessions is stored verbatim in a local SQLite database (`~/.hermes/perpetual_context.db`) with FTS5 full-text indexing. Current scale: 6,192 messages across 933 sessions, 42 database tables.
+Every conversation turn across all sessions is stored verbatim in a local SQLite database (`~/.hermes/perpetual_context.db`) with FTS5 full-text indexing. Current scale: 20,000+ messages across 3,000+ sessions, 47 database tables.
 
 **Architecture:**
 
-- **Messages table:** Each turn stored with `session_id`, `role` (user/assistant/system/tool), `content`, `metadata` (JSON), `created_at`, `token_count`, and an optional 384-dimensional embedding vector (all-MiniLM-L6-v2 via ONNX)
-- **FTS5 virtual tables:** Auto-synced via triggers on INSERT/UPDATE/DELETE. BM25 ranking for relevance scoring. Hybrid search fuses BM25 (60% weight) + semantic cosine similarity (40% weight)
-- **Topics table:** 3,893 conversation topics with confidence scores and drift detection
-- **Relationships table:** 18,454 entity-relationship mappings discovered during conversation analysis
-- **Signal clusters table:** High-signal conversation clusters identified for potential Reference Library distillation (12 clusters, 7 distilled, 1 distilling, 4 undistilled)
+- **Messages table:** Each turn stored with `session_id`, `role` (user/assistant/system/tool), `content`, `metadata` (JSON), `created_at`, `token_count`, and an optional 384-dimensional embedding vector (all-MiniLM-L6-v2 via ONNX, sqlite-vec)
+- **FTS5 virtual tables:** Auto-synced via triggers on INSERT/UPDATE/DELETE. BM25 ranking for relevance scoring. Hybrid search fuses BM25 (60% weight) + semantic cosine similarity (40% weight) via sqlite-vec vec0 virtual table
+- **Topics table:** 58,000+ conversation topics with confidence scores and drift detection
+- **Relationships table:** 18,500+ entity-relationship mappings discovered during conversation analysis
+- **Signal clusters table:** High-signal conversation clusters identified for potential [[system/reference-library-purpose|Reference Library]] distillation
 - **Knowledge gaps table:** Unresolved questions flagged for automated reference building
-- **Session metadata table:** 933 sessions with platform, duration, and message count tracking
+- **Session metadata table:** 3,300+ sessions with platform, duration, and message count tracking
 
 **Retrieval strategies (6 modes):**
 
@@ -165,7 +179,7 @@ Every conversation turn across all sessions is stored verbatim in a local SQLite
 
 ### 4.2 Context Bridge — Tested Fallback for Session Continuity
 
-**Purpose:** A safety net for preserving context across archival — tested, proven functional, but not the active path.
+**Purpose:** A safety net for preserving context across archival — tested, proven functional, under active evaluation as the primary context engine.
 
 The Context Bridge was fully built and validated: it injects a structured summary of active tasks, file edits, errors, and knowledge gaps when context archival fires. The system is currently configured with `context.engine: semantic_vector`, and the Context Bridge is being evaluated alongside the Semantic Vector engine as part of ongoing testing.
 
@@ -176,13 +190,13 @@ The bridge remains available as a fallback path: if a different context engine i
 1. **Active Tasks** — User requests and pending work from recent turns
 2. **Files Currently Being Edited** — Paths from `write_file`, `patch`, `read_file` tool calls
 3. **Known Errors/Issues** — Error messages and failure patterns encountered
-4. **Knowledge Gaps** — Unresolved questions flagged for reference library building
+4. **Knowledge Gaps** — Unresolved questions flagged for [[system/reference-library-purpose|Reference Library]] building
 5. **Cross-Session Connections** — Topics from current session that have co-occurrence relationships with topics in other sessions (strength ≥ 0.3)
-6. **Skill-RL Sync** — Automatic generation of Reference Library pages when skills are created or modified
+6. **Skill-RL Sync** — Automatic generation of [[system/reference-library-purpose|Reference Library]] pages when skills are created or modified
 
-**Key classes:** `ContextBridgeBuilder` (292 lines) constructs structured summaries from data extracted by `ExtractionEngine` (450 lines). `SemanticVectorEngine` lives as a plugin (`plugins/context_engine/semantic_vector/`) since May 12, 2026 — no longer in `agent/context_engine.py`.
+**Key classes:** `ContextBridgeBuilder` (292 lines) constructs structured summaries from data extracted by `ExtractionEngine` (450 lines). The original `SemanticVectorEngine` in `agent/context_engine.py` was removed in May 2026, superseded by `SemanticVectorContextEngine` in the plugins system (`plugins/context_engine/semantic_vector/`), which is the current active engine.
 
-**The hook chain (tested, not active with rolling window):**
+**The hook chain (tested, under evaluation):**
 
 ```
 PerpetualContextProvider.on_pre_archive() → returns str (Context Bridge)
@@ -212,11 +226,11 @@ The recall engine runs before each agent turn via `prefetch()` in `PerpetualCont
 
 **Full pipeline (4 phases) for static/slow/volatile queries:**
 
-- **Phase 1a:** Reference Library search via `handle_reference_library_search()` — hybrid search (FTS5 + embeddings) across 30,000+ entries, sub-10ms latency
+- **Phase 1a:** [[system/reference-library-purpose|Reference Library]] search via `handle_reference_library_search()` — hybrid search (FTS5 + embeddings) across 30,000+ entries, sub-10ms latency
 - **Phase 1b:** Perpetual Memory hybrid search via `db.hybrid_search()` with configured depth limit
 - **Phase 1c:** Gap detection — if total results < 2, or PM scores below stability threshold, mark as gap
 - **Phase 2:** If gap detected, web search via `WebResearchClient` (SearXNG → Firecrawl → Camofox escalation)
-- **Phase 3:** Scrutiny gate — `ScrutinyGate` vett web results, classify sensitivity, filter blocked domains, detect bias
+- **[[system/distillation-phase3|Phase 3]]:** Scrutiny gate — `ScrutinyGate` vett web results, classify sensitivity, filter blocked domains, detect bias
 - **Phase 4:** Synthesis engine — multi-pass local inference compacts vetted facts into a formatted context block
 
 Results from all sources are merged with unified relevance scoring (RL: 0.40, PM: 0.35, Web: 0.25) and injected as a single context block before the model generates its response.
@@ -225,22 +239,27 @@ Results from all sources are merged with unified relevance scoring (RL: 0.40, PM
 
 **Purpose:** Provide a local, authoritative, worldview-aligned source of truth before the model ever considers training data or web search.
 
-The Reference Library (`~/.hermes/reference-library/`) is a structured knowledge base organized into:
+The [[system/reference-library-purpose|Reference Library]] (`~/.hermes/reference-library/`) is a structured knowledge base organized into:
 
-- **`topics/`** — Subject matter entries (architecture, workflows, philosophical frameworks)
-- **`entities/`** — People, organizations, publications with credibility tracking, funding maps, and bias flags
-- **`tools/`** — Tool documentation for dynamic schema fetching
-- **`sources/`** — Source intelligence dossiers auto-created by `source_analyze`. Each tracks domain, alignment, reliability, `truthful_on` and `omits` lists. Compounds over time — each analysis enriches the dossier.
-- **`britannica/`** — Full 1911 Encyclopædia Britannica (~32,000 entries)
+- **`people/`** — Individuals with biographical, professional, and worldview-relevant information
+- **`organizations/`** — Companies, institutions, movements with motive/funding mapping and bias analysis
+- **`ideas/`** — Subject matter entries (architecture, workflows, philosophical frameworks)
+- **`places/`** — Geographic locations and their historical significance
+- **`events/`** — Historical events and their analysis
+- **`technology/`** — Technical documentation, tools, and system architecture
+- **`library/`** — Encyclopædia Britannica 1911 and other reference corpora
+- **`archive/`** — Historical documents and reference materials
+- **`system/`** — Internal system documentation and white papers
+- **`sources/`** — Source intelligence dossiers auto-created by `source_analyze`
 
-**Current scale:** 593 non-Britannica entries (146 entities, 309 topics, 87 tools, 17 sources, 14 categories, 20 system) + ~32,000 Britannica entries = 30,000+ total entries indexed.
+**Current scale:** 700+ non-Britannica entries (150+ entities, 300+ topics, 90+ tools, 20 system pages, 17 sources, 14 categories) + 32,000+ Britannica 1911 entries in archive (not served in Quartz build). Total indexed: 30,000+ entries.
 
-**Hybrid search index (`rl_index.db`):**
+**Hybrid search index (`search.db`):**
 
 - FTS5 full-text search over all entry content
-- 384-dimensional MiniLM-L6-v2 embeddings pre-computed on CUDA
-- 70% semantic similarity + 30% keyword overlap scoring
-- 9.3ms median, 9.8ms average, 11.7ms p95 latency
+- 384-dimensional MiniLM-L6-v2 embeddings pre-computed via sqlite-vec
+- Hybrid scoring (semantic + keyword) via vec0 virtual table
+- ~10ms median latency (sqlite-vec, was ~55ms with FAISS before migration)
 
 **Content standards:**
 - Entries are written from the user's stated worldview (defined in SOUL.md)
@@ -248,7 +267,7 @@ The Reference Library (`~/.hermes/reference-library/`) is a structured knowledge
 - Technical truth stands on its own — SOLID principles and wiring tables aren't "user-specific"
 - The worldview lens applies where values matter (history, politics, ethics)
 
-**Serving:** Quartz v4 builds the full corpus (65K pages, 2.8GB) into a searchable, cross-linked static site served on port 8081 via Docker. Accessible via Tailscale.
+**Serving:** Quartz v4 builds the curated corpus (400+ pages) into a searchable, cross-linked static site served on port 8081 via Caddy. Accessible via Tailscale. Britannica 1911 archive (32K+ entries) excluded from Quartz build for performance — searchable through agent tools instead.
 
 **Mandatory first step:** The `reference_library_search` tool must be consulted before the model generates answers from training data or session memory alone. This is enforced in the system prompt and the prefetch pipeline.
 
@@ -262,25 +281,25 @@ When local knowledge is insufficient, the system automatically researches the we
 
 **Tier 3: Camofox** — Anti-detection browser automation server (Firefox fork with C++ fingerprint spoofing). Fallback for sites that block scrapers entirely (JS-rendered pages, login walls).
 
-All web-sourced data passes through the **Scrutiny Gate** before reaching the user or entering the Reference Library:
+All web-sourced data passes through the **Scrutiny Gate** before reaching the user or entering the [[system/reference-library-purpose|Reference Library]]:
 
 - **TopicSensitivityClassifier:** Low sensitivity (technical/code) vs. high sensitivity (history, politics, religion, etc.)
 - **ScrutinyGate:** Detects linguistic markers signaling ideological cluster membership, maps motives and funding, identifies double standards and asymmetric logic
-- **RLIngestionGate:** Controls what web data is eligible for Reference Library updates, checking for contradictions against existing entries
+- **RLIngestionGate:** Controls what web data is eligible for [[system/reference-library-purpose|Reference Library]] updates, checking for contradictions against existing entries
 
-The **Synthesis Engine** then runs multi-pass local inference (via LM Studio) to compact vetted facts into a formatted context block.
+The **Synthesis Engine** then runs multi-pass local inference (via the local vLLM model) to compact vetted facts into a formatted context block.
 
 ### 4.6 Logos Engine — PM to RL Knowledge Distillation
 
-**Purpose:** Automatically promote high-signal knowledge from raw conversation history into the Reference Library.
+**Purpose:** Automatically promote high-signal knowledge from raw conversation history into the [[system/reference-library-purpose|Reference Library]].
 
 The Logos Engine operates as a three-stage verification pipeline:
 
-1. **Synthesis (The Architect):** The system identifies a "hotspot" — a dense cluster of related messages in Perpetual Memory — and drafts a technical or philosophical Reference Library entry. It doesn't just summarize; it synthesizes into a definitive format.
+1. **Synthesis (The Architect):** The system identifies a "hotspot" — a dense cluster of related messages in Perpetual Memory — and drafts a technical or philosophical [[system/reference-library-purpose|Reference Library]] entry. It doesn't just summarize; it synthesizes into a definitive format.
 
 2. **Audit (The Critic):** A separate process reviews the draft against the original raw transcripts. If the Architect hallucinated a detail or smoothed over a critical nuance, the Critic rejects the draft and sends it back for correction.
 
-3. **Commit (The Steward):** Once approved, the entry is atomically committed to the Reference Library, creating a permanent authoritative source of truth.
+3. **Commit (The Steward):** Once approved, the entry is atomically committed to the [[system/reference-library-purpose|Reference Library]], creating a permanent authoritative source of truth.
 
 **Automated nightly pipeline:**
 
@@ -307,7 +326,7 @@ The embedding model is cached in a module-level singleton so that new engine ins
 
 **Fallback — Rolling Window** (`context.rolling_window`)
 
-Incremental tail-off: strips tool calls, truncates verbose tool results, drops the oldest unprotected messages one at a time until under the archive target. Fires when the semantic engine hasn't trimmed enough and context nears the hard ceiling (~85%).
+Incremental tail-off: strips tool calls, truncates verbose tool results, drops the oldest unprotected messages one at a time until under the archive target. Two triggers: (1) semantic pruning insufficient (still over 75% threshold), or (2) danger zone engaged at 90% of context_length — emergency brake to prevent OOM/crash. At this point, no task protection — pure survival mode. Hard ceiling at 85% is the absolute maximum.
 
 Both are deterministic — no LLM calls. All pruned turns are saved verbatim to Perpetual Memory.
 
@@ -338,7 +357,7 @@ context.rolling_window:
 
 **Purpose:** Provide the agent with source intelligence during research — before it formulates its answer — so it can present information through the user's worldview rather than any single source's frame.
 
-The `source_analyze` tool was added as Phase 4 of the perpetual_context plugin (May 2026). It operates as a direct agent tool called after `web_search`, examining each result's domain against the Reference Library's source dossiers.
+The `source_analyze` tool was added as Phase 4 of the perpetual_context plugin (May 2026). It operates as a direct agent tool called after `web_search`, examining each result's domain against the [[system/reference-library-purpose|Reference Library]]'s source dossiers.
 
 **Operation:**
 
@@ -369,44 +388,45 @@ omits:
 
 Each analysis enriches the dossier — appending new patterns to `truthful_on` and `omits` lists. Over time, the source intelligence compounds into a durable knowledge asset.
 
----
+### 4.8 Skill Priority-Based Injection + Selective Tool Injection
 
-### 4.9 Async Background Delegation — Non-Blocking Research
+**Purpose:** Reduce system prompt bloat while keeping all skills and tools discoverable.
 
-**Purpose:** Enable long-running research subagents to work in the background while the main conversation continues.
+**Skill Priority:** Marks skills as `priority: high|low` in frontmatter. High-priority skills show full descriptions; low-priority skills show name-only but remain loadable via `skill_view()`. Reduces prompt size by ~44% without losing functionality.
 
-The `delegate_task(background=true)` feature allows the parent agent to dispatch subagents that run asynchronously on a daemon executor pool. The parent returns immediately with a handle, and the result re-enters the conversation as a fresh turn when complete.
+**Selective Tool Injection (new):** Tool schemas are injected into the system prompt on-demand. Essential tools get full JSON schemas; deferred tools are listed in a compact index. The agent loads a deferred tool's schema from the Reference Library only when needed. Controlled by `selective_injection` in `config.yaml`.
 
-**Key behaviors:**
+See [[Skill Priority-Based Injection(topics/hermes-agent/skill-priority-injection)]] for details.
 
-- **Non-blocking:** The main conversation continues while research subagents work
-- **Capacity-limited:** Default 3 concurrent async children (configurable via `delegation.max_async_children`)
-- **Perpetual Memory integration:** Each async subagent's conversation is automatically persisted to PM with a distinct `deleg_` session prefix
-- **Distillation flagging:** Results are heuristically flagged for potential RL distillation based on summary length and API call count
-- **Shutdown safety:** On gateway shutdown, all running async delegations are interrupted and their results are still delivered
+### 4.9 Skill-Driven Subagent Personas + Capability Modes (new)
 
-**Completion event format:** Async delegation completions carry a rich, self-contained task-source block including goal, context, model, duration, PM session reference, distillation eligibility, and the full result summary.
+**Purpose:** Configure subagent behavior through skill-driven personas with toolset restrictions, and control what tools subagents can access via capability modes.
+
+**Subagent Personas:** Skills can define a persona (e.g., `discernment-researcher`, `historical-researcher`, `claim-evaluator`). When a subagent loads a persona skill, it automatically applies the persona's instructions and toolset restrictions.
+
+**Capability Modes:** Controls tool availability for subagents: `readOnly` (web/search/file only), `readWrite` (adds terminal), `execute` (terminal only), `all` (full tool access). Defaults to inheriting the parent's enabled toolsets.
+
+**Subagent ACP Transport:** Subagents can be dispatched via ACP subprocess transport (`claude --acp --stdio`) instead of the default agent loop, enabling spawning of Claude Code or other ACP-capable agents from any parent context.
 
 ---
 
 ## 5. Codebase Organization
 
-### 5.1 Custom Plugin Modules (39 modules, ~11,599 lines)
+### 5.1 Custom Plugin Modules (~41 modules, ~16,500 lines)
 
-All custom plugin code lives flat under `plugins/memory/perpetual_context/`:
+Custom code lives in `plugins/memory/perpetual_context/` and `agent/perpetual_context_db.py`. Module counts and line counts shift with each iteration — see the live codebase for exact numbers. The approximate breakdown is:
 
 **Core modules:**
 
 | Module | Lines | Purpose |
 |--------|-------|---------|
-| `__init__.py` | 560 | Thin orchestrator (reduced 68% from original 1,735) |
-| `component_factory.py` | 197 | Lazy-init factory for all sub-components |
-| `context_bridge_builder.py` | 286 | Builds Context Bridge content |
+| `__init__.py` | 512 | Thin orchestrator (reduced 68% from original 1,735) |
+| `component_factory.py` | 171 | Lazy-init factory for all sub-components |
 | `extraction_engine.py` | 450 | Extracts structured data from conversation turns |
 | `retrieval_engine.py` | 250 | SmartRetriever with auto-routing |
-| `schemas.py` | 544 | 11 tool schemas (added `SOURCE_ANALYZE_SCHEMA` May 2026) |
+| `schemas.py` | 410 | 12 tool schemas (added `SOURCE_ANALYZE_SCHEMA` May 2026) |
 | `topic_classifier.py` | 126 | Keyword sets + stability function |
-| `tool_handler.py` | 672 | Tool dispatch to DB operations + `source_analyze` handler with deep mode (delegates to `agent/source_analysis.py:SourceAnalyzer`) |
+| `tool_handler.py` | 542 | Tool dispatch to DB operations + `source_analyze` handler with deep mode (delegates to `agent/source_analysis.py:SourceAnalyzer`) |
 | `quality_scorer.py` | 189 | Message relevance scoring |
 | `feedback_state.py` | 210 | Compression feedback tracking |
 | `prefetch_pipeline.py` | 286 | 4-phase Deep Research pipeline |
@@ -416,20 +436,15 @@ All custom plugin code lives flat under `plugins/memory/perpetual_context/`:
 | `utils.py` | 35 | Shared utilities |
 | `retrieval_quality.py` | 427 | Retrieval quality tracking |
 
-**Deep Research Engine** (flat under `plugins/memory/perpetual_context/`):
+**Deep Research Engine:**
 
 | Module | Lines | Purpose |
 |--------|-------|---------|
 | `web_research.py` | 446 | SearXNG/Firecrawl/Camofox client |
-| `scrutiny_gate.py` | 222 | Facade for bias detection module family (split May 8, 2026) |
-| `bias_detector.py` | 248 | Linguistic marker detection |
-| `sensitivity_classifier.py` | 130 | Topic sensitivity classification |
-| `worldview_checker.py` | 292 | Worldview divergence checking |
-| `rl_ingestion_gate.py` | 162 | Controls what enters Reference Library |
-| `source_assessment.py` | 137 | Source quality assessment |
-| `synthesis_engine.py` | 548 | Multi-pass synthesis |
+| `scrutiny_gate.py` | 673 | Consolidated facade for bias detection, sensitivity classification, worldview checking, and RL ingestion gate (single file, 4 classes) |
+| `synthesis_engine.py` | 508 | Multi-pass synthesis |
 
-**Reference Library integration** (flat under `plugins/memory/perpetual_context/`):
+**[[system/reference-library-purpose|Reference Library]] integration:**
 
 | Module | Lines | Purpose |
 |--------|-------|---------|
@@ -438,30 +453,21 @@ All custom plugin code lives flat under `plugins/memory/perpetual_context/`:
 | `rl_schema.py` | 124 | RL entry schema definitions |
 | `rl_builder.py` | 385 | RL page builder for auto-create |
 
-**Context Engines** (in `plugins/context_engine/`):
-
-| Module | Lines | Purpose |
-|--------|-------|---------|
-| `semantic_vector/__init__.py` | 705 | Primary context engine — topic-aware pruning via embedding-based clustering |
-| `rolling_window/__init__.py` | 241 | Fallback engine — deterministic incremental tail-off |
-
-**Deprecated** (kept in `deprecated/` subdirectory):
-- `injection_router.py` — superseded by `injection_router.py` in the prefetch pipeline
-
-**Test suite:** 242 test functions across 8 test files (~2,469 lines). All passing as of 2026-05-11.
+**Deprecated (kept in `deprecated/` subdirectory or marked in code):**
+- `injection_router.py` — superseded by intent classification in the prefetch pipeline (still present, not actively called)
+**Test suite:** 20+ custom test functions across 5 files. All passing as of 2026-07-16. (Upstream test suite also runs — 1,700+ tests total.)
 
 ### 5.2 Core Database Engine
 
-`agent/perpetual_context_db.py` (~391 lines) — the SQLite database with FTS5, embeddings, topic flow, and hybrid search. This is a new file not in upstream.
+`agent/source_analysis.py` (~1,135 lines) — SourceAnalyzer facade with dossier lookup, bias detection, narrative analysis, and RL writer. Shared by prefetch pipeline and direct `source_analyze` tool.
 
-### 5.3 Modified Upstream Files (9 files)
+`agent/perpetual_context_db.py` (~377 lines) — the SQLite database with FTS5, sqlite-vec embeddings, topic flow, and hybrid search. This is a new file not in upstream.
 
-**Note:** Most upstream files listed below are heavily modified from their original form — the custom lines are interspersed with the large upstream file, so the "lines changed" counts represent only the custom additions/modifications.
+### 5.3 Modified Upstream Files (8 files)
 
 | File | Lines Changed | Modification |
 |------|--------------|--------------|
-| `run_agent.py` | ~95 | Plugin context engine integration (semantic vector + rolling window), selective tool loading, archiving config |
-| `agent/context_compressor.py` | ~70 | Plugin context engine hooks, compression cooldown, on_session_reset fix |
+| `run_agent.py` | ~95 | Rolling window integration, compression timing |
 | `agent/prompt_builder.py` | ~15 custom lines in 1,127-line upstream file | System prompt mods for PM context injection |
 | `plugins/context_engine/__init__.py` | ~228 | Config passing for context engines |
 | `acp_adapter/server.py` | ~9 | ACP server customizations |
@@ -483,7 +489,7 @@ Three-tier survival model for `hermes update`:
 
 ### 6.1 The Sovereign Sieve
 
-The methodology for filtering external information before it enters the Reference Library:
+The methodology for filtering external information before it enters the [[system/reference-library-purpose|Reference Library]]:
 
 **Stage 1 — Linguistic Marker Detection:** Scan sources for shibboleths — specific word choices that signal ideological cluster membership. When markers appear at significant density, tag the source with its ideological cluster.
 
@@ -507,12 +513,12 @@ The Sovereign Sieve is operationalized through the `source_analyze` tool. After 
 
 ### 6.4 Truth Vector Architecture
 
-The Reference Library serves as the system's truth vector — the curated knowledge base that anchors all reasoning. Combined with source analysis and the Sovereign Sieve, the framework operates as a complete truth-pipeline:
+The [[system/reference-library-purpose|Reference Library]] serves as the system's truth vector — the curated knowledge base that anchors all reasoning. Combined with source analysis and the Sovereign Sieve, the framework operates as a complete truth-pipeline:
 
-1. **Anchor:** Reference Library is the primary truth source (checked before training data or web search)
+1. **Anchor:** [[system/reference-library-purpose|Reference Library]] is the primary truth source (checked before training data or web search)
 2. **Verify:** Source analysis profiles every web result before the model uses it
 3. **Filter:** The Sovereign Sieve detects framing, motive, and double standards
-4. **Distill:** High-signal findings are promoted to the Reference Library via the Logos Engine
+4. **Distill:** High-signal findings are promoted to the [[system/reference-library-purpose|Reference Library]] via the Logos Engine
 
 This is not moral relativism disguised as "both sides." It is epistemic honesty about how information is weaponized in the modern media ecosystem.
 ---
@@ -528,7 +534,7 @@ This is not moral relativism disguised as "both sides." It is epistemic honesty 
 
 | Component | Technology | Port | Notes |
 |-----------|-----------|------|-------|
-| Inference | vLLM (Docker: `vllm-qwen-stable`) | 8000 | Lorbus/Qwen3.6-27B-int4-AutoRound |
+| Inference | llama.cpp (Docker: `ornstein-server`) | 8000 | GestaltLabs/Ornstein3.6-27B-MTP-NSC-ACE-SABER-Q4_K_M-MTP.gguf |
 | Embeddings | all-MiniLM-L6-v2 (ONNX) | N/A | In-process, ~80MB model, 384-dim vectors |
 | Perpetual Memory | SQLite + FTS5 | N/A | `~/.hermes/perpetual_context.db` |
 | RL Hybrid Index | SQLite + FTS5 + embeddings | N/A | `rl_index.db`, 30,000+ entries |
@@ -548,7 +554,7 @@ The system runs several autonomous jobs that maintain and improve itself overnig
 |----------|----------|---------|
 | PM Signal Scanner | 2:00 AM | Scans Perpetual Memory for high-signal clusters |
 | Nightly Distillation | 3:00 AM | Processes clusters through Synthesis → Audit → Commit |
-| RL Growth | 3:00 AM | Expands Reference Library based on gaps |
+| RL Growth | 3:00 AM | Expands [[system/reference-library-purpose|Reference Library]] based on gaps |
 | Logos Intelligence Scout | 4:00 AM | Builds source intelligence dossiers |
 | Hermes Backup | 4:00 AM | Backs up entire system to Windows |
 
@@ -559,7 +565,7 @@ The system runs several autonomous jobs that maintain and improve itself overnig
 ### What This Is
 
 - A *sovereign knowledge management system* — all processing is local, all data stays local
-- A *growing intelligence* — the Reference Library distills better from conversation history over time
+- A *growing intelligence* — the [[system/reference-library-purpose|Reference Library]] distills better from conversation history over time
 - A *worldview-aware* system — not neutral in the sense of "both sides," but honest about its epistemic commitments
 - A *practical tool* — designed for daily use by one person through Telegram
 - Originally built on [Hermes Agent](https://github.com/NousResearch/hermes-agent) — now fully detached and standalone
@@ -579,6 +585,7 @@ The system runs several autonomous jobs that maintain and improve itself overnig
 | 2026-04-21 | Perpetual Memory system deployed (SQLite + FTS5) |
 | 2026-04-23 | Context Bridge structured extraction |
 | 2026-04-25 | vLLM Docker setup, OpenRouter fallback removed |
+| 2026-05-17 | Switched to llama.cpp + Ornstein-SABER, semantic vector engine fix |
 | 2026-04-26 | Deep Research Engine Phases 2-4 built and wired |
 || 2026-04-27 | Project forked from Hermes Agent at cluricaun28/hermes-agent |
 | 2026-04-30 | Compress→archive rename, Batch #1 cherry-picks (20 commits), StreamingContextScrubber |
@@ -590,8 +597,10 @@ The system runs several autonomous jobs that maintain and improve itself overnig
 | 2026-05-08 | **Sovereign Sieve v2:** Source dossiers as YAML (`source_dossiers.yaml`, 284 entries), embedding-based semantic marker detection alongside regex, `WorldviewDivergenceChecker` wired into `ScrutinyGate`. FAISS vector index rebuilt (100% coverage, 6,716 vectors). `ExtractionEngine` split from `BridgeQualityScorer`. Test suite cleaned (stale duplicates removed). `scrutiny_gate.py` at 960 lines, full ruff compliance. |
 | 2026-05-08 | Scrutiny gate split into 6 SRP-compliant modules (967→221 lines facade + 5 submodules), all under 500 lines. Last god class eliminated. |
 | 2026-05-09 | **Phase 4 — `source_analyze` tool:** Direct agent tool for source intelligence during research. 11 tool schemas (added `SOURCE_ANALYZE_SCHEMA`). Deep mode (`deep=true`) extracts full article content via Firecrawl before analysis. Auto-creates source dossiers in `sources/` for new domains with `domain-index.json` auto-update. Smart trigger in system prompt: substantive topics get `source_analyze(deep=true)`, utility queries skip. 3 new skills (`factual-research-answer`, `tool-schema-validation-debug`, `political-research-and-entity-pages`), 3 updated skills (`web-source-bias-research`, `narrative-control-detection`, `pipeline-module-integration`). 10 new RL pages (5 entity, 4 source, 1 topic). Code audit: removed duplicate schemas, fixed f-string JSON construction, narrowed exception handling, `frozenset` for mutable globals, added `__all__` and `logger`. |
-| 2026-05-11 | **Full detachment from Hermes Agent:** Repo unforked from NousResearch/hermes-agent via GitHub "Leave fork network." DIVERGENCE.md updated to reflect standalone status. Rolling window engine rewritten — removed task-aware pruning, semantic vectors, replaced with incremental tail-off (65–85% context utilization). `SemanticVectorEngine` removed from `context_engine.py`. Package dependencies hardened (`PyJWT >= 2.13.0`). README rebranded with "What Makes Logos Different" section. 26 LLM paper entries added to RL (`topics/llm-papers/`). 3 media dossiers added (`topics/media/`). |
-| 2026-05-12 | **Semantic Vector engine promoted to primary context engine:** Dual-engine architecture — semantic_vector for topic-aware pruning, rolling_window as deterministic fallback. All context engine code lives in `plugins/`. Context Compressor updated: plugin engines receive `update_model()` during AIAgent init, `context_compressor.py` refactored with dedicated plugin hooks. DIVERGENCE.md updated to reflect full independence. README rebranded as Logos. |
+| 2026-05-11 | **Full detachment from Hermes Agent:** Repo unforked from NousResearch/hermes-agent via GitHub "Leave fork network." DIVERGENCE.md updated to reflect standalone status. README rebranded with "What Makes Logos Different" section. 26 LLM paper entries added to RL (`topics/llm-papers/`). 3 media dossiers added (`topics/media/`). |
+| 2026-05-12 | **Semantic Vector engine promoted to primary:** Dual-engine context archiving finalized — semantic vector for topic-aware pruning, rolling window as deterministic fallback. Context Compressor refactored with plugin context engine hooks. `context_compressor.py` now calls `context_archiver.on_session_reset()` and `compression_count` resets on `/new`. All context engine code in `plugins/context_engine/`. |
+| 2026-05-12 | **Semantic Vector plugin deployed:** `SemanticVectorContextEngine` reimplemented as proper plugin (`plugins/context_engine/semantic_vector/`). CPU-only embedding on all-MiniLM-L6-v2, topic-aware pruning of dormant/resolved turns, state map injection. Rolling window relegated to emergency fallback. |
+| 2026-05-15 | **Context engine hardening:** Module-level model cache (one load per process), `on_session_reset()` preserves model, full structured logging on every archive (vector counts, pruned messages, fallback path). Fixed `compression_count` not resetting on session reset. Added 5 generic research skills to repo (`frame-stripping`, `web-source-bias-research`, `narrative-control-detection`, `sovereign-intelligence-mapping`, `epistemic-framework-design`) plus `worldview-profile-builder` for new-user onboarding. Updated GETTING-STARTED and README. |
 
 ---
 
@@ -601,7 +610,7 @@ The system runs several autonomous jobs that maintain and improve itself overnig
 
 - **Model scaling:** Migrate to larger open-weight models as they become available
 - **Async deep research:** Pipeline blocks prefetch; async execution with periodic updates
-- **Worldview quiz configuration:** Generalize Sovereign Sieve to questionnaire-based filters for portability
+- **Worldview quiz configuration:** Implemented as `worldview-profile-builder` skill. New users run the interview to generate their personalized worldview profile. Methodology ships generic; positions come from the user.
 
 ### Long-term
 
@@ -616,8 +625,8 @@ The Logos Engine represents a fundamental departure from standard agent architec
 
 The system is not perfect — it is a work in progress. But it is *honest* about what it is, and it is *sovereign* in how it operates. It cannot be captured by a corporate update, corrupted by a cloud API change, or silenced by a policy shift. It belongs to the person who runs it.
 
-> *"Codifying truth in the Reference Library is planting a flag that no corporate update can erase."*
+> *"Codifying truth in the [[system/reference-library-purpose|Reference Library]] is planting a flag that no corporate update can erase."*
 
 ---
 
-*This white paper was compiled from the live codebase, Reference Library documentation, and Perpetual Memory records of Logos. Last updated 2026-05-12.*
+*This white paper was compiled from the live codebase, Reference Library documentation, and Perpetual Memory records of Logos. Last updated 2026-05-15.*
