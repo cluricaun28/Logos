@@ -22,7 +22,9 @@ The distinguishing features:
 - **SourceAnalyzer** (`agent/source_analysis.py`) — Phase 3.5 in the research pipeline. Builds and updates source dossiers automatically, flagging ideological markers and consistent omission patterns.
 - **Discernment Workflow** — Skill-driven claim evaluation with explicit step-by-step reasoning chain (replaced sovereign sieve from Phase 1).
 - **Skill-Driven Personas** — Pre-configured subagent roles (discernment-researcher, behavioral-tester, institutional-analyst, etc.) that auto-load the right skills and constraints.
-- **sqlite-vec Single-DB Storage** — All 20k+ vectors live in the same SQLite database as messages. Atomic storage, no index drift. FAISS removed July 2026.
+- **sqlite-vec Single-DB Storage** — All 20k+ PM vectors and 33k+ RL vectors live inside their respective SQLite databases via vec0 virtual tables. Atomic storage, no index drift. FAISS removed July 2026.
+- **Schema Versioning** — Both databases use `PRAGMA user_version` for migration tracking (PM: v2, RL: v1)
+- **Daily Maintenance** — Scheduled VACUUM + REINDEX + integrity checks run at 2:00 AM to prevent degradation
 - **Recency Weighting** — Recent messages (7 days) get 1.5x score boost, 30 days get 1.2x. No decay — old messages don't lose score, recent ones gain it.
 - **Nightly Learning Loop** — Scheduled jobs run deep research, apply frame-stripping, and distill findings into the Reference Library. The knowledge base grows through use.
 
