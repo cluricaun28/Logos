@@ -134,67 +134,76 @@ class AuditService:
 
     def _build_audit_prompt(self, draft_content: str, raw_turns: List[Dict[str, Any]]) -> str:
         """Build the LLM prompt for auditing a synthesized draft."""
-        # Build audit prompt — label each turn with its ID so the critic can verify citations
         labeled: list[str] = []
         for t in raw_turns:
             tid = t.get("id", "?")
             labeled.append(f"--- turn_{tid} [{t['role'].upper()}] ---\n{t['content']}")
         raw_text = "\n\n".join(labeled)
-        # Cap total at ~32K to stay within reasonable context
         if len(raw_text) > 32000:
             raw_text = raw_text[:31000] + "\n\n[... remaining turns truncated for length ...]\n"
 
-        # Extract visible turn IDs from the (possibly truncated) content
         import re
         visible_turn_ids = sorted(set(int(m) for m in re.findall(r'turn_(\d+)', raw_text)))
 
-        return f"""You are the CRITIC in a knowledge distillation pipeline. Your job is to perform a FIDELITY CHECK on a synthesized Reference Library draft against raw conversation transcripts.
+        # Check if the draft is a REJECT
+        is_reject = draft_content.strip().startswith("REJECT:")
+
+        return f"""You are the CRITIC in a knowledge distillation pipeline. Your job is to audit a synthesized Reference Library draft for fidelity, quality, and template compliance.
 
 DRAFT TO AUDIT:
 {draft_content}
 
-VISIBLE TURN IDs (these are the only turns provided below — the draft may cite other turn IDs that were truncated and are NOT present): {visible_turn_ids}
+IS_REJECT: {"true" if is_reject else "false"} (if true, the synthesizer deemed the cluster not RL-worthy — just verify the rejection is reasonable)
+
+VISIBLE TURN IDs (the only turns provided below): {visible_turn_ids}
 
 RAW SOURCE TRANSCRIPTS:
 {raw_text}
 
-AUDIT DIMENSIONS (check each):
+IF IS_REJECT IS TRUE:
+- Check that the rejection reason is valid (the cluster really is process-only with no substantive knowledge).
+- If the cluster DOES contain knowledge about a person, idea, technology, event, or project, the rejection was wrong — flag it.
+- If the rejection is valid, passed=true.
 
-1. HALLUCINATIONS: Claims in the draft that are NOT supported by the raw turns.
-   - Each factual bullet claims a source turn ID (e.g., [turn_47]). Verify that the cited turn actually contains that fact.
-   - If a bullet cites [turn_N] but turn N is NOT in the VISIBLE TURN IDs list, flag it as hallucinated — that turn was truncated and the synthesizer fabricated the citation.
-   - If a bullet cites [turn_N] and turn N IS visible but doesn't contain that information, flag it.
-   - If a bullet uses [uncited], check that the claim IS present somewhere in the raw turns. [uncited] is valid when the fact is in the transcripts but the synthesizer couldn't pinpoint the exact turn. Only flag [uncited] claims that are genuinely absent from ALL turns.
-   - Any specific value (model name, version, price, file path, port, command) must appear in the source.
-   - If the draft says the user chose X, but the cited turn shows the user saying "I don't need X" or "let's not do X", flag it as a directional inversion.
+IF IS_REJECT IS FALSE (it's a page draft), audit these dimensions:
 
-2. NUANCE LOSS: Critical details smoothed over during summarization.
+1. HALLUCINATIONS: Claims NOT supported by the raw turns.
+   - Any specific value (model name, path, number, file, command) must appear in the source.
+   - If the draft claims the user chose X, verify the source actually shows that direction.
+   - Flag invented specifics, not general summaries.
+
+2. QUALITY STANDARDS (this is what makes or breaks the page):
+   a. CLAIM TAGGING: Are significant claims tagged with [FACT], [SCRIPTURE], [DOGMA], [DOCTRINE], [OPINION/INTERPRETATION], or [UNCERTAIN]? Untagged factual claims are a quality failure.
+   b. NO CONVERSATION LOG: Is the page a structured knowledge entry, or is it a bulleted list of "what was discussed"? Pages that read like meeting minutes fail.
+   c. SPECIFICITY: Does the page contain generic language like "multiple approaches were considered" or "this was significant"? These are failures — demand specifics.
+   d. FRONTMATTER: Does the page include YAML frontmatter with category, confidence, and description?
+   e. TEMPLATE STRUCTURE: Does the page follow a logical entity-template structure (Overview, Technical Details/Background, etc.) rather than arbitrary sections?
+
+3. NUANCE LOSS: Critical details smoothed over.
    - If both sides of a decision were discussed but only one appears, flag it.
-   - If important caveats or conditions were dropped, flag them.
+   - If important caveats were dropped, flag them.
 
-3. CITATION COVERAGE: Are all bullets properly cited?
-   - Every factual claim should have a [turn_N] or [uncited] marker. Completely uncited claims (no bracket at all) are unverifiable.
-   - [uncited] is an acceptable marker when the synthesizer couldn't pinpoint the exact turn.
-   - Only flag bullets that have NO citation marker of any kind.
+4. WORLDVIEW ALIGNMENT — Check against configured baseline:
+   a. Is external framing presented as the default baseline without evaluation? If so, flag it.
+   b. Are stated intentions treated as equivalent to actual behavior? If so, flag it — behavior matters more.
+   c. Is there false equivalence between verified facts and opinions? Flag it.
+   d. Does the draft hedge toward the middle when source evidence is asymmetric? Flag it.
+   e. Does it contradict any configured baseline principles? Flag any contradiction.
+   f. Are external sources (Wikipedia, academic consensus) treated as inherently trustworthy? Flag it — they are data points to evaluate.
+   g. For person pages: does the draft distinguish between stated goals and actual public record? Flag if it doesn't.
 
-4. WORLDVIEW DRIFT: Ensure output aligns with these baseline principles:
-   - Truth is declarative, not relativistic
-   - Technical accuracy over social comfort
-   - No false equivalence between verified facts and opinions
-   - Epistemic humility — don't claim certainty where transcripts show uncertainty
+5. NARRATIVE INVENTION: Connecting prose that adds no information.
+   - "The team then discussed..." type filler is a failure.
 
-5. NARRATIVE INVENTION: Did the synthesizer write connecting prose between facts that isn't in the source?
-   - If paragraphs of connecting narrative appear that aren't backed by source turns, flag them.
-
-OUTPUT FORMAT (JSON only, no preamble, keep it concise):
+OUTPUT FORMAT (JSON only, no preamble):
 {{
   "passed": true/false,
   "hallucinations": ["Quote the exact false claim and say why"],
-  "corrections": ["Brief fix: 'change X to Y'"],
+  "corrections": ["Brief fix needed"],
   "verdict": "One sentence"
 }}
 
-Keep lists SHORT — at most 3 items each. Only list the MOST serious issues. If there are no hallucinations and no critical corrections, passed=true. Be strict but concise."""
+Be strict on quality standards — a page that passes fidelity but fails quality should FAIL the audit. The Reference Library only accepts properly structured, tagged knowledge pages, not conversation logs."""
 
     def _parse_audit_response(self, text: str) -> Dict[str, Any]:
         """Parse the JSON audit response from LLM."""

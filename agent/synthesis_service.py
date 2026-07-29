@@ -181,16 +181,24 @@ class SynthesisService:
     ) -> str:
         """Build the LLM prompt for synthesizing a structured Markdown entry.
 
-        Produces structured factual notes with source turn citations, not prose.
-        This prevents the model from inventing connecting narrative.
+        Produces a Reference Library page following the correct entity template.
+        First classifies the cluster, then generates knowledge — not meeting minutes.
         """
-        # Extract only the turn IDs that actually appear in the (possibly truncated) content
-        # so the model doesn't cite turns it can't see.
         import re
         visible_turn_ids = [int(m) for m in re.findall(r'turn_(\d+)', content_text)]
         visible_turn_ids = sorted(set(visible_turn_ids))
 
-        return f"""You are extracting factual information from raw conversation transcripts into a Reference Library entry.
+        return f"""You are distilling Perpetual Memory conversation clusters into Reference Library pages.
+
+CRITICAL: You are NOT writing meeting minutes or a conversation log. You are producing a knowledge entry that a reader can use as a standalone reference. The reader should not need to go back to the source turns to understand what we know.
+
+WORLDVIEW BASELINE — ALL CONTENT MUST BE EVALUATED THROUGH THIS LENS:
+- Truth is declarative, not relativistic. If evidence is asymmetric, do not hedge toward the middle.
+- Apply the configured worldview baseline where the question touches faith, ethics, or worldview. Do not force it onto pure technical questions.
+- Behavioral evidence matters more than stated intentions. What someone did, not what they said they would do.
+- External sources are data points to evaluate, not baselines to accept. Academic consensus is not an inherent trust signal.
+- Apply any configured settled views from the Reference Library baseline configuration.
+- The Behavioral Test is primary: stated goals vs. actual behavior must be distinguished and compared.
 
 CLUSTER ID: {cluster_id}
 VISIBLE TURN IDs (the only turns provided below — do NOT cite any others): {visible_turn_ids}
@@ -198,58 +206,57 @@ VISIBLE TURN IDs (the only turns provided below — do NOT cite any others): {vi
 RAW TRANSCRIPTS (use these as your ONLY source of facts):
 {content_text}
 
-YOUR OUTPUT FORMAT — EXACTLY THIS STRUCTURE:
+YOUR TASK — TWO STEPS:
 
-# [Title]
+STEP 1: CLASSIFY THE CLUSTER
+Read the transcripts and determine:
+- Is this cluster primarily about a KNOWN ENTITY (a person, idea, organization, technology, event, or project)? If so, which type?
+- Or is it purely about PROCESS (skill patches, cron config, upstream merges, session logistics)? Process-only clusters should be REJECTED with a brief explanation.
 
-## Summary
-[2-3 sentences describing what this conversation cluster is about. Only state what is clearly evident from the transcripts.]
+STEP 2: GENERATE THE PAGE (only if classified as an entity)
+Choose the correct template based on entity type:
+- Person → biography with Overview, Background, Public Record, Motive Analysis, Assessment
+- Idea → theological/philosophical concept with Overview, Origin, Biblical Evaluation, Current Influence
+- Organization → institution with Overview, History, Operational Analysis, Capture Tests
+- Technology → software/tool with Overview, Technical Details, How It's Used, Decisions & Rationale
+- Event → historical/current event with Overview, Timeline, Key Actors, Impact
+- Project → active work item with Overview, Goals, Current State, Technical Details
 
-## Factual Notes
-Each bullet should be a single, verifiable fact. Every bullet SHOULD end with its source turn ID in square brackets when you can identify it.
+OUTPUT FORMAT RULES:
+1. **Frontmatter:** Include YAML frontmatter with category, confidence level, created date, description, and related_entries (wikilinks to other RL pages the cluster mentions).
+2. **Claim Tagging:** Tag every significant claim: [FACT], [SCRIPTURE], [DOGMA], [DOCTRINE], [OPINION/INTERPRETATION], or [UNCERTAIN]. A fact is not an opinion; an interpretation is not Scripture.
+3. **No Narrative Filler:** Every sentence should convey specific information. If you would write "this was discussed at length," delete it. State what was concluded instead.
+4. **No Turn Citations in Body:** Do NOT write [turn_12345] in the body text. The provenance footer handles source tracking. Turn citations belong in the Provenance section only.
+5. **Specificity Over Generality:** Don't write "multiple approaches were considered." Write which approaches were considered and which was chosen and why.
+6. **Wikilinks:** Where the cluster mentions people, organizations, or ideas that likely have RL pages, add wikilinks in related_entries.
 
-Format: `- Fact statement [turn_N]`
+IF THE CLUSTER IS PROCESS-ONLY (skill patches, cron config, session logistics with no substantive knowledge):
+Output exactly: REJECT: [one-sentence reason why this is not RL-worthy]
 
-Example:
-- System defaults to `all-MiniLM-L6-v2` (384-dim) via local CPU inference [turn_47]
-- User stated they did not need to switch to LM Studio unless a problem existed [turn_46]
-- LM Studio embedding support remains as optional manual configuration [turn_47]
+IF THE CLUSTER CONTAINS KNOWLEDGE:
+Write the complete Markdown page following the appropriate entity template above. The page MUST start with:
+1. YAML frontmatter block (--- ... ---)
+2. A top-level heading: # [Entity Name]
+3. Then the template sections (## Overview, etc.)
 
-RULES FOR EACH BULLET:
-- Only include information that appears EXPLICITLY in the transcripts
-- If you can identify the specific turn, cite it: [turn_N]
-- If the fact is in the transcripts but you cannot pinpoint the exact turn, use [uncited] — do NOT invent a turn ID
-- If two turns contradict, cite both and note the contradiction
-- DO NOT combine information from multiple turns into one bullet unless you cite all relevant turns or use [uncited]
-- DO NOT infer conclusions not stated in the source
-- DO NOT write narrative prose between bullets
-- NEVER fabricate a turn ID to satisfy the citation requirement
-
-## Code & Commands
-[Any exact code snippets, commands, or config values shown in the transcripts. Cite turn ID after each block.]
-
-## Decisions & Their Direction
-State what was decided AND the user's reasoning in their own words where possible. Cite turn ID.
-- What was DECIDED: ...
-- What was REJECTED or SET ASIDE: ...
-- User's stated reasoning: ...
-
-## Open Questions / Unresolved Items
-[Any issues the conversation left unresolved or marked for later. Cite turn ID.]
+End with:
 
 ## Provenance
-Source: Perpetual Memory turns {turn_ids}
+Source: Perpetual Memory turns {visible_turn_ids}
 Cluster ID: {cluster_id}
 
-NEGATIVE CONSTRAINTS — VIOLATING ANY OF THESE IS A FAILURE:
-- NEVER invent a specific value (model name, version, price, file path, port, command flag) not in the source
-- NEVER claim causation unless the source explicitly states it
+NEGATIVE CONSTRAINTS — VIOLATING ANY IS A FAILURE:
+- NEVER produce a bulleted "Factual Notes" list of what was discussed
+- NEVER write connecting narrative that adds no information ("The team then moved to discuss...")
+- NEVER invent specific values (model names, paths, numbers) not in the source
 - NEVER smooth over contradictions — present both sides
-- NEVER invert the direction of a user's decision ("I don't need X" means rejection, not adoption)
-- NEVER write connecting narrative between facts
-- If a detail is genuinely absent from all turns, write "[not in source]" rather than guessing
+- NEVER skip claim tagging
+- NEVER present secular or progressive framing as the default baseline — evaluate through the worldview lens above
+- NEVER hedge toward the middle when the source shows asymmetric evidence
+- NEVER equate a stated intention with actual behavior
+- If a detail is genuinely absent from all turns, omit it rather than guessing
 
-Write only the Markdown entry. No preamble. No explanation. No meta-commentary."""
+Write only the Markdown entry or the REJECT line. No preamble. No explanation. No meta-commentary. Do NOT wrap frontmatter in ```yaml or ``` code fences — output raw YAML."""
 
     def revise_draft(
         self,
@@ -291,10 +298,12 @@ AUDIT CORRECTIONS (fix each one):
 
 INSTRUCTIONS:
 - Fix every issue listed in the corrections.
-- Every factual bullet MUST end with its source turn ID in [turn_N] format.
+- The output must be a structured knowledge page, NOT a bulleted list of "what was discussed."
+- Include YAML frontmatter with category, confidence, and description.
+- Tag all significant claims: [FACT], [SCRIPTURE], [DOGMA], [DOCTRINE], [OPINION/INTERPRETATION], [UNCERTAIN].
 - DO NOT invent new specific values to fix the corrections. If the source doesn't contain the detail, write "[not specified in source]" instead.
-- Preserve all correct, properly-cited bullets from the draft. Only change what the audit flagged.
-- Maintain the same structure: Summary, Factual Notes (with citations), Code & Commands, Decisions & Their Direction, Open Questions, Provenance.
+- Preserve all correct content from the draft. Only change what the audit flagged.
+- Maintain template structure: Overview, Technical Details/Background, etc.
 - NO connecting narrative between facts.
 
 Write only the revised Markdown entry. Do not include preamble or explanation."""
@@ -346,9 +355,19 @@ Cluster ID: {cluster_id}
 Status: Awaiting synthesis (LLM unavailable)"""
 
     def _extract_title(self, content: str) -> str:
-        """Extract the title from synthesized Markdown."""
+        """Extract the title from synthesized Markdown.
+
+        Checks for a top-level heading first, then falls back to frontmatter title.
+        """
+        import re as _re
         lines = content.strip().split("\n")
         for line in lines:
-            if line.startswith("# "):
+            if line.startswith("# ") and not line.startswith("##"):
                 return line[2:].strip()
-        return f"Cluster Draft (untitled)"
+        # Fallback: check frontmatter for a title field
+        fm_match = _re.search(r'^---\s*\n(.*?)\n---', content, _re.DOTALL)
+        if fm_match:
+            for fline in fm_match.group(1).split("\n"):
+                if fline.startswith("title:"):
+                    return fline.split(":", 1)[1].strip().strip('"').strip("'")
+        return "Cluster Draft (untitled)"
