@@ -12335,12 +12335,13 @@ async def start_gateway(config: Optional[GatewayConfig] = None, replace: bool = 
         return True
 
     # ── Voice mode auto-start ──────────────────────────────────────────
-    # When HERMES_VOICE=1, start the continuous voice loop so the wake
+    # When voice.active=true, start the continuous voice loop so the wake
     # word detector is active.  Non-fatal — voice mode is a nice-to-have
     # that should not block the gateway from running.
     try:
         from hermes_cli.voice import start_continuous
-        if os.environ.get("HERMES_VOICE", "").strip() == "1":
+        voice_active = os.environ.get("HERMES_VOICE", "").strip() == "1"
+        if voice_active:
             start_continuous(
                 on_transcript=lambda t: None,  # TUI will pick this up via voice.emit
                 on_status=lambda s: None,
