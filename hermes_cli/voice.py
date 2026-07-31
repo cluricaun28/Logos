@@ -513,16 +513,39 @@ def speak_text(text: str) -> None:
 
         if os.path.isfile(mp3_path) and os.path.getsize(mp3_path) > 0:
             _debug(f"speak_text: playing {mp3_path} ({os.path.getsize(mp3_path)} bytes)")
-            play_audio_file(mp3_path)
+
+        # Start barge-in monitor in background thread
+        barge_stop = threading.Event()
+
+        def _barge_in_monitor():
+            """Monitor for user speech during TTS playback."""
             try:
+                from tools.voice_mode import listen_for_speech, stop_playback
+                from tools.tts_tool import mark_speech_interrupted
+
+                result = listen_for_speech(
+                    should_stop=lambda: barge_stop.is_set() or not _tts_playing.is_set(),
+                    on_trigger=lambda: (_debug("barge-in triggered"), stop_playback(), mark_speech_interrupted(), barge_stop.set()),
+                )
+                if result:
+                    _debug("barge-in: speech detected during playback")
+            except Exception as e:
+                _debug(f"barge-in monitor error: {e}")
+
+        barge_thread = threading.Thread(target=_barge_in_monitor, daemon=True)
+        barge_thread.start()
+
+        play_audio_file(mp3_path)
+        try:
                 os.unlink(mp3_path)
                 ogg_path = mp3_path.rsplit(".", 1)[0] + ".ogg"
                 if os.path.isfile(ogg_path):
                     os.unlink(ogg_path)
-            except OSError:
+        except OSError:
                 pass
         else:
             _debug(f"speak_text: TTS tool produced no audio at {mp3_path}")
+        barge_stop.set()  # Signal barge-in monitor to stop
     except (OSError, PermissionError) as e:
         logger.warning("Voice TTS playback failed: %s", e)
         _debug(f"speak_text raised {type(e).__name__}: {e}")

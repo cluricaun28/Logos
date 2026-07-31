@@ -50,6 +50,36 @@ from tools.tool_backend_helpers import managed_nous_tools_enabled, prefers_gatew
 from tools.xai_http import hermes_xai_user_agent
 
 # ---------------------------------------------------------------------------
+# Interruption latch — lets the model know it was cut off mid-speech
+# ---------------------------------------------------------------------------
+# When the user barges in on a spoken reply (talks over it, types, hits the
+# record key), the surface marks the latch; the next turn's submit path takes
+# it and prepends SPEECH_INTERRUPTED_NOTE to the model-bound message (API-call
+# local — never persisted, same as the CLI's model-switch notes). The TTL
+# keeps a stale barge from annotating an unrelated message minutes later.
+
+SPEECH_INTERRUPTED_NOTE = (
+    "[Note: the user interrupted your previous spoken reply before it finished.]"
+)
+_INTERRUPT_TTL_S = 120.0
+_interrupted_at: Optional[float] = None
+
+
+def mark_speech_interrupted() -> None:
+    global _interrupted_at
+    import time
+    _interrupted_at = time.monotonic()
+
+
+def take_speech_interrupted() -> bool:
+    """Pop the latch; True when a barge happened within the TTL."""
+    global _interrupted_at
+    import time
+    at, _interrupted_at = _interrupted_at, None
+    return at is not None and time.monotonic() - at < _INTERRUPT_TTL_S
+
+
+# ---------------------------------------------------------------------------
 # Lazy imports -- providers are imported only when actually used to avoid
 # crashing in headless environments (SSH, Docker, WSL, no PortAudio).
 # ---------------------------------------------------------------------------

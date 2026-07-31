@@ -195,6 +195,216 @@ SILENCE_DURATION_SECONDS = 3.0  # Seconds of continuous silence before auto-stop
 # Temp directory for voice recordings
 _TEMP_DIR = os.path.join(tempfile.gettempdir(), "hermes_voice")
 
+# ---------------------------------------------------------------------------
+# Audio output tracking — reference counter for "is audio playing right now?"
+# ---------------------------------------------------------------------------
+# Used by barge-in detection to know whether TTS audio is actively flowing
+# through the speakers. Playback paths bracket their work with
+# mark_audio_output_active(True) / mark_audio_output_active(False).
+_audio_output_lock = threading.Lock()
+_audio_output_active_count = 0
+
+
+def mark_audio_output_active(active: bool) -> None:
+    """Reference-count real audio output (TTS/file playback).
+
+    Playback paths bracket their work with mark_audio_output_active(True) /
+    (False) so is_audio_output_active() reflects whether speech audio is
+    leaving the speakers RIGHT NOW — unlike per-turn TTS-done events which
+    stay 'busy' for a whole turn even while the pipeline waits for text.
+    """
+    global _audio_output_active_count
+    with _audio_output_lock:
+        _audio_output_active_count = max(
+            0, _audio_output_active_count + (1 if active else -1)
+        )
+
+
+def is_audio_output_active() -> bool:
+    """True while TTS/file audio is actually playing on the speakers."""
+    with _audio_output_lock:
+        return _audio_output_active_count > 0
+
+
+# ---------------------------------------------------------------------------
+# Playback interruption — barge-in support
+# ---------------------------------------------------------------------------
+_stop_playback_subprocess: Any = None
+_stop_playback_lock = threading.Lock()
+
+
+def stop_playback() -> None:
+    """Interrupt any currently playing audio (TTS/file playback).
+
+    Terminates the playback subprocess (if any) and stops the sounddevice
+    stream. Thread-safe and idempotent — calling when nothing is playing
+    is a no-op.
+    """
+    global _stop_playback_subprocess
+    with _stop_playback_lock:
+        proc = _stop_playback_subprocess
+        _stop_playback_subprocess = None
+
+    if proc is not None:
+        try:
+            proc.terminate()
+            proc.wait(timeout=2)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+
+    try:
+        sd, _ = _import_audio()
+        if sd.get_stream() is not None:
+            sd.stop()
+    except Exception:
+        pass
+
+
+def listen_for_speech(
+    should_stop: Callable[[], bool],
+    threshold: Optional[int] = None,
+    sustained_ms: int = 300,
+    calibration_ms: int = 400,
+    capture: bool = False,
+    on_trigger: Optional[Callable[[], None]] = None,
+    pre_roll_ms: int = 1200,
+    endpoint_silence_ms: int = 1250,
+    max_utterance_ms: int = 30_000,
+) -> Optional[object]:
+    """Block until sustained speech is heard on the mic, or *should_stop*.
+
+    Barge-in monitor: run in a side thread while TTS is playing. Without
+    *capture* it returns True when the user started talking (cut playback).
+    With ``capture=True`` it ALSO records the interruption — a rolling
+    *pre_roll_ms* buffer means the utterance is kept from its first syllable,
+    not from the moment detection tripped.
+
+    The noise floor is calibrated from the first *calibration_ms* of input —
+    playback is already audible then, so speaker bleed is baked into the floor
+    and only louder-than-playback speech trips the trigger.
+
+    Args:
+        should_stop: Callable returning True when playback has ended.
+        threshold: Override the RMS threshold (default: auto-calibrated).
+        sustained_ms: Milliseconds of consecutive speech required to trigger.
+        calibration_ms: Milliseconds to calibrate against speaker bleed.
+        capture: If True, record the interruption to a WAV file.
+        on_trigger: Callback fired when speech is detected.
+        pre_roll_ms: Milliseconds of pre-roll buffer for capture.
+        endpoint_silence_ms: Silence required to end capture.
+        max_utterance_ms: Maximum capture duration.
+
+    Returns:
+        True if speech detected (no capture), WAV path if capture=True,
+        None/False if no speech or should_stop fired first.
+    """
+    try:
+        sd, np = _import_audio()
+    except (ImportError, OSError):
+        return None if capture else False
+
+    from collections import deque
+
+    block = int(SAMPLE_RATE * 0.03)  # 30ms blocks
+    calib_blocks = max(1, calibration_ms // 30)
+    trip_blocks = max(1, sustained_ms // 30)
+    endpoint_blocks = max(1, endpoint_silence_ms // 30)
+    max_blocks = max(1, max_utterance_ms // 30)
+
+    floor_window: deque = deque(maxlen=max(calib_blocks, 100))
+    pre_roll: deque = deque(maxlen=max(1, pre_roll_ms // 30))
+    consecutive = 0
+    min_floor = 0.0
+
+    try:
+        with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="int16", blocksize=block) as stream:
+            while not should_stop():
+                data, _ = stream.read(block)
+                rms = float(np.sqrt(np.mean(data.astype(np.float64) ** 2)))
+                if capture:
+                    pre_roll.append(data.copy())
+
+                if len(floor_window) < calib_blocks:
+                    floor_window.append(rms)
+                    continue
+
+                # Lock minimum floor from initial calibration
+                if min_floor == 0.0:
+                    pct90 = float(np.percentile(list(floor_window), 90))
+                    min_floor = max(pct90, SILENCE_RMS_THRESHOLD * 2)
+                else:
+                    pct90 = float(np.percentile(list(floor_window), 90))
+
+                _floor = max(pct90, min_floor)
+                trigger = max(float(threshold or SILENCE_RMS_THRESHOLD * 2), _floor * 8.0)
+                trigger = min(trigger, 4000.0)
+
+                if rms < trigger:
+                    floor_window.append(rms)
+
+                consecutive = consecutive + 1 if rms >= trigger else 0
+
+                if consecutive < trip_blocks:
+                    continue
+
+                # Tripped — user is talking over playback
+                logger.info("Barge-in detected: rms=%.0f trigger=%.0f consecutive=%d", rms, trigger, consecutive)
+                if on_trigger:
+                    try:
+                        on_trigger()
+                    except Exception as e:
+                        logger.debug("Barge-in trigger callback failed: %s", e)
+                if not capture:
+                    return True
+
+                # Keep rolling until user goes quiet
+                frames: List[Any] = list(pre_roll)
+                quiet = 0
+                for _ in range(max_blocks):
+                    data, _ = stream.read(block)
+                    frames.append(data.copy())
+                    rms = float(np.sqrt(np.mean(data.astype(np.float64) ** 2)))
+                    quiet = quiet + 1 if rms < SILENCE_RMS_THRESHOLD else 0
+                    if quiet >= endpoint_blocks:
+                        break
+
+                wav_path = _write_wav(np.concatenate(frames, axis=0))
+                return wav_path
+
+    except Exception as e:
+        logger.debug("Barge-in listener failed: %s", e)
+
+    return None if capture else False
+
+
+def _write_wav(frames: Any) -> Optional[str]:
+    """Write audio frames to a temporary WAV file.
+
+    Args:
+        frames: Numpy array of int16 audio samples.
+
+    Returns:
+        Path to the WAV file, or None on failure.
+    """
+    try:
+        os.makedirs(_TEMP_DIR, exist_ok=True)
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        wav_path = os.path.join(_TEMP_DIR, f"barge_in_{timestamp}.wav")
+
+        with wave.open(wav_path, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)  # int16
+            wf.setframerate(SAMPLE_RATE)
+            wf.writeframes(frames.tobytes())
+
+        return wav_path
+    except Exception as e:
+        logger.debug("Failed to write barge-in WAV: %s", e)
+        return None
+
 
 # ============================================================================
 # Audio cues (beep tones)
