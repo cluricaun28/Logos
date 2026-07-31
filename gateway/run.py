@@ -12325,7 +12325,7 @@ async def start_gateway(config: Optional[GatewayConfig] = None, replace: bool = 
     except (ImportError, ModuleNotFoundError, RuntimeError) as e:
         logger.debug("MCP tool discovery failed: %s", e)
 
-    # Start the gateway
+   # Start the gateway
     success = await runner.start()
     if not success:
         return False
@@ -12333,7 +12333,25 @@ async def start_gateway(config: Optional[GatewayConfig] = None, replace: bool = 
         if runner.exit_reason:
             logger.error("Gateway exiting cleanly: %s", runner.exit_reason)
         return True
-    
+
+    # ── Voice mode auto-start ──────────────────────────────────────────
+    # When HERMES_VOICE=1, start the continuous voice loop so the wake
+    # word detector is active.  Non-fatal — voice mode is a nice-to-have
+    # that should not block the gateway from running.
+    try:
+        from hermes_cli.voice import start_continuous
+        if os.environ.get("HERMES_VOICE", "").strip() == "1":
+            start_continuous(
+                on_transcript=lambda t: None,  # TUI will pick this up via voice.emit
+                on_status=lambda s: None,
+                on_silent_limit=lambda: None,
+            )
+            logger.info("Voice mode auto-started (HERMES_VOICE=1)")
+    except (ImportError, ModuleNotFoundError) as e:
+        logger.debug("Voice mode auto-start skipped (deps missing): %s", e)
+    except Exception as e:
+        logger.warning("Voice mode auto-start failed (non-fatal): %s", e)
+
     # Start background cron ticker so scheduled jobs fire automatically.
     # Pass the event loop so cron delivery can use live adapters (E2EE support).
     cron_stop = threading.Event()
