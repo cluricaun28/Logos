@@ -117,6 +117,11 @@ _continuous_on_silent_limit: Optional[Callable[[], None]] = None
 _continuous_no_speech_count = 0
 _CONTINUOUS_NO_SPEECH_LIMIT = 3
 
+# Phase 5: barge-in transcript container — holds the text the user spoke
+# while interrupting the agent. The on_transcript callback prepends it with
+# a system note so the model knows the user interrupted.
+barge_transcript: Optional[str] = None
+
 
 def _on_wake() -> None:
     """Callback when wake word is detected."""
@@ -234,6 +239,9 @@ def start_continuous(
 
     ``on_status`` is called with ``"listening"`` / ``"transcribing"`` /
     ``"idle"`` so the UI can show a live indicator.
+
+    Phase 5: barge-in transcripts are prepended with a system note so the
+    model knows the user interrupted the previous reply.
     """
     global _continuous_active, _continuous_recorder
     global _continuous_on_transcript, _continuous_on_status, _continuous_on_silent_limit
@@ -462,7 +470,7 @@ def _continuous_on_silence() -> None:
                 pass
         return
 
-    # CLI parity (cli.py:10619-10621): wait for any in-flight TTS to
+   # CLI parity (cli.py:10619-10621): wait for any in-flight TTS to
     # finish before re-arming the mic, then leave a small gap to avoid
     # catching the tail of the speaker output.  Without this the voice
     # loop becomes a feedback loop — the agent's spoken reply lands
@@ -478,6 +486,41 @@ def _continuous_on_silence() -> None:
             if not _continuous_active:
                 _debug("_continuous_on_silence: stopped while waiting for TTS")
                 return
+
+    # Phase 5: Start full-duplex listener for next turn if available
+    try:
+        from tools.voice_mode import full_duplex_listen
+        if full_duplex_listen is not None:
+            def _full_duplex_thread():
+                try:
+                    _full_duplex_result = full_duplex_listen(
+                        should_stop=lambda: not _continuous_active,
+                        is_playing=lambda: not _tts_playing.is_set(),
+                        on_trigger=lambda: _debug("full-duplex barge-in detected"),
+                    )
+                    if _full_duplex_result:
+                        # Transcribe the interruption and deliver it
+                        try:
+                            transcript_result = transcribe_recording(_full_duplex_result)
+                            if transcript_result.get("success"):
+                                text = (transcript_result.get("transcript") or "").strip()
+                                if text and not is_whisper_hallucination(text):
+                                    global barge_transcript
+                                    barge_transcript = text
+                                    _debug(f"full-duplex transcript: {text}")
+                                    # Deliver to on_transcript with interruption note
+                                    if _continuous_on_transcript:
+                                        _continuous_on_transcript(text)
+                        except Exception as e:
+                            _debug(f"full-duplex transcription failed: {e}")
+                except Exception as e:
+                    _debug(f"full-duplex listener failed: {e}")
+
+            full_duplex_thread = threading.Thread(target=_full_duplex_thread, daemon=True)
+            full_duplex_thread.start()
+            _debug("full-duplex listener started for next turn")
+    except Exception as e:
+        _debug(f"full-duplex listener unavailable: {e}")
 
     # Restart for the next turn.
     _debug(f"_continuous_on_silence: restarting loop (no_speech={no_speech})")
@@ -578,10 +621,11 @@ def speak_text(text: str) -> None:
 
         # Start barge-in monitor in background thread
         barge_stop = threading.Event()
-        barge_transcript = [None]  # Mutable container for the transcript
+        barge_transcript_holder = [None]  # Mutable container for the transcript
 
         def _barge_in_monitor():
             """Monitor for user speech during TTS playback."""
+            global barge_transcript  # Phase 5: wire transcript to model context
             try:
                 from tools.voice_mode import listen_for_speech, stop_playback, create_audio_recorder, transcribe_recording, is_whisper_hallucination
                 from tools.tts_tool import mark_speech_interrupted
@@ -603,7 +647,8 @@ def speak_text(text: str) -> None:
                             if transcript_result.get("success"):
                                 text = (transcript_result.get("transcript") or "").strip()
                                 if text and not is_whisper_hallucination(text):
-                                    barge_transcript[0] = text
+                                    barge_transcript_holder[0] = text
+                                    barge_transcript = text  # Phase 5: wire to model
                                     _debug(f"barge-in transcript: {text}")
                             try:
                                 if os.path.isfile(wav_path):
