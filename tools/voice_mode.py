@@ -406,6 +406,179 @@ def _write_wav(frames: Any) -> Optional[str]:
         return None
 
 
+
+
+# ---------------------------------------------------------------------------
+# Full-duplex barge-in constants
+# ---------------------------------------------------------------------------
+# Minimum trigger while TTS audio is flowing. Speaker bleed reaching the mic
+# through air at conversational volume is typically well under this (a few
+# hundred RMS at arm's length; ~1000-1400 with loud speakers close to the
+# mic), while direct speech at normal distance measures 3000-8000 RMS.
+PLAYBACK_MIN_TRIGGER = 1500.0
+
+# Absolute trigger ceiling — a noisy room must never push the trigger above
+# what normal speech (3000-8000 RMS) can reach.
+TRIGGER_CEILING = 4000.0
+
+# Default trigger multiplier over the quiet-room floor. The old 8x default
+# only made sense when the floor was (wrongly) calibrated against active TTS
+# bleed; against a genuine quiet-room baseline (typically 50-300 RMS) the
+# synthetic-frame tests show 3x separates speech from ambient cleanly while
+# staying reachable (300 RMS floor * 3 = 900 trigger vs 3000+ RMS speech).
+DEFAULT_BARGE_MULTIPLIER = 3.0
+
+
+def full_duplex_listen(
+    should_stop: Callable[[], bool],
+    is_playing: Optional[Callable[[], bool]] = None,
+    on_trigger: Optional[Callable[[str], None]] = None,
+    multiplier: Optional[float] = None,
+    sustained_ms: int = 300,
+    calibration_ms: int = 450,
+    grace_ms: int = 500,
+    pre_roll_ms: int = 1200,
+    endpoint_silence_ms: int = 1250,
+    max_utterance_ms: int = 30_000,
+) -> Optional[str]:
+    """Listen across an ENTIRE agent turn; return the captured interruption.
+
+    Runs from utterance-submit to turn-complete. Two phases, decided per
+    30ms block by *is_playing* (usually ``is_audio_output_active``):
+
+    * **Generation phase** (no TTS playing yet): calibrates against the
+      quiet room. Trigger = quiet_floor × multiplier.
+    * **Playback phase** (TTS flowing): holds the quiet baseline frozen
+      (never recalibrating against its own speaker bleed). Trigger clamped
+      up to ``PLAYBACK_MIN_TRIGGER`` so bleed alone can't trip it.
+
+    Uses **windowed majority** (≥80% of last *trip_blocks* above trigger)
+    instead of strict consecutive, so intra-word dips don't reset progress.
+
+    Args:
+        should_stop: Callable returning True when the agent turn is done.
+        is_playing: Callable returning True if TTS audio is currently playing.
+        on_trigger: Callback fired when speech is detected.
+        multiplier: Override the trigger multiplier (default: 3.0).
+        sustained_ms: Milliseconds of sustained speech to trigger.
+        calibration_ms: Milliseconds to calibrate quiet room baseline.
+        grace_ms: Grace period after TTS starts to avoid false triggers.
+        pre_roll_ms: Milliseconds of pre-roll buffer for capture.
+        endpoint_silence_ms: Silence required to end capture.
+        max_utterance_ms: Maximum capture duration.
+
+    Returns:
+        WAV path of the captured interruption, or None if no speech detected.
+    """
+    try:
+        sd, np = _import_audio()
+    except (ImportError, OSError):
+        return None
+
+    from collections import deque
+
+    block = int(SAMPLE_RATE * 0.03)  # 30ms blocks
+    calib_blocks = max(1, calibration_ms // 30)
+    trip_blocks = max(1, sustained_ms // 30)
+    grace_blocks = max(1, grace_ms // 30)
+    endpoint_blocks = max(1, endpoint_silence_ms // 30)
+    max_blocks = max(1, max_utterance_ms // 30)
+    mult = float(multiplier) if multiplier else DEFAULT_BARGE_MULTIPLIER
+
+    ambient: deque = deque(maxlen=100)  # ~3s of quiet-phase RMS
+    pre_roll: deque = deque(maxlen=max(1, pre_roll_ms // 30))
+    recent_above: deque = deque(maxlen=trip_blocks)
+    quiet_floor = float(SILENCE_RMS_THRESHOLD)
+    floor_locked = False
+    playing_prev = False
+    playback_seen = False
+    grace_remaining = 0
+    blocks_since_playback = 10_000
+    block_idx = 0
+
+    try:
+        with sd.InputStream(
+            samplerate=SAMPLE_RATE, channels=1, dtype="int16", blocksize=block
+        ) as stream:
+            while not should_stop():
+                data, _ = stream.read(block)
+                rms = float(np.sqrt(np.mean(data.astype(np.float64) ** 2)))
+                pre_roll.append(data.copy())
+                block_idx += 1
+
+                playing = bool(is_playing()) if is_playing is not None else False
+
+                # Pre-playback calibration
+                if not floor_locked:
+                    if not playing:
+                        ambient.append(rms)
+                    if len(ambient) >= calib_blocks or playing:
+                        pct90 = (
+                            float(np.percentile(list(ambient), 90))
+                            if ambient
+                            else float(SILENCE_RMS_THRESHOLD)
+                        )
+                        quiet_floor = max(pct90, float(SILENCE_RMS_THRESHOLD))
+                        floor_locked = True
+                        logger.debug(
+                            "calibrated quiet floor=%.0f (pct90=%.0f, %d blocks, mult=%.1f)",
+                            quiet_floor, pct90, len(ambient), mult,
+                        )
+                    if not floor_locked:
+                        continue
+
+                # Determine trigger for this block
+                if playing:
+                    blocks_since_playback = 0
+                    if grace_remaining > 0:
+                        grace_remaining -= 1
+                        continue
+                    trigger = max(quiet_floor * mult, PLAYBACK_MIN_TRIGGER)
+                else:
+                    blocks_since_playback += 1
+                    trigger = quiet_floor * mult
+
+                trigger = min(trigger, TRIGGER_CEILING)
+                recent_above.append(rms >= trigger)
+
+                if not any(recent_above):
+                    continue
+
+                majority_above = sum(recent_above) / len(recent_above) >= 0.8
+                if not majority_above:
+                    continue
+
+                # Tripped — user is talking
+                logger.info(
+                    "Full-duplex barge-in detected: rms=%.0f trigger=%.0f "
+                    "playing=%s block=%d",
+                    rms, trigger, playing, block_idx,
+                )
+                if on_trigger:
+                    try:
+                        on_trigger("barge_in")
+                    except Exception as e:
+                        logger.debug("Barge-in trigger callback failed: %s", e)
+
+                # Capture the interruption
+                frames: List[Any] = list(pre_roll)
+                quiet = 0
+                for _ in range(max_blocks):
+                    data, _ = stream.read(block)
+                    frames.append(data.copy())
+                    rms = float(np.sqrt(np.mean(data.astype(np.float64) ** 2)))
+                    quiet = quiet + 1 if rms < SILENCE_RMS_THRESHOLD else 0
+                    if quiet >= endpoint_blocks:
+                        break
+
+                return _write_wav(np.concatenate(frames, axis=0))
+
+    except Exception as e:
+        logger.debug("Full-duplex listener failed: %s", e)
+
+    return None
+
+
 # ============================================================================
 # Audio cues (beep tones)
 # ============================================================================
