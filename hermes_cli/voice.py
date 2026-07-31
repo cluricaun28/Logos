@@ -97,7 +97,10 @@ _continuous_lock = threading.Lock()
 _continuous_active = False
 _continuous_recorder: Any = None
 
-# ── TTS-vs-STT feedback guard ────────────────────────────────────────
+# ── Wake word state ──────────────────────────────────────────────────
+_wake_word_active = False
+_wake_word_detector = None
+_wake_word_lock = threading.Lock()
 # When TTS plays the agent reply over the speakers, the live microphone
 # picks it up and transcribes the agent's own voice as user input — an
 # infinite loop the agent happily joins ("Ha, looks like we're in a loop").
@@ -113,6 +116,41 @@ _continuous_on_status: Optional[Callable[[str], None]] = None
 _continuous_on_silent_limit: Optional[Callable[[], None]] = None
 _continuous_no_speech_count = 0
 _CONTINUOUS_NO_SPEECH_LIMIT = 3
+
+
+def _on_wake() -> None:
+    """Callback when wake word is detected."""
+    _debug("wake word detected — starting voice capture")
+    try:
+        # Pause the wake word detector while we record
+        with _wake_word_lock:
+            detector = _wake_word_detector
+        if detector:
+            detector.pause()
+
+        # Start recording
+        global _recorder
+        with _recorder_lock:
+            if _recorder is None or not getattr(_recorder, "is_recording", False):
+                rec = create_audio_recorder()
+                rec.start(on_silence_stop=_continuous_on_silence)
+                _recorder = rec
+                _debug("wake word: recording started")
+
+        # Resume wake word detector after a delay
+        def _resume_wake_word():
+            try:
+                import time as _time
+                _time.sleep(2.0)
+                if detector:
+                    detector.resume()
+                    _debug("wake word: detector resumed")
+            except Exception as e:
+                _debug(f"wake word resume failed: {e}")
+
+        threading.Thread(target=_resume_wake_word, daemon=True).start()
+    except Exception as e:
+        _debug(f"wake word callback failed: {e}")
 
 
 # ── Push-to-talk API ─────────────────────────────────────────────────
@@ -199,7 +237,7 @@ def start_continuous(
     """
     global _continuous_active, _continuous_recorder
     global _continuous_on_transcript, _continuous_on_status, _continuous_on_silent_limit
-    global _continuous_no_speech_count
+    global _continuous_no_speech_count, _wake_word_active, _wake_word_detector
 
     with _continuous_lock:
         if _continuous_active:
@@ -217,6 +255,18 @@ def start_continuous(
         _continuous_recorder._silence_threshold = silence_threshold
         _continuous_recorder._silence_duration = silence_duration
         rec = _continuous_recorder
+
+    # Try to start wake word detector
+    try:
+        from tools.wake_word import start_listening, check_wake_word_requirements
+        if check_wake_word_requirements().get("available", False):
+            with _wake_word_lock:
+                if _wake_word_detector is None:
+                    _wake_word_detector = start_listening(_on_wake, owner=voice)
+                    _wake_word_active = True
+            _debug("wake word detector started")
+    except Exception as e:
+        _debug(f"wake word start failed (non-fatal): {e}")
 
     _debug(
         f"start_continuous: begin (threshold={silence_threshold}, duration={silence_duration}s)"
@@ -253,6 +303,7 @@ def stop_continuous() -> None:
     global _continuous_active, _continuous_on_transcript
     global _continuous_on_status, _continuous_on_silent_limit
     global _continuous_recorder, _continuous_no_speech_count
+    global _wake_word_active, _wake_word_detector
 
     with _continuous_lock:
         if not _continuous_active:
@@ -264,6 +315,17 @@ def stop_continuous() -> None:
         _continuous_on_status = None
         _continuous_on_silent_limit = None
         _continuous_no_speech_count = 0
+
+    # Stop wake word detector
+    with _wake_word_lock:
+        if _wake_word_detector is not None:
+            try:
+                _wake_word_detector.stop()
+                _wake_word_detector = None
+                _wake_word_active = False
+                _debug("wake word detector stopped")
+            except Exception as e:
+                _debug(f"wake word stop failed: {e}")
 
     if rec is not None:
         try:
@@ -516,11 +578,12 @@ def speak_text(text: str) -> None:
 
         # Start barge-in monitor in background thread
         barge_stop = threading.Event()
+        barge_transcript = [None]  # Mutable container for the transcript
 
         def _barge_in_monitor():
             """Monitor for user speech during TTS playback."""
             try:
-                from tools.voice_mode import listen_for_speech, stop_playback
+                from tools.voice_mode import listen_for_speech, stop_playback, create_audio_recorder, transcribe_recording, is_whisper_hallucination
                 from tools.tts_tool import mark_speech_interrupted
 
                 result = listen_for_speech(
@@ -529,6 +592,26 @@ def speak_text(text: str) -> None:
                 )
                 if result:
                     _debug("barge-in: speech detected during playback")
+                    # Capture and transcribe the barge-in utterance
+                    try:
+                        rec = create_audio_recorder()
+                        rec.start()
+                        time.sleep(1.0)  # Capture for 1 second
+                        wav_path = rec.stop()
+                        if wav_path:
+                            transcript_result = transcribe_recording(wav_path)
+                            if transcript_result.get("success"):
+                                text = (transcript_result.get("transcript") or "").strip()
+                                if text and not is_whisper_hallucination(text):
+                                    barge_transcript[0] = text
+                                    _debug(f"barge-in transcript: {text}")
+                            try:
+                                if os.path.isfile(wav_path):
+                                    os.unlink(wav_path)
+                            except OSError:
+                                pass
+                    except Exception as e:
+                        _debug(f"barge-in capture failed: {e}")
             except Exception as e:
                 _debug(f"barge-in monitor error: {e}")
 
