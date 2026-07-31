@@ -9471,22 +9471,39 @@ class AIAgent:
                 except (AttributeError, TypeError) as cb_err:
                     logging.debug(f"Tool complete callback error: {cb_err}")
 
-            function_result = maybe_persist_tool_result(
-                content=function_result,
-                tool_name=name,
-                tool_use_id=tc.id,
-                env=get_active_env(effective_task_id),
-            )
+              # Persist oversized results — skip for multimodal dicts (e.g. computer_use screenshots)
+            if not (isinstance(function_result, dict) and function_result.get("_multimodal")):
+                function_result = maybe_persist_tool_result(
+                    content=str(function_result),
+                    tool_name=name,
+                    tool_use_id=tc.id,
+                    env=get_active_env(effective_task_id),
+                )
 
             subdir_hints = self._subdirectory_hints.check_tool_call(name, args)
             if subdir_hints:
-                function_result += subdir_hints
+                # subdir_hints is a string; function_result may be a dict (multimodal) or string
+                if isinstance(function_result, dict) and function_result.get("_multimodal"):
+                    # Append hint to text_summary
+                    function_result["text_summary"] = (
+                        (function_result.get("text_summary") or "") + subdir_hints
+                    )
+                else:
+                    function_result = str(function_result) + subdir_hints
 
-            tool_msg = {
-                "role": "tool",
-                "content": function_result,
-                "tool_call_id": tc.id,
-            }
+            # Build tool message — handle multimodal results from computer_use
+            if isinstance(function_result, dict) and function_result.get("_multimodal"):
+                tool_msg = {
+                    "role": "tool",
+                    "content": function_result.get("content", []),
+                    "tool_call_id": tc.id,
+                }
+            else:
+                tool_msg = {
+                    "role": "tool",
+                    "content": str(function_result),
+                    "tool_call_id": tc.id,
+                }
             messages.append(tool_msg)
 
             # ── Per-tool /steer drain ───────────────────────────────────
@@ -9834,23 +9851,39 @@ class AIAgent:
                 except (AttributeError, TypeError) as cb_err:
                     logging.debug(f"Tool complete callback error: {cb_err}")
 
-            function_result = maybe_persist_tool_result(
-                content=function_result,
-                tool_name=function_name,
-                tool_use_id=tool_call.id,
-                env=get_active_env(effective_task_id),
-            )
+              # Persist oversized results — skip for multimodal dicts (e.g. computer_use screenshots)
+            if not (isinstance(function_result, dict) and function_result.get("_multimodal")):
+                function_result = maybe_persist_tool_result(
+                    content=str(function_result),
+                    tool_name=function_name,
+                    tool_use_id=tool_call.id,
+                    env=get_active_env(effective_task_id),
+                )
 
             # Discover subdirectory context files from tool arguments
             subdir_hints = self._subdirectory_hints.check_tool_call(function_name, function_args)
             if subdir_hints:
-                function_result += subdir_hints
+                # subdir_hints is a string; function_result may be a dict (multimodal) or string
+                if isinstance(function_result, dict) and function_result.get("_multimodal"):
+                    function_result["text_summary"] = (
+                        (function_result.get("text_summary") or "") + subdir_hints
+                    )
+                else:
+                    function_result = str(function_result) + subdir_hints
 
-            tool_msg = {
-                "role": "tool",
-                "content": function_result,
-                "tool_call_id": tool_call.id
-            }
+            # Build tool message — handle multimodal results from computer_use
+            if isinstance(function_result, dict) and function_result.get("_multimodal"):
+                tool_msg = {
+                    "role": "tool",
+                    "content": function_result.get("content", []),
+                    "tool_call_id": tool_call.id,
+                }
+            else:
+                tool_msg = {
+                    "role": "tool",
+                    "content": str(function_result),
+                    "tool_call_id": tool_call.id,
+                }
             messages.append(tool_msg)
 
             # ── Per-tool /steer drain ───────────────────────────────────
