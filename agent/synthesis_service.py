@@ -126,6 +126,11 @@ class SynthesisService:
                 "messages": [{"role": "user", "content": prompt}],
                 "max_tokens": 8192,   # Quality over speed — overnight runs don't need to be fast
                 "timeout": 600.0,     # 10 min timeout for thorough synthesis on big prompts
+                # C7 (2026-08-17): Qwen3.x thinking mode burns the entire max_tokens
+                # budget on the thinking phase before the answer starts (repro:
+                # finish_reason="length", 8192/8192 tokens, content=0). Disable
+                # thinking for these deterministic generation calls.
+                "extra_body": {"chat_template_kwargs": {"enable_thinking": False}},
             }
             if main_runtime:
                 call_kwargs["main_runtime"] = main_runtime
@@ -316,6 +321,9 @@ Write only the revised Markdown entry. Do not include preamble or explanation.""
                 "messages": [{"role": "user", "content": prompt}],
                 "max_tokens": 8192,
                 "timeout": 600.0,
+                # C7 (2026-08-17): see synthesize_draft — Qwen3.x thinking mode
+                # exhausts the token budget before producing answer content.
+                "extra_body": {"chat_template_kwargs": {"enable_thinking": False}},
             }
             if main_runtime:
                 call_kwargs["main_runtime"] = main_runtime

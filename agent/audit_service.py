@@ -79,6 +79,10 @@ class AuditService:
                 "messages": [{"role": "user", "content": prompt}],
                 "max_tokens": 8192,   # Full context needs more output room for corrections
                 "timeout": 600.0,     # 10 min — overnight runs don't need to be fast
+                # C7 (2026-08-17): see synthesis_service.synthesize_draft —
+                # Qwen3.x thinking mode can exhaust the token budget with zero
+                # visible content. Keep audits deterministic and fast.
+                "extra_body": {"chat_template_kwargs": {"enable_thinking": False}},
             }
             if main_runtime:
                 call_kwargs["main_runtime"] = main_runtime
