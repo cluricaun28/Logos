@@ -219,6 +219,12 @@ class TestSourceLinesAreGuarded:
         )
 
     def test_session_search_tool_guarded(self):
+        # The module was disabled (renamed .py.disabled) in fork commit 3f4a9d38;
+        # the guard check only applies if the file is ever restored.
+        import os
+        base = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+        if not os.path.exists(os.path.join(base, "tools/session_search_tool.py")):
+            pytest.skip("tools/session_search_tool.py disabled (renamed .py.disabled in 3f4a9d38)")
         src = self._read_file("tools/session_search_tool.py")
         assert ".message.content.strip()" not in src, (
             "tools/session_search_tool.py still has unguarded "

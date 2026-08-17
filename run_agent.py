@@ -9097,16 +9097,12 @@ class AIAgent:
                 store=self._todo_store,
             )
         elif function_name == "session_search":
-            if not self._session_db:
-                return json.dumps({"success": False, "error": "Session database not available."})
-            from tools.session_search_tool import session_search as _session_search
-            return _session_search(
-                query=function_args.get("query", ""),
-                role_filter=function_args.get("role_filter"),
-                limit=function_args.get("limit", 3),
-                db=self._session_db,
-                current_session_id=self.session_id,
-            )
+            # Legacy tools/session_search_tool.py is disabled in this fork (3f4a9d38).
+            # The perpetual_context memory provider supplies the PM-based session_search;
+            # route there when registered, else a clean error (no ImportError, no batch crash).
+            if self._memory_manager is not None and self._memory_manager.has_tool("session_search"):
+                return self._memory_manager.handle_tool_call("session_search", function_args)
+            return json.dumps({"success": False, "error": "session_search unavailable: no memory provider registered."})
         elif function_name == "memory":
             target = function_args.get("target", "memory")
             from tools.memory_tool import memory_tool as _memory_tool
@@ -9652,17 +9648,12 @@ class AIAgent:
                 if self._should_emit_quiet_tool_messages():
                     self._vprint(f"  {_get_cute_tool_message_impl('todo', function_args, tool_duration, result=function_result)}")
             elif function_name == "session_search":
-                if not self._session_db:
-                    function_result = json.dumps({"success": False, "error": "Session database not available."})
+                # Legacy tools/session_search_tool.py is disabled in this fork (3f4a9d38).
+                # The perpetual_context memory provider supplies the PM-based session_search.
+                if self._memory_manager is not None and self._memory_manager.has_tool("session_search"):
+                    function_result = self._memory_manager.handle_tool_call("session_search", function_args)
                 else:
-                    from tools.session_search_tool import session_search as _session_search
-                    function_result = _session_search(
-                        query=function_args.get("query", ""),
-                        role_filter=function_args.get("role_filter"),
-                        limit=function_args.get("limit", 3),
-                        db=self._session_db,
-                        current_session_id=self.session_id,
-                    )
+                    function_result = json.dumps({"success": False, "error": "session_search unavailable: no memory provider registered."})
                 tool_duration = time.time() - tool_start_time
                 if self._should_emit_quiet_tool_messages():
                     self._vprint(f"  {_get_cute_tool_message_impl('session_search', function_args, tool_duration, result=function_result)}")
@@ -12083,8 +12074,8 @@ class AIAgent:
                         archive_attempts += 1
                         if archive_attempts > max_archive_attempts:
                             self._vprint(f"{self.log_prefix}❌ Max archiving attempts ({max_archive_attempts}) reached for payload-too-large error.", force=True)
-                            self._vprint(f"{self.log_prefix}   💡 Try /new to start a fresh conversation, or /archive to retry compression.", force=True)
-                            logging.error(f"{self.log_prefix}413 compression failed after {max_archive_attempts} attempts.")
+                            self._vprint(f"{self.log_prefix}   💡 Try /new to start a fresh conversation, or /archive to retry archiving.", force=True)
+                            logging.error(f"{self.log_prefix}413 archiving failed after {max_archive_attempts} attempts.")
                             self._persist_session(messages, conversation_history)
                             return {
                                 "messages": messages,
@@ -12108,13 +12099,13 @@ class AIAgent:
                         conversation_history = None
 
                         if len(messages) < original_len:
-                            self._emit_status(f"🗜️ Compressed {original_len} → {len(messages)} messages, retrying...")
+                            self._emit_status(f"🗜️  Archived {original_len} → {len(messages)} messages, retrying...")
                             time.sleep(2)  # Brief pause between compression retries
                             restart_with_archived_messages = True
                             break
                         else:
                             self._vprint(f"{self.log_prefix}❌ Payload too large and cannot archive further.", force=True)
-                            self._vprint(f"{self.log_prefix}   💡 Try /new to start a fresh conversation, or /archive to retry compression.", force=True)
+                            self._vprint(f"{self.log_prefix}   💡 Try /new to start a fresh conversation, or /archive to retry archiving.", force=True)
                             logging.error(f"{self.log_prefix}413 payload too large. Cannot archive further.")
                             self._persist_session(messages, conversation_history)
                             return {
@@ -12167,8 +12158,8 @@ class AIAgent:
                             archive_attempts += 1
                             if archive_attempts > max_archive_attempts:
                                 self._vprint(f"{self.log_prefix}❌ Max archiving attempts ({max_archive_attempts}) reached.", force=True)
-                                self._vprint(f"{self.log_prefix}   💡 Try /new to start a fresh conversation, or /archive to retry compression.", force=True)
-                                logging.error(f"{self.log_prefix}Context compression failed after {max_archive_attempts} attempts.")
+                                self._vprint(f"{self.log_prefix}   💡 Try /new to start a fresh conversation, or /archive to retry archiving.", force=True)
+                                logging.error(f"{self.log_prefix}Context archiving failed after {max_archive_attempts} attempts.")
                                 self._persist_session(messages, conversation_history)
                                 return {
                                     "messages": messages,
@@ -12240,8 +12231,8 @@ class AIAgent:
                         archive_attempts += 1
                         if archive_attempts > max_archive_attempts:
                             self._vprint(f"{self.log_prefix}❌ Max archiving attempts ({max_archive_attempts}) reached.", force=True)
-                            self._vprint(f"{self.log_prefix}   💡 Try /new to start a fresh conversation, or /archive to retry compression.", force=True)
-                            logging.error(f"{self.log_prefix}Context compression failed after {max_archive_attempts} attempts.")
+                            self._vprint(f"{self.log_prefix}   💡 Try /new to start a fresh conversation, or /archive to retry archiving.", force=True)
+                            logging.error(f"{self.log_prefix}Context archiving failed after {max_archive_attempts} attempts.")
                             self._persist_session(messages, conversation_history)
                             return {
                                 "messages": messages,
@@ -12266,7 +12257,7 @@ class AIAgent:
 
                         if len(messages) < original_len or new_ctx and new_ctx < old_ctx:
                             if len(messages) < original_len:
-                                self._emit_status(f"🗜️ Compressed {original_len} → {len(messages)} messages, retrying...")
+                                self._emit_status(f"🗜️  Archived {original_len} → {len(messages)} messages, retrying...")
                             time.sleep(2)  # Brief pause between compression retries
                             restart_with_archived_messages = True
                             break
@@ -13018,7 +13009,7 @@ class AIAgent:
                     # instead of mid-tool-call-loop.  User's message is already
                     # in DB and protected by protect_last_n.
                     if self.archiving_enabled and _compressor.should_archive(_real_tokens):
-                        self._safe_print("  ⟳ compacting context…")
+                        self._safe_print("  ⟳ archiving context (rolling window)…")
                         messages, active_system_prompt = self._archive_context(
                             messages, system_message,
                             approx_tokens=self.context_archiver.last_prompt_tokens,
