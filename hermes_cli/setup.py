@@ -1633,7 +1633,7 @@ def setup_agent_settings(config: dict):
         "Inactivity + daily reset (recommended - reset whichever comes first)",
         "Inactivity only (reset after N minutes of no messages)",
         "Daily only (reset at a fixed hour each day)",
-        "Never auto-reset (context lives until /reset or context compression)",
+        "Never auto-reset (context lives until /reset or archiving)",
         "Keep current settings",
     ]
 

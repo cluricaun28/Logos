@@ -4994,7 +4994,7 @@ class GatewayRunner:
 
                 if _needs_compress:
                     logger.info(
-                        "Session hygiene: %s messages, ~%s tokens (%s) — auto-compressing "
+                        "Session hygiene: %s messages, ~%s tokens (%s) — auto-archiving "
                         "(threshold: %s%% of %s = %s tokens)",
                         _msg_count, f"{_approx_tokens:,}", _token_source,
                         int(_hyg_threshold_pct * 100),
@@ -6707,7 +6707,7 @@ class GatewayRunner:
         except Exception as e:
             import traceback
             tb = traceback.format_exc()[-500:]
-            return f"Distillation error: {e}\n\n\`{tb}\`"
+            return f"Distillation error: {e}\n\n`{tb}`"
 
     async def _handle_personality_command(self, event: MessageEvent) -> str:
         """Handle /personality command - list or set a personality."""
