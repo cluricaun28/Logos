@@ -874,6 +874,16 @@ IMAGE_GENERATE_SCHEMA = {
                 "description": "The aspect ratio of the generated image. 'landscape' is 16:9 wide, 'portrait' is 16:9 tall, 'square' is 1:1.",
                 "default": DEFAULT_ASPECT_RATIO,
             },
+            "model": {
+                "type": "string",
+                "description": (
+                    "Optional: choose a specific backend model for this single "
+                    "request, overriding the user's configured default. Local "
+                    "ComfyUI models: 'qwen-image' (concept/dense prompts/text) or "
+                    "'flux2-klein-4b' (photoreal product renders). Omit to use the "
+                    "configured default."
+                ),
+            },
         },
         "required": ["prompt"],
     },
@@ -901,7 +911,7 @@ def _read_configured_image_provider():
     return None
 
 
-def _dispatch_to_plugin_provider(prompt: str, aspect_ratio: str):
+def _dispatch_to_plugin_provider(prompt: str, aspect_ratio: str, model: Optional[str] = None):
     """Route the call to a plugin-registered provider when one is selected.
 
     Returns a JSON string on dispatch, or ``None`` to fall through to the
@@ -911,6 +921,9 @@ def _dispatch_to_plugin_provider(prompt: str, aspect_ratio: str):
     it does not point to ``fal`` (FAL still lives in-tree in this PR;
     a later PR ports it into ``plugins/image_gen/fal/``). Any other value
     that matches a registered plugin provider wins.
+
+    ``model`` optionally overrides the provider's configured model for this
+    single request (e.g. pick a specific ComfyUI checkpoint).
     """
     configured = _read_configured_image_provider()
     if not configured or configured == "fal":
@@ -951,7 +964,9 @@ def _dispatch_to_plugin_provider(prompt: str, aspect_ratio: str):
         })
 
     try:
-        result = provider.generate(prompt=prompt, aspect_ratio=aspect_ratio)
+        result = provider.generate(
+            prompt=prompt, aspect_ratio=aspect_ratio, model=model
+        )
     except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as exc:
         logger.warning(
             "Image gen provider '%s' raised: %s",
@@ -978,10 +993,11 @@ def _handle_image_generate(args, **kw):
     if not prompt:
         return tool_error("prompt is required for image generation")
     aspect_ratio = args.get("aspect_ratio", DEFAULT_ASPECT_RATIO)
+    model = args.get("model") or None
 
     # Route to a plugin-registered provider if one is active (and it's
     # not the in-tree FAL path).
-    dispatched = _dispatch_to_plugin_provider(prompt, aspect_ratio)
+    dispatched = _dispatch_to_plugin_provider(prompt, aspect_ratio, model)
     if dispatched is not None:
         return dispatched
 

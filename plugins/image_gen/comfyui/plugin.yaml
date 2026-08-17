@@ -1,0 +1,5 @@
+name: comfyui
+version: 1.0.0
+description: "Local ComfyUI image generation (Qwen-Image, FLUX.2 klein). Text-to-image, fully on-box."
+author: Logos
+kind: backend
