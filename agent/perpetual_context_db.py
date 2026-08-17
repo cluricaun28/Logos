@@ -251,7 +251,7 @@ class PerpetualContextDB(
             db_path: Path to the SQLite database file. Defaults to
                 ~/.hermes/perpetual_context.db if not specified.
         """
-        self._db_path = db_path or os.path.expanduser("~/.hermes/perpetual_context.db")
+        self._db_path = db_path or os.path.join(os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes"), "perpetual_context.db")
         self._conn: sqlite3.Connection | None = None
         self._lock = threading.RLock()  # Changed to RLock for reentrant calls
         self._initialized = False

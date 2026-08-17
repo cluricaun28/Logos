@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 import sqlite3
 import threading
 import time
@@ -70,7 +71,7 @@ class SignalRegistry:
         if self._initialized:
             return
 
-        self.db_path = db_path or Path.home() / ".hermes" / "perpetual_context.db"
+        self.db_path = db_path or Path(os.environ.get("HERMES_HOME") or str(Path.home() / ".hermes")) / "perpetual_context.db"
         self.weights = weights or DEFAULT_WEIGHTS.copy()
         self.cache_size = cache_size
 

@@ -140,7 +140,7 @@ class PerpetualContextProvider(MemoryProvider):
 
         db_path = pc_config.get("db_path")
         if not db_path:  # noqa: SIM108
-            db_path = os.path.join(os.path.expanduser("~/.hermes"), "perpetual_context.db")
+            db_path = os.path.join(os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes"), "perpetual_context.db")
         else:
             db_path = os.path.expanduser(db_path)
 

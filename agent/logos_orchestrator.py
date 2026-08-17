@@ -42,9 +42,10 @@ class LogosOrchestrator:
         from agent.synthesis_service import SynthesisService
         from agent.audit_service import AuditService
 
-        self.rl_dir = rl_dir or Path.home() / ".hermes" / "reference-library"
-        self.staging_dir = staging_dir or Path.home() / ".hermes" / "staging"
-        self.db_path = db_path or Path.home() / ".hermes" / "perpetual_context.db"
+        _hh = Path(os.environ.get("HERMES_HOME") or (Path.home() / ".hermes"))
+        self.rl_dir = rl_dir or _hh / "reference-library"
+        self.staging_dir = staging_dir or _hh / "staging"
+        self.db_path = db_path or _hh / "perpetual_context.db"
 
         # Accept pre-built services (plugin pattern) or build our own
         if registry is None:
