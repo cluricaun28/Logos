@@ -309,7 +309,7 @@ class TestBuiltinDiscovery:
             "tools.process_registry",
             "tools.rl_training_tool",
             "tools.send_message_tool",
-            "tools.session_search_tool",
+            "tools.computer_use_tool",
             "tools.skill_manager_tool",
             "tools.skills_tool",
             "tools.terminal_tool",

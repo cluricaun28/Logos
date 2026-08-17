@@ -273,6 +273,8 @@ class TestDelegateTask(unittest.TestCase):
             MockAgent.return_value = mock_child
 
             _build_child_agent(
+                persona_name=None,
+                capability_mode=None,
                 task_index=0,
                 goal="Keep stdout clean",
                 context=None,
@@ -294,6 +296,8 @@ class TestDelegateTask(unittest.TestCase):
             MockAgent.return_value = mock_child
 
             _build_child_agent(
+                persona_name=None,
+                capability_mode=None,
                 task_index=0,
                 goal="Avoid raw child spinners",
                 context=None,
@@ -364,6 +368,8 @@ class TestToolNamePreservation(unittest.TestCase):
         with patch("run_agent.AIAgent"):
             try:
                 _build_child_agent(
+                    persona_name=None,
+                    capability_mode=None,
                     task_index=0,
                     goal="regression check",
                     context=None,
@@ -1248,6 +1254,8 @@ class TestChildCredentialPoolResolution(unittest.TestCase):
             MockAgent.return_value = mock_child
 
             _build_child_agent(
+                persona_name=None,
+                capability_mode=None,
                 task_index=0,
                 goal="Test pool assignment",
                 context=None,
@@ -1270,6 +1278,8 @@ class TestChildCredentialPoolResolution(unittest.TestCase):
             MockAgent.return_value = mock_child
 
             _build_child_agent(
+                persona_name=None,
+                capability_mode=None,
                 task_index=0,
                 goal="Test narrowed toolsets",
                 context=None,
@@ -1298,6 +1308,8 @@ class TestChildCredentialPoolResolution(unittest.TestCase):
             MockAgent.return_value = mock_child
 
             _build_child_agent(
+                persona_name=None,
+                capability_mode=None,
                 task_index=0,
                 goal="Test narrowed toolsets",
                 context=None,
@@ -1644,6 +1656,8 @@ class TestDelegationReasoningEffort(unittest.TestCase):
         parent.reasoning_config = {"enabled": True, "effort": "xhigh"}
 
         _build_child_agent(
+            persona_name=None,
+            capability_mode=None,
             task_index=0, goal="test", context=None, toolsets=None,
             model=None, max_iterations=50, parent_agent=parent,
             task_count=1,
@@ -1661,6 +1675,8 @@ class TestDelegationReasoningEffort(unittest.TestCase):
         parent.reasoning_config = {"enabled": True, "effort": "xhigh"}
 
         _build_child_agent(
+            persona_name=None,
+            capability_mode=None,
             task_index=0, goal="test", context=None, toolsets=None,
             model=None, max_iterations=50, parent_agent=parent,
             task_count=1,
@@ -1678,6 +1694,8 @@ class TestDelegationReasoningEffort(unittest.TestCase):
         parent.reasoning_config = {"enabled": True, "effort": "high"}
 
         _build_child_agent(
+            persona_name=None,
+            capability_mode=None,
             task_index=0, goal="test", context=None, toolsets=None,
             model=None, max_iterations=50, parent_agent=parent,
             task_count=1,
@@ -1695,6 +1713,8 @@ class TestDelegationReasoningEffort(unittest.TestCase):
         parent.reasoning_config = {"enabled": True, "effort": "medium"}
 
         _build_child_agent(
+            persona_name=None,
+            capability_mode=None,
             task_index=0, goal="test", context=None, toolsets=None,
             model=None, max_iterations=50, parent_agent=parent,
             task_count=1,
@@ -2443,6 +2463,8 @@ class TestFallbackModelInheritance(unittest.TestCase):
         with patch("run_agent.AIAgent") as MockAgent:
             MockAgent.return_value = MagicMock()
             _build_child_agent(
+                persona_name=None,
+                capability_mode=None,
                 task_index=0,
                 goal="test fallback inheritance",
                 context=None,
@@ -2464,6 +2486,8 @@ class TestFallbackModelInheritance(unittest.TestCase):
         with patch("run_agent.AIAgent") as MockAgent:
             MockAgent.return_value = MagicMock()
             _build_child_agent(
+                persona_name=None,
+                capability_mode=None,
                 task_index=0,
                 goal="test no fallback",
                 context=None,

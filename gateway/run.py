@@ -3534,11 +3534,18 @@ class GatewayRunner:
             return os.getenv("GATEWAY_ALLOW_ALL_USERS", "").lower() in ("true", "1", "yes")
 
         # Some platforms authorize group traffic by chat ID rather than sender ID.
-        if group_allowlist and source.chat_type in {"group", "forum"} and source.chat_id:
+        # Mixed values are supported: negative IDs match the group chat,
+        # positive IDs match the sender in any group (see
+        # test_telegram_group_users_mixed_sender_and_legacy_chat).
+        if group_allowlist and source.chat_type in {"group", "forum"}:
             allowed_group_ids = {
                 chat_id.strip() for chat_id in group_allowlist.split(",") if chat_id.strip()
             }
-            if "*" in allowed_group_ids or source.chat_id in allowed_group_ids:
+            if (
+                "*" in allowed_group_ids
+                or (source.chat_id and source.chat_id in allowed_group_ids)
+                or user_id in allowed_group_ids
+            ):
                 return True
 
         # Check if user is in any allowlist
@@ -3661,7 +3668,7 @@ class GatewayRunner:
                     "pre_gateway_dispatch",
                     event=event,
                     gateway=self,
-                    session_store=self.session_store,
+                    session_store=getattr(self, "session_store", None),
                 )
             except (ImportError, ModuleNotFoundError) as _hook_exc:
                 logger.warning("pre_gateway_dispatch invocation failed: %s", _hook_exc)
