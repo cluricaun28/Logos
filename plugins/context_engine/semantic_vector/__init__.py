@@ -114,6 +114,26 @@ class SemanticVectorContextEngine(ContextEngine):
     state_map_max_chars: int = 800
     max_dormant_vectors: int = 10
 
+    # Rolling-window fallback knobs (C9-A, 2026-08-17): wired from the
+    # context.rolling_window section of config.yaml. Defaults preserve the
+    # pre-C9-A hardcoded behavior so other users see no change; a user's
+    # config section now actually controls the fallback.
+    #   window_size        — minimum non-system messages the fallback keeps
+    #                        (0 = legacy floor of protect_last_n * 2)
+    #   archive_target     — fraction of context_length to prune down to
+    #                        (0 = legacy target of threshold_tokens)
+    #   hard_ceiling_percent — absolute OOM guard (was hardcoded 0.85)
+    #   danger_zone_percent  — fallback trigger ceiling (was hardcoded 0.90)
+    window_size: int = 0
+    archive_target: float = 0.0
+    hard_ceiling_percent: float = 0.85
+    danger_zone_percent: float = 0.90
+
+    # F13 fix: class attr so the config kwarg 'model_path' lands here
+    # (the kwargs loop only sets existing attributes; the class attr was
+    # previously '_model_path', so config values were silently dropped).
+    model_path: str = ""
+
     # Embedding state
     model: Any = None  # The SentenceTransformer model (also aliased as _model)
     _embedding_engine: Any = None  # For test mocking
@@ -134,6 +154,8 @@ class SemanticVectorContextEngine(ContextEngine):
         for key, value in kwargs.items():
             if hasattr(self, key):
                 setattr(self, key, value)
+        if self.model_path:
+            self._model_path = os.path.expanduser(self.model_path)
         if not self._model_path:
             self._model_path = os.path.expanduser(
                 "~/.hermes/models/embeddings/all-MiniLM-L6-v2"
@@ -298,7 +320,7 @@ class SemanticVectorContextEngine(ContextEngine):
         effective_tokens = (
             current_tokens if current_tokens is not None else result_tokens
         )
-        danger_zone = int(self.context_length * 0.90) if self.context_length else 0
+        danger_zone = int(self.context_length * self.danger_zone_percent) if self.context_length else 0
         needs_fallback = False
         if self.threshold_tokens > 0 and result_tokens > self.threshold_tokens:
             logger.info(
@@ -406,15 +428,24 @@ class SemanticVectorContextEngine(ContextEngine):
                     msg = {**msg, "content": truncated_content}
             truncated.append(msg)
 
-        # Step 3: Drop oldest unprotected messages until under threshold again
-        # The hard ceiling (85% of context_length) is the absolute maximum —
-        # we prune down to threshold_tokens (75%) to restore headroom.
-        target_tokens = self.threshold_tokens if self.threshold_tokens > 0 else int(self.context_length * 0.75)
-        hard_ceiling_tokens = int(self.context_length * 0.85) if self.context_length else 0
+        # Step 3: Drop oldest unprotected messages until under target.
+        # C9-A (2026-08-17): targets and floors now come from config
+        # (context.rolling_window) via class attributes. Legacy defaults
+        # (window_size=0, archive_target=0) reproduce the old hardcoded
+        # behavior exactly: target = threshold_tokens, floor = protect_last_n*2.
+        if self.context_length and self.archive_target > 0:
+            target_tokens = int(self.context_length * self.archive_target)
+        else:
+            target_tokens = self.threshold_tokens if self.threshold_tokens > 0 else int(self.context_length * 0.75)
+        hard_ceiling_tokens = int(self.context_length * self.hard_ceiling_percent) if self.context_length else 0
 
         # Safety: never let target exceed the hard ceiling
         if hard_ceiling_tokens > 0 and target_tokens > hard_ceiling_tokens:
             target_tokens = hard_ceiling_tokens
+
+        # Working-window floor: never shrink below window_size messages
+        # (or the legacy protect_last_n*2 floor when window_size is unset).
+        window_floor = max(self.protect_last_n * 2, self.window_size)
 
         # Estimate current tokens
         current_chars = sum(len(m.get("content", "")) for m in truncated)
@@ -424,9 +455,22 @@ class SemanticVectorContextEngine(ContextEngine):
         system_msgs = [m for m in truncated if m.get("role") == "system"]
         non_system_msgs = [m for m in truncated if m.get("role") != "system"]
 
-        # Drop oldest non-system messages until under target
-        while (len(non_system_msgs) > self.protect_last_n * 2 and
-               current_tokens > target_tokens):
+        # Drop oldest non-system messages until under target. Stop when the
+        # token target is met, or when the working-window floor is reached
+        # AND we're under the OOM guard — the guard wins over the floor.
+        while current_tokens > target_tokens:
+            if not non_system_msgs:
+                break
+            if (
+                len(non_system_msgs) <= window_floor
+                and (hard_ceiling_tokens == 0 or current_tokens <= hard_ceiling_tokens)
+            ):
+                logger.warning(
+                    "Rolling window fallback: at working-window floor (%d msgs) "
+                    "still at %d tokens (target %d, ceiling %d) — stopping",
+                    len(non_system_msgs), current_tokens, target_tokens, hard_ceiling_tokens,
+                )
+                break
             # Drop one message from the oldest unprotected
             dropped = non_system_msgs.pop(0)
             dropped_chars = len(dropped.get("content", ""))

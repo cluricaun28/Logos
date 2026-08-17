@@ -1936,6 +1936,14 @@ class AIAgent:
             try:
                 from plugins.context_engine import load_context_engine
                 _engine_config = _ctx_cfg.get(_engine_name, {}) if isinstance(_ctx_cfg, dict) else {}
+                # C9-A (2026-08-17): the context.rolling_window section
+                # controls rolling-window fallback behavior for whichever
+                # engine is active (for the rolling_window engine it is the
+                # engine's own section — merge is then an identity). The
+                # engine-specific section wins on conflicting keys.
+                _rw_cfg = _ctx_cfg.get("rolling_window", {}) if isinstance(_ctx_cfg, dict) else {}
+                if isinstance(_rw_cfg, dict) and _rw_cfg:
+                    _engine_config = {**_rw_cfg, **(_engine_config or {})}
                 _selected_engine = load_context_engine(_engine_name, config=_engine_config)
             except (ImportError, AttributeError, TypeError, OSError) as _ce_load_err:
                 logger.debug("Context engine load from plugins/context_engine/: %s", _ce_load_err)

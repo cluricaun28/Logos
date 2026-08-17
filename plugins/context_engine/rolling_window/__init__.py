@@ -273,6 +273,11 @@ class RollingWindowContextEngine(ContextEngine):
 
 # -- Plugin registration (required for discovery) --------------------------
 
-def register(collector):
-    """Register this engine with the Hermes plugin system."""
-    collector.register_context_engine(RollingWindowContextEngine())
+def register(collector, config=None):
+    """Register this engine with the Hermes plugin system.
+
+    C9-A: accept the config dict from the loader so the user's
+    context.rolling_window section (window_size, max_tokens, thresholds)
+    actually reaches the engine instead of silently using defaults.
+    """
+    collector.register_context_engine(RollingWindowContextEngine(**(config or {})))
