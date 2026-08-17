@@ -35,11 +35,16 @@ def search(
         return []
 
     try:
+        # Candidate pool: at least 50 per branch. With top_k*2=10, a relevant
+        # page ranking #15 in either branch never received a score — the
+        # dominant failure mode in the 2026-08 search battery (specific
+        # pages drowned out by common-term matches in the small pool).
+        pool = max(top_k * 2, 50)
         fts_results = _fts_search(
-            conn=conn, query=query, top_k=top_k * 2, category=category,
+            conn=conn, query=query, top_k=pool, category=category,
         )
         semantic_results = _semantic_search(
-            conn=conn, query=query, top_k=top_k * 2, category=category,
+            conn=conn, query=query, top_k=pool, category=category,
             embedding_engine=embedding_engine,
         )
 
@@ -65,10 +70,19 @@ def search(
                 msg["_fts5_score"] = round(score, 4)
                 result_cache[fp] = msg
 
-        # Score semantic results
+        # Score semantic results. Min-max normalize similarity across the
+        # pool: raw cosine typically tops out near 0.5, which would starve
+        # the semantic branch vs the min-max-normalized FTS branch (0..1).
+        if semantic_results:
+            sims = [m["_similarity"] for m in semantic_results]
+            smin = min(sims)
+            smax = max(sims)
+            srange = (smax - smin) if smax != smin else 1.0
         for i, msg in enumerate(semantic_results):
             fp = msg["file_path"]
-            sim_score = msg["_similarity"]
+            sim_score = (
+                (msg["_similarity"] - smin) / srange if semantic_results else 0.0
+            )
             score = (
                 semantic_weight * sim_score
                 + (1.0 / (i + 1)) * semantic_weight * 0.1
@@ -121,10 +135,17 @@ def _fts_search(
         return []
 
     try:
-        escaped = query.replace("'", "''")
-        fts_query = f'"{escaped}"'
+        # OR-of-quoted-terms: each word is a literal phrase, so queries like
+        # "Crenshaw ZFS storage" match docs containing ANY of the words.
+        # (Wrapping the whole query in one phrase required the exact sequence
+        # to appear verbatim and returned ~0 hits for normal queries,
+        # silently defeating the FTS half of hybrid search.)
+        terms = [t for t in query.replace("'", "''").split() if t]
+        if not terms:
+            return []
+        fts_query = " OR ".join(f'"{t}"' for t in terms)
 
-        where = "rl_fts MATCH ?"
+        where = "rl_index_fts MATCH ?"
         params: list = [fts_query]
 
         if category:
@@ -133,7 +154,7 @@ def _fts_search(
 
         sql = (
             "SELECT r.rowid, r.file_path, r.title, r.category, rank"
-            " FROM rl_fts r"
+            " FROM rl_index_fts r"
             f" WHERE {where}"
             " ORDER BY rank LIMIT ?"
         )
@@ -210,26 +231,55 @@ def _semantic_search(
         if not rows:
             return []
 
+        # Vectorized cosine scoring. numpy is a hard dependency of the
+        # embedding engine (sentence-transformers); if it's somehow missing,
+        # fall back to the pure-Python loop below.
         scored: list[tuple] = []
-        for row in rows:
-            blob = row[3]
-            if not blob or len(blob) < RL_EMBED_DIM * 4:
-                continue
-            try:
-                vector = list(
-                    struct.unpack(
-                        f"{RL_EMBED_DIM}f",
-                        blob[: RL_EMBED_DIM * 4],
+        try:
+            import numpy as np
+
+            dim = RL_EMBED_DIM
+            valid_rows: list[tuple] = []
+            vecs: list[list[float]] = []
+            for row in rows:
+                blob = row[3]
+                if not blob or len(blob) < dim * 4:
+                    continue
+                vecs.append(list(struct.unpack(f"{dim}f", blob[: dim * 4])))
+                valid_rows.append((row[0], row[1], row[2]))
+            if vecs:
+                mat = np.asarray(vecs, dtype=np.float32)
+                qv = np.asarray(query_vector, dtype=np.float32)
+                norms = np.linalg.norm(mat, axis=1)
+                qnorm = np.linalg.norm(qv)
+                if qnorm > 0:
+                    sims = (mat @ qv) / (norms * qnorm)
+                    for idx, sim in enumerate(sims):
+                        if sim >= RL_COSINE_THRESHOLD:
+                            scored.append(
+                                (valid_rows[idx][0], valid_rows[idx][1],
+                                 valid_rows[idx][2], float(sim))
+                            )
+        except ImportError:
+            for row in rows:
+                blob = row[3]
+                if not blob or len(blob) < RL_EMBED_DIM * 4:
+                    continue
+                try:
+                    vector = list(
+                        struct.unpack(
+                            f"{RL_EMBED_DIM}f",
+                            blob[: RL_EMBED_DIM * 4],
+                        )
                     )
-                )
-            except struct.error:
-                continue
+                except struct.error:
+                    continue
 
-            sim = _cosine_similarity(query_vector, vector)
-            if sim < RL_COSINE_THRESHOLD:
-                continue
+                sim = _cosine_similarity(query_vector, vector)
+                if sim < RL_COSINE_THRESHOLD:
+                    continue
 
-            scored.append((row[0], row[1], row[2], sim))
+                scored.append((row[0], row[1], row[2], sim))
 
         scored.sort(key=lambda x: -x[3])
 

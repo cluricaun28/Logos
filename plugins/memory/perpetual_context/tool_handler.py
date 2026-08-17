@@ -87,7 +87,8 @@ def _handle_perpetual_search(tool_handler: ToolHandler, args: dict[str, Any]) ->
 
 def _handle_session_search(tool_handler: ToolHandler, args: dict[str, Any]) -> str:
     query = args.get("query")
-    limit = min(args.get("limit", 3), 5)
+    # Schema param is top_k; accept limit as a legacy fallback.
+    limit = min(args.get("top_k", args.get("limit", 3)), 5)
 
     if not query:
         return _handle_session_recent(tool_handler, limit)
@@ -431,12 +432,76 @@ def _handle_context_depth(tool_handler: ToolHandler, args: dict[str, Any]) -> st
 # ---------------------------------------------------------------------------
 
 
+def _hybrid_rl_search(query: str, top_k: int) -> list[dict[str, Any]] | None:
+    """Hybrid RL search (FTS5 keyword + cosine semantic) over rl_index.db.
+
+    Covers ALL categories including the 32k-entry Britannica 1911 archive.
+    Returns None when the index or the search is unavailable, so the caller
+    can fall back to the legacy substring scan. Never raises.
+    """
+    global _RL_INDEX_CONN
+    try:
+        import sqlite3
+
+        from . import rl_search  # noqa: PLC0415
+        from agent.perpetual_context_db import EmbeddingEngine  # noqa: PLC0415
+
+        db_path = os.path.expanduser("~/.hermes/rl_index.db")
+        if not os.path.exists(db_path):
+            return None
+        if _RL_INDEX_CONN is None:
+            _RL_INDEX_CONN = sqlite3.connect(db_path, check_same_thread=False)
+            _RL_INDEX_CONN.execute("PRAGMA busy_timeout=5000")
+            _RL_INDEX_CONN.execute("PRAGMA query_only=ON")
+
+        # EmbeddingEngine is a process-wide lazy singleton — the memory
+        # provider already loads the same model, so this is free in practice.
+        engine = EmbeddingEngine.get()
+
+        rows = rl_search.search(
+            conn=_RL_INDEX_CONN,
+            query=query,
+            top_k=top_k,
+            embedding_engine=engine,
+        )
+        if not rows:
+            return []
+        out: list[dict[str, Any]] = []
+        for r in rows:
+            fp = r.get("file_path", "")
+            directory = os.path.dirname(fp) or "."
+            out.append({
+                "file": os.path.basename(fp),
+                "directory": directory,
+                "name": r.get("title") or os.path.basename(fp)[:-3].replace("-", " ").title(),
+                "score": r.get("score", 0),
+                "snippet": (r.get("snippet", "") + "...") if r.get("snippet") else "",
+            })
+        return out
+    except Exception as e:  # noqa: S110 — degradation wrapper, must never break the tool
+        logger.debug("Hybrid RL search unavailable, using legacy scan: %s", e)
+        return None
+
+
+# Cached read-only connection for hybrid RL search (module-level, lazy).
+_RL_INDEX_CONN: Any = None
+
+
 def _handle_reference_library_search(tool_handler: ToolHandler, args: dict[str, Any]) -> str:
     query = args.get("query", "")
     if not query:
         return json.dumps({"error": "query is required"})
 
     top_k = min(args.get("top_k", 5), 20)
+
+    # Primary path: hybrid search over the full curated RL index. The legacy
+    # substring scan below only covers topics/ and entities/ top level and
+    # ranks by raw word frequency — it is kept purely as a degradation
+    # fallback if the index is missing or broken.
+    hybrid = _hybrid_rl_search(query, top_k)
+    if hybrid is not None:
+        return json.dumps({"results": hybrid[:top_k], "count": len(hybrid[:top_k])})
+
     results: list[dict[str, Any]] = []
     query_lower = query.lower()
     query_words = [w for w in query_lower.split() if len(w) > _MIN_SEARCH_WORD_LEN]

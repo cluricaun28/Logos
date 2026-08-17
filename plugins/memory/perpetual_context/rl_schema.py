@@ -75,31 +75,33 @@ def create_tables(conn: sqlite3.Connection) -> None:
 
 
 def _create_fts5_table(conn: sqlite3.Connection) -> None:
-    """Create or recreate the FTS5 virtual table and sync triggers."""
-    # Drop old table and triggers
-    try:
-        conn.execute("DROP TABLE IF EXISTS rl_index_fts")
-    except (sqlite3.Error, AttributeError) as e:
-        logger.debug("Error dropping old rl_index_fts: %s", e)
+    """Create the FTS5 virtual table and sync triggers (idempotent).
 
-    conn.execute(
-        "CREATE VIRTUAL TABLE rl_index_fts USING fts5("
-        "  file_path, title, body, category,"
-        "  content='rl_files',"
-        "  content_rowid='rowid',"
-        "  tokenize='unicode61'"
-        ")"
+    The table is external-content mode backed by rl_files. NEVER drop an
+    existing table here: an unconditional drop+recreate leaves the index
+    empty until the next full build, which silently degraded hybrid
+    search to semantic-only after every process start. Drift between the
+    index and rl_files is detected and repaired by
+    RLIndex._self_heal_fts() instead.
+    """
+    cursor = conn.execute(
+        "SELECT name FROM sqlite_master"
+        " WHERE type = 'table' AND name = 'rl_index_fts'"
     )
+    if cursor.fetchone() is None:
+        conn.execute(
+            "CREATE VIRTUAL TABLE rl_index_fts USING fts5("
+            "  file_path, title, body, category,"
+            "  content='rl_files',"
+            "  content_rowid='rowid',"
+            "  tokenize='unicode61'"
+            "  )"
+        )
 
-    # Triggers to keep FTS5 in sync with rl_files
-    for trig in ("rl_files_ai", "rl_files_ad", "rl_files_au"):
-        try:
-            conn.execute(f"DROP TRIGGER IF EXISTS {trig}")
-        except (sqlite3.Error, AttributeError) as e:
-            logger.debug("Error dropping trigger %s: %s", trig, e)
-
+    # Triggers to keep FTS5 in sync with rl_files (IF NOT EXISTS — they
+    # reference the virtual table and must survive re-initialization)
     conn.execute(
-        "CREATE TRIGGER rl_files_ai AFTER INSERT ON rl_files BEGIN"
+        "CREATE TRIGGER IF NOT EXISTS rl_files_ai AFTER INSERT ON rl_files BEGIN"
         "  INSERT INTO rl_index_fts("
         "    rowid, file_path, title, body, category)"
         "  VALUES ("
@@ -108,12 +110,12 @@ def _create_fts5_table(conn: sqlite3.Connection) -> None:
         "END"
     )
     conn.execute(
-        "CREATE TRIGGER rl_files_ad AFTER DELETE ON rl_files BEGIN"
+        "CREATE TRIGGER IF NOT EXISTS rl_files_ad AFTER DELETE ON rl_files BEGIN"
         "  DELETE FROM rl_index_fts WHERE rowid = old.rowid;"
         "END"
     )
     conn.execute(
-        "CREATE TRIGGER rl_files_au AFTER UPDATE ON rl_files BEGIN"
+        "CREATE TRIGGER IF NOT EXISTS rl_files_au AFTER UPDATE ON rl_files BEGIN"
         "  DELETE FROM rl_index_fts WHERE rowid = old.rowid;"
         "  INSERT INTO rl_index_fts("
         "    rowid, file_path, title, body, category)"

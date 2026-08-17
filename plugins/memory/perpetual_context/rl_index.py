@@ -215,12 +215,40 @@ class RLIndex:
                 self._conn.execute("PRAGMA busy_timeout=5000")
                 from . import rl_schema  # noqa: PLC0415
                 rl_schema.create_tables(self._conn)
+                self._self_heal_fts()
                 self._initialized = True
                 return True
         except (sqlite3.Error, AttributeError) as e:
             logger.error("Failed to initialize RLIndex: %s", e)
             self._conn = None
             return False
+
+    def _self_heal_fts(self) -> None:
+        """Rebuild the FTS index if it drifted from rl_files (e.g. crashed build).
+
+        For external-content FTS5 tables, SELECT count(*) reads the CONTENT
+        table, so row counts on the virtual table never reveal index drift.
+        The shadow table rl_index_fts_docsize holds exactly one row per
+        indexed document — comparing its count against rl_files is an O(1)
+        sync check. A rebuild of ~33k rows takes ~4s.
+        """
+        try:
+            n_content = self._conn.execute("SELECT count(*) FROM rl_files").fetchone()[0]
+            n_indexed = self._conn.execute(
+                "SELECT count(*) FROM rl_index_fts_docsize"
+            ).fetchone()[0]
+            if n_indexed != n_content:
+                logger.warning(
+                    "RL FTS index out of sync (indexed=%d, content=%d) — rebuilding",
+                    n_indexed, n_content,
+                )
+                self._conn.execute(
+                    "INSERT INTO rl_index_fts(rl_index_fts) VALUES('rebuild')"
+                )
+                self._conn.commit()
+                logger.info("RL FTS index rebuilt")
+        except (sqlite3.Error, AttributeError) as e:
+            logger.debug("FTS self-heal check failed: %s", e)
 
     def shutdown(self) -> None:
         with self._lock:
