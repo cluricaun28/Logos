@@ -2,7 +2,7 @@
 type: topic
 topic: "Logos — System White Paper"
 created: 2026-05-07
-last_updated: 2026-07-16
+last_updated: 2026-08-17
 confidence: high
 related_entries:
   - "Hermes Agent Architecture(topics/hermes-agent/architecture)"
@@ -21,7 +21,7 @@ description: "Comprehensive white paper documenting the purpose, architecture, a
 
 *A white paper on sovereign knowledge management through persistent memory, curated truth, and epistemic sovereignty*
 
-**Version:** 3.0  |  **Date:** July 2026  |  **Repository:** cluricaun28/logos
+**Version:** 3.2  |  **Date:** August 2026  |  **Repository:** cluricaun28/logos
 
 ---
 
@@ -89,7 +89,7 @@ This is analogous to how a librarian works: the books aren't in their head, but 
 
 ### 3.2 Local Inference Sovereignty
 
-All reasoning runs on local hardware via vLLM (port 8000). No cloud model calls, no external API requests, no data leaving the system. A quantized Qwen3.6-27B model served locally. No paid services are used without explicit permission.
+All reasoning runs on local hardware via vLLM (port 8000). No cloud model calls, no external API requests, no data leaving the system. Qwen3.8-27B (FP8) served via vLLM on `:8000`, with an identical hot-standby instance on `:8011` for zero-downtime swaps and failover. No paid services are used without explicit permission.
 
 ### 3.3 Curated Knowledge as Truth Anchor
 
@@ -105,6 +105,22 @@ Speed is not the goal. The system trades latency for epistemic integrity. When a
 
 This is a deliberate design choice. A fast wrong answer is worse than a slow right one. The system would rather tell you "I don't know — let me research that" than guess from training data and get it wrong.
 
+
+### 3.5 The Chain of Purpose
+
+The system exists to serve Patrick's needs (truth-seeking, sovereign knowledge, business operations). Patrick directs, the agent maintains. Every design choice serves this chain.
+
+```
+Purpose → Patrick's needs
+         ↓
+Maintainer → Agent (AI) executes and maintains
+         ↓
+System → Logos with RL, PM, skills, tools
+```
+
+**Design choices matter only insofar as they serve the chain.** "AI-optimized" code only matters if it makes the agent more reliable at maintaining the system for Patrick — not as an abstract principle, but concretely: does this design choice help the agent correctly modify, debug, and keep the system working?
+
+**Evaluate every design choice with one question:** *"Does this make the agent more reliable at serving Patrick's needs?"* If yes, implement it. If no, skip it regardless of how technically elegant it is.
 
 ---
 
@@ -146,7 +162,7 @@ The system comprises four major subsystems that work together:
       ▼                                                     ▼
 ┌──────────────────────────────────────────────────────────────┐
 │                  Infrastructure Layer                          │
-│  vLLM inference · SearXNG · Firecrawl · Camofox · Quartz v4  │
+│  vLLM inference · SearXNG · Firecrawl · Camofox · Quartz v5  │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -183,7 +199,7 @@ Every conversation turn across all sessions is stored verbatim in a local SQLite
 
 The Context Bridge was fully built and validated: it injects a structured summary of active tasks, file edits, errors, and knowledge gaps when context archival fires. The system is currently configured with `context.engine: semantic_vector`, and the Context Bridge is being evaluated alongside the Semantic Vector engine as part of ongoing testing.
 
-The bridge remains available as a fallback path: if a different context engine is active (e.g., the legacy context compressor), the bridge fires via `PerpetualContextProvider.on_pre_archive()` and injects its summary into the archived message list.
+The bridge remains available on every archive regardless of which context engine is active: it fires via `PerpetualContextProvider.on_pre_compress()` (called by the memory manager before archiving discards context) and injects its summary into the archived message list.
 
 **Content structure (when active, up to 4,000 characters):**
 
@@ -196,12 +212,12 @@ The bridge remains available as a fallback path: if a different context engine i
 
 **Key classes:** `ContextBridgeBuilder` (292 lines) constructs structured summaries from data extracted by `ExtractionEngine` (450 lines). The original `SemanticVectorEngine` in `agent/context_engine.py` was removed in May 2026, superseded by `SemanticVectorContextEngine` in the plugins system (`plugins/context_engine/semantic_vector/`), which is the current active engine.
 
-**The hook chain (tested, under evaluation):**
+**The hook chain (verified live 2026-08-17):**
 
 ```
-PerpetualContextProvider.on_pre_archive() → returns str (Context Bridge)
+PerpetualContextProvider.on_pre_compress() → returns str (Context Bridge)
     ↓
-MemoryManager.on_pre_archive() → collects from all providers, joins with \n\n
+MemoryManager.on_pre_compress() → collects from all providers, joins with \n\n
     ↓
 run_agent.py captures return value
     ↓
@@ -254,12 +270,13 @@ The [[system/reference-library-purpose|Reference Library]] (`~/.hermes/reference
 
 **Current scale:** 700+ non-Britannica entries (150+ entities, 300+ topics, 90+ tools, 20 system pages, 17 sources, 14 categories) + 32,000+ Britannica 1911 entries in archive (not served in Quartz build). Total indexed: 30,000+ entries.
 
-**Hybrid search index (`search.db`):**
+**Hybrid search index (`rl_index.db`):**
 
 - FTS5 full-text search over all entry content
 - 384-dimensional MiniLM-L6-v2 embeddings pre-computed via sqlite-vec
 - Hybrid scoring (semantic + keyword) via vec0 virtual table
 - ~10ms median latency (sqlite-vec, was ~55ms with FAISS before migration)
+- **Daily maintenance:** VACUUM + REINDEX + integrity check via cron (2:00 AM), plus FTS self-heal on startup (detects index drift via `rl_index_fts_docsize` row-count comparison)
 
 **Content standards:**
 - Entries are written from the user's stated worldview (defined in SOUL.md)
@@ -267,7 +284,7 @@ The [[system/reference-library-purpose|Reference Library]] (`~/.hermes/reference
 - Technical truth stands on its own — SOLID principles and wiring tables aren't "user-specific"
 - The worldview lens applies where values matter (history, politics, ethics)
 
-**Serving:** Quartz v4 builds the curated corpus (400+ pages) into a searchable, cross-linked static site served on port 8081 via Caddy. Accessible via Tailscale. Britannica 1911 archive (32K+ entries) excluded from Quartz build for performance — searchable through agent tools instead.
+**Serving:** Quartz v5 builds the curated corpus (950+ pages) into a searchable, cross-linked static site served on port 8081 (Python static server; Caddy deferred). Accessible via Tailscale. Britannica 1911 archive (32K+ entries) excluded from Quartz build for performance — searchable through agent tools instead.
 
 **Mandatory first step:** The `reference_library_search` tool must be consulted before the model generates answers from training data or session memory alone. This is enforced in the system prompt and the prefetch pipeline.
 
@@ -306,13 +323,16 @@ The Logos Engine operates as a three-stage verification pipeline:
 | Time | Job | Description |
 |------|-----|-------------|
 | 2:00 AM | PM Signal Scanner | Scans for high-signal conversation clusters, writes to `signal_clusters` table |
+| 2:00 AM | RL Index Maintenance | VACUUM + REINDEX + integrity check on `rl_index.db` |
 | 3:00 AM | Nightly Distillation | Processes up to 3 clusters through Synthesis → Audit → Commit |
 | 3:00 AM | RL Growth | Expands RL entries based on detected gaps and distillation output |
+| 4:00 AM | Re-process EB 1911 | Rebuilds Britannica 1911 entries from original source files |
 | 4:00 AM | Logos Intelligence Scout | Builds source intelligence dossiers from high-frequency domains |
-| 4:00 AM | Hermes Backup | Backs up entire Hermes directory to Windows |
+| 4:00 AM | Hermes Backup | Backs up entire Hermes directory (off-box USB on Crenshaw server) |
+| 8:00 AM | Model Download Verification | Verifies HuggingFace model downloads completed |
 | 9:00 AM | Retrieval Quality Report | Monitors retrieval quality trends |
 
-Supporting modules handle corpus-level search and content integration within the distillation pipeline.
+Supporting bridges: `britannica_bridge.py` and `aquinas_bridge.py` provide content-aware search across the Britannica 1911 and Aquinas Research Library corpora respectively, integrated into the distillation pipeline.
 
 ### 4.7 Context Archiving — Dual Engine
 
@@ -333,23 +353,31 @@ Both are deterministic — no LLM calls. All pruned turns are saved verbatim to 
 **Configuration** (from `config.yaml`):
 
 ```yaml
-context.engine: semantic_vector
-context.semantic_vector:
-  similarity_threshold: 0.45   # cosine sim to assign turn to existing vector
-  dormancy_decay: 5            # turns before vector becomes Dormant
-  resolution_decay: 20         # turns before Dormant becomes Resolved
-  protect_last_n: 6            # recent turns always kept
-  state_map_max_chars: 400     # cap on injected state header
-  threshold_percent: 0.75      # fire archive at 75% of context_length
-context.rolling_window:
-  threshold_percent: 0.60      # emergency fallback threshold
-  archive_target: 0.50
-  hard_ceiling_percent: 0.85
+context:
+  engine: semantic_vector
+  archiving:
+    threshold: 0.9             # hard archive trigger (context_length fraction)
+  rolling_window:
+    threshold_percent: 0.6     # emergency fallback threshold
+    archive_target: 0.5
+    effective_window_ratio: 1.0
+    hard_ceiling_percent: 0.85 # absolute maximum
+    max_tokens: 262144         # full Qwen3.8-27B context window
+    task_aware: true
+    window_size: 60
+  semantic_vector:
+    similarity_threshold: 0.45 # cosine sim to assign turn to existing vector
+    dormancy_decay: 10         # turns before vector becomes Dormant
+    resolution_decay: 40       # turns before Dormant becomes Resolved
+    protect_last_n: 6          # recent turns always kept
+    state_map_max_chars: 800   # cap on injected state header
+    threshold_percent: 0.75    # fire semantic prune at 75% of context_length
+    model_path: /data1/.hermes/models/embeddings/all-MiniLM-L6-v2
 ```
 
 **Observability:** Every archive logs vector counts, pruned message count, and state map injection to `agent.log`. Check with: `grep 'SemanticVector' ~/.hermes/logs/agent.log | tail -20`.
 
-**Key classes:** `SemanticVectorContextEngine` in `plugins/context_engine/semantic_vector/__init__.py` (705 lines), `RollingWindowContextEngine` in `plugins/context_engine/rolling_window/__init__.py` (241 lines).
+**Key classes:** `SemanticVectorContextEngine` in `plugins/context_engine/semantic_vector/__init__.py` (811 lines), `RollingWindowContextEngine` in `plugins/context_engine/rolling_window/__init__.py` (278 lines).
 
 ---
 
@@ -366,7 +394,7 @@ The `source_analyze` tool was added as Phase 4 of the perpetual_context plugin (
 - **Auto-create dossiers:** When `source_analyze` encounters a domain with no existing dossier, it creates one automatically in `~/.hermes/reference-library/sources/` with "needs research" placeholders for alignment, truthful_on, and omits. The `domain-index.json` is updated so future lookups find it. Findings from the analysis are appended to the new dossier.
 - **Smart trigger:** System prompt instructs the model to call `source_analyze` after `web_search` for substantive topics (politics, religion, economics, culture, current events, human affairs) and skip it for utility queries (weather, recipes, code docs).
 
-**Key classes:** `SourceAnalyzer` (agent/source_analysis.py, 950 lines — shared by prefetch pipeline and direct tool), `_DossierLookup` (domain fragment matching with suffix-anchored regex), `_RLWriter` (dossier read/write with auto-create for new domains, integrated in tool_handler.py). The `source_analyze` tool handler in `tool_handler.py` dispatches to `SourceAnalyzer` and handles the `deep=true` path via `web_extract_tool()`.
+**Key classes:** `SourceAnalyzer` (agent/source_analysis.py, ~1,135 lines — shared by prefetch pipeline and direct tool), `_DossierLookup` (domain fragment matching with suffix-anchored regex), `_RLWriter` (dossier read/write with auto-create for new domains, integrated in tool_handler.py). The `source_analyze` tool handler in `tool_handler.py` dispatches to `SourceAnalyzer` and handles the `deep=true` path via `web_extract_tool()`.
 
 **Schema:** 11 tool schemas total in `schemas.py` (was 10 before `SOURCE_ANALYZE_SCHEMA` was added). The `source_analyze` schema uses `properties`-level parameters (not `parameters` block) for OpenRouter compatibility.
 
@@ -414,14 +442,14 @@ See [[Skill Priority-Based Injection(topics/hermes-agent/skill-priority-injectio
 
 ### 5.1 Custom Plugin Modules (~41 modules, ~16,500 lines)
 
-Custom code lives in `plugins/memory/perpetual_context/` and `agent/perpetual_context_db.py`. Module counts and line counts shift with each iteration — see the live codebase for exact numbers. The approximate breakdown is:
+Custom code lives in `plugins/memory/perpetual_context/` (40 modules, ~12,600 lines as of 2026-08-17) and `agent/perpetual_context_db.py`. Module counts and line counts shift with each iteration — see the live codebase for exact numbers. The breakdown is:
 
 **Core modules:**
 
 | Module | Lines | Purpose |
 |--------|-------|---------|
 | `__init__.py` | 557 | Thin orchestrator (reduced 68% from original 1,735) |
-| `component_factory.py` | 171 | Lazy-init factory for all sub-components |
+| `component_factory.py` | 212 | Lazy-init factory for all sub-components |
 | `extraction_engine.py` | 450 | Extracts structured data from conversation turns |
 | `retrieval_engine.py` | 250 | SmartRetriever with auto-routing |
 | `schemas.py` | 544 | 12 tool schemas (added `SOURCE_ANALYZE_SCHEMA` May 2026) |
@@ -429,32 +457,39 @@ Custom code lives in `plugins/memory/perpetual_context/` and `agent/perpetual_co
 | `tool_handler.py` | 707 | Tool dispatch to DB operations + `source_analyze` handler with deep mode (delegates to `agent/source_analysis.py:SourceAnalyzer`) |
 | `quality_scorer.py` | 189 | Message relevance scoring |
 | `feedback_state.py` | 210 | Compression feedback tracking |
-| `prefetch_pipeline.py` | 286 | 4-phase Deep Research pipeline |
+| `prefetch_pipeline.py` | 313 | 4-phase Deep Research pipeline |
 | `decision_trace.py` | 117 | Decision trace retrieval |
 | `file_history.py` | 70 | File edit history |
 | `session_end_extractor.py` | 60 | Topic extraction from messages |
 | `utils.py` | 35 | Shared utilities |
-| `retrieval_quality.py` | 427 | Retrieval quality tracking |
+| `retrieval_quality.py` | 456 | Retrieval quality tracking |
 
 **Deep Research Engine:**
 
 | Module | Lines | Purpose |
 |--------|-------|---------|
 | `web_research.py` | 446 | SearXNG/Firecrawl/Camofox client |
-| `scrutiny_gate.py` | 673 | Consolidated facade for bias detection, sensitivity classification, worldview checking, and RL ingestion gate (single file, 4 classes) |
+| `scrutiny_gate.py` | 222 | Facade for bias detection, sensitivity classification, worldview checking, and RL ingestion gate |
+| `sensitivity_classifier.py` | 130 | Topic sensitivity classification (low vs high) |
+| `worldview_checker.py` | 292 | Worldview-divergence checking |
+| `source_assessment.py` | 137 | Source incentive / good-faith / worldview grid |
+| `rl_ingestion_gate.py` | 162 | Controls web-data eligibility for RL updates |
+| `bias_detector.py` | 248 | Linguistic-marker bias detection |
+| `semantic_intent_router.py` | 658 | Embedding-centroid intent classification (shares the Phase 1b embedding call) |
+| `context_bridge_builder.py` | 285 | Builds structured Context Bridge summaries |
 | `synthesis_engine.py` | 593 | Multi-pass synthesis |
 
 **[[system/reference-library-purpose|Reference Library]] integration:**
 
 | Module | Lines | Purpose |
 |--------|-------|---------|
-| `rl_search.py` | 340 | Hybrid RL search (FTS5 + embeddings) |
-| `rl_index.py` | 304 | RL index management |
-| `rl_schema.py` | 124 | RL entry schema definitions |
+| `rl_search.py` | 347 | Hybrid RL search (FTS5 + embeddings) |
+| `rl_index.py` | 334 | RL index management |
+| `rl_schema.py` | 126 | RL entry schema definitions |
 | `rl_builder.py` | 385 | RL page builder for auto-create |
 
 **Deprecated (kept in `deprecated/` subdirectory or marked in code):**
-- `injection_router.py` — superseded by intent classification in the prefetch pipeline (still present, not actively called)
+- `injection_router.py` — superseded by `semantic_intent_router.py` (embedding-centroid intent classification); moved to `deprecated/`
 **Test suite:** 20+ custom test functions across 5 files. All passing as of 2026-07-16. (Upstream test suite also runs — 1,700+ tests total.)
 
 ### 5.2 Core Database Engine
@@ -527,28 +562,28 @@ This is not moral relativism disguised as "both sides." It is epistemic honesty 
 
 ### 7.1 Hardware
 
-- **Hardware:** 24GB+ VRAM GPU (e.g., RTX 3090/4090/5090), WSL2 or native Linux
-- **Future:** Scale to larger models and longer context windows as hardware and open-weight models improve
+- **Hardware (production, since 2026-08-15):** Crenshaw server — Supermicro, 8× RTX PRO 6000 Blackwell (96 GB each, SM120), native Linux, 768 GB total VRAM. GPUs 2–7 reserved for future specialized models.
+- **Storage:** `/data1` (14 TB ext4) for models and agent homes; `/data2` (14 TB ZFS, auto-snapshots) for business data; weekly off-box USB backup.
 
 ### 7.2 Software Stack
 
 | Component | Technology | Port | Notes |
 |-----------|-----------|------|-------|
-| Inference | llama.cpp (Docker: `ornstein-server`) | 8000 | GestaltLabs/Ornstein3.6-27B-MTP-NSC-ACE-SABER-Q4_K_M-MTP.gguf |
+| Inference | vLLM v0.27.1 (Docker) | 8000 (+ 8011 standby) | Qwen3.8-27B-Uncensored-FP8, 262K context, fp8 KV, MTP speculative decoding (2.03× measured), 32 sequences |
 | Embeddings | all-MiniLM-L6-v2 (ONNX) | N/A | In-process, ~80MB model, 384-dim vectors |
 | Perpetual Memory | SQLite + FTS5 | N/A | `~/.hermes/perpetual_context.db` |
 | RL Hybrid Index | SQLite + FTS5 + embeddings | N/A | `rl_index.db`, 30,000+ entries |
 | SearXNG | Docker | Self-hosted | 251+ search services, Tier 1 |
 | Firecrawl | Docker stack | Self-hosted | API + Playwright + RabbitMQ + Redis + Postgres, Tier 2 |
 | Camofox | Native | 9377 | Anti-detection Firefox fork, Tier 3 |
-| Quartz v4 | Node.js (Docker) | 8081 | Static site serving 65K pages, 2.8GB |
+| Quartz v5 | Node.js | 8081 | Static site serving the curated RL (Britannica archive excluded); Python static server
 | Messaging | Telegram bot gateway | N/A | Primary communication channel |
 
 ---
 
 ## 8. Nightly Automation
 
-The system runs several autonomous jobs that maintain and improve itself overnight:
+The system is designed to run several autonomous jobs that maintain and improve itself overnight. **Status (2026-08-17): these jobs are not yet recreated on the Crenshaw server — restoration is Phase 5 of the 2026-08 full-system review.** On the previous (home) server they ran as cron jobs in the agent's scheduler:
 
 | Cron Job | Schedule | Purpose |
 |----------|----------|---------|
@@ -594,12 +629,14 @@ The system runs several autonomous jobs that maintain and improve itself overnig
 | 2026-05-03 | Quartz v4 adopted for RL serving |
 | 2026-05-04 | Recall Engine with query classification integrated |
 | 2026-05-06 | RL index expanded to 32,676 entries, 7 of 12 signal clusters distilled |
-| 2026-05-08 | **Sovereign Sieve v2:** Source dossiers as YAML (`source_dossiers.yaml`, 284 entries), embedding-based semantic marker detection alongside regex, `WorldviewDivergenceChecker` wired into `ScrutinyGate`. FAISS vector index rebuilt (100% coverage, 6,716 vectors). `ExtractionEngine` split from `BridgeQualityScorer`. Test suite cleaned (stale duplicates removed). `scrutiny_gate.py` at 960 lines, full ruff compliance. |
+| 2026-05-08 | **Sovereign Sieve v2 (DEPRECATED):** Source dossiers as YAML (`source_dossiers.yaml`, 284 entries), embedding-based semantic marker detection alongside regex, `WorldviewDivergenceChecker` wired into `ScrutinyGate`. FAISS vector index rebuilt (100% coverage, 6,716 vectors). `ExtractionEngine` split from `BridgeQualityScorer`. Test suite cleaned (stale duplicates removed). `scrutiny_gate.py` at 960 lines, full ruff compliance. *Note: Sovereign Sieve functionality replaced by discernment workflow + scrutiny gate + source_analyze tool. Code removed July 2026.* |
 | 2026-05-08 | Scrutiny gate split into 6 SRP-compliant modules (967→221 lines facade + 5 submodules), all under 500 lines. Last god class eliminated. |
 | 2026-05-09 | **Phase 4 — `source_analyze` tool:** Direct agent tool for source intelligence during research. 11 tool schemas (added `SOURCE_ANALYZE_SCHEMA`). Deep mode (`deep=true`) extracts full article content via Firecrawl before analysis. Auto-creates source dossiers in `sources/` for new domains with `domain-index.json` auto-update. Smart trigger in system prompt: substantive topics get `source_analyze(deep=true)`, utility queries skip. 3 new skills (`factual-research-answer`, `tool-schema-validation-debug`, `political-research-and-entity-pages`), 3 updated skills (`web-source-bias-research`, `narrative-control-detection`, `pipeline-module-integration`). 10 new RL pages (5 entity, 4 source, 1 topic). Code audit: removed duplicate schemas, fixed f-string JSON construction, narrowed exception handling, `frozenset` for mutable globals, added `__all__` and `logger`. |
 | 2026-05-11 | **Full detachment from Hermes Agent:** Repo unforked from NousResearch/hermes-agent via GitHub "Leave fork network." DIVERGENCE.md updated to reflect standalone status. README rebranded with "What Makes Logos Different" section. 26 LLM paper entries added to RL (`topics/llm-papers/`). 3 media dossiers added (`topics/media/`). |
 | 2026-05-12 | **Semantic Vector engine promoted to primary:** Dual-engine context archiving finalized — semantic vector for topic-aware pruning, rolling window as deterministic fallback. Context Compressor refactored with plugin context engine hooks. `context_compressor.py` now calls `context_archiver.on_session_reset()` and `compression_count` resets on `/new`. All context engine code in `plugins/context_engine/`. |
 | 2026-05-12 | **Semantic Vector plugin deployed:** `SemanticVectorContextEngine` reimplemented as proper plugin (`plugins/context_engine/semantic_vector/`). CPU-only embedding on all-MiniLM-L6-v2, topic-aware pruning of dormant/resolved turns, state map injection. Rolling window relegated to emergency fallback. |
+| 2026-08-15 | **Migrated to Crenshaw server:** Supermicro 8× RTX PRO 6000 Blackwell (96 GB, SM120). PM/RL/rolling-window/context-engine restored; local 3-tier web stack stood up (SearXNG :8080, Firecrawl :3003, Camofox :9377); `sqlite_vec` added to gateway venv; Quartz v5 RL site on :8081. |
+| 2026-08-16 | **Model swap to Qwen3.8-27B:** vLLM serves `Qwen3.8-27B-Uncensored-FP8` on GPU 0 (:8000) with hot standby on GPU 1 (:8011); validated recipe = 262K context, fp8 KV, 32 sequences, MTP 3-token speculative decoding (2.03× decode). LiteLLM team proxy on :8001 (per-user keys, failover). Multi-user: server-side per-user agent instances under `/data1/agents/`. |
 | 2026-05-15 | **Context engine hardening:** Module-level model cache (one load per process), `on_session_reset()` preserves model, full structured logging on every archive (vector counts, pruned messages, fallback path). Fixed `compression_count` not resetting on session reset. Added 5 generic research skills to repo (`frame-stripping`, `web-source-bias-research`, `narrative-control-detection`, `sovereign-intelligence-mapping`, `epistemic-framework-design`) plus `worldview-profile-builder` for new-user onboarding. Updated GETTING-STARTED and README. |
 
 ---
@@ -614,7 +651,7 @@ The system runs several autonomous jobs that maintain and improve itself overnig
 
 ### Long-term
 
-- **DPO training on curated dataset:** Post-train Qwen3.6-27B on curated preference pairs *if* needed (currently shelved, uncertain whether necessary)
+- **DPO training on curated dataset:** Post-train the local Qwen3.8-27B on curated preference pairs *if* needed (currently shelved; re-benchmark against the 3.6 baseline in the 2026-08 review before deciding)
 - **Train from scratch:** When compute allows, train a model on the accumulated curated corpus as a long-term goal
 
 ---
@@ -629,4 +666,4 @@ The system is not perfect — it is a work in progress. But it is *honest* about
 
 ---
 
-*This white paper was compiled from the live codebase, Reference Library documentation, and Perpetual Memory records of Logos. Last updated 2026-07-16.*
+*This white paper was compiled from the live codebase, Reference Library documentation, and Perpetual Memory records of Logos. Last updated 2026-08-17.*
