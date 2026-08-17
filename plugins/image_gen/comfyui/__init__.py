@@ -47,7 +47,13 @@ POLL_INTERVAL_S = 2.0
 POLL_TIMEOUT_S = 600.0
 
 # ComfyUI wants dimensions on a 16-grid.
+# Core tool surface uses the vocabulary landscape/square/portrait
+# (see VALID_ASPECT_RATIOs in agent/image_gen_provider.py); ratio
+# strings are kept as forward-compat aliases.
 _ASPECT_DIMS: Dict[str, tuple] = {
+    "landscape": (1536, 864),
+    "square": (1344, 1344),
+    "portrait": (864, 1536),
     "16:9": (1536, 864),
     "9:16": (864, 1536),
     "1:1": (1344, 1344),
