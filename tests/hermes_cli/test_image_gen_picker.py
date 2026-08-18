@@ -131,7 +131,13 @@ class TestConfigPrompt:
         monkeypatch.setenv("HERMES_HOME", str(tmp_path))
         monkeypatch.delenv("FAL_KEY", raising=False)
 
-        image_gen_registry.register_provider(_FakeProvider("avail-img", available=True))
+        fake = _FakeProvider("avail-img", available=True)
+        image_gen_registry.register_provider(fake)
+        # Isolate from real in-tree plugin providers (e.g. a locally-running
+        # ComfyUI would otherwise satisfy the prompt check on its own).
+        monkeypatch.setattr(
+            "agent.image_gen_registry.list_providers", lambda: [fake]
+        )
 
         assert tools_config._toolset_needs_configuration_prompt("image_gen", {}) is False
 
@@ -141,7 +147,11 @@ class TestConfigPrompt:
         monkeypatch.setenv("HERMES_HOME", str(tmp_path))
         monkeypatch.delenv("FAL_KEY", raising=False)
 
-        image_gen_registry.register_provider(_FakeProvider("unavail-img", available=False))
+        fake = _FakeProvider("unavail-img", available=False)
+        image_gen_registry.register_provider(fake)
+        monkeypatch.setattr(
+            "agent.image_gen_registry.list_providers", lambda: [fake]
+        )
 
         assert tools_config._toolset_needs_configuration_prompt("image_gen", {}) is True
 

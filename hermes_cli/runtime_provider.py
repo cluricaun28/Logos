@@ -476,6 +476,31 @@ def _resolve_named_custom_runtime(
     explicit_api_key: Optional[str] = None,
     explicit_base_url: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
+    # Bare `provider="custom"` with an explicit base_url (e.g. propagated
+    # from a direct-alias resolution) — build the runtime directly so the
+    # alias's base_url actually takes effect instead of falling through
+    # to a default provider.
+    requested_norm = (requested_provider or "").strip().lower()
+    if requested_norm == "custom" and explicit_base_url:
+        base_url = explicit_base_url.strip().rstrip("/")
+        pool_result = _try_resolve_from_custom_pool(base_url, "custom", None)
+        if pool_result:
+            pool_result["source"] = "direct-alias"
+            return pool_result
+        api_key_candidates = [
+            (explicit_api_key or "").strip(),
+            os.getenv("OPENAI_API_KEY", "").strip(),
+            os.getenv("OPENROUTER_API_KEY", "").strip(),
+        ]
+        api_key = next((candidate for candidate in api_key_candidates if has_usable_secret(candidate)), "")
+        return {
+            "provider": "custom",
+            "api_mode": _detect_api_mode_for_url(base_url) or "chat_completions",
+            "base_url": base_url,
+            "api_key": api_key or "no-key-required",
+            "source": "direct-alias",
+        }
+
     custom_provider = _get_named_custom_provider(requested_provider)
     if not custom_provider:
         return None

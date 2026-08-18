@@ -845,13 +845,13 @@ def _maybe_wrap_anthropic(
         from agent.gemini_native_adapter import GeminiNativeClient
         if isinstance(client_obj, GeminiNativeClient):
             return client_obj
-    except ImportError:
+    except (ImportError, TypeError):
         pass
     try:
         from agent.copilot_acp_client import CopilotACPClient
         if isinstance(client_obj, CopilotACPClient):
             return client_obj
-    except ImportError:
+    except (ImportError, TypeError):
         pass
 
     # Explicit non-anthropic api_mode wins over URL heuristics.
@@ -2453,18 +2453,33 @@ def get_available_vision_backends() -> List[str]:
     """
     available: List[str] = []
     # 1. Active provider — if the user configured a provider, try it first.
+    # Probes are best-effort: a provider whose credentials can't be resolved
+    # (e.g. copilot CLI not installed) must not take down vision discovery.
     main_provider = _read_main_provider()
     if main_provider and main_provider not in ("auto", ""):
         if main_provider in _VISION_AUTO_PROVIDER_ORDER:
-            if _strict_vision_backend_available(main_provider):
+            try:
+                _main_ok = _strict_vision_backend_available(main_provider)
+            except Exception:
+                _main_ok = False
+            if _main_ok:
                 available.append(main_provider)
         else:
-            client, _ = resolve_provider_client(main_provider, _read_main_model())
+            try:
+                client, _ = resolve_provider_client(main_provider, _read_main_model())
+            except Exception:
+                client = None
             if client is not None:
                 available.append(main_provider)
     # 2. OpenRouter, 3. Nous — skip if already covered by main provider.
     for p in _VISION_AUTO_PROVIDER_ORDER:
-        if p not in available and _strict_vision_backend_available(p):
+        if p in available:
+            continue
+        try:
+            _p_ok = _strict_vision_backend_available(p)
+        except Exception:
+            _p_ok = False
+        if _p_ok:
             available.append(p)
     return available
 

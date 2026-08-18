@@ -1838,7 +1838,9 @@ def _merge_with_models_dev(provider: str, curated: list[str]) -> list[str]:
     try:
         from agent.models_dev import list_agentic_models
         mdev = list_agentic_models(provider)
-    except (ImportError, ModuleNotFoundError):
+    except Exception:
+        # models.dev is a freshness bonus, not a dependency — any failure
+        # (network down, parse error, import issue) falls back to curated.
         mdev = []
 
     if not mdev:

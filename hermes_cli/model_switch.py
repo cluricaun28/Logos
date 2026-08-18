@@ -213,10 +213,13 @@ def _load_direct_aliases() -> dict[str, DirectAlias]:
 
 
 def _ensure_direct_aliases() -> None:
-    """Lazy-load direct aliases on first use."""
-    global DIRECT_ALIASES
+    """Lazy-load direct aliases on first use.
+
+    Mutates DIRECT_ALIASES in place: callers may hold references to the
+    dict, and rebinding the module global would hide the load from them.
+    """
     if not DIRECT_ALIASES:
-        DIRECT_ALIASES = _load_direct_aliases()
+        DIRECT_ALIASES.update(_load_direct_aliases() or {})
 
 
 # ---------------------------------------------------------------------------
