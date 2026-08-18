@@ -26,6 +26,9 @@ def _make_agent_stub():
     agent._skill_nudge_interval = 5
     agent.background_review_callback = None
     agent.status_callback = None
+    # The production handler reports failures via this; stub keeps the
+    # sentinel-exception path from hitting an AttributeError in the except.
+    agent._emit_auxiliary_failure = lambda *a, **kw: None
     agent._MEMORY_REVIEW_PROMPT = "review memory"
     agent._SKILL_REVIEW_PROMPT = "review skills"
     agent._COMBINED_REVIEW_PROMPT = "review both"
@@ -50,7 +53,10 @@ def test_background_review_agent_uses_restricted_toolsets():
 
     def _capture_init(self, *args, **kwargs):
         captured["enabled_toolsets"] = kwargs.get("enabled_toolsets")
-        raise RuntimeError("stop after capturing init args")
+        # Sentinel: must be a type the production except-clause swallows
+        # (ImportError/AttributeError/TypeError/OSError) so the capture
+        # stops init without escaping the background-review handler.
+        raise OSError("stop after capturing init args")
 
     with patch.object(AIAgent, "__init__", _capture_init), \
          patch("threading.Thread", _SyncThread):

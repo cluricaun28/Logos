@@ -1484,6 +1484,15 @@ def list_authenticated_providers(
                     "name": display_name,
                     "api_url": api_url,
                     "models": [],
+                    # The bare-"custom" slug (GH #17478 artifact) normalizes
+                    # away, so ``slug == current_provider`` would never
+                    # match it. Track the endpoint match explicitly so the
+                    # picker still marks this group as the active one.
+                    "current_endpoint_match": (
+                        current_provider == "custom"
+                        and bool(current_base_url)
+                        and api_url == current_base_url.strip().rstrip("/")
+                    ),
                 }
 
             # The singular ``model:`` field only holds the currently
@@ -1538,7 +1547,8 @@ def list_authenticated_providers(
             results.append({
                 "slug": slug,
                 "name": grp["name"],
-                "is_current": slug == current_provider,
+                "is_current": slug == current_provider
+                or bool(grp.get("current_endpoint_match")),
                 "is_user_defined": True,
                 "models": grp["models"],
                 "total_models": len(grp["models"]),

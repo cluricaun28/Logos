@@ -3,6 +3,11 @@
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
+
+# The honcho memory plugin is optional and not vendored in this fork.
+pytest.importorskip("plugins.memory.honcho.client")
+
 
 def test_blank_memory_provider_does_not_auto_enable_honcho():
     """Blank memory.provider should remain opt-out even if Honcho fallback looks configured."""

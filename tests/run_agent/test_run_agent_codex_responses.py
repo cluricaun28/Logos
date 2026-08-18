@@ -299,10 +299,14 @@ def test_build_api_kwargs_codex(monkeypatch):
     assert kwargs["store"] is False
     assert isinstance(kwargs["input"], list)
     assert kwargs["input"][0]["role"] == "user"
-    assert kwargs["tools"][0]["type"] == "function"
-    assert kwargs["tools"][0]["name"] == "terminal"
-    assert kwargs["tools"][0]["strict"] is False
-    assert "function" not in kwargs["tools"][0]
+    # Tools are serialized Responses-API style. Select the ``terminal`` tool
+    # by name (list order is not part of the contract under test).
+    _tool_names = [t.get("name") for t in kwargs["tools"]]
+    assert "terminal" in _tool_names
+    _terminal = next(t for t in kwargs["tools"] if t.get("name") == "terminal")
+    assert _terminal["type"] == "function"
+    assert _terminal["strict"] is False
+    assert "function" not in _terminal
     assert kwargs["store"] is False
     assert kwargs["tool_choice"] == "auto"
     assert kwargs["parallel_tool_calls"] is True

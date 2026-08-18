@@ -17,6 +17,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
+import pytest
+
 # Add agent dir to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -34,6 +36,15 @@ from agent.source_analysis import (
 RL_PATH = Path.home() / ".hermes" / "reference-library"
 ENTITIES_DIR = RL_PATH / "entities"
 INDEX_PATH = ENTITIES_DIR / "domain-index.json"
+
+# This test is a standalone manual exercise that mutates the real
+# ~/.hermes/reference-library (dossier file + domain-index.json). It only
+# applies to machines whose RL uses the entities/domain-index.json dossier
+# layout — skip everywhere else so the suite stays hermetic.
+pytestmark = pytest.mark.skipif(
+    not INDEX_PATH.exists(),
+    reason="real RL entities/domain-index.json not present on this host",
+)
 
 # Use a test domain that doesn't exist yet
 TEST_DOMAIN = "test-source-auto-create.example.com"

@@ -289,6 +289,7 @@ async def test_command_messages_do_not_leave_sentinel():
     # Need hooks for command emission
     runner.hooks = MagicMock()
     runner.hooks.emit = AsyncMock()
+    runner.hooks.emit_collect = AsyncMock(return_value=[])
 
     await runner._handle_message(event)
 

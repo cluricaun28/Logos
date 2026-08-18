@@ -374,7 +374,13 @@ class TestBuildApiKwargsCustomEndpoint:
 
         kwargs = agent._build_api_kwargs(messages)
 
-        assert kwargs["tools"][0]["function"]["name"] == "web_search"
+        # Tool list order isn't part of the contract — check format + presence.
+        # Fireworks (chat-completions) tools must keep the "function" wrapper.
+        assert kwargs["tools"], "expected tools in payload"
+        assert all("function" in t for t in kwargs["tools"])
+        assert any(
+            t.get("function", {}).get("name") == "web_search" for t in kwargs["tools"]
+        )
         assert "input" not in kwargs
         assert kwargs.get("extra_body", {}) == {}
 
@@ -914,7 +920,11 @@ class TestAuxiliaryClientProviderPriority:
     def test_nous_when_no_openrouter(self, monkeypatch):
         monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
         from agent.auxiliary_client import get_text_auxiliary_client
-        with patch("agent.auxiliary_client._read_nous_auth", return_value={"access_token": "nous-tok"}), \
+        # Keep the test hermetic: the Nous Portal's recommended-model endpoint
+        # is a live HTTP call. Force the code's documented fallback to
+        # _NOUS_MODEL so the assertion doesn't depend on Portal availability.
+        with patch("agent.auxiliary_client._read_nous_auth", return_value={"access_token": "***"}), \
+             patch("hermes_cli.models.get_nous_recommended_aux_model", return_value=None), \
              patch("agent.auxiliary_client.OpenAI") as mock:
             client, model = get_text_auxiliary_client()
         assert model == "google/gemini-3-flash-preview"

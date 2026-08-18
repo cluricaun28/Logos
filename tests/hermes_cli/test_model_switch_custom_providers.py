@@ -294,9 +294,12 @@ def test_list_authenticated_providers_groups_same_endpoint(monkeypatch):
 
 
 def test_list_authenticated_providers_current_endpoint_uses_current_slug(monkeypatch):
-    """When current_base_url matches the grouped endpoint, the slug must
-    equal current_provider so picker selection routes through the live
-    credential pipeline."""
+    """When current_base_url matches the grouped endpoint and the current
+    provider is a named custom:<name> slug, the group's slug must equal
+    current_provider so picker selection routes through the live
+    credential pipeline.  A *bare* "custom" current provider is a known
+    failed-switch artifact (GH #17478) and resolves to the canonical
+    custom:<name> form instead."""
     monkeypatch.setattr("agent.models_dev.fetch_models_dev", lambda: {})
     monkeypatch.setattr(providers_mod, "HERMES_OVERLAYS", {})
 
@@ -314,7 +317,8 @@ def test_list_authenticated_providers_current_endpoint_uses_current_slug(monkeyp
     matches = [p for p in providers if p.get("is_user_defined")]
     assert len(matches) == 1
     group = matches[0]
-    assert group["slug"] == "custom"
+    # Bare "custom" is normalized to the canonical custom:<name> slug.
+    assert group["slug"] == "custom:ollama"
     assert group["is_current"] is True
 
 

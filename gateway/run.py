@@ -1170,7 +1170,9 @@ class GatewayRunner:
         """
         try:
             await adapter.disconnect()
-        except (RuntimeError) as e:
+        except Exception as e:
+            # Contract: never raise — partial-init adapters can fail in
+            # any way (unawaited sessions, missing attrs, dead loops).
             logger.debug(
                 "Defensive %s disconnect after failed connect raised: %s",
                 platform.value if platform is not None else "adapter",
@@ -2129,7 +2131,8 @@ class GatewayRunner:
                     session_id=getattr(agent, "session_id", None),
                     platform="gateway",
                 )
-            except (ImportError, ModuleNotFoundError):
+            except Exception:
+                # Plugin hook failures must not block agent cleanup.
                 pass
             self._cleanup_agent_resources(agent)
 
@@ -2690,7 +2693,8 @@ class GatewayRunner:
                                 session_id=entry.session_id,
                                 platform=_platform,
                             )
-                        except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
+                        except Exception:
+                            # Plugin hook failures must not block the expiry sweep.
                             pass
                         # Shut down memory provider and close tool resources
                         # on the cached agent.  Idle agents live in
@@ -3414,7 +3418,8 @@ class GatewayRunner:
                     gateway=self,
                     session_store=getattr(self, "session_store", None),
                 )
-            except (ImportError, ModuleNotFoundError) as _hook_exc:
+            except Exception as _hook_exc:
+                # A misbehaving plugin must not break dispatch.
                 logger.warning("pre_gateway_dispatch invocation failed: %s", _hook_exc)
                 _hook_results = []
 
@@ -3925,10 +3930,15 @@ class GatewayRunner:
                 "raw_args": raw_args,
             }
             try:
-                hook_results = await self.hooks.emit_collect(
-                    f"command:{canonical}", hook_ctx
+                _hook_mgr = getattr(self, "hooks", None)
+                hook_results = (
+                    await _hook_mgr.emit_collect(
+                        f"command:{canonical}", hook_ctx
+                    )
+                    if _hook_mgr is not None
+                    else []
                 )
-            except (RuntimeError) as _hook_err:
+            except Exception as _hook_err:
                 logger.debug(
                     "command:%s hook dispatch failed (non-fatal): %s",
                     canonical, _hook_err,
@@ -5444,7 +5454,9 @@ class GatewayRunner:
             provider = provider or runtime.get("provider")
             base_url = base_url or runtime.get("base_url")
             api_key = runtime.get("api_key")
-        except (AttributeError, KeyError, TypeError):
+        except Exception:
+            # Resolution failure (missing creds, bad config) just means the
+            # info block shows config values — it must not crash /status.
             pass
 
         context_length = get_model_context_length(
@@ -5548,7 +5560,8 @@ class GatewayRunner:
             _old_sid = old_entry.session_id if old_entry else None
             _invoke_hook("on_session_finalize", session_id=_old_sid,
                          platform=source.platform.value if source.platform else "")
-        except (ImportError, ModuleNotFoundError):
+        except Exception:
+            # Plugin hook failures must not prevent /new from completing.
             pass
 
         # Emit session:end hook (session is ending)
@@ -5584,7 +5597,8 @@ class GatewayRunner:
             _new_sid = new_entry.session_id if new_entry else None
             _invoke_hook("on_session_reset", session_id=_new_sid,
                          platform=source.platform.value if source.platform else "")
-        except (ImportError, ModuleNotFoundError):
+        except Exception:
+            # Plugin hook failures must not prevent /new from completing.
             pass
 
         # Append a random tip to the reset message
@@ -7834,13 +7848,21 @@ class GatewayRunner:
             except (ImportError, ModuleNotFoundError):
                 pass
 
-            # Context window and archives
+            # Context window and compression/archival counts.
+            # Built-in ContextCompressor exposes ``compression_count``;
+            # plugin context engines expose ``archive_count``. Use getattr
+            # so /usage works on both without raising.
             ctx = agent.context_archiver
-            if ctx.last_prompt_tokens:
-                pct = min(100, ctx.last_prompt_tokens / ctx.context_length * 100) if ctx.context_length else 0
-                lines.append(f"Context: {ctx.last_prompt_tokens:,} / {ctx.context_length:,} ({pct:.0f}%)")
-            if ctx.archive_count:
-                lines.append(f"Archives: {ctx.archive_count}")
+            if getattr(ctx, "last_prompt_tokens", 0):
+                _ctx_len = getattr(ctx, "context_length", 0)
+                pct = min(100, ctx.last_prompt_tokens / _ctx_len * 100) if _ctx_len else 0
+                lines.append(f"Context: {ctx.last_prompt_tokens:,} / {_ctx_len:,} ({pct:.0f}%)")
+            _compressions = getattr(ctx, "compression_count", 0) or 0
+            if _compressions:
+                lines.append(f"Compressions: {_compressions}")
+            _archives = getattr(ctx, "archive_count", 0) or 0
+            if _archives:
+                lines.append(f"Archives: {_archives}")
 
             if account_lines:
                 lines.append("")
@@ -8823,7 +8845,9 @@ class GatewayRunner:
 
         try:
             platform = Platform(platform_name)
-        except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
+        except Exception:
+            # Platform() raises ValueError for unknown names — any parse
+            # failure drops the notification rather than killing the sweep.
             logger.warning(
                 "Synthetic process event has invalid platform metadata: %r",
                 platform_name,
@@ -9710,7 +9734,9 @@ class GatewayRunner:
 
         except asyncio.CancelledError:
             raise
-        except (AttributeError, json.JSONDecodeError, KeyError, RuntimeError, TypeError, ValueError) as e:
+        except Exception as e:
+            # Any transport failure (ConnectionError, ClientConnectionError,
+            # timeout, DNS) degrades to a user-visible error message.
             logger.error("Proxy connection error to %s: %s", proxy_url, e)
             if not full_response:
                 return {

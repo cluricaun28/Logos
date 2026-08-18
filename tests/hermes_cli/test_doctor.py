@@ -77,6 +77,10 @@ class TestDoctorToolAvailabilityOverrides:
 
 
 class TestHonchoDoctorConfigDetection:
+    def setup_method(self):
+        # The honcho memory plugin is optional and not vendored in this fork.
+        pytest.importorskip("plugins.memory.honcho.client")
+
     def test_reports_configured_when_enabled_with_api_key(self, monkeypatch):
         fake_config = SimpleNamespace(enabled=True, api_key="***")
 

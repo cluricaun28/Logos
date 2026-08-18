@@ -1,6 +1,7 @@
 """Tests for the Command Installation check in hermes doctor."""
 
 import os
+import shutil
 import sys
 import types
 from argparse import Namespace
@@ -253,6 +254,10 @@ class TestDoctorCommandInstallation:
         monkeypatch.setattr(doctor_mod, "PROJECT_ROOT", project)
         monkeypatch.setattr(doctor_mod, "_DHH", str(home))
         monkeypatch.setattr(sys, "platform", "win32")
+        # Faking win32 on a Linux host: shutil.which would hit the Windows
+        # _winapi branch (None on Linux) and crash. Stub it so the doctor
+        # run stays hermetic.
+        monkeypatch.setattr(shutil, "which", lambda *a, **kw: None)
 
         fake_model_tools = types.SimpleNamespace(
             check_tool_availability=lambda *a, **kw: ([], []),

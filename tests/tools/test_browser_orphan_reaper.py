@@ -354,6 +354,9 @@ class TestOwnerPidCrossProcess:
         monkeypatch.setattr(
             bt, "_requires_real_termux_browser_install", lambda *a: False
         )
+        # Hermetic: skip the "Chromium missing on this host" early-return
+        # gate so the flow reaches the owner_pid wiring under test.
+        monkeypatch.setattr(bt, "_chromium_installed", lambda: True)
         monkeypatch.setattr(
             bt, "_get_session_info",
             lambda task_id: {"session_name": session_name},
