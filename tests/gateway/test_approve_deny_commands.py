@@ -350,6 +350,18 @@ class TestBlockingApprovalE2E:
         os.environ.pop("HERMES_GATEWAY_SESSION", None)
         os.environ.pop("HERMES_EXEC_ASK", None)
         os.environ.pop("HERMES_SESSION_KEY", None)
+        # Stub the tirith security check: the real one auto-downloads the
+        # tirith binary when missing (hermetic per-test HERMES_HOME never
+        # has it), which races these tests' short wait windows under load.
+        # Same stub pattern as tests/tools/test_command_guards.py.
+        self._tirith_patch = patch(
+            "tools.tirith_security.check_command_security",
+            lambda command: {"action": "allow", "findings": [], "summary": ""},
+        )
+        self._tirith_patch.start()
+
+    def teardown_method(self):
+        self._tirith_patch.stop()
 
     def test_blocking_approval_approve_once(self):
         """check_all_command_guards blocks until resolve_gateway_approval is called."""

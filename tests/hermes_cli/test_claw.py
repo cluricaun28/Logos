@@ -483,6 +483,19 @@ class TestCmdMigrate:
 class TestCmdCleanup:
     """Test the cleanup command handler."""
 
+    def setup_method(self):
+        # _detect_openclaw_processes runs `pgrep -f openclaw` against the
+        # whole host — on a shared box any unrelated process with "openclaw"
+        # in its cmdline (even this test's own grep) trips the
+        # "still running" early-abort. Stub it out for hermetic behavior.
+        self._proc_patch = patch.object(
+            claw_mod, "_detect_openclaw_processes", return_value=[]
+        )
+        self._proc_patch.start()
+
+    def teardown_method(self):
+        self._proc_patch.stop()
+
     def test_no_dirs_found(self, tmp_path, capsys):
         args = Namespace(source=None, dry_run=False, yes=False)
         with patch.object(claw_mod, "_find_openclaw_dirs", return_value=[]):
