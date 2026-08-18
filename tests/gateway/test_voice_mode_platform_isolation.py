@@ -24,42 +24,42 @@ class TestVoiceKeyHelper:
         """_voice_key returns 'platform:chat_id' format."""
         runner = _make_runner()
         assert runner._voice_key(Platform.TELEGRAM, "123") == "telegram:123"
-        assert runner._voice_key(Platform.SLACK, "456") == "slack:456"
-        assert runner._voice_key(Platform.DISCORD, "789") == "discord:789"
+        assert runner._voice_key(Platform.API_SERVER, "456") == "api_server:456"
+        assert runner._voice_key(Platform.LOCAL, "789") == "local:789"
 
     def test_voice_key_different_platforms_same_chat_id(self):
         """Same chat_id on different platforms yields different keys."""
         runner = _make_runner()
         key_telegram = runner._voice_key(Platform.TELEGRAM, "123")
-        key_slack = runner._voice_key(Platform.SLACK, "123")
-        key_discord = runner._voice_key(Platform.DISCORD, "123")
-        assert key_telegram != key_slack
-        assert key_slack != key_discord
+        key_api = runner._voice_key(Platform.API_SERVER, "123")
+        key_local = runner._voice_key(Platform.LOCAL, "123")
+        assert key_telegram != key_api
+        assert key_api != key_local
         assert key_telegram == "telegram:123"
-        assert key_slack == "slack:123"
-        assert key_discord == "discord:123"
+        assert key_api == "api_server:123"
+        assert key_local == "local:123"
 
 
 class TestVoiceModePlatformIsolation:
     """Test that voice mode state is isolated by platform."""
 
-    def test_telegram_and_slack_voice_mode_independent(self):
-        """Setting voice mode for Telegram chat '123' does not affect Slack chat '123'."""
+    def test_telegram_and_api_server_voice_mode_independent(self):
+        """Setting voice mode for Telegram chat '123' does not affect API server chat '123'."""
         runner = _make_runner()
 
         # Enable voice mode for Telegram chat '123'
         runner._voice_mode[runner._voice_key(Platform.TELEGRAM, "123")] = "all"
-        # Enable voice mode for Slack chat '123' to a different mode
-        runner._voice_mode[runner._voice_key(Platform.SLACK, "123")] = "voice_only"
+        # Enable voice mode for API server chat '123' to a different mode
+        runner._voice_mode[runner._voice_key(Platform.API_SERVER, "123")] = "voice_only"
 
         # Verify they are independent
         assert runner._voice_mode.get(runner._voice_key(Platform.TELEGRAM, "123")) == "all"
-        assert runner._voice_mode.get(runner._voice_key(Platform.SLACK, "123")) == "voice_only"
+        assert runner._voice_mode.get(runner._voice_key(Platform.API_SERVER, "123")) == "voice_only"
 
-        # Disabling Telegram should not affect Slack
+        # Disabling Telegram should not affect API server
         runner._voice_mode[runner._voice_key(Platform.TELEGRAM, "123")] = "off"
         assert runner._voice_mode.get(runner._voice_key(Platform.TELEGRAM, "123")) == "off"
-        assert runner._voice_mode.get(runner._voice_key(Platform.SLACK, "123")) == "voice_only"
+        assert runner._voice_mode.get(runner._voice_key(Platform.API_SERVER, "123")) == "voice_only"
 
 
 class TestLegacyKeyMigration:

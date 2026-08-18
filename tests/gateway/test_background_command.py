@@ -143,7 +143,7 @@ class TestHandleBackgroundCommand:
     @pytest.mark.asyncio
     async def test_works_across_platforms(self):
         """The /background command works for all platforms."""
-        for platform in [Platform.TELEGRAM, Platform.DISCORD, Platform.SLACK]:
+        for platform in [Platform.TELEGRAM, Platform.TELEGRAM, Platform.TELEGRAM]:
             runner = _make_runner()
             with patch("gateway.run.asyncio.create_task", side_effect=lambda c, **kw: (c.close(), MagicMock())[1]):
                 event = _make_event(

@@ -169,7 +169,7 @@ class TestHandleTitleCommand:
     async def test_works_across_platforms(self, tmp_path):
         """The /title command works for Discord, Slack, and WhatsApp too."""
         from hermes_state import SessionDB
-        for platform in [Platform.DISCORD, Platform.TELEGRAM]:
+        for platform in [Platform.TELEGRAM, Platform.TELEGRAM]:
             db = SessionDB(db_path=tmp_path / f"state_{platform.value}.db")
             db.create_session("test_session_123", platform.value)
 

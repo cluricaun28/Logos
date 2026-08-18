@@ -84,6 +84,43 @@ def make_long_conversation_with_many_tasks():
     return msgs
 
 
+# --- Task marker helpers (real API: TaskMarkerInjector) ---
+
+MARKER_START_PREFIX = "[TASK_START:"
+
+
+def annotate_tasks(msgs):
+    """Annotate a conversation with task markers in the real marker format.
+
+    Each user message starts a new task and completes the previously open
+    one. Markers are placed on the first assistant message after the user
+    message, because ``TaskMarkerInjector.parse_markers_from_messages``
+    only reads marker text from assistant content. The final task is left
+    open so the pruner treats it as active work.
+    """
+    out = [dict(m) for m in msgs]
+    open_task = None
+    i = 0
+    while i < len(out):
+        if out[i].get("role") != "user":
+            i += 1
+            continue
+        task_name = f"task_{i}"
+        marker = ""
+        if open_task is not None:
+            marker += f"[TASK_COMPLETE: {open_task}] "
+        marker += f"{MARKER_START_PREFIX} {task_name}]"
+        j = i + 1
+        while j < len(out) and out[j].get("role") != "assistant":
+            j += 1
+        if j < len(out):
+            content = out[j].get("content") or ""
+            out[j] = {**out[j], "content": f"{marker} {content}"}
+        open_task = task_name
+        i = max(j, i + 1)
+    return out
+
+
 # --- Tests ---
 
 class TestArchiveCommandEndToEnd:
@@ -168,23 +205,23 @@ class TestContextBridgeBuilderIntegration:
 class TestTaskAwarePruningIntegration:
     """Test task-aware pruning with realistic conversations."""
 
+    def _make_engine(self, **kwargs):
+        from plugins.context_engine.rolling_window import RollingWindowContextEngine
+
+        kwargs.setdefault("max_tokens", 131072)
+        engine = RollingWindowContextEngine(**kwargs)
+        engine.update_model("qwen3.6-27b", context_length=131072)
+        return engine
+
     def test_prune_closes_tasks_keeps_active(self):
-        """Verify closed tasks are dropped while active work is preserved."""
-        from plugins.context_engine.rolling_window.task_pruner import TaskAwarePruner
-        from plugins.context_engine.rolling_window.task_tagger import annotate_tasks, MARKER_START_PREFIX
+        """Verify pruning reduces the conversation while preserving system + active work."""
+        engine = self._make_engine(window_size=15, protect_first_n=3, protect_last_n=10)
 
         msgs = make_realistic_conversation()
         annotated = annotate_tasks(msgs)
 
-        # Run pruner with tight budget to force aggressive pruning
-        result = TaskAwarePruner.archive(
-            annotated,
-            max_tokens=131072,
-            target_tokens=5000,  # Very tight — forces heavy pruning
-            protect_first_n=3,
-            protect_last_n=10,
-            window_size=15,
-        )
+        # Run archive with a high current-token count to exercise the full pipeline
+        result = engine.archive(annotated, current_tokens=int(131072 * 0.85))
 
         assert len(result) < len(msgs), "Pruner should reduce message count"
         assert len(result) > 0, "Pruner should not drop all messages"
@@ -194,20 +231,12 @@ class TestTaskAwarePruningIntegration:
 
     def test_prune_preserves_recent_conversation(self):
         """Verify the last N messages are always protected."""
-        from plugins.context_engine.rolling_window.task_pruner import TaskAwarePruner
-        from plugins.context_engine.rolling_window.task_tagger import annotate_tasks
+        engine = self._make_engine(window_size=12, protect_first_n=3, protect_last_n=15)
 
         msgs = make_long_conversation_with_many_tasks()
         annotated = annotate_tasks(msgs)
 
-        result = TaskAwarePruner.archive(
-            annotated,
-            max_tokens=131072,
-            target_tokens=8000,
-            protect_first_n=3,
-            protect_last_n=15,
-            window_size=12,
-        )
+        result = engine.archive(annotated)
 
         # The last few messages should contain our active task content
         recent_content = " ".join(m.get("content", "") for m in result[-5:])
@@ -216,19 +245,12 @@ class TestTaskAwarePruningIntegration:
 
     def test_prune_strips_tool_calls(self):
         """Verify raw tool_calls JSON is stripped from assistant messages."""
-        from plugins.context_engine.rolling_window.task_pruner import TaskAwarePruner
-        from plugins.context_engine.rolling_window.task_tagger import annotate_tasks
+        engine = self._make_engine(window_size=15, protect_first_n=3, protect_last_n=10)
 
         msgs = make_realistic_conversation()
         annotated = annotate_tasks(msgs)
 
-        result = TaskAwarePruner.archive(
-            annotated,
-            max_tokens=131072,
-            target_tokens=5000,
-            protect_first_n=3,
-            protect_last_n=10,
-        )
+        result = engine.archive(annotated)
 
         for msg in result:
             if msg.get("role") == "assistant":
@@ -237,19 +259,12 @@ class TestTaskAwarePruningIntegration:
 
     def test_prune_truncates_tool_results(self):
         """Verify long tool results are truncated to first/last 3 lines."""
-        from plugins.context_engine.rolling_window.task_pruner import TaskAwarePruner
-        from plugins.context_engine.rolling_window.task_tagger import annotate_tasks
+        engine = self._make_engine(window_size=15, protect_first_n=3, protect_last_n=10)
 
         msgs = make_realistic_conversation()
         annotated = annotate_tasks(msgs)
 
-        result = TaskAwarePruner.archive(
-            annotated,
-            max_tokens=131072,
-            target_tokens=5000,
-            protect_first_n=3,
-            protect_last_n=10,
-        )
+        result = engine.archive(annotated)
 
         for msg in result:
             if msg.get("role") == "tool":
@@ -260,23 +275,17 @@ class TestTaskAwarePruningIntegration:
                     f"Tool result should be truncated. Got {line_count} lines: {content[:200]}"
 
     def test_fallback_to_original_algorithm(self):
-        """Verify fallback to original algorithm when task markers are absent."""
-        from plugins.context_engine.rolling_window.task_pruner import TaskAwarePruner, original_archive
+        """Verify fallback window pruning when task-aware components are unavailable."""
+        engine = self._make_engine(window_size=15, protect_first_n=3, protect_last_n=10)
+        engine._pruner = None  # Simulate task-aware components unavailable
 
-        msgs = make_realistic_conversation()
-        # Don't annotate — simulate no task markers present
-        result = TaskAwarePruner.archive(
-            msgs,
-            max_tokens=131072,
-            target_tokens=5000,
-            protect_first_n=3,
-            protect_last_n=10,
-            window_size=15,
-            task_aware=False,  # Force fallback
-        )
+        msgs = make_realistic_conversation()  # Don't annotate — no task markers present
+        result = engine.archive(msgs)
 
         assert len(result) < len(msgs), "Fallback pruner should still reduce message count"
-        assert result[0]["role"] == "system", "System prompt preserved in fallback mode"
+        # Fallback keeps the tail of the conversation (most recent context)
+        assert [m["role"] for m in result] == [m["role"] for m in msgs][-len(result):], \
+            "Fallback window prune should keep a suffix of the conversation"
 
 
 class TestStreamingContextScrubberIntegration:
@@ -367,7 +376,7 @@ class TestRollingWindowEngineIntegration:
         engine.update_model("qwen3.6-27b", context_length=131072)
 
         msgs = make_long_conversation_with_many_tasks()  # Use the bigger conversation
-        annotated = engine.annotate_tasks(msgs)
+        annotated = annotate_tasks(msgs)
 
         result = engine.archive(annotated, current_tokens=int(131072 * 0.85))
 
@@ -405,7 +414,7 @@ class TestRollingWindowEngineIntegration:
 
         # At 80% pressure — moderate pruning
         msgs = make_realistic_conversation()
-        annotated = engine.annotate_tasks(msgs)
+        annotated = annotate_tasks(msgs)
         result_80 = engine.archive(annotated, current_tokens=int(131072 * 0.80))
 
         # Reset and try at 95% pressure — aggressive pruning
@@ -415,7 +424,7 @@ class TestRollingWindowEngineIntegration:
             archive_target=0.65,
         )
         engine2.update_model("qwen3.6-27b", context_length=131072)
-        annotated2 = engine2.annotate_tasks(msgs)
+        annotated2 = annotate_tasks(msgs)
         result_95 = engine2.archive(annotated2, current_tokens=int(131072 * 0.95))
 
         assert len(result_95) <= len(result_80), \

@@ -327,7 +327,6 @@ _LEGACY_TOOLSET_MAP = {
     "web_tools": ["web_search", "web_extract"],
     "terminal_tools": ["terminal"],
     "vision_tools": ["vision_analyze"],
-    "moa_tools": ["mixture_of_agents"],
     "image_tools": ["image_generate"],
     "skills_tools": ["skills_list", "skill_view", "skill_manage"],
     "browser_tools": [
@@ -337,13 +336,6 @@ _LEGACY_TOOLSET_MAP = {
         "browser_vision", "browser_console"
     ],
     "cronjob_tools": ["cronjob"],
-    "rl_tools": [
-        "rl_list_environments", "rl_select_environment",
-        "rl_get_current_config", "rl_edit_config",
-        "rl_start_training", "rl_check_status",
-        "rl_stop_training", "rl_get_results",
-        "rl_list_runs", "rl_test_inference"
-    ],
     "file_tools": ["read_file", "write_file", "patch", "search_files"],
     "tts_tools": ["text_to_speech"],
 }
@@ -514,35 +506,6 @@ def _compute_tool_definitions(
             if td.get("function", {}).get("name") == "execute_code":
                 filtered_tools[i] = {"type": "function", "function": dynamic_schema}
                 break
-
-    # Rebuild discord / discord_admin schemas based on the bot's privileged
-    # intents (detected from GET /applications/@me) and the user's action
-    # allowlist in config.  Hides actions the bot's intents don't support so
-    # the model never attempts them, and annotates fetch_messages when the
-    # MESSAGE_CONTENT intent is missing.
-    _discord_schema_fns = {
-        "discord": "get_dynamic_schema_core",
-        "discord_admin": "get_dynamic_schema_admin",
-    }
-    for discord_tool_name in _discord_schema_fns:
-        if discord_tool_name in available_tool_names:
-            try:
-                from tools import discord_tool as _dt
-                schema_fn = getattr(_dt, _discord_schema_fns[discord_tool_name])
-                dynamic = schema_fn()
-            except Exception:
-                dynamic = None
-            if dynamic is None:
-                filtered_tools = [
-                    t for t in filtered_tools
-                    if t.get("function", {}).get("name") != discord_tool_name
-                ]
-                available_tool_names.discard(discord_tool_name)
-            else:
-                for i, td in enumerate(filtered_tools):
-                    if td.get("function", {}).get("name") == discord_tool_name:
-                        filtered_tools[i] = {"type": "function", "function": dynamic}
-                        break
 
     # Strip web tool cross-references from browser_navigate description when
     # web_search / web_extract are not available.  The static schema says

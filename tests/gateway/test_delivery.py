@@ -13,8 +13,8 @@ class TestParseTargetPlatformChat:
         assert target.is_explicit is True
 
     def test_platform_only_no_chat_id(self):
-        target = DeliveryTarget.parse("discord")
-        assert target.platform == Platform.DISCORD
+        target = DeliveryTarget.parse("telegram")
+        assert target.platform == Platform.TELEGRAM
         assert target.chat_id is None
         assert target.is_explicit is False
 
@@ -52,8 +52,8 @@ class TestTargetToStringRoundtrip:
         assert target.to_string() == "local"
 
     def test_platform_only_roundtrip(self):
-        target = DeliveryTarget.parse("discord")
-        assert target.to_string() == "discord"
+        target = DeliveryTarget.parse("telegram")
+        assert target.to_string() == "telegram"
 
     def test_explicit_chat_roundtrip(self):
         target = DeliveryTarget.parse("telegram:999")

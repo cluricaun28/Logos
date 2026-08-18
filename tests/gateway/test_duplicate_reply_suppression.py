@@ -37,7 +37,7 @@ class StubAdapter(BasePlatformAdapter):
     """Minimal concrete adapter for testing."""
 
     def __init__(self):
-        super().__init__(PlatformConfig(enabled=True, token="fake"), Platform.DISCORD)
+        super().__init__(PlatformConfig(enabled=True, token="fake"), Platform.TELEGRAM)
         self.sent = []
 
     async def connect(self):
@@ -61,7 +61,7 @@ def _make_event(text="hello", chat_id="c1", user_id="u1"):
     return MessageEvent(
         text=text,
         source=SessionSource(
-            platform=Platform.DISCORD,
+            platform=Platform.TELEGRAM,
             chat_id=chat_id,
             chat_type="dm",
             user_id=user_id,

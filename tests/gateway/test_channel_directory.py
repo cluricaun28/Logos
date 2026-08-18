@@ -14,7 +14,6 @@ from gateway.channel_directory import (
     format_directory_for_display,
     load_directory,
     _build_from_sessions,
-    _build_slack,
     DIRECTORY_PATH,
 )
 
@@ -289,24 +288,6 @@ class TestFormatDirectoryForDisplay:
         assert "telegram:Alice" in result
         assert "telegram:Dev Group" in result
         assert "telegram:Coaching Chat / topic 17585" in result
-
-    def test_discord_grouped_by_guild(self, tmp_path):
-        cache_file = _write_directory(tmp_path, {
-            "discord": [
-                {"id": "1", "name": "general", "guild": "Server1", "type": "channel"},
-                {"id": "2", "name": "bot-home", "guild": "Server1", "type": "channel"},
-                {"id": "3", "name": "chat", "guild": "Server2", "type": "channel"},
-            ]
-        })
-        with patch("gateway.channel_directory.DIRECTORY_PATH", cache_file):
-            result = format_directory_for_display()
-
-        assert "Discord (Server1):" in result
-        assert "Discord (Server2):" in result
-        assert "discord:#general" in result
-
-
-class TestLookupChannelType:
     def _setup(self, tmp_path, platforms):
         cache_file = _write_directory(tmp_path, platforms)
         return patch("gateway.channel_directory.DIRECTORY_PATH", cache_file)
@@ -350,135 +331,3 @@ class TestLookupChannelType:
         }
         with self._setup(tmp_path, platforms):
             assert lookup_channel_type("discord", "300") is None
-
-
-def _make_slack_adapter(team_clients):
-    """Build a stand-in for SlackAdapter exposing only ``_team_clients``."""
-    return SimpleNamespace(_team_clients=team_clients)
-
-
-def _make_slack_client(pages):
-    """Build an AsyncWebClient mock whose ``users_conversations`` returns pages."""
-    client = MagicMock()
-    client.users_conversations = AsyncMock(side_effect=pages)
-    return client
-
-
-class TestBuildSlack:
-    """_build_slack actually calls users.conversations on each workspace client."""
-
-    def test_no_team_clients_falls_back_to_sessions(self, tmp_path):
-        sessions_path = tmp_path / "sessions" / "sessions.json"
-        sessions_path.parent.mkdir(parents=True)
-        sessions_path.write_text(json.dumps({
-            "s1": {"origin": {"platform": "slack", "chat_id": "D123", "chat_name": "Alice"}},
-        }))
-
-        with patch.dict(os.environ, {"HERMES_HOME": str(tmp_path)}):
-            entries = asyncio.run(_build_slack(_make_slack_adapter({})))
-
-        assert len(entries) == 1
-        assert entries[0]["id"] == "D123"
-
-    def test_lists_channels_from_users_conversations(self, tmp_path):
-        client = _make_slack_client([
-            {
-                "ok": True,
-                "channels": [
-                    {"id": "C0B0QV5434G", "name": "engineering", "is_private": False},
-                    {"id": "G123ABCDEF", "name": "secret-chat", "is_private": True},
-                ],
-                "response_metadata": {},
-            },
-        ])
-        with patch.dict(os.environ, {"HERMES_HOME": str(tmp_path)}):
-            entries = asyncio.run(_build_slack(_make_slack_adapter({"T1": client})))
-
-        ids = {e["id"] for e in entries}
-        assert ids == {"C0B0QV5434G", "G123ABCDEF"}
-        types = {e["id"]: e["type"] for e in entries}
-        assert types["C0B0QV5434G"] == "channel"
-        assert types["G123ABCDEF"] == "private"
-        client.users_conversations.assert_awaited_once()
-
-    def test_paginates_via_response_metadata_cursor(self, tmp_path):
-        client = _make_slack_client([
-            {
-                "ok": True,
-                "channels": [{"id": "C001", "name": "first", "is_private": False}],
-                "response_metadata": {"next_cursor": "cur1"},
-            },
-            {
-                "ok": True,
-                "channels": [{"id": "C002", "name": "second", "is_private": False}],
-                "response_metadata": {"next_cursor": ""},
-            },
-        ])
-        with patch.dict(os.environ, {"HERMES_HOME": str(tmp_path)}):
-            entries = asyncio.run(_build_slack(_make_slack_adapter({"T1": client})))
-
-        assert {e["id"] for e in entries} == {"C001", "C002"}
-        assert client.users_conversations.await_count == 2
-
-    def test_per_workspace_error_does_not_block_others(self, tmp_path):
-        bad = MagicMock()
-        bad.users_conversations = AsyncMock(side_effect=RuntimeError("boom"))
-        good = _make_slack_client([
-            {
-                "ok": True,
-                "channels": [{"id": "C999", "name": "ok-channel", "is_private": False}],
-                "response_metadata": {},
-            },
-        ])
-        with patch.dict(os.environ, {"HERMES_HOME": str(tmp_path)}):
-            entries = asyncio.run(_build_slack(_make_slack_adapter({"BAD": bad, "GOOD": good})))
-
-        assert {e["id"] for e in entries} == {"C999"}
-
-    def test_session_dms_merged_when_not_in_api_results(self, tmp_path):
-        sessions_path = tmp_path / "sessions" / "sessions.json"
-        sessions_path.parent.mkdir(parents=True)
-        sessions_path.write_text(json.dumps({
-            "s1": {"origin": {"platform": "slack", "chat_id": "D456", "chat_name": "Bob"}},
-            "dup": {"origin": {"platform": "slack", "chat_id": "C001", "chat_name": "first"}},
-        }))
-        client = _make_slack_client([
-            {
-                "ok": True,
-                "channels": [{"id": "C001", "name": "first", "is_private": False}],
-                "response_metadata": {},
-            },
-        ])
-        with patch.dict(os.environ, {"HERMES_HOME": str(tmp_path)}):
-            entries = asyncio.run(_build_slack(_make_slack_adapter({"T1": client})))
-
-        ids = {e["id"] for e in entries}
-        assert "C001" in ids and "D456" in ids
-        # Channel ID from API should not be duplicated by the session merge
-        assert sum(1 for e in entries if e["id"] == "C001") == 1
-
-    def test_skips_channels_with_no_id_or_name(self, tmp_path):
-        client = _make_slack_client([
-            {
-                "ok": True,
-                "channels": [
-                    {"id": "C001", "name": "good", "is_private": False},
-                    {"id": "", "name": "no-id"},
-                    {"id": "C002"},  # no name (e.g. IM)
-                ],
-                "response_metadata": {},
-            },
-        ])
-        with patch.dict(os.environ, {"HERMES_HOME": str(tmp_path)}):
-            entries = asyncio.run(_build_slack(_make_slack_adapter({"T1": client})))
-
-        assert {e["id"] for e in entries} == {"C001"}
-
-    def test_response_not_ok_breaks_pagination_for_that_workspace(self, tmp_path):
-        client = _make_slack_client([
-            {"ok": False, "error": "missing_scope"},
-        ])
-        with patch.dict(os.environ, {"HERMES_HOME": str(tmp_path)}):
-            entries = asyncio.run(_build_slack(_make_slack_adapter({"T1": client})))
-
-        assert entries == []

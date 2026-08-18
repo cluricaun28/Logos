@@ -41,9 +41,6 @@ _GLOBAL_DEFAULTS: dict[str, Any] = {
 # Sensible per-platform defaults — tiered by platform capability
 # ---------------------------------------------------------------------------
 # Tier 1 (high): Supports message editing, typically personal/team use
-# Tier 2 (medium): Supports editing but often workspace/customer-facing
-# Tier 3 (low): No edit support — each progress msg is permanent
-# Tier 4 (minimal): Batch/non-interactive delivery
 
 _TIER_HIGH = {
     "tool_progress": "all",
@@ -52,55 +49,11 @@ _TIER_HIGH = {
     "streaming": None,  # follow global
 }
 
-_TIER_MEDIUM = {
-    "tool_progress": "new",
-    "show_reasoning": False,
-    "tool_preview_length": 40,
-    "streaming": None,
-}
-
-_TIER_LOW = {
-    "tool_progress": "off",
-    "show_reasoning": False,
-    "tool_preview_length": 40,
-    "streaming": False,
-}
-
-_TIER_MINIMAL = {
-    "tool_progress": "off",
-    "show_reasoning": False,
-    "tool_preview_length": 0,
-    "streaming": False,
-}
-
 _PLATFORM_DEFAULTS: dict[str, dict[str, Any]] = {
-    # Tier 1 — full edit support, personal/team use
     "telegram":    _TIER_HIGH,
-    "discord":     _TIER_HIGH,
-
-    # Tier 2 — edit support, often customer/workspace channels
-    # Slack: tool_progress off by default — Bolt posts cannot be edited like CLI;
-    # "new"/"all" spam permanent lines in channels (hermes-agent#14663).
-    "slack":           {**_TIER_MEDIUM, "tool_progress": "off"},
-    "mattermost":      _TIER_MEDIUM,
-    "matrix":          _TIER_MEDIUM,
-    "feishu":          _TIER_MEDIUM,
-
-    # Tier 3 — no edit support, progress messages are permanent
-    "signal":          _TIER_LOW,
-    "whatsapp":        _TIER_MEDIUM,  # Baileys bridge supports /edit
-    "bluebubbles":     _TIER_LOW,
-    "weixin":          _TIER_LOW,
-    "wecom":           _TIER_LOW,
-    "wecom_callback":  _TIER_LOW,
-    "dingtalk":        _TIER_LOW,
-
-    # Tier 4 — batch or non-interactive delivery
-    "email":           _TIER_MINIMAL,
-    "sms":             _TIER_MINIMAL,
-    "webhook":         _TIER_MINIMAL,
-    "homeassistant":   _TIER_MINIMAL,
-    "api_server":      {**_TIER_HIGH, "tool_preview_length": 0},
+    "api_server":  {**_TIER_HIGH, "tool_preview_length": 0},
+    "local":       _TIER_HIGH,
+    "cli":         _TIER_HIGH,
 }
 
 # Canonical set of per-platform overrideable keys (for validation).
@@ -120,7 +73,7 @@ def resolve_display_setting(
     user_config : dict
         The full parsed config.yaml dict.
     platform_key : str
-        Platform config key (e.g. ``"telegram"``, ``"slack"``).  Use
+        Platform config key (e.g. ``"telegram"``, ``"api_server"``).  Use
         ``_platform_config_key(source.platform)`` from gateway/run.py.
     setting : str
         Display setting name (e.g. ``"tool_progress"``, ``"show_reasoning"``).

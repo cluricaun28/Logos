@@ -386,7 +386,7 @@ class TestReasoningCommand:
         runner = _make_runner()
 
         source = SessionSource(
-            platform=Platform.HOMEASSISTANT,
+            platform=Platform.TELEGRAM,
             chat_id="ha",
             chat_name="Home Assistant",
             chat_type="dm",
@@ -406,4 +406,6 @@ class TestReasoningCommand:
 
         assert result["final_response"] == "ok"
         assert _CapturingAgent.last_init is not None
-        assert "homeassistant" in set(_CapturingAgent.last_init["enabled_toolsets"])
+        # Platform-specific toolsets were removed with the platform adapters:
+        # no per-platform toolset is injected for non-telegram platforms.
+        assert "homeassistant" not in set(_CapturingAgent.last_init["enabled_toolsets"])

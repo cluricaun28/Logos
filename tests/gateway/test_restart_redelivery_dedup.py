@@ -210,7 +210,7 @@ async def test_event_without_update_id_bypasses_dedup(tmp_path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_different_platform_bypasses_dedup(tmp_path, monkeypatch):
-    """Marker from Telegram doesn't block a /restart from another platform."""
+    """Marker from api_server doesn't block a /restart from another platform."""
     from gateway.config import Platform
     from gateway.session import SessionSource
 
@@ -219,7 +219,7 @@ async def test_different_platform_bypasses_dedup(tmp_path, monkeypatch):
 
     marker = tmp_path / ".restart_last_processed.json"
     marker.write_text(json.dumps({
-        "platform": "telegram",
+        "platform": "api_server",
         "update_id": 12345,
         "requested_at": time.time(),
     }))
@@ -229,7 +229,7 @@ async def test_different_platform_bypasses_dedup(tmp_path, monkeypatch):
 
     # /restart from Discord — not a redelivery candidate
     discord_source = SessionSource(
-        platform=Platform.DISCORD,
+        platform=Platform.TELEGRAM,
         chat_id="discord-chan",
         chat_type="dm",
         user_id="u1",

@@ -355,23 +355,8 @@ def _deliver_result(job: dict, content: str, adapters=None, loop=None) -> Option
 
     platform_map = {
         "telegram": Platform.TELEGRAM,
-        "discord": Platform.DISCORD,
-        "slack": Platform.SLACK,
-        "whatsapp": Platform.WHATSAPP,
-        "signal": Platform.SIGNAL,
-        "matrix": Platform.MATRIX,
-        "mattermost": Platform.MATTERMOST,
-        "homeassistant": Platform.HOMEASSISTANT,
-        "dingtalk": Platform.DINGTALK,
-        "feishu": Platform.FEISHU,
-        "wecom": Platform.WECOM,
-        "wecom_callback": Platform.WECOM_CALLBACK,
-        "weixin": Platform.WEIXIN,
-        "email": Platform.EMAIL,
-        "sms": Platform.SMS,
-        "bluebubbles": Platform.BLUEBUBBLES,
-        "qqbot": Platform.QQBOT,
-        "yuanbao": Platform.YUANBAO,
+        "api_server": Platform.API_SERVER,
+        "local": Platform.LOCAL,
     }
 
     # Optionally wrap the content with a header/footer so the user knows this

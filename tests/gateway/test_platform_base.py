@@ -368,7 +368,6 @@ class TestShouldSendMediaAsAudio:
         from gateway.platforms.base import should_send_media_as_audio
         assert should_send_media_as_audio(Platform.TELEGRAM, ".mp3") is True
         assert should_send_media_as_audio(Platform.TELEGRAM, ".flac") is False
-        assert should_send_media_as_audio(Platform.DISCORD, ".flac") is True
 
 
 # ---------------------------------------------------------------------------

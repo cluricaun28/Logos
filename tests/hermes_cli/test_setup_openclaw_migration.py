@@ -422,7 +422,8 @@ class TestGetSectionConfigSummary:
         with patch.object(setup_mod, "get_env_value", side_effect=env_side):
             result = setup_mod._get_section_config_summary({}, "gateway")
         assert "Telegram" in result
-        assert "Discord" in result
+        # Discord adapter was removed from the fork — must not count as configured
+        assert "Discord" not in result
 
     def test_tools_returns_none_without_keys(self):
         with patch.object(setup_mod, "get_env_value", return_value=""):
@@ -466,25 +467,30 @@ class TestGetSectionConfigSummary:
             )
         assert result == "MiniMax-M1"
 
-    def test_gateway_recognises_whatsapp_enabled(self):
-        """WhatsApp uses WHATSAPP_ENABLED (not WHATSAPP_PHONE_NUMBER_ID)."""
+    def test_gateway_recognises_telegram_bot_token(self):
+        """Telegram uses TELEGRAM_BOT_TOKEN."""
         def env_side(key):
-            return "true" if key == "WHATSAPP_ENABLED" else ""
+            return "123:tok" if key == "TELEGRAM_BOT_TOKEN" else ""
 
         with patch.object(setup_mod, "get_env_value", side_effect=env_side):
             result = setup_mod._get_section_config_summary({}, "gateway")
         assert result is not None
-        assert "WhatsApp" in result
+        assert "Telegram" in result
 
-    def test_gateway_recognises_signal_http_url(self):
-        """Signal uses SIGNAL_HTTP_URL (not SIGNAL_ACCOUNT)."""
+    def test_gateway_ignores_removed_platform_tokens(self):
+        """Tokens for platforms removed from the fork must not count as configured."""
         def env_side(key):
-            return "http://signal.local" if key == "SIGNAL_HTTP_URL" else ""
+            if key == "SIGNAL_HTTP_URL":
+                return "http://signal.local"
+            if key == "WHATSAPP_ENABLED":
+                return "true"
+            if key == "DISCORD_BOT_TOKEN":
+                return "disc456"
+            return ""
 
         with patch.object(setup_mod, "get_env_value", side_effect=env_side):
             result = setup_mod._get_section_config_summary({}, "gateway")
-        assert result is not None
-        assert "Signal" in result
+        assert result is None
 
     def test_model_ignores_bare_gh_token(self):
         """GH_TOKEN is commonly set for `gh` / git and must NOT count as a

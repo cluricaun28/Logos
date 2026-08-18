@@ -109,6 +109,9 @@ class TestFirecrawlClientConfig:
 
     def test_invalid_tool_gateway_scheme_raises(self):
         """Unexpected shared gateway schemes should fail fast."""
+        # Clear direct Firecrawl vars so the tool-gateway path is exercised
+        os.environ.pop("FIRECRAWL_URL", None)
+        os.environ.pop("FIRECRAWL_API_URL", None)
         with patch.dict(os.environ, {
             "TOOL_GATEWAY_DOMAIN": "nousresearch.com",
             "TOOL_GATEWAY_SCHEME": "ftp",

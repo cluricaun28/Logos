@@ -52,7 +52,7 @@ def _build_runner(monkeypatch, tmp_path) -> GatewayRunner:
 
     runner = GatewayRunner(GatewayConfig())
     adapter = SimpleNamespace(send=AsyncMock(), handle_message=AsyncMock())
-    runner.adapters[Platform.DISCORD] = adapter
+    runner.adapters[Platform.TELEGRAM] = adapter
     return runner
 
 
@@ -60,8 +60,8 @@ def _watcher_dict_with_notify():
     return {
         "session_id": "proc_test_internal",
         "check_interval": 0,
-        "session_key": "agent:main:discord:dm:123",
-        "platform": "discord",
+        "session_key": "agent:main:telegram:dm:123",
+        "platform": "telegram",
         "chat_id": "123",
         "thread_id": "",
         "notify_on_complete": True,
@@ -89,7 +89,7 @@ async def test_notify_on_complete_sets_internal_flag(monkeypatch, tmp_path):
     monkeypatch.setattr(asyncio, "sleep", _instant_sleep)
 
     runner = _build_runner(monkeypatch, tmp_path)
-    adapter = runner.adapters[Platform.DISCORD]
+    adapter = runner.adapters[Platform.TELEGRAM]
 
     await runner._run_process_watcher(_watcher_dict_with_notify())
 
@@ -111,7 +111,7 @@ async def test_internal_event_bypasses_authorization(monkeypatch, tmp_path):
 
     # Create an internal event with no user_id (simulates the bug scenario)
     source = SessionSource(
-        platform=Platform.DISCORD,
+        platform=Platform.TELEGRAM,
         chat_id="123",
         chat_type="dm",
     )
@@ -159,10 +159,10 @@ async def test_internal_event_does_not_trigger_pairing(monkeypatch, tmp_path):
     runner = GatewayRunner(GatewayConfig())
     # Add adapter so pairing would have somewhere to send
     adapter = SimpleNamespace(send=AsyncMock())
-    runner.adapters[Platform.DISCORD] = adapter
+    runner.adapters[Platform.TELEGRAM] = adapter
 
     source = SessionSource(
-        platform=Platform.DISCORD,
+        platform=Platform.TELEGRAM,
         chat_id="123",
         chat_type="dm",  # DM would normally trigger pairing
     )
@@ -216,7 +216,7 @@ async def test_notify_on_complete_preserves_user_identity(monkeypatch, tmp_path)
     monkeypatch.setattr(asyncio, "sleep", _instant_sleep)
 
     runner = _build_runner(monkeypatch, tmp_path)
-    adapter = runner.adapters[Platform.DISCORD]
+    adapter = runner.adapters[Platform.TELEGRAM]
 
     watcher = _watcher_dict_with_notify()
     watcher["user_id"] = "user-42"
@@ -324,7 +324,7 @@ async def test_none_user_id_does_not_generate_pairing_code(monkeypatch, tmp_path
 
     runner = GatewayRunner(GatewayConfig())
     adapter = SimpleNamespace(send=AsyncMock())
-    runner.adapters[Platform.DISCORD] = adapter
+    runner.adapters[Platform.TELEGRAM] = adapter
 
     generate_called = False
     original_generate = runner.pairing_store.generate_code
@@ -337,7 +337,7 @@ async def test_none_user_id_does_not_generate_pairing_code(monkeypatch, tmp_path
     runner.pairing_store.generate_code = tracking_generate
 
     source = SessionSource(
-        platform=Platform.DISCORD,
+        platform=Platform.TELEGRAM,
         chat_id="456",
         chat_type="dm",
         user_id=None,
@@ -377,10 +377,10 @@ async def test_non_internal_event_without_user_triggers_pairing(monkeypatch, tmp
 
     runner = GatewayRunner(GatewayConfig())
     adapter = SimpleNamespace(send=AsyncMock())
-    runner.adapters[Platform.DISCORD] = adapter
+    runner.adapters[Platform.TELEGRAM] = adapter
 
     source = SessionSource(
-        platform=Platform.DISCORD,
+        platform=Platform.TELEGRAM,
         chat_id="123",
         chat_type="dm",
         user_id="unknown_user_999",

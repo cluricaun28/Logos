@@ -57,7 +57,6 @@ CONFIGURABLE_TOOLSETS = [
     ("code_execution",  "⚡ Code Execution",            "execute_code"),
     ("vision",          "👁️  Vision / Image Analysis",  "vision_analyze"),
     ("image_gen",       "🎨 Image Generation",          "image_generate"),
-    ("moa",             "🧠 Mixture of Agents",         "mixture_of_agents"),
     ("tts",             "🔊 Text-to-Speech",            "text_to_speech"),
     ("skills",          "📚 Skills",                    "list, view, manage"),
     ("todo",            "📋 Task Planning",             "todo"),
@@ -67,18 +66,13 @@ CONFIGURABLE_TOOLSETS = [
     ("delegation",      "👥 Task Delegation",           "delegate_task"),
     ("cronjob",         "⏰ Cron Jobs",                 "create/list/update/pause/resume/run, with optional attached skills"),
     ("messaging",       "📨 Cross-Platform Messaging",  "send_message"),
-    ("rl",              "🧪 RL Training",               "Tinker-Atropos training tools"),
-    ("homeassistant",    "🏠 Home Assistant",           "smart home device control"),
     ("spotify",          "🎵 Spotify",                  "playback, search, playlists, library"),
-    ("discord",         "💬 Discord (read/participate)", "fetch messages, search members, create thread"),
-    ("discord_admin",   "🛡️  Discord Server Admin",    "list channels/roles, pin, assign roles"),
-    ("yuanbao",          "🤖 Yuanbao",                  "group info, member queries, DM"),
 ]
 
 # Toolsets that are OFF by default for new installs.
 # They're still in _HERMES_CORE_TOOLS (available at runtime if enabled),
 # but the setup checklist won't pre-select them for first-time users.
-_DEFAULT_OFF_TOOLSETS = {"moa", "homeassistant", "rl", "spotify", "discord", "discord_admin"}
+_DEFAULT_OFF_TOOLSETS = {"spotify"}
 
 # Platform-scoped toolsets: only appear in the `hermes tools` checklist for
 # these platforms, and only resolve/save for these platforms.  A toolset
@@ -87,10 +81,7 @@ _DEFAULT_OFF_TOOLSETS = {"moa", "homeassistant", "rl", "spotify", "discord", "di
 # Use this for tools whose APIs only make sense on one platform (Discord
 # server admin, Slack workspace admin, etc.).  Keeps every other platform's
 # checklist from filling up with irrelevant toggles.
-_TOOLSET_PLATFORM_RESTRICTIONS: Dict[str, Set[str]] = {
-    "discord": {"discord"},
-    "discord_admin": {"discord"},
-}
+_TOOLSET_PLATFORM_RESTRICTIONS: Dict[str, Set[str]] = {}
 
 
 def _toolset_allowed_for_platform(ts_key: str, platform: str) -> bool:
@@ -392,20 +383,6 @@ TOOL_CATEGORIES = {
             },
         ],
     },
-    "homeassistant": {
-        "name": "Smart Home",
-        "icon": "🏠",
-        "providers": [
-            {
-                "name": "Home Assistant",
-                "tag": "REST API integration",
-                "env_vars": [
-                    {"key": "HASS_TOKEN", "prompt": "Home Assistant Long-Lived Access Token"},
-                    {"key": "HASS_URL", "prompt": "Home Assistant URL", "default": "http://homeassistant.local:8123"},
-                ],
-            },
-        ],
-    },
     "spotify": {
         "name": "Spotify",
         "icon": "🎵",
@@ -418,29 +395,12 @@ TOOL_CATEGORIES = {
             },
         ],
     },
-    "rl": {
-        "name": "RL Training",
-        "icon": "🧪",
-        "requires_python": (3, 11),
-        "providers": [
-            {
-                "name": "Tinker / Atropos",
-                "tag": "RL training platform",
-                "env_vars": [
-                    {"key": "TINKER_API_KEY", "prompt": "Tinker API key", "url": "https://tinker-console.thinkingmachines.ai/keys"},
-                    {"key": "WANDB_API_KEY", "prompt": "WandB API key", "url": "https://wandb.ai/authorize"},
-                ],
-                "post_setup": "rl_training",
-            },
-        ],
-    },
 }
 
 # Simple env-var requirements for toolsets NOT in TOOL_CATEGORIES.
 # Used as a fallback for tools like vision/moa that just need an API key.
 TOOLSET_ENV_REQUIREMENTS = {
     "vision":     [("OPENROUTER_API_KEY",   "https://openrouter.ai/keys")],
-    "moa":        [("OPENROUTER_API_KEY",   "https://openrouter.ai/keys")],
 }
 
 
@@ -700,14 +660,6 @@ def _get_enabled_platforms() -> List[str]:
     enabled = ["cli"]
     if get_env_value("TELEGRAM_BOT_TOKEN"):
         enabled.append("telegram")
-    if get_env_value("DISCORD_BOT_TOKEN"):
-        enabled.append("discord")
-    if get_env_value("SLACK_BOT_TOKEN"):
-        enabled.append("slack")
-    if get_env_value("WHATSAPP_ENABLED"):
-        enabled.append("whatsapp")
-    if get_env_value("QQ_APP_ID"):
-        enabled.append("qqbot")
     return enabled
 
 
@@ -803,26 +755,10 @@ def _get_platform_tools(
         # their own platform (e.g. `discord` + `discord` should stay OFF).
         if platform in default_off and platform not in _TOOLSET_PLATFORM_RESTRICTIONS:
             default_off.remove(platform)
-        # Home Assistant is already runtime-gated by its check_fn (requires
-        # HASS_TOKEN to register any tools). When a user has configured
-        # HASS_TOKEN, they've explicitly opted in — don't also strip it via
-        # _DEFAULT_OFF_TOOLSETS, which would silently drop HA from platforms
-        # (e.g. cron) that run through _get_platform_tools without an
-        # explicit saved toolset list. Without this, Norbert's HA cron jobs
-        # regressed after #14798 made cron honor per-platform tool config.
-        if "homeassistant" in default_off and os.getenv("HASS_TOKEN"):
-            default_off.remove("homeassistant")
         enabled_toolsets -= default_off
 
-    # Home Assistant toolset: when the platform is homeassistant or when
-    # HASS_TOKEN is set, ensure it's enabled even if the default composite
-    # toolset doesn't include it. This handles the homeassistant platform
-    # directly and also cron/CLI when the user has configured HA.
-    if platform == "homeassistant" or os.getenv("HASS_TOKEN"):
-        enabled_toolsets.add("homeassistant")
-
-    # Recover non-configurable platform toolsets (e.g. discord, feishu_doc,
-    # feishu_drive).  These are part of the platform's default composite but
+    # Recover non-configurable platform toolsets.  These are part of the
+    # platform's default composite but
     # absent from CONFIGURABLE_TOOLSETS, so they can't appear in the TUI
     # checklist or in a user-saved config.  Must run in BOTH branches —
     # otherwise saving via `hermes tools` (which flips has_explicit_config

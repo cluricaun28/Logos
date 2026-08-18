@@ -405,7 +405,7 @@ class TestRuntimeDisconnectQueuing:
 
         # Another adapter is still connected
         healthy_adapter = StubAdapter(succeed=True)
-        runner.adapters[Platform.DISCORD] = healthy_adapter
+        runner.adapters[Platform.TELEGRAM] = healthy_adapter
 
         await runner._handle_adapter_fatal_error(failing_adapter)
 

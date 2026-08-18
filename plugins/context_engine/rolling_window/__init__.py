@@ -150,6 +150,8 @@ class RollingWindowContextEngine(ContextEngine):
         if not messages:
             return messages
 
+        self.archive_count += 1
+
         # Step 1: Strip raw assistant tool calls (verbose JSON bloat)
         stripped = []
         for msg in messages:

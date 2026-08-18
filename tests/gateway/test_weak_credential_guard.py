@@ -50,22 +50,22 @@ class TestPlatformTokenPlaceholderGuard:
         assert "placeholder" in caplog.text.lower()
 
     def test_rejects_changeme(self, caplog):
-        config = _make_gateway_config(Platform.DISCORD, "changeme")
+        config = _make_gateway_config(Platform.TELEGRAM, "changeme")
         with caplog.at_level(logging.ERROR):
             _validate_and_return(config)
-        assert config.platforms[Platform.DISCORD].enabled is False
+        assert config.platforms[Platform.TELEGRAM].enabled is False
 
     def test_rejects_your_api_key(self, caplog):
-        config = _make_gateway_config(Platform.SLACK, "your_api_key")
+        config = _make_gateway_config(Platform.TELEGRAM, "your_api_key")
         with caplog.at_level(logging.ERROR):
             _validate_and_return(config)
-        assert config.platforms[Platform.SLACK].enabled is False
+        assert config.platforms[Platform.TELEGRAM].enabled is False
 
     def test_rejects_placeholder(self, caplog):
-        config = _make_gateway_config(Platform.MATRIX, "placeholder")
+        config = _make_gateway_config(Platform.TELEGRAM, "placeholder")
         with caplog.at_level(logging.ERROR):
             _validate_and_return(config)
-        assert config.platforms[Platform.MATRIX].enabled is False
+        assert config.platforms[Platform.TELEGRAM].enabled is False
 
     def test_accepts_real_token(self, caplog):
         """A real-looking bot token should pass validation."""

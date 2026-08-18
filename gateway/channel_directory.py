@@ -27,9 +27,7 @@ def _normalize_channel_query(value: str) -> str:
 def _channel_target_name(platform_name: str, channel: Dict[str, Any]) -> str:
     """Return the human-facing target label shown to users for a channel entry."""
     name = channel["name"]
-    if platform_name == "discord" and channel.get("guild"):
-        return f"#{name}"
-    if platform_name != "discord" and channel.get("type"):
+    if channel.get("type"):
         return f"{name} ({channel['type']})"
     return name
 
@@ -68,19 +66,10 @@ async def build_channel_directory(adapters: Dict[Any, Any]) -> Dict[str, Any]:
 
     platforms: Dict[str, List[Dict[str, str]]] = {}
 
-    for platform, adapter in adapters.items():
-        try:
-            if platform == Platform.DISCORD:
-                platforms["discord"] = _build_discord(adapter)
-            elif platform == Platform.SLACK:
-                platforms["slack"] = await _build_slack(adapter)
-        except (AttributeError, KeyError, RuntimeError, TypeError) as e:
-            logger.warning("Channel directory: failed to build %s: %s", platform.value, e)
-
     # Platforms that don't support direct channel enumeration get session-based
     # discovery automatically.  Skip infrastructure entries that aren't messaging
     # platforms — everything else falls through to _build_from_sessions().
-    _SKIP_SESSION_DISCOVERY = frozenset({"local", "api_server", "webhook"})
+    _SKIP_SESSION_DISCOVERY = frozenset({"local", "api_server"})
     for plat in Platform:
         plat_name = plat.value
         if plat_name in _SKIP_SESSION_DISCOVERY or plat_name in platforms:
@@ -98,105 +87,6 @@ async def build_channel_directory(adapters: Dict[Any, Any]) -> Dict[str, Any]:
         logger.warning("Channel directory: failed to write: %s", e)
 
     return directory
-
-
-def _build_discord(adapter) -> List[Dict[str, str]]:
-    """Enumerate all text channels and forum channels the Discord bot can see."""
-    channels = []
-    client = getattr(adapter, "_client", None)
-    if not client:
-        return channels
-
-    try:
-        import discord as _discord  # noqa: F401 — SDK presence check
-    except ImportError:
-        return channels
-
-    for guild in client.guilds:
-        for ch in guild.text_channels:
-            channels.append({
-                "id": str(ch.id),
-                "name": ch.name,
-                "guild": guild.name,
-                "type": "channel",
-            })
-        # Forum channels (type 15) — creating a message auto-spawns a thread post.
-        forums = getattr(guild, "forum_channels", None) or []
-        for ch in forums:
-            channels.append({
-                "id": str(ch.id),
-                "name": ch.name,
-                "guild": guild.name,
-                "type": "forum",
-            })
-        # Also include DM-capable users we've interacted with is not
-        # feasible via guild enumeration; those come from sessions.
-
-    # Merge any DMs from session history
-    channels.extend(_build_from_sessions("discord"))
-    return channels
-
-
-async def _build_slack(adapter) -> List[Dict[str, Any]]:
-    """List Slack channels the bot has joined across all workspaces.
-
-    Uses ``users.conversations`` against each workspace's web client. Pulls
-    public + private channels the bot is a member of, then merges in DMs
-    discovered from session history (IMs aren't useful to enumerate
-    proactively).
-    """
-    team_clients = getattr(adapter, "_team_clients", None) or {}
-    if not team_clients:
-        return _build_from_sessions("slack")
-
-    channels: List[Dict[str, Any]] = []
-    seen_ids: set = set()
-
-    for team_id, client in team_clients.items():
-        try:
-            cursor: Optional[str] = None
-            for _page in range(20):  # safety cap on pagination
-                response = await client.users_conversations(
-                    types="public_channel,private_channel",
-                    exclude_archived=True,
-                    limit=200,
-                    cursor=cursor,
-                )
-                if not response.get("ok"):
-                    logger.warning(
-                        "Channel directory: users.conversations not ok for team %s: %s",
-                        team_id,
-                        response.get("error", "unknown"),
-                    )
-                    break
-                for ch in response.get("channels", []):
-                    cid = ch.get("id")
-                    name = ch.get("name")
-                    if not cid or not name or cid in seen_ids:
-                        continue
-                    seen_ids.add(cid)
-                    channels.append({
-                        "id": cid,
-                        "name": name,
-                        "type": "private" if ch.get("is_private") else "channel",
-                    })
-                cursor = (response.get("response_metadata") or {}).get("next_cursor")
-                if not cursor:
-                    break
-        except Exception as e:
-            logger.warning(
-                "Channel directory: failed to list Slack channels for team %s: %s",
-                team_id, e,
-            )
-            continue
-
-    # Merge in DM/group entries discovered from session history.
-    for entry in _build_from_sessions("slack"):
-        if entry.get("id") not in seen_ids:
-            channels.append(entry)
-            seen_ids.add(entry.get("id"))
-
-    return channels
 
 
 def _build_from_sessions(platform_name: str) -> List[Dict[str, str]]:
@@ -260,9 +150,7 @@ def resolve_channel_name(platform_name: str, name: str) -> Optional[str]:
     Resolve a human-friendly channel name to a numeric ID.
 
     Matching strategy (case-insensitive, first match wins):
-    - Discord: "bot-home", "#bot-home", "GuildName/bot-home"
     - Telegram: display name or group name
-    - Slack: "engineering", "#engineering"
     """
     directory = load_directory()
     channels = directory.get("platforms", {}).get(platform_name, [])
@@ -316,31 +204,10 @@ def format_directory_for_display() -> str:
         if not channels:
             continue
 
-        # Group Discord channels by guild
-        if plat_name == "discord":
-            guilds: Dict[str, List] = {}
-            dms: List = []
-            for ch in channels:
-                guild = ch.get("guild")
-                if guild:
-                    guilds.setdefault(guild, []).append(ch)
-                else:
-                    dms.append(ch)
-
-            for guild_name, guild_channels in sorted(guilds.items()):
-                lines.append(f"Discord ({guild_name}):")
-                for ch in sorted(guild_channels, key=lambda c: c["name"]):
-                    lines.append(f"  discord:{_channel_target_name(plat_name, ch)}")
-            if dms:
-                lines.append("Discord (DMs):")
-                for ch in dms:
-                    lines.append(f"  discord:{_channel_target_name(plat_name, ch)}")
-            lines.append("")
-        else:
-            lines.append(f"{plat_name.title()}:")
-            for ch in channels:
-                lines.append(f"  {plat_name}:{_channel_target_name(plat_name, ch)}")
-            lines.append("")
+        lines.append(f"{plat_name.title()}:")
+        for ch in channels:
+            lines.append(f"  {plat_name}:{_channel_target_name(plat_name, ch)}")
+        lines.append("")
 
     lines.append('Use these as the "target" parameter when sending.')
     lines.append('Bare platform name (e.g. "telegram") sends to home channel.')

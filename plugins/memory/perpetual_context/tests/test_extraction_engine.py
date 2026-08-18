@@ -15,7 +15,7 @@ import json as _json
 import os
 import sys
 
-sys.path.insert(0, os.path.expanduser("~/.hermes/hermes-agent/plugins/memory"))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")))
 
 from perpetual_context.extraction_engine import ExtractionEngine
 

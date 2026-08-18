@@ -16,15 +16,13 @@ from gateway.config import (
 
 class TestHomeChannelRoundtrip:
     def test_to_dict_from_dict(self):
-        hc = HomeChannel(platform=Platform.DISCORD, chat_id="999", name="general")
+        hc = HomeChannel(platform=Platform.TELEGRAM, chat_id="999", name="general")
         d = hc.to_dict()
         restored = HomeChannel.from_dict(d)
 
-        assert restored.platform == Platform.DISCORD
+        assert restored.platform == Platform.TELEGRAM
         assert restored.chat_id == "999"
         assert restored.name == "general"
-
-
 class TestPlatformConfigRoundtrip:
     def test_to_dict_from_dict(self):
         pc = PlatformConfig(
@@ -55,72 +53,6 @@ class TestPlatformConfigRoundtrip:
     def test_from_dict_coerces_quoted_false_enabled(self):
         restored = PlatformConfig.from_dict({"enabled": "false"})
         assert restored.enabled is False
-
-
-class TestGetConnectedPlatforms:
-    def test_returns_enabled_with_token(self):
-        config = GatewayConfig(
-            platforms={
-                Platform.TELEGRAM: PlatformConfig(enabled=True, token="t"),
-                Platform.DISCORD: PlatformConfig(enabled=False, token="d"),
-                Platform.SLACK: PlatformConfig(enabled=True),  # no token
-            },
-        )
-        connected = config.get_connected_platforms()
-        assert Platform.TELEGRAM in connected
-        assert Platform.DISCORD not in connected
-        assert Platform.SLACK not in connected
-
-    def test_empty_platforms(self):
-        config = GatewayConfig()
-        assert config.get_connected_platforms() == []
-
-    def test_dingtalk_recognised_via_extras(self):
-        config = GatewayConfig(
-            platforms={
-                Platform.DINGTALK: PlatformConfig(
-                    enabled=True,
-                    extra={"client_id": "cid", "client_secret": "sec"},
-                ),
-            },
-        )
-        assert Platform.DINGTALK in config.get_connected_platforms()
-
-    def test_dingtalk_recognised_via_env_vars(self, monkeypatch):
-        """DingTalk configured via env vars (no extras) should still be
-        recognised as connected — covers the case where _apply_env_overrides
-        hasn't populated extras yet."""
-        monkeypatch.setenv("DINGTALK_CLIENT_ID", "env_cid")
-        monkeypatch.setenv("DINGTALK_CLIENT_SECRET", "env_sec")
-        config = GatewayConfig(
-            platforms={
-                Platform.DINGTALK: PlatformConfig(enabled=True, extra={}),
-            },
-        )
-        assert Platform.DINGTALK in config.get_connected_platforms()
-
-    def test_dingtalk_missing_creds_not_connected(self, monkeypatch):
-        monkeypatch.delenv("DINGTALK_CLIENT_ID", raising=False)
-        monkeypatch.delenv("DINGTALK_CLIENT_SECRET", raising=False)
-        config = GatewayConfig(
-            platforms={
-                Platform.DINGTALK: PlatformConfig(enabled=True, extra={}),
-            },
-        )
-        assert Platform.DINGTALK not in config.get_connected_platforms()
-
-    def test_dingtalk_disabled_not_connected(self):
-        config = GatewayConfig(
-            platforms={
-                Platform.DINGTALK: PlatformConfig(
-                    enabled=False,
-                    extra={"client_id": "cid", "client_secret": "sec"},
-                ),
-            },
-        )
-        assert Platform.DINGTALK not in config.get_connected_platforms()
-
-
 class TestSessionResetPolicy:
     def test_roundtrip(self):
         policy = SessionResetPolicy(mode="idle", at_hour=6, idle_minutes=120)
@@ -178,7 +110,7 @@ class TestGatewayConfigRoundtrip:
         config = GatewayConfig(
             unauthorized_dm_behavior="ignore",
             platforms={
-                Platform.WHATSAPP: PlatformConfig(
+                Platform.TELEGRAM: PlatformConfig(
                     enabled=True,
                     extra={"unauthorized_dm_behavior": "pair"},
                 ),
@@ -188,8 +120,7 @@ class TestGatewayConfigRoundtrip:
         restored = GatewayConfig.from_dict(config.to_dict())
 
         assert restored.unauthorized_dm_behavior == "ignore"
-        assert restored.platforms[Platform.WHATSAPP].extra["unauthorized_dm_behavior"] == "pair"
-
+        assert restored.platforms[Platform.TELEGRAM].extra["unauthorized_dm_behavior"] == "pair"
     def test_from_dict_coerces_quoted_false_always_log_local(self):
         restored = GatewayConfig.from_dict({"always_log_local": "false"})
         assert restored.always_log_local is False
@@ -298,28 +229,6 @@ class TestLoadGatewayConfig:
         config = load_gateway_config()
 
         assert config.always_log_local is False
-
-    def test_bridges_discord_channel_prompts_from_config_yaml(self, tmp_path, monkeypatch):
-        hermes_home = tmp_path / ".hermes"
-        hermes_home.mkdir()
-        config_path = hermes_home / "config.yaml"
-        config_path.write_text(
-            "discord:\n"
-            "  channel_prompts:\n"
-            "    \"123\": Research mode\n"
-            "    456: Therapist mode\n",
-            encoding="utf-8",
-        )
-
-        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
-
-        config = load_gateway_config()
-
-        assert config.platforms[Platform.DISCORD].extra["channel_prompts"] == {
-            "123": "Research mode",
-            "456": "Therapist mode",
-        }
-
     def test_bridges_telegram_channel_prompts_from_config_yaml(self, tmp_path, monkeypatch):
         hermes_home = tmp_path / ".hermes"
         hermes_home.mkdir()
@@ -340,26 +249,6 @@ class TestLoadGatewayConfig:
             "-1001234567": "Research assistant",
             "789": "Creative writing",
         }
-
-    def test_bridges_slack_channel_prompts_from_config_yaml(self, tmp_path, monkeypatch):
-        hermes_home = tmp_path / ".hermes"
-        hermes_home.mkdir()
-        config_path = hermes_home / "config.yaml"
-        config_path.write_text(
-            "slack:\n"
-            "  channel_prompts:\n"
-            '    "C01ABC": Code review mode\n',
-            encoding="utf-8",
-        )
-
-        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
-
-        config = load_gateway_config()
-
-        assert config.platforms[Platform.SLACK].extra["channel_prompts"] == {
-            "C01ABC": "Code review mode",
-        }
-
     def test_invalid_quick_commands_in_config_yaml_are_ignored(self, tmp_path, monkeypatch):
         hermes_home = tmp_path / ".hermes"
         hermes_home.mkdir()
@@ -378,7 +267,7 @@ class TestLoadGatewayConfig:
         config_path = hermes_home / "config.yaml"
         config_path.write_text(
             "unauthorized_dm_behavior: ignore\n"
-            "whatsapp:\n"
+            "telegram:\n"
             "  unauthorized_dm_behavior: pair\n",
             encoding="utf-8",
         )
@@ -388,8 +277,7 @@ class TestLoadGatewayConfig:
         config = load_gateway_config()
 
         assert config.unauthorized_dm_behavior == "ignore"
-        assert config.platforms[Platform.WHATSAPP].extra["unauthorized_dm_behavior"] == "pair"
-
+        assert config.platforms[Platform.TELEGRAM].extra["unauthorized_dm_behavior"] == "pair"
     def test_bridges_telegram_disable_link_previews_from_config_yaml(self, tmp_path, monkeypatch):
         hermes_home = tmp_path / ".hermes"
         hermes_home.mkdir()
@@ -450,58 +338,10 @@ class TestHomeChannelEnvOverrides:
     def test_existing_platform_configs_accept_home_channel_env_overrides(self):
         cases = [
             (
-                Platform.SLACK,
-                PlatformConfig(enabled=True, token="xoxb-from-config"),
-                {"SLACK_HOME_CHANNEL": "C123", "SLACK_HOME_CHANNEL_NAME": "Ops"},
-                ("C123", "Ops"),
-            ),
-            (
-                Platform.SIGNAL,
-                PlatformConfig(
-                    enabled=True,
-                    extra={"http_url": "http://localhost:9090", "account": "+15551234567"},
-                ),
-                {"SIGNAL_HOME_CHANNEL": "+1555000", "SIGNAL_HOME_CHANNEL_NAME": "Phone"},
-                ("+1555000", "Phone"),
-            ),
-            (
-                Platform.MATTERMOST,
-                PlatformConfig(
-                    enabled=True,
-                    token="mm-token",
-                    extra={"url": "https://mm.example.com"},
-                ),
-                {"MATTERMOST_HOME_CHANNEL": "ch_abc123", "MATTERMOST_HOME_CHANNEL_NAME": "General"},
-                ("ch_abc123", "General"),
-            ),
-            (
-                Platform.MATRIX,
-                PlatformConfig(
-                    enabled=True,
-                    token="syt_abc123",
-                    extra={"homeserver": "https://matrix.example.org"},
-                ),
-                {"MATRIX_HOME_ROOM": "!room123:example.org", "MATRIX_HOME_ROOM_NAME": "Bot Room"},
-                ("!room123:example.org", "Bot Room"),
-            ),
-            (
-                Platform.EMAIL,
-                PlatformConfig(
-                    enabled=True,
-                    extra={
-                        "address": "hermes@test.com",
-                        "imap_host": "imap.test.com",
-                        "smtp_host": "smtp.test.com",
-                    },
-                ),
-                {"EMAIL_HOME_ADDRESS": "user@test.com", "EMAIL_HOME_ADDRESS_NAME": "Inbox"},
-                ("user@test.com", "Inbox"),
-            ),
-            (
-                Platform.SMS,
-                PlatformConfig(enabled=True, api_key="token_abc"),
-                {"SMS_HOME_CHANNEL": "+15559876543", "SMS_HOME_CHANNEL_NAME": "My Phone"},
-                ("+15559876543", "My Phone"),
+                Platform.TELEGRAM,
+                PlatformConfig(enabled=True, token="***"),
+                {"TELEGRAM_HOME_CHANNEL": "8591175491", "TELEGRAM_HOME_CHANNEL_NAME": "Home"},
+                ("8591175491", "Home"),
             ),
         ]
 

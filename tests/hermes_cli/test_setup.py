@@ -146,16 +146,12 @@ def test_setup_custom_providers_synced(tmp_path, monkeypatch):
 
 def test_setup_gateway_skips_service_install_when_systemctl_missing(monkeypatch, capsys):
     env = {
-        "TELEGRAM_BOT_TOKEN": "",
+        "TELEGRAM_BOT_TOKEN": "123456:TEST-TOKEN",
         "TELEGRAM_HOME_CHANNEL": "",
         "DISCORD_BOT_TOKEN": "",
         "DISCORD_HOME_CHANNEL": "",
         "SLACK_BOT_TOKEN": "",
         "SLACK_HOME_CHANNEL": "",
-        "MATRIX_HOMESERVER": "https://matrix.example.com",
-        "MATRIX_USER_ID": "@alice:example.com",
-        "MATRIX_PASSWORD": "",
-        "MATRIX_ACCESS_TOKEN": "token",
         "BLUEBUBBLES_SERVER_URL": "",
         "BLUEBUBBLES_HOME_CHANNEL": "",
         "WHATSAPP_ENABLED": "",
@@ -184,16 +180,12 @@ def test_setup_gateway_skips_service_install_when_systemctl_missing(monkeypatch,
 def test_setup_gateway_in_container_shows_docker_guidance(monkeypatch, capsys):
     """setup_gateway() in a Docker container shows Docker-specific restart instructions."""
     env = {
-        "TELEGRAM_BOT_TOKEN": "",
+        "TELEGRAM_BOT_TOKEN": "123456:TEST-TOKEN",
         "TELEGRAM_HOME_CHANNEL": "",
         "DISCORD_BOT_TOKEN": "",
         "DISCORD_HOME_CHANNEL": "",
         "SLACK_BOT_TOKEN": "",
         "SLACK_HOME_CHANNEL": "",
-        "MATRIX_HOMESERVER": "https://matrix.example.com",
-        "MATRIX_USER_ID": "@alice:example.com",
-        "MATRIX_PASSWORD": "",
-        "MATRIX_ACCESS_TOKEN": "token",
         "BLUEBUBBLES_SERVER_URL": "",
         "BLUEBUBBLES_HOME_CHANNEL": "",
         "WHATSAPP_ENABLED": "",

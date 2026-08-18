@@ -66,7 +66,7 @@ class PerpetualContextProvider(MemoryProvider):
 
     Thin orchestrator that delegates to specialized sub-modules:
     - prefetch_pipeline: 4-phase Deep Research & Local Recall
-    - injection_router: intent classification
+    - semantic_intent_router: intent classification
     - tool_handler: PM tool dispatch
     - extraction_engine: structured data from conversations
     - context_bridge_builder: archival index generation

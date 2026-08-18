@@ -48,7 +48,7 @@ class _DisabledAdapter(BasePlatformAdapter):
 
 class _SuccessfulAdapter(BasePlatformAdapter):
     def __init__(self):
-        super().__init__(PlatformConfig(enabled=True, token="***"), Platform.DISCORD)
+        super().__init__(PlatformConfig(enabled=True, token="***"), Platform.TELEGRAM)
 
     async def connect(self) -> bool:
         return True
@@ -112,7 +112,7 @@ async def test_runner_records_connected_platform_state_on_success(monkeypatch, t
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     config = GatewayConfig(
         platforms={
-            Platform.DISCORD: PlatformConfig(enabled=True, token="***")
+            Platform.TELEGRAM: PlatformConfig(enabled=True, token="***")
         },
         sessions_dir=tmp_path / "sessions",
     )
@@ -127,9 +127,9 @@ async def test_runner_records_connected_platform_state_on_success(monkeypatch, t
     assert ok is True
     state = read_runtime_status()
     assert state["gateway_state"] == "running"
-    assert state["platforms"]["discord"]["state"] == "connected"
-    assert state["platforms"]["discord"]["error_code"] is None
-    assert state["platforms"]["discord"]["error_message"] is None
+    assert state["platforms"]["telegram"]["state"] == "connected"
+    assert state["platforms"]["telegram"]["error_code"] is None
+    assert state["platforms"]["telegram"]["error_message"] is None
 
 
 @pytest.mark.asyncio

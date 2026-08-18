@@ -439,13 +439,6 @@ from gateway.restart import (
 )
 
 
-from gateway.whatsapp_identity import (
-    canonical_whatsapp_identifier as _canonical_whatsapp_identifier,  # noqa: F401
-    expand_whatsapp_aliases as _expand_whatsapp_auth_aliases,
-    normalize_whatsapp_identifier as _normalize_whatsapp_identifier,
-)
-
-
 logger = logging.getLogger(__name__)
 
 
@@ -1002,7 +995,7 @@ class GatewayRunner:
             return
 
         connected = self.config.get_connected_platforms()
-        messaging_platforms = [p for p in connected if p not in {Platform.LOCAL, Platform.API_SERVER, Platform.WEBHOOK}]
+        messaging_platforms = [p for p in connected if p not in {Platform.LOCAL, Platform.API_SERVER}]
         if not messaging_platforms:
             return
 
@@ -2347,35 +2340,12 @@ class GatewayRunner:
         # Warn if no user allowlists are configured and open access is not opted in
         _any_allowlist = any(
             os.getenv(v)
-            for v in ("TELEGRAM_ALLOWED_USERS", "DISCORD_ALLOWED_USERS",
-                       "WHATSAPP_ALLOWED_USERS", "SLACK_ALLOWED_USERS",
-                       "SIGNAL_ALLOWED_USERS", "SIGNAL_GROUP_ALLOWED_USERS",
-                       "EMAIL_ALLOWED_USERS",
-                       "SMS_ALLOWED_USERS", "MATTERMOST_ALLOWED_USERS",
-                       "MATRIX_ALLOWED_USERS", "DINGTALK_ALLOWED_USERS",
-                       "FEISHU_ALLOWED_USERS",
-                       "WECOM_ALLOWED_USERS",
-                       "WECOM_CALLBACK_ALLOWED_USERS",
-                       "WEIXIN_ALLOWED_USERS",
-                       "BLUEBUBBLES_ALLOWED_USERS",
-                       "QQ_ALLOWED_USERS",
-                       "YUANBAO_ALLOWED_USERS",
+            for v in ("TELEGRAM_ALLOWED_USERS",
                        "GATEWAY_ALLOWED_USERS")
         )
         _allow_all = os.getenv("GATEWAY_ALLOW_ALL_USERS", "").lower() in ("true", "1", "yes") or any(
             os.getenv(v, "").lower() in ("true", "1", "yes")
-            for v in ("TELEGRAM_ALLOW_ALL_USERS", "DISCORD_ALLOW_ALL_USERS",
-                       "WHATSAPP_ALLOW_ALL_USERS", "SLACK_ALLOW_ALL_USERS",
-                       "SIGNAL_ALLOW_ALL_USERS", "EMAIL_ALLOW_ALL_USERS",
-                       "SMS_ALLOW_ALL_USERS", "MATTERMOST_ALLOW_ALL_USERS",
-                       "MATRIX_ALLOW_ALL_USERS", "DINGTALK_ALLOW_ALL_USERS",
-                       "FEISHU_ALLOW_ALL_USERS",
-                       "WECOM_ALLOW_ALL_USERS",
-                       "WECOM_CALLBACK_ALLOW_ALL_USERS",
-                       "WEIXIN_ALLOW_ALL_USERS",
-                       "BLUEBUBBLES_ALLOW_ALL_USERS",
-                       "QQ_ALLOW_ALL_USERS",
-                       "YUANBAO_ALLOW_ALL_USERS")
+            for v in ("TELEGRAM_ALLOW_ALL_USERS")
         )
         if not _any_allowlist and not _allow_all:
             logger.warning(
@@ -3284,107 +3254,6 @@ class GatewayRunner:
                 logger.warning("Telegram: python-telegram-bot not installed")
                 return None
             return TelegramAdapter(config)
-        
-        elif platform == Platform.DISCORD:
-            from gateway.platforms.discord import DiscordAdapter, check_discord_requirements
-            if not check_discord_requirements():
-                logger.warning("Discord: discord.py not installed")
-                return None
-            return DiscordAdapter(config)
-        
-        elif platform == Platform.WHATSAPP:
-            from gateway.platforms.whatsapp import WhatsAppAdapter, check_whatsapp_requirements
-            if not check_whatsapp_requirements():
-                logger.warning("WhatsApp: Node.js not installed or bridge not configured")
-                return None
-            return WhatsAppAdapter(config)
-        
-        elif platform == Platform.SLACK:
-            from gateway.platforms.slack import SlackAdapter, check_slack_requirements
-            if not check_slack_requirements():
-                logger.warning("Slack: slack-bolt not installed. Run: pip install 'hermes-agent[slack]'")
-                return None
-            return SlackAdapter(config)
-
-        elif platform == Platform.SIGNAL:
-            from gateway.platforms.signal import SignalAdapter, check_signal_requirements
-            if not check_signal_requirements():
-                logger.warning("Signal: SIGNAL_HTTP_URL or SIGNAL_ACCOUNT not configured")
-                return None
-            return SignalAdapter(config)
-
-        elif platform == Platform.HOMEASSISTANT:
-            from gateway.platforms.homeassistant import HomeAssistantAdapter, check_ha_requirements
-            if not check_ha_requirements():
-                logger.warning("HomeAssistant: aiohttp not installed or HASS_TOKEN not set")
-                return None
-            return HomeAssistantAdapter(config)
-
-        elif platform == Platform.EMAIL:
-            from gateway.platforms.email import EmailAdapter, check_email_requirements
-            if not check_email_requirements():
-                logger.warning("Email: EMAIL_ADDRESS, EMAIL_PASSWORD, EMAIL_IMAP_HOST, or EMAIL_SMTP_HOST not set")
-                return None
-            return EmailAdapter(config)
-
-        elif platform == Platform.SMS:
-            from gateway.platforms.sms import SmsAdapter, check_sms_requirements
-            if not check_sms_requirements():
-                logger.warning("SMS: aiohttp not installed or TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN not set")
-                return None
-            return SmsAdapter(config)
-
-        elif platform == Platform.DINGTALK:
-            from gateway.platforms.dingtalk import DingTalkAdapter, check_dingtalk_requirements
-            if not check_dingtalk_requirements():
-                logger.warning("DingTalk: dingtalk-stream not installed or DINGTALK_CLIENT_ID/SECRET not set")
-                return None
-            return DingTalkAdapter(config)
-
-        elif platform == Platform.FEISHU:
-            from gateway.platforms.feishu import FeishuAdapter, check_feishu_requirements
-            if not check_feishu_requirements():
-                logger.warning("Feishu: lark-oapi not installed or FEISHU_APP_ID/SECRET not set")
-                return None
-            return FeishuAdapter(config)
-
-        elif platform == Platform.WECOM_CALLBACK:
-            from gateway.platforms.wecom_callback import (
-                WecomCallbackAdapter,
-                check_wecom_callback_requirements,
-            )
-            if not check_wecom_callback_requirements():
-                logger.warning("WeComCallback: aiohttp/httpx not installed")
-                return None
-            return WecomCallbackAdapter(config)
-
-        elif platform == Platform.WECOM:
-            from gateway.platforms.wecom import WeComAdapter, check_wecom_requirements
-            if not check_wecom_requirements():
-                logger.warning("WeCom: aiohttp not installed or WECOM_BOT_ID/SECRET not set")
-                return None
-            return WeComAdapter(config)
-
-        elif platform == Platform.WEIXIN:
-            from gateway.platforms.weixin import WeixinAdapter, check_weixin_requirements
-            if not check_weixin_requirements():
-                logger.warning("Weixin: aiohttp/cryptography not installed")
-                return None
-            return WeixinAdapter(config)
-
-        elif platform == Platform.MATTERMOST:
-            from gateway.platforms.mattermost import MattermostAdapter, check_mattermost_requirements
-            if not check_mattermost_requirements():
-                logger.warning("Mattermost: MATTERMOST_TOKEN or MATTERMOST_URL not set, or aiohttp missing")
-                return None
-            return MattermostAdapter(config)
-
-        elif platform == Platform.MATRIX:
-            from gateway.platforms.matrix import MatrixAdapter, check_matrix_requirements
-            if not check_matrix_requirements():
-                logger.warning("Matrix: mautrix not installed or credentials not set. Run: pip install 'mautrix[encryption]'")
-                return None
-            return MatrixAdapter(config)
 
         elif platform == Platform.API_SERVER:
             from gateway.platforms.api_server import APIServerAdapter, check_api_server_requirements
@@ -3393,128 +3262,35 @@ class GatewayRunner:
                 return None
             return APIServerAdapter(config)
 
-        elif platform == Platform.WEBHOOK:
-            from gateway.platforms.webhook import WebhookAdapter, check_webhook_requirements
-            if not check_webhook_requirements():
-                logger.warning("Webhook: aiohttp not installed")
-                return None
-            adapter = WebhookAdapter(config)
-            adapter.gateway_runner = self  # For cross-platform delivery
-            return adapter
-
-        elif platform == Platform.BLUEBUBBLES:
-            from gateway.platforms.bluebubbles import BlueBubblesAdapter, check_bluebubbles_requirements
-            if not check_bluebubbles_requirements():
-                logger.warning("BlueBubbles: aiohttp/httpx missing or BLUEBUBBLES_SERVER_URL/BLUEBUBBLES_PASSWORD not configured")
-                return None
-            return BlueBubblesAdapter(config)
-
-        elif platform == Platform.QQBOT:
-            from gateway.platforms.qqbot import QQAdapter, check_qq_requirements
-            if not check_qq_requirements():
-                logger.warning("QQBot: aiohttp/httpx missing or QQ_APP_ID/QQ_CLIENT_SECRET not configured")
-                return None
-            return QQAdapter(config)
-
-        elif platform == Platform.YUANBAO:
-            from gateway.platforms.yuanbao import YuanbaoAdapter, WEBSOCKETS_AVAILABLE
-            if not WEBSOCKETS_AVAILABLE:
-                logger.warning("Yuanbao: websockets not installed. Run: pip install websockets")
-                return None
-            return YuanbaoAdapter(config)
-
         return None
     def _is_user_authorized(self, source: SessionSource) -> bool:
         """
         Check if a user is authorized to use the bot.
         
         Checks in order:
-        1. Per-platform allow-all flag (e.g., DISCORD_ALLOW_ALL_USERS=true)
+        1. Per-platform allow-all flag (e.g., TELEGRAM_ALLOW_ALL_USERS=true)
         2. Environment variable allowlists (TELEGRAM_ALLOWED_USERS, etc.)
         3. DM pairing approved list
         4. Global allow-all (GATEWAY_ALLOW_ALL_USERS=true)
         5. Default: deny
         """
-        # Home Assistant events are system-generated (state changes), not
-        # user-initiated messages.  The HASS_TOKEN already authenticates the
-        # connection, so HA events are always authorized.
-        # Webhook events are authenticated via HMAC signature validation in
-        # the adapter itself — no user allowlist applies.
-        if source.platform in (Platform.HOMEASSISTANT, Platform.WEBHOOK):
-            return True
-
         user_id = source.user_id
         if not user_id:
             return False
 
         platform_env_map = {
             Platform.TELEGRAM: "TELEGRAM_ALLOWED_USERS",
-            Platform.DISCORD: "DISCORD_ALLOWED_USERS",
-            Platform.WHATSAPP: "WHATSAPP_ALLOWED_USERS",
-            Platform.SLACK: "SLACK_ALLOWED_USERS",
-            Platform.SIGNAL: "SIGNAL_ALLOWED_USERS",
-            Platform.EMAIL: "EMAIL_ALLOWED_USERS",
-            Platform.SMS: "SMS_ALLOWED_USERS",
-            Platform.MATTERMOST: "MATTERMOST_ALLOWED_USERS",
-            Platform.MATRIX: "MATRIX_ALLOWED_USERS",
-            Platform.DINGTALK: "DINGTALK_ALLOWED_USERS",
-            Platform.FEISHU: "FEISHU_ALLOWED_USERS",
-            Platform.WECOM: "WECOM_ALLOWED_USERS",
-            Platform.WECOM_CALLBACK: "WECOM_CALLBACK_ALLOWED_USERS",
-            Platform.WEIXIN: "WEIXIN_ALLOWED_USERS",
-            Platform.BLUEBUBBLES: "BLUEBUBBLES_ALLOWED_USERS",
-            Platform.QQBOT: "QQ_ALLOWED_USERS",
-            Platform.YUANBAO: "YUANBAO_ALLOWED_USERS",
         }
         platform_group_env_map = {
             Platform.TELEGRAM: "TELEGRAM_GROUP_ALLOWED_USERS",
-            Platform.QQBOT: "QQ_GROUP_ALLOWED_USERS",
         }
         platform_allow_all_map = {
             Platform.TELEGRAM: "TELEGRAM_ALLOW_ALL_USERS",
-            Platform.DISCORD: "DISCORD_ALLOW_ALL_USERS",
-            Platform.WHATSAPP: "WHATSAPP_ALLOW_ALL_USERS",
-            Platform.SLACK: "SLACK_ALLOW_ALL_USERS",
-            Platform.SIGNAL: "SIGNAL_ALLOW_ALL_USERS",
-            Platform.EMAIL: "EMAIL_ALLOW_ALL_USERS",
-            Platform.SMS: "SMS_ALLOW_ALL_USERS",
-            Platform.MATTERMOST: "MATTERMOST_ALLOW_ALL_USERS",
-            Platform.MATRIX: "MATRIX_ALLOW_ALL_USERS",
-            Platform.DINGTALK: "DINGTALK_ALLOW_ALL_USERS",
-            Platform.FEISHU: "FEISHU_ALLOW_ALL_USERS",
-            Platform.WECOM: "WECOM_ALLOW_ALL_USERS",
-            Platform.WECOM_CALLBACK: "WECOM_CALLBACK_ALLOW_ALL_USERS",
-            Platform.WEIXIN: "WEIXIN_ALLOW_ALL_USERS",
-            Platform.BLUEBUBBLES: "BLUEBUBBLES_ALLOW_ALL_USERS",
-            Platform.QQBOT: "QQ_ALLOW_ALL_USERS",
-            Platform.YUANBAO: "YUANBAO_ALLOW_ALL_USERS",
         }
 
-        # Per-platform allow-all flag (e.g., DISCORD_ALLOW_ALL_USERS=true)
+        # Per-platform allow-all flag (e.g., TELEGRAM_ALLOW_ALL_USERS=true)
         platform_allow_all_var = platform_allow_all_map.get(source.platform, "")
         if platform_allow_all_var and os.getenv(platform_allow_all_var, "").lower() in ("true", "1", "yes"):
-            return True
-
-        # Discord bot senders that passed the DISCORD_ALLOW_BOTS platform
-        # filter are already authorized at the platform level — skip the
-        # user allowlist. Without this, bot messages allowed by
-        # DISCORD_ALLOW_BOTS=mentions/all would be rejected here with
-        # "Unauthorized user" (fixes #4466).
-        if source.platform == Platform.DISCORD and getattr(source, "is_bot", False):
-            allow_bots = os.getenv("DISCORD_ALLOW_BOTS", "none").lower().strip()
-            if allow_bots in ("mentions", "all"):
-                return True
-
-        # Discord role-based access (DISCORD_ALLOWED_ROLES): the adapter's
-        # on_message pre-filter already verified role membership — if the
-        # message reached here, the user passed that check. Authorize
-        # directly to avoid the "no allowlists configured" branch below
-        # rejecting role-only setups where DISCORD_ALLOWED_USERS is empty
-        # (issue #7871).
-        if (
-            source.platform == Platform.DISCORD
-            and os.getenv("DISCORD_ALLOWED_ROLES", "").strip()
-        ):
             return True
 
         # Check pairing store (always checked, regardless of allowlists)
@@ -3555,27 +3331,13 @@ class GatewayRunner:
         if global_allowlist:
             allowed_ids.update(uid.strip() for uid in global_allowlist.split(",") if uid.strip())
 
-        # "*" in any allowlist means allow everyone (consistent with
-        # SIGNAL_GROUP_ALLOWED_USERS precedent)
+        # "*" in any allowlist means allow everyone
         if "*" in allowed_ids:
             return True
 
         check_ids = {user_id}
         if "@" in user_id:
             check_ids.add(user_id.split("@")[0])
-
-        # WhatsApp: resolve phone↔LID aliases from bridge session mapping files
-        if source.platform == Platform.WHATSAPP:
-            normalized_allowed_ids = set()
-            for allowed_id in allowed_ids:
-                normalized_allowed_ids.update(_expand_whatsapp_auth_aliases(allowed_id))
-            if normalized_allowed_ids:
-                allowed_ids = normalized_allowed_ids
-
-            check_ids.update(_expand_whatsapp_auth_aliases(user_id))
-            normalized_user_id = _normalize_whatsapp_identifier(user_id)
-            if normalized_user_id:
-                check_ids.add(normalized_user_id)
 
         return bool(check_ids & allowed_ids)
 
@@ -3611,21 +3373,6 @@ class GatewayRunner:
         if platform:
             platform_env_map = {
                 Platform.TELEGRAM: "TELEGRAM_ALLOWED_USERS",
-                Platform.DISCORD:  "DISCORD_ALLOWED_USERS",
-                Platform.WHATSAPP: "WHATSAPP_ALLOWED_USERS",
-                Platform.SLACK:    "SLACK_ALLOWED_USERS",
-                Platform.SIGNAL:   "SIGNAL_ALLOWED_USERS",
-                Platform.EMAIL:    "EMAIL_ALLOWED_USERS",
-                Platform.SMS:      "SMS_ALLOWED_USERS",
-                Platform.MATTERMOST: "MATTERMOST_ALLOWED_USERS",
-                Platform.MATRIX:   "MATRIX_ALLOWED_USERS",
-                Platform.DINGTALK: "DINGTALK_ALLOWED_USERS",
-                Platform.FEISHU:   "FEISHU_ALLOWED_USERS",
-                Platform.WECOM:    "WECOM_ALLOWED_USERS",
-                Platform.WECOM_CALLBACK: "WECOM_CALLBACK_ALLOWED_USERS",
-                Platform.WEIXIN:   "WEIXIN_ALLOWED_USERS",
-                Platform.BLUEBUBBLES: "BLUEBUBBLES_ALLOWED_USERS",
-                Platform.QQBOT:    "QQ_ALLOWED_USERS",
             }
             if os.getenv(platform_env_map.get(platform, ""), "").strip():
                 return "ignore"
@@ -5151,42 +4898,20 @@ class GatewayRunner:
             )
         
         # One-time prompt if no home channel is set for this platform
-        # Skip for webhooks - they deliver directly to configured targets (github_comment, etc.)
-        if not history and source.platform and source.platform != Platform.LOCAL and source.platform != Platform.WEBHOOK:
+        if not history and source.platform and source.platform != Platform.LOCAL:
             platform_name = source.platform.value
             env_key = f"{platform_name.upper()}_HOME_CHANNEL"
             if not os.getenv(env_key):
                 adapter = self.adapters.get(source.platform)
                 if adapter:
-                    # Slack dispatches all Hermes commands through a single
-                    # parent slash command `/hermes`; bare `/sethome` is not
-                    # registered and would fail with "app did not respond".
-                    sethome_cmd = (
-                        "/hermes sethome"
-                        if source.platform == Platform.SLACK
-                        else "/sethome"
-                    )
                     await adapter.send(
                         source.chat_id,
                         f"📬 No home channel is set for {platform_name.title()}. "
                         f"A home channel is where Hermes delivers cron job results "
                         f"and cross-platform messages.\n\n"
-                        f"Type {sethome_cmd} to make this chat your home channel, "
+                        f"Type /sethome to make this chat your home channel, "
                         f"or ignore to skip."
                     )
-        
-        # -----------------------------------------------------------------
-        # Voice channel awareness — inject current voice channel state
-        # into context so the agent knows who is in the channel and who
-        # is speaking, without needing a separate tool call.
-        # -----------------------------------------------------------------
-        if source.platform == Platform.DISCORD:
-            adapter = self.adapters.get(Platform.DISCORD)
-            guild_id = self._get_guild_id(event)
-            if guild_id and adapter and hasattr(adapter, "get_voice_channel_context"):
-                vc_context = adapter.get_voice_channel_context(guild_id)
-                if vc_context:
-                    context_prompt += f"\n\n{vc_context}"
 
         # -----------------------------------------------------------------
         # Auto-analyze images sent by the user
@@ -6867,22 +6592,8 @@ class GatewayRunner:
             f"Cron jobs and cross-platform messages will be delivered here."
         )
     
-    @staticmethod
-    def _get_guild_id(event: MessageEvent) -> Optional[int]:
-        """Extract Discord guild_id from the raw message object."""
-        raw = getattr(event, "raw_message", None)
-        if raw is None:
-            return None
-        # Slash command interaction
-        if hasattr(raw, "guild_id") and raw.guild_id:
-            return int(raw.guild_id)
-        # Regular message
-        if hasattr(raw, "guild") and raw.guild:
-            return raw.guild.id
-        return None
-
     async def _handle_voice_command(self, event: MessageEvent) -> str:
-        """Handle /voice [on|off|tts|channel|leave|status] command."""
+        """Handle /voice [on|off|tts|status] command."""
         args = event.get_command_args().strip().lower()
         chat_id = event.source.chat_id
         platform = event.source.platform
@@ -6915,10 +6626,6 @@ class GatewayRunner:
                 "Auto-TTS enabled.\n"
                 "All replies will include a voice message."
             )
-        elif args in ("channel", "join"):
-            return await self._handle_voice_channel_join(event)
-        elif args == "leave":
-            return await self._handle_voice_channel_leave(event)
         elif args == "status":
             mode = self._voice_mode.get(voice_key, "off")
             labels = {
@@ -6926,21 +6633,6 @@ class GatewayRunner:
                 "voice_only": "On (voice reply to voice messages)",
                 "all": "TTS (voice reply to all messages)",
             }
-            # Append voice channel info if connected
-            adapter = self.adapters.get(event.source.platform)
-            guild_id = self._get_guild_id(event)
-            if guild_id and hasattr(adapter, "get_voice_channel_info"):
-                info = adapter.get_voice_channel_info(guild_id)
-                if info:
-                    lines = [
-                        f"Voice mode: {labels.get(mode, mode)}",
-                        f"Voice channel: #{info['channel_name']}",
-                        f"Participants: {info['member_count']}",
-                    ]
-                    for m in info["members"]:
-                        status = " (speaking)" if m.get("is_speaking") else ""
-                        lines.append(f"  - {m['display_name']}{status}")
-                    return "\n".join(lines)
             return f"Voice mode: {labels.get(mode, mode)}"
         else:
             # Toggle: off → on, on/all → off
@@ -6957,149 +6649,6 @@ class GatewayRunner:
                 if adapter:
                     self._set_adapter_auto_tts_disabled(adapter, chat_id, disabled=True)
                 return "Voice mode disabled."
-
-    async def _handle_voice_channel_join(self, event: MessageEvent) -> str:
-        """Join the user's current Discord voice channel."""
-        adapter = self.adapters.get(event.source.platform)
-        if not hasattr(adapter, "join_voice_channel"):
-            return "Voice channels are not supported on this platform."
-
-        guild_id = self._get_guild_id(event)
-        if not guild_id:
-            return "This command only works in a Discord server."
-
-        voice_channel = await adapter.get_user_voice_channel(
-            guild_id, event.source.user_id
-        )
-        if not voice_channel:
-            return "You need to be in a voice channel first."
-
-        # Wire callbacks BEFORE join so voice input arriving immediately
-        # after connection is not lost.
-        if hasattr(adapter, "_voice_input_callback"):
-            adapter._voice_input_callback = self._handle_voice_channel_input
-        if hasattr(adapter, "_on_voice_disconnect"):
-            adapter._on_voice_disconnect = self._handle_voice_timeout_cleanup
-
-        try:
-            success = await adapter.join_voice_channel(voice_channel)
-        except (RuntimeError) as e:
-            logger.warning("Failed to join voice channel: %s", e)
-            adapter._voice_input_callback = None
-            err_lower = str(e).lower()
-            if "pynacl" in err_lower or "nacl" in err_lower or "davey" in err_lower:
-                return (
-                    "Voice dependencies are missing (PyNaCl / davey). "
-                    f"Install with: `{sys.executable} -m pip install PyNaCl`"
-                )
-            return f"Failed to join voice channel: {e}"
-
-        if success:
-            adapter._voice_text_channels[guild_id] = int(event.source.chat_id)
-            if hasattr(adapter, "_voice_sources"):
-                adapter._voice_sources[guild_id] = event.source.to_dict()
-            self._voice_mode[self._voice_key(event.source.platform, event.source.chat_id)] = "all"
-            self._save_voice_modes()
-            self._set_adapter_auto_tts_enabled(adapter, event.source.chat_id, enabled=True)
-            return (
-                f"Joined voice channel **{voice_channel.name}**.\n"
-                f"I'll speak my replies and listen to you. Use /voice leave to disconnect."
-            )
-        # Join failed — clear callback
-        adapter._voice_input_callback = None
-        return "Failed to join voice channel. Check bot permissions (Connect + Speak)."
-
-    async def _handle_voice_channel_leave(self, event: MessageEvent) -> str:
-        """Leave the Discord voice channel."""
-        adapter = self.adapters.get(event.source.platform)
-        guild_id = self._get_guild_id(event)
-
-        if not guild_id or not hasattr(adapter, "leave_voice_channel"):
-            return "Not in a voice channel."
-
-        if not hasattr(adapter, "is_in_voice_channel") or not adapter.is_in_voice_channel(guild_id):
-            return "Not in a voice channel."
-
-        try:
-            await adapter.leave_voice_channel(guild_id)
-        except (RuntimeError) as e:
-            logger.warning("Error leaving voice channel: %s", e)
-        # Always clean up state even if leave raised an exception
-        self._voice_mode[self._voice_key(event.source.platform, event.source.chat_id)] = "off"
-        self._save_voice_modes()
-        self._set_adapter_auto_tts_disabled(adapter, event.source.chat_id, disabled=True)
-        if hasattr(adapter, "_voice_input_callback"):
-            adapter._voice_input_callback = None
-        return "Left voice channel."
-
-    def _handle_voice_timeout_cleanup(self, chat_id: str) -> None:
-        """Called by the adapter when a voice channel times out.
-
-        Cleans up runner-side voice_mode state that the adapter cannot reach.
-        """
-        self._voice_mode[self._voice_key(Platform.DISCORD, chat_id)] = "off"
-        self._save_voice_modes()
-        adapter = self.adapters.get(Platform.DISCORD)
-        self._set_adapter_auto_tts_disabled(adapter, chat_id, disabled=True)
-
-    async def _handle_voice_channel_input(
-        self, guild_id: int, user_id: int, transcript: str
-    ):
-        """Handle transcribed voice from a user in a voice channel.
-
-        Creates a synthetic MessageEvent and processes it through the
-        adapter's full message pipeline (session, typing, agent, TTS reply).
-        """
-        adapter = self.adapters.get(Platform.DISCORD)
-        if not adapter:
-            return
-
-        text_ch_id = adapter._voice_text_channels.get(guild_id)
-        if not text_ch_id:
-            return
-
-        # Build source — reuse the linked text channel's metadata when available
-        # so voice input shares the same session as the bound text conversation.
-        source_data = getattr(adapter, "_voice_sources", {}).get(guild_id)
-        if source_data:
-            source = SessionSource.from_dict(source_data)
-            source.user_id = str(user_id)
-            source.user_name = str(user_id)
-        else:
-            source = SessionSource(
-                platform=Platform.DISCORD,
-                chat_id=str(text_ch_id),
-                user_id=str(user_id),
-                user_name=str(user_id),
-                chat_type="channel",
-            )
-
-        # Check authorization before processing voice input
-        if not self._is_user_authorized(source):
-            logger.debug("Unauthorized voice input from user %d, ignoring", user_id)
-            return
-
-        # Show transcript in text channel (after auth, with mention sanitization)
-        try:
-            channel = adapter._client.get_channel(text_ch_id)
-            if channel:
-                safe_text = transcript[:2000].replace("@everyone", "@\u200beveryone").replace("@here", "@\u200bhere")
-                await channel.send(f"**[Voice]** <@{user_id}>: {safe_text}")
-        except (AttributeError, ConnectionError, KeyError, RuntimeError, TimeoutError, TypeError):
-            pass
-
-        # Build a synthetic MessageEvent and feed through the normal pipeline
-        # Use SimpleNamespace as raw_message so _get_guild_id() can extract
-        # guild_id and _send_voice_reply() plays audio in the voice channel.
-        from types import SimpleNamespace
-        event = MessageEvent(
-            source=source,
-            text=transcript,
-            message_type=MessageType.VOICE,
-            raw_message=SimpleNamespace(guild_id=guild_id, guild=None),
-        )
-
-        await adapter.handle_message(event)
 
     def _should_send_voice_reply(
         self,
@@ -7188,14 +6737,7 @@ class GatewayRunner:
 
             adapter = self.adapters.get(event.source.platform)
 
-            # If connected to a voice channel, play there instead of sending a file
-            guild_id = self._get_guild_id(event)
-            if (guild_id
-                    and hasattr(adapter, "play_in_voice_channel")
-                    and hasattr(adapter, "is_in_voice_channel")
-                    and adapter.is_in_voice_channel(guild_id)):
-                await adapter.play_in_voice_channel(guild_id, actual_path)
-            elif adapter and hasattr(adapter, "send_voice"):
+            if adapter and hasattr(adapter, "send_voice"):
                 send_kwargs: Dict[str, Any] = {
                     "chat_id": event.source.chat_id,
                     "audio_path": actual_path,
@@ -8550,13 +8092,10 @@ class GatewayRunner:
         logger.info("User denied %d dangerous command(s) via /deny", count)
         return f"❌ Command{'s' if count > 1 else ''} denied{count_msg}."
 
-    # Platforms where /update is allowed.  ACP, API server, and webhooks are
+    # Platforms where /update is allowed.  ACP and API server are
     # programmatic interfaces that should not trigger system updates.
     _UPDATE_ALLOWED_PLATFORMS = frozenset({
-        Platform.TELEGRAM, Platform.DISCORD, Platform.SLACK, Platform.WHATSAPP,
-        Platform.SIGNAL, Platform.MATTERMOST, Platform.MATRIX,
-        Platform.HOMEASSISTANT, Platform.EMAIL, Platform.SMS, Platform.DINGTALK,
-        Platform.FEISHU, Platform.WECOM, Platform.WECOM_CALLBACK, Platform.WEIXIN, Platform.BLUEBUBBLES, Platform.QQBOT, Platform.LOCAL,
+        Platform.TELEGRAM, Platform.LOCAL,
     })
 
     async def _handle_debug_command(self, event: MessageEvent) -> str:
@@ -10067,13 +9606,8 @@ class GatewayRunner:
                     _adapter_supports_edit = getattr(_adapter, "SUPPORTS_MESSAGE_EDITING", True)
                     _effective_cursor = _scfg.cursor if _adapter_supports_edit else ""
                     _buffer_only = False
-                    if source.platform == Platform.MATRIX:
-                        _effective_cursor = ""
-                        _buffer_only = True
-                    # Fresh-final applies to Telegram only — other
-                    # platforms either edit in place cheaply (Discord,
-                    # Slack) or don't have the timestamp-on-edit
-                    # problem.  (Ported from openclaw/openclaw#72038.)
+                    # Fresh-final applies to Telegram only.
+                    # (Ported from openclaw/openclaw#72038.)
                     _fresh_final_secs = (
                         float(getattr(_scfg, "fresh_final_after_seconds", 0.0) or 0.0)
                         if source.platform == Platform.TELEGRAM
@@ -10311,19 +9845,14 @@ class GatewayRunner:
             or os.getenv("HERMES_TOOL_PROGRESS_MODE")
             or "all"
         )
-        # Disable tool progress for webhooks - they don't support message editing,
-        # so each progress line would be sent as a separate message.
         from gateway.config import Platform
-        tool_progress_enabled = progress_mode != "off" and source.platform != Platform.WEBHOOK
+        tool_progress_enabled = progress_mode != "off"
         # Natural assistant status messages are intentionally independent from
         # tool progress and token streaming. Users can keep tool_progress quiet
         # in chat platforms while opting into concise mid-turn updates.
-        interim_assistant_messages_enabled = (
-            source.platform != Platform.WEBHOOK
-            and is_truthy_value(
-                display_config.get("interim_assistant_messages"),
-                default=True,
-            )
+        interim_assistant_messages_enabled = is_truthy_value(
+            display_config.get("interim_assistant_messages"),
+            default=True,
         )
         
         # Queue for progress messages (thread-safe)
@@ -10446,14 +9975,10 @@ class GatewayRunner:
         # Accumulates tool lines into a single message that gets edited.
         #
         # Threading metadata is platform-specific:
-        # - Slack DM threading needs event_message_id fallback (reply thread)
         # - Telegram uses message_thread_id only for forum topics; passing a
         #   normal DM/group message id as thread_id causes send failures
         # - Other platforms should use explicit source.thread_id only
-        if source.platform == Platform.SLACK:
-            _progress_thread_id = source.thread_id or event_message_id
-        else:
-            _progress_thread_id = source.thread_id
+        _progress_thread_id = source.thread_id
         _progress_metadata = {"thread_id": _progress_thread_id} if _progress_thread_id else None
 
         async def send_progress_messages():
@@ -10761,16 +10286,8 @@ class GatewayRunner:
                         if not _adapter_supports_edit:
                             raise RuntimeError("skip streaming for non-editable platform")
                         _effective_cursor = _scfg.cursor
-                        # Some Matrix clients render the streaming cursor
-                        # as a visible tofu/white-box artifact.  Keep
-                        # streaming text on Matrix, but suppress the cursor.
                         _buffer_only = False
-                        if source.platform == Platform.MATRIX:
-                            _effective_cursor = ""
-                            _buffer_only = True
-                        # Fresh-final applies to Telegram only — other
-                        # platforms either edit in place cheaply or don't
-                        # have the edit-timestamp-stays-stale problem.
+                        # Fresh-final applies to Telegram only.
                         # (Ported from openclaw/openclaw#72038.)
                         _fresh_final_secs = (
                             float(getattr(_scfg, "fresh_final_after_seconds", 0.0) or 0.0)

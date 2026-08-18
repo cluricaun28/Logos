@@ -20,7 +20,7 @@ import sys
 import tempfile
 import time
 
-sys.path.insert(0, os.path.expanduser("~/.hermes/hermes-agent/plugins/memory"))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")))
 
 from perpetual_context.feedback_state import (
     FeedbackState,

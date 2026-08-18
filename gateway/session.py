@@ -61,9 +61,6 @@ from .config import (
     SessionResetPolicy,  # noqa: F401 — re-exported via gateway/__init__.py
     HomeChannel,
 )
-from .whatsapp_identity import (
-    canonical_whatsapp_identifier,
-)
 from utils import atomic_replace
 
 
@@ -193,39 +190,10 @@ class SessionContext:
 
 
 _PII_SAFE_PLATFORMS = frozenset({
-    Platform.WHATSAPP,
-    Platform.SIGNAL,
     Platform.TELEGRAM,
-    Platform.BLUEBUBBLES,
 })
 """Platforms where user IDs can be safely redacted (no in-message mention system
-that requires raw IDs).  Discord is excluded because mentions use ``<@user_id>``
-and the LLM needs the real ID to tag users."""
-
-
-def _discord_tools_loaded() -> bool:
-    """True iff the agent will actually have Discord tools this session.
-
-    Two conditions must hold:
-      1. The `discord` or `discord_admin` toolset is enabled for the
-         Discord platform via `hermes tools` (opt-in, default OFF).
-      2. `DISCORD_BOT_TOKEN` is set — the tool's `check_fn` gates on it
-         at registry time, so the toolset being enabled in config is not
-         enough if the token isn't configured.
-
-    Returns False (safe default — keeps the stale-API disclaimer) on any
-    error so a bad config can't silently promise tools the agent lacks.
-    """
-    if not (os.environ.get("DISCORD_BOT_TOKEN") or "").strip():
-        return False
-    try:
-        from hermes_cli.config import load_config
-        from hermes_cli.tools_config import _get_platform_tools
-        cfg = load_config()
-        enabled = _get_platform_tools(cfg, "discord", include_default_mcp_servers=False)
-        return "discord" in enabled or "discord_admin" in enabled
-    except (ImportError, ModuleNotFoundError):
-        return False
+that requires raw IDs)."""
 
 
 def build_session_context_prompt(
@@ -304,66 +272,6 @@ def build_session_context_prompt(
             uid = _hash_sender_id(uid)
         lines.append(f"**User ID:** {uid}")
     
-    # Platform-specific behavioral notes
-    if context.source.platform == Platform.SLACK:
-        lines.append("")
-        lines.append(
-            "**Platform notes:** You are running inside Slack. "
-            "You do NOT have access to Slack-specific APIs — you cannot search "
-            "channel history, pin/unpin messages, manage channels, or list users. "
-            "Do not promise to perform these actions. The gateway may inline the "
-            "current message's Slack block/attachment payload when available, but "
-            "you still cannot call Slack APIs yourself."
-        )
-    elif context.source.platform == Platform.DISCORD:
-        # Inject the Discord IDs block only when the agent actually has
-        # Discord tools loaded this session — i.e. the user opted into
-        # `discord` / `discord_admin` via `hermes tools` AND the bot
-        # token is configured.  Otherwise keep the stale-API disclaimer
-        # honest so we never promise tools the agent lacks.
-        if _discord_tools_loaded():
-            src = context.source
-            id_lines = ["", "**Discord IDs (for the `discord` / `discord_admin` tools):**"]
-            if src.guild_id:
-                id_lines.append(f"  - Guild: `{src.guild_id}`")
-            if src.thread_id and src.parent_chat_id:
-                id_lines.append(f"  - Parent channel: `{src.parent_chat_id}`")
-                id_lines.append(f"  - Thread: `{src.thread_id}` (use as `channel_id` for fetch_messages etc.)")
-            else:
-                id_lines.append(f"  - Channel: `{src.chat_id}`")
-            if src.message_id:
-                id_lines.append(f"  - Triggering message: `{src.message_id}`")
-            lines.extend(id_lines)
-        else:
-            lines.append("")
-            lines.append(
-                "**Platform notes:** You are running inside Discord. "
-                "You do NOT have access to Discord-specific APIs — you cannot search "
-                "channel history, pin messages, manage roles, or list server members. "
-                "Do not promise to perform these actions. If the user asks, explain "
-                "that you can only read messages sent directly to you and respond."
-            )
-    elif context.source.platform == Platform.BLUEBUBBLES:
-        lines.append("")
-        lines.append(
-            "**Platform notes:** You are responding via iMessage. "
-            "Keep responses short and conversational — think texts, not essays. "
-            "Structure longer replies as separate short thoughts, each separated "
-            "by a blank line (double newline). Each block between blank lines "
-            "will be delivered as its own iMessage bubble, so write accordingly: "
-            "one idea per bubble, 1–3 sentences each. "
-            "If the user needs a detailed answer, give the short version first "
-            "and offer to elaborate."
-        )
-    elif context.source.platform == Platform.YUANBAO:
-        lines.append("")
-        lines.append(
-            "**Platform notes:** You are running inside Yuanbao. "
-            "You CAN send private (DM) messages via the send_message tool. "
-            "Use target='yuanbao:direct:<account_id>' for DM "
-            "and target='yuanbao:group:<group_code>' for group chat."
-        )
-
     # Connected platforms
     platforms_list = ["local (files on this machine)"]
     for p in context.connected_platforms:
@@ -601,8 +509,6 @@ def build_session_key(
     platform = source.platform.value
     if source.chat_type == "dm":
         dm_chat_id = source.chat_id
-        if source.platform == Platform.WHATSAPP:
-            dm_chat_id = canonical_whatsapp_identifier(source.chat_id)
 
         if dm_chat_id:
             if source.thread_id:
@@ -613,11 +519,6 @@ def build_session_key(
         return f"agent:main:{platform}:dm"
 
     participant_id = source.user_id_alt or source.user_id
-    if participant_id and source.platform == Platform.WHATSAPP:
-        # Same JID/LID-flip bug as the DM case: without canonicalisation, a
-        # single group member gets two isolated per-user sessions when the
-        # bridge reshuffles alias forms.
-        participant_id = canonical_whatsapp_identifier(str(participant_id)) or participant_id
     key_parts = ["agent:main", platform, source.chat_type]
 
     if source.chat_id:

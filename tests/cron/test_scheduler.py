@@ -245,18 +245,18 @@ class TestResolveDeliveryTarget:
             "thread_id": None,
         }
 
-    def test_explicit_discord_topic_target_with_thread_id(self):
+    def test_explicit_telegram_topic_target_with_thread_id(self):
         """deliver: 'discord:chat_id:thread_id' parses correctly."""
         job = {
-            "deliver": "discord:-1001234567890:17585",
+            "deliver": "telegram:-1001234567890:17585",
         }
         assert _resolve_delivery_target(job) == {
-            "platform": "discord",
+            "platform": "telegram",
             "chat_id": "-1001234567890",
             "thread_id": "17585",
         }
 
-    def test_explicit_discord_chat_id_without_thread_id(self):
+    def test_explicit_telegram_chat_id_without_thread_id(self):
         """deliver: 'discord:chat_id' sets thread_id to None."""
         job = {
             "deliver": "discord:9876543210",
@@ -436,7 +436,7 @@ class TestDeliverResultWrapping:
         pconfig = MagicMock()
         pconfig.enabled = True
         mock_cfg = MagicMock()
-        mock_cfg.platforms = {Platform.DISCORD: pconfig}
+        mock_cfg.platforms = {Platform.TELEGRAM: pconfig}
 
         loop = MagicMock()
         loop.is_running.return_value = True
@@ -451,7 +451,7 @@ class TestDeliverResultWrapping:
         job = {
             "id": "tts-job",
             "deliver": "origin",
-            "origin": {"platform": "discord", "chat_id": "9876"},
+            "origin": {"platform": "telegram", "chat_id": "9876"},
         }
 
         with patch("gateway.config.load_gateway_config", return_value=mock_cfg), \
@@ -460,7 +460,7 @@ class TestDeliverResultWrapping:
             _deliver_result(
                 job,
                 "Here is TTS\nMEDIA:/tmp/cron-voice.mp3",
-                adapters={Platform.DISCORD: adapter},
+                adapters={Platform.TELEGRAM: adapter},
                 loop=loop,
             )
 
@@ -487,7 +487,7 @@ class TestDeliverResultWrapping:
         pconfig = MagicMock()
         pconfig.enabled = True
         mock_cfg = MagicMock()
-        mock_cfg.platforms = {Platform.DISCORD: pconfig}
+        mock_cfg.platforms = {Platform.TELEGRAM: pconfig}
 
         loop = MagicMock()
         loop.is_running.return_value = True
@@ -501,7 +501,7 @@ class TestDeliverResultWrapping:
         job = {
             "id": "img-job",
             "deliver": "origin",
-            "origin": {"platform": "discord", "chat_id": "1234"},
+            "origin": {"platform": "telegram", "chat_id": "1234"},
         }
 
         with patch("gateway.config.load_gateway_config", return_value=mock_cfg), \
@@ -510,7 +510,7 @@ class TestDeliverResultWrapping:
             _deliver_result(
                 job,
                 "Chart attached\nMEDIA:/tmp/chart.png",
-                adapters={Platform.DISCORD: adapter},
+                adapters={Platform.TELEGRAM: adapter},
                 loop=loop,
             )
 

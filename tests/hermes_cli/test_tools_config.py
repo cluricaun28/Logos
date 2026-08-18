@@ -26,10 +26,10 @@ def test_agent_disabled_toolsets_suppresses_across_platforms():
     }
 
     cli_enabled = _get_platform_tools(config, "cli")
-    discord_enabled = _get_platform_tools(config, "discord")
+    telegram_enabled = _get_platform_tools(config, "telegram")
 
     assert "memory" not in cli_enabled
-    assert "memory" not in discord_enabled
+    assert "memory" not in telegram_enabled
 
 
 def test_agent_disabled_toolsets_with_explicit_platform_config():
@@ -77,33 +77,6 @@ def test_get_platform_tools_default_telegram_includes_messaging():
     enabled = _get_platform_tools({}, "telegram")
 
     assert "messaging" in enabled
-
-
-def test_get_platform_tools_homeassistant_platform_keeps_homeassistant_toolset():
-    enabled = _get_platform_tools({}, "homeassistant")
-
-    assert "homeassistant" in enabled
-
-
-def test_get_platform_tools_homeassistant_toolset_enabled_for_cron_when_hass_token_set(monkeypatch):
-    """HA toolset is runtime-gated by check_fn (requires HASS_TOKEN).
-
-    When HASS_TOKEN is set, the user has explicitly opted in — _DEFAULT_OFF_TOOLSETS
-    shouldn't also strip HA from platforms (like cron) that run through
-    _get_platform_tools without an explicit saved toolset list.
-
-    Regression guard for Norbert's HA cron breakage after #14798 made cron
-    honor per-platform tool config.
-    """
-    monkeypatch.setenv("HASS_TOKEN", "fake-test-token")
-
-    cron_enabled = _get_platform_tools({}, "cron")
-    assert "homeassistant" in cron_enabled
-    # moa must stay off — the original goal of #14798
-    assert "moa" not in cron_enabled
-
-    cli_enabled = _get_platform_tools({}, "cli")
-    assert "homeassistant" in cli_enabled
 
 
 def test_get_platform_tools_homeassistant_toolset_off_for_cron_when_hass_token_missing(monkeypatch):
@@ -771,75 +744,6 @@ def test_get_platform_tools_second_pass_skips_fully_claimed_toolsets():
     enabled = _get_platform_tools({}, "cli")
 
     assert "search" not in enabled
-
-
-def test_get_platform_tools_discord_both_off_by_default():
-    """Both `discord` and `discord_admin` are opt-in via `hermes tools`,
-    even on the Discord platform itself.  Users shouldn't auto-inherit 19
-    extra tools just because DISCORD_BOT_TOKEN is set."""
-    enabled = _get_platform_tools({}, "discord")
-    assert "discord" not in enabled
-    assert "discord_admin" not in enabled
-
-
-def test_discord_toolsets_in_configurable_toolsets():
-    keys = {ts_key for ts_key, _, _ in CONFIGURABLE_TOOLSETS}
-    assert "discord" in keys
-    assert "discord_admin" in keys
-
-
-def test_discord_toolsets_in_default_off():
-    assert "discord" in _DEFAULT_OFF_TOOLSETS
-    assert "discord_admin" in _DEFAULT_OFF_TOOLSETS
-
-
-def test_discord_toolsets_not_available_on_other_platforms():
-    """Platform-scoping: discord / discord_admin should not appear on CLI,
-    Telegram, etc. — not even as an opt-in."""
-    from hermes_cli.tools_config import _toolset_allowed_for_platform
-    for plat in ["cli", "telegram", "slack", "whatsapp", "signal"]:
-        assert not _toolset_allowed_for_platform("discord", plat), (
-            f"`discord` toolset leaked onto {plat}"
-        )
-        assert not _toolset_allowed_for_platform("discord_admin", plat), (
-            f"`discord_admin` toolset leaked onto {plat}"
-        )
-    assert _toolset_allowed_for_platform("discord", "discord")
-    assert _toolset_allowed_for_platform("discord_admin", "discord")
-
-
-def test_discord_toolsets_user_enabled_are_honored():
-    """When the user opts in via `hermes tools`, the toolset appears."""
-    config = {"platform_toolsets": {"discord": ["web", "terminal", "discord"]}}
-    enabled = _get_platform_tools(config, "discord")
-    assert "discord" in enabled
-    assert "discord_admin" not in enabled
-
-
-def test_save_platform_tools_strips_restricted_toolsets():
-    """Hand-edited or all-platforms checklist with `discord` selected for
-    Telegram must be stripped at save time."""
-    from hermes_cli.tools_config import _save_platform_tools
-    config = {}
-    _save_platform_tools(config, "telegram", {"web", "terminal", "discord", "discord_admin"})
-    saved = config["platform_toolsets"]["telegram"]
-    assert "discord" not in saved
-    assert "discord_admin" not in saved
-    assert "web" in saved
-    assert "terminal" in saved
-
-
-def test_get_platform_tools_feishu_includes_doc_and_drive():
-    enabled = _get_platform_tools({}, "feishu")
-    assert "feishu_doc" in enabled
-    assert "feishu_drive" in enabled
-
-
-def test_get_platform_tools_feishu_tools_not_on_other_platforms():
-    for plat in ["cli", "telegram", "discord"]:
-        enabled = _get_platform_tools({}, plat)
-        assert "feishu_doc" not in enabled, f"feishu_doc leaked onto {plat}"
-        assert "feishu_drive" not in enabled, f"feishu_drive leaked onto {plat}"
 
 
 def test_get_effective_configurable_toolsets_dedupes_bundled_plugins():

@@ -298,18 +298,11 @@ class TestBuiltinDiscovery:
             "tools.code_execution_tool",
             "tools.cronjob_tools",
             "tools.delegate_tool",
-            "tools.discord_tool",
-            "tools.feishu_doc_tool",
-            "tools.feishu_drive_tool",
             "tools.file_tools",
-            "tools.homeassistant_tool",
             "tools.image_generation_tool",
             "tools.memory_tool",
-            "tools.mixture_of_agents_tool",
             "tools.process_registry",
-            "tools.rl_training_tool",
             "tools.send_message_tool",
-            "tools.computer_use_tool",
             "tools.skill_manager_tool",
             "tools.skills_tool",
             "tools.terminal_tool",
@@ -317,7 +310,6 @@ class TestBuiltinDiscovery:
             "tools.tts_tool",
             "tools.vision_tools",
             "tools.web_tools",
-            "tools.yuanbao_tools",
         }
 
         with patch("tools.registry.importlib.import_module"):

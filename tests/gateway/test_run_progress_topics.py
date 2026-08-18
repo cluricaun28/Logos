@@ -245,55 +245,6 @@ async def test_run_agent_progress_does_not_use_event_message_id_for_telegram_dm(
     assert adapter.sent
     assert adapter.sent[0]["metadata"] is None
     assert all(call["metadata"] is None for call in adapter.typing)
-
-
-@pytest.mark.asyncio
-async def test_run_agent_progress_uses_event_message_id_for_slack_dm(monkeypatch, tmp_path):
-    """Slack DM progress should keep event ts fallback threading."""
-    monkeypatch.setenv("HERMES_TOOL_PROGRESS_MODE", "all")
-
-    fake_dotenv = types.ModuleType("dotenv")
-    fake_dotenv.load_dotenv = lambda *args, **kwargs: None
-    monkeypatch.setitem(sys.modules, "dotenv", fake_dotenv)
-
-    fake_run_agent = types.ModuleType("run_agent")
-    fake_run_agent.AIAgent = FakeAgent
-    monkeypatch.setitem(sys.modules, "run_agent", fake_run_agent)
-
-    adapter = ProgressCaptureAdapter(platform=Platform.SLACK)
-    runner = _make_runner(adapter)
-    gateway_run = importlib.import_module("gateway.run")
-    monkeypatch.setattr(gateway_run, "_hermes_home", tmp_path)
-    monkeypatch.setattr(gateway_run, "_resolve_runtime_agent_kwargs", lambda: {"api_key": "***"})
-
-    source = SessionSource(
-        platform=Platform.SLACK,
-        chat_id="D123",
-        chat_type="dm",
-        thread_id=None,
-    )
-
-    result = await runner._run_agent(
-        message="hello",
-        context_prompt="",
-        history=[],
-        source=source,
-        session_id="sess-3",
-        session_key="agent:main:slack:dm:D123",
-        event_message_id="1234567890.000001",
-    )
-
-    assert result["final_response"] == "done"
-    assert adapter.sent
-    assert adapter.sent[0]["metadata"] == {"thread_id": "1234567890.000001"}
-    assert all(call["metadata"] == {"thread_id": "1234567890.000001"} for call in adapter.typing)
-
-
-# ---------------------------------------------------------------------------
-# Preview truncation tests (all/new mode respects tool_preview_length)
-# ---------------------------------------------------------------------------
-
-
 def _run_long_preview_helper(monkeypatch, tmp_path, preview_length=0):
     """Shared setup for long-preview truncation tests.
 
@@ -682,7 +633,7 @@ async def test_run_agent_bluebubbles_uses_commentary_send_path_for_quick_replies
         CommentaryAgent,
         session_id="sess-bluebubbles-commentary",
         config_data={"display": {"interim_assistant_messages": True}},
-        platform=Platform.BLUEBUBBLES,
+        platform=Platform.TELEGRAM,
         chat_id="iMessage;-;user@example.com",
         chat_type="dm",
         thread_id=None,
@@ -706,30 +657,6 @@ async def test_run_agent_previewed_final_marks_already_sent(monkeypatch, tmp_pat
 
     assert result.get("already_sent") is True
     assert [call["content"] for call in adapter.sent] == ["You're welcome."]
-
-
-@pytest.mark.asyncio
-async def test_run_agent_matrix_streaming_omits_cursor(monkeypatch, tmp_path):
-    adapter, result = await _run_with_agent(
-        monkeypatch,
-        tmp_path,
-        StreamingRefineAgent,
-        session_id="sess-matrix-streaming",
-        config_data={
-            "display": {"tool_progress": "off", "interim_assistant_messages": False},
-            "streaming": {"enabled": True, "edit_interval": 0.01, "buffer_threshold": 1},
-        },
-        platform=Platform.MATRIX,
-        chat_id="!room:matrix.example.org",
-        chat_type="group",
-        thread_id="$thread",
-    )
-
-    assert result.get("already_sent") is True
-    all_text = [call["content"] for call in adapter.sent] + [call["content"] for call in adapter.edits]
-    assert all_text, "expected streamed Matrix content to be sent or edited"
-    assert all("▉" not in text for text in all_text)
-    assert any("Continuing to refine:" in text for text in all_text)
 
 
 @pytest.mark.asyncio
@@ -828,14 +755,14 @@ async def test_run_agent_drops_tool_progress_after_generation_invalidation(monke
     monkeypatch.setitem(sys.modules, "run_agent", fake_run_agent)
     import tools.terminal_tool  # noqa: F401 - register terminal tool metadata
 
-    adapter = ProgressCaptureAdapter(platform=Platform.DISCORD)
+    adapter = ProgressCaptureAdapter(platform=Platform.TELEGRAM)
     runner = _make_runner(adapter)
     gateway_run = importlib.import_module("gateway.run")
     monkeypatch.setattr(gateway_run, "_hermes_home", tmp_path)
     monkeypatch.setattr(gateway_run, "_resolve_runtime_agent_kwargs", lambda: {"api_key": "***"})
 
     source = SessionSource(
-        platform=Platform.DISCORD,
+        platform=Platform.TELEGRAM,
         chat_id="dm-1",
         chat_type="dm",
         thread_id=None,
@@ -889,14 +816,14 @@ async def test_run_agent_drops_interim_commentary_after_generation_invalidation(
     fake_run_agent.AIAgent = DelayedInterimAgent
     monkeypatch.setitem(sys.modules, "run_agent", fake_run_agent)
 
-    adapter = ProgressCaptureAdapter(platform=Platform.DISCORD)
+    adapter = ProgressCaptureAdapter(platform=Platform.TELEGRAM)
     runner = _make_runner(adapter)
     gateway_run = importlib.import_module("gateway.run")
     monkeypatch.setattr(gateway_run, "_hermes_home", tmp_path)
     monkeypatch.setattr(gateway_run, "_resolve_runtime_agent_kwargs", lambda: {"api_key": "***"})
 
     source = SessionSource(
-        platform=Platform.DISCORD,
+        platform=Platform.TELEGRAM,
         chat_id="dm-2",
         chat_type="dm",
         thread_id=None,
@@ -934,7 +861,7 @@ async def test_run_agent_drops_interim_commentary_after_generation_invalidation(
 
 @pytest.mark.asyncio
 async def test_keep_typing_stops_immediately_when_interrupt_event_is_set():
-    adapter = ProgressCaptureAdapter(platform=Platform.DISCORD)
+    adapter = ProgressCaptureAdapter(platform=Platform.TELEGRAM)
     stop_event = asyncio.Event()
 
     task = asyncio.create_task(

@@ -10,13 +10,9 @@ Each adapter handles:
 from __future__ import annotations
 
 from .base import BasePlatformAdapter, MessageEvent, SendResult
-from .qqbot import QQAdapter
-from .yuanbao import YuanbaoAdapter
 
 __all__ = [
     "BasePlatformAdapter",
     "MessageEvent",
     "SendResult",
-    "QQAdapter",
-    "YuanbaoAdapter",
 ]
