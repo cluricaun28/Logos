@@ -287,7 +287,7 @@ def resolve_proxy_url(
     """Return a proxy URL from env vars, or macOS system proxy.
 
     Check order:
-      0. *platform_env_var* (e.g. ``DISCORD_PROXY``) — highest priority
+      0. *platform_env_var* (e.g. ``TELEGRAM_PROXY``) — highest priority
       1. HTTPS_PROXY / HTTP_PROXY / ALL_PROXY (and lowercase variants)
       2. macOS system proxy via ``scutil --proxy`` (auto-detect)
 

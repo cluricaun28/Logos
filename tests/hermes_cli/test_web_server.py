@@ -12,7 +12,6 @@ from hermes_cli.config import (
     DEFAULT_CONFIG,
     reload_env,
     redact_key,
-    _EXTRA_ENV_KEYS,
     OPTIONAL_ENV_VARS,
 )
 

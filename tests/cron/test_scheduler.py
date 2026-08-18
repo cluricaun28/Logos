@@ -67,39 +67,13 @@ class TestResolveDeliveryTarget:
     @pytest.mark.parametrize(
         ("platform", "env_var", "chat_id"),
         [
-            ("matrix", "MATRIX_HOME_ROOM", "!bot-room:example.org"),
-            ("signal", "SIGNAL_HOME_CHANNEL", "+15551234567"),
-            ("mattermost", "MATTERMOST_HOME_CHANNEL", "team-town-square"),
-            ("sms", "SMS_HOME_CHANNEL", "+15557654321"),
-            ("email", "EMAIL_HOME_ADDRESS", "home@example.com"),
-            ("dingtalk", "DINGTALK_HOME_CHANNEL", "cidNNN"),
-            ("feishu", "FEISHU_HOME_CHANNEL", "oc_home"),
-            ("wecom", "WECOM_HOME_CHANNEL", "wecom-home"),
-            ("weixin", "WEIXIN_HOME_CHANNEL", "wxid_home"),
-            ("qqbot", "QQ_HOME_CHANNEL", "group-openid-home"),
+            ("telegram", "TELEGRAM_HOME_CHANNEL", "-1001"),
         ],
     )
     def test_origin_delivery_without_origin_falls_back_to_supported_home_channels(
         self, monkeypatch, platform, env_var, chat_id
     ):
-        for fallback_env in (
-            "MATRIX_HOME_ROOM",
-            "MATRIX_HOME_CHANNEL",
-            "TELEGRAM_HOME_CHANNEL",
-            "DISCORD_HOME_CHANNEL",
-            "SLACK_HOME_CHANNEL",
-            "SIGNAL_HOME_CHANNEL",
-            "MATTERMOST_HOME_CHANNEL",
-            "SMS_HOME_CHANNEL",
-            "EMAIL_HOME_ADDRESS",
-            "DINGTALK_HOME_CHANNEL",
-            "BLUEBUBBLES_HOME_CHANNEL",
-            "FEISHU_HOME_CHANNEL",
-            "WECOM_HOME_CHANNEL",
-            "WEIXIN_HOME_CHANNEL",
-            "QQ_HOME_CHANNEL",
-        ):
-            monkeypatch.delenv(fallback_env, raising=False)
+        monkeypatch.delenv("TELEGRAM_HOME_CHANNEL", raising=False)
         monkeypatch.setenv(env_var, chat_id)
 
         assert _resolve_delivery_target({"deliver": "origin"}) == {
@@ -108,13 +82,13 @@ class TestResolveDeliveryTarget:
             "thread_id": None,
         }
 
-    def test_bare_matrix_delivery_uses_matrix_home_room(self, monkeypatch):
-        monkeypatch.delenv("MATRIX_HOME_CHANNEL", raising=False)
-        monkeypatch.setenv("MATRIX_HOME_ROOM", "!room123:example.org")
+    def test_bare_telegram_delivery_uses_home_channel(self, monkeypatch):
+        monkeypatch.delenv("TELEGRAM_HOME_CHANNEL", raising=False)
+        monkeypatch.setenv("TELEGRAM_HOME_CHANNEL", "-1001")
 
-        assert _resolve_delivery_target({"deliver": "matrix"}) == {
-            "platform": "matrix",
-            "chat_id": "!room123:example.org",
+        assert _resolve_delivery_target({"deliver": "telegram"}) == {
+            "platform": "telegram",
+            "chat_id": "-1001",
             "thread_id": None,
         }
 
@@ -300,7 +274,8 @@ class TestResolveDeliveryTarget:
         }
 
     def test_list_form_multiple_platforms_normalized(self, monkeypatch):
-        """deliver=['telegram', 'discord'] resolves to multiple targets."""
+        """deliver=['telegram', ...] resolves to per-platform targets;
+        platforms not supported by the fork are dropped."""
         from cron.scheduler import _resolve_delivery_targets
 
         monkeypatch.setenv("TELEGRAM_HOME_CHANNEL", "-111")
@@ -309,7 +284,7 @@ class TestResolveDeliveryTarget:
 
         targets = _resolve_delivery_targets(job)
         platforms = sorted(t["platform"] for t in targets)
-        assert platforms == ["discord", "telegram"]
+        assert platforms == ["telegram"]
 
     def test_empty_list_form_deliver_resolves_to_local(self):
         """deliver=[] is treated as local (no delivery)."""

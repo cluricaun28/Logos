@@ -497,10 +497,6 @@ def _print_setup_summary(config: dict, hermes_home):
     else:
         tool_status.append(("RL Training (Tinker)", False, "TINKER_API_KEY"))
 
-    # Home Assistant
-    if get_env_value("HASS_TOKEN"):
-        tool_status.append(("Smart Home (Home Assistant)", True, None))
-
     # Spotify (OAuth via hermes auth spotify — check auth.json, not env vars)
     try:
         from hermes_cli.auth import get_provider_auth_state
@@ -1797,10 +1793,7 @@ def setup_gateway(config: dict):
     items = []
     pre_selected = []
     for i, (name, env_var, _func) in enumerate(_GATEWAY_PLATFORMS):
-        # Matrix has two possible env vars
         is_configured = bool(get_env_value(env_var))
-        if name == "Matrix" and not is_configured:
-            is_configured = bool(get_env_value("MATRIX_PASSWORD"))
         label = f"{name}  (configured)" if is_configured else name
         items.append(label)
         if is_configured:
@@ -1817,25 +1810,7 @@ def setup_gateway(config: dict):
         setup_func()
 
     # ── Gateway Service Setup ──
-    any_messaging = (
-        get_env_value("TELEGRAM_BOT_TOKEN")
-        or get_env_value("DISCORD_BOT_TOKEN")
-        or get_env_value("SLACK_BOT_TOKEN")
-        or get_env_value("SIGNAL_HTTP_URL")
-        or get_env_value("EMAIL_ADDRESS")
-        or get_env_value("TWILIO_ACCOUNT_SID")
-        or get_env_value("MATTERMOST_TOKEN")
-        or get_env_value("MATRIX_ACCESS_TOKEN")
-        or get_env_value("MATRIX_PASSWORD")
-        or get_env_value("WHATSAPP_ENABLED")
-        or get_env_value("DINGTALK_CLIENT_ID")
-        or get_env_value("FEISHU_APP_ID")
-        or get_env_value("WECOM_BOT_ID")
-        or get_env_value("WEIXIN_ACCOUNT_ID")
-        or get_env_value("BLUEBUBBLES_SERVER_URL")
-        or get_env_value("QQ_APP_ID")
-        or get_env_value("WEBHOOK_ENABLED")
-    )
+    any_messaging = get_env_value("TELEGRAM_BOT_TOKEN")
     if any_messaging:
         print()
         print_info("━" * 50)
@@ -1847,18 +1822,6 @@ def setup_gateway(config: dict):
             "TELEGRAM_HOME_CHANNEL"
         ):
             missing_home.append("Telegram")
-        if get_env_value("DISCORD_BOT_TOKEN") and not get_env_value(
-            "DISCORD_HOME_CHANNEL"
-        ):
-            missing_home.append("Discord")
-        if get_env_value("SLACK_BOT_TOKEN") and not get_env_value("SLACK_HOME_CHANNEL"):
-            missing_home.append("Slack")
-        if get_env_value("BLUEBUBBLES_SERVER_URL") and not get_env_value("BLUEBUBBLES_HOME_CHANNEL"):
-            missing_home.append("BlueBubbles")
-        if get_env_value("QQ_APP_ID") and not (
-            get_env_value("QQBOT_HOME_CHANNEL") or get_env_value("QQ_HOME_CHANNEL")
-        ):
-            missing_home.append("QQBot")
 
         if missing_home:
             print()

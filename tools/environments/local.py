@@ -67,6 +67,16 @@ def _build_provider_env_blocklist() -> frozenset:
         "FIRECRAWL_API_URL",
         "TELEGRAM_HOME_CHANNEL",
         "TELEGRAM_HOME_CHANNEL_NAME",
+        # Credentials of platforms removed from the fork (T4) — kept blocked
+        # so stale values in a user's .env never leak into subprocesses.
+        "DISCORD_BOT_TOKEN",
+        "SLACK_BOT_TOKEN",
+        "SLACK_APP_TOKEN",
+        "MATTERMOST_TOKEN",
+        "MATRIX_ACCESS_TOKEN",
+        "MATRIX_RECOVERY_KEY",
+        "BLUEBUBBLES_PASSWORD",
+        "QQ_CLIENT_SECRET",
         "DISCORD_HOME_CHANNEL",
         "DISCORD_HOME_CHANNEL_NAME",
         "DISCORD_REQUIRE_MENTION",

@@ -487,24 +487,3 @@ class TestDeriveForumThreadName:
     def test_strips_whitespace_around_first_line(self):
         assert _derive_forum_thread_name("  Title  \nBody") == "Title"
 
-
-# ---------------------------------------------------------------------------
-# Tests for _send_discord with forum channel support
-# ---------------------------------------------------------------------------
-class TestForumProbeCache:
-    """_DISCORD_CHANNEL_TYPE_PROBE_CACHE memoizes forum detection results."""
-
-    def setup_method(self):
-        from tools import send_message_tool as smt
-        smt._DISCORD_CHANNEL_TYPE_PROBE_CACHE.clear()
-
-    def test_cache_round_trip(self):
-        from tools.send_message_tool import (
-            _probe_is_forum_cached,
-            _remember_channel_is_forum,
-        )
-        assert _probe_is_forum_cached("xyz") is None
-        _remember_channel_is_forum("xyz", True)
-        assert _probe_is_forum_cached("xyz") is True
-        _remember_channel_is_forum("xyz", False)
-        assert _probe_is_forum_cached("xyz") is False

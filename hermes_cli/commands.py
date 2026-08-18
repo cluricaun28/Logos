@@ -406,9 +406,7 @@ def _iter_plugin_command_entries() -> list[tuple[str, str, str]]:
     Plugin commands are registered via
     :func:`hermes_cli.plugins.PluginContext.register_command`. They behave
     like ``CommandDef`` entries for gateway surfacing: they appear in the
-    Telegram command menu, in Slack's ``/hermes`` subcommand mapping, and
-    (via :func:`gateway.platforms.discord._register_slash_commands`) in
-    Discord's native slash command picker.
+    Telegram command menu and in the ``/hermes`` subcommand mapping.
 
     Lookup is lazy so importing this module never forces plugin discovery
     (which can trigger filesystem scans and environment-dependent
@@ -458,7 +456,7 @@ def telegram_bot_commands() -> list[tuple[str, str]]:
 
 
 _CMD_NAME_LIMIT = 32
-"""Max command name length shared by Telegram and Discord."""
+"""Max slash command name length (Telegram cap)."""
 
 # Backward-compat alias — tests and external code may reference the old name.
 _TG_NAME_LIMIT = _CMD_NAME_LIMIT
@@ -489,7 +487,7 @@ def _clamp_command_names(
 ) -> list[tuple[str, str]]:
     """Enforce 32-char command name limit with collision avoidance.
 
-    Both Telegram and Discord cap slash command names at 32 characters.
+    Telegram caps slash command names at 32 characters.
     Names exceeding the limit are truncated.  If truncation creates a duplicate
     (against *reserved* names or earlier entries in the same batch), the name is
     shortened to 31 chars and a digit ``0``-``9`` is appended to differentiate.
@@ -544,12 +542,12 @@ def _collect_gateway_skill_entries(
 
     Args:
         platform: Platform identifier for per-platform skill filtering
-            (``"telegram"``, ``"discord"``, etc.).
+            (``"telegram"``, ``"api_server"``, etc.).
         max_slots: Maximum number of entries to return (remaining slots after
             built-in/core commands).
         reserved_names: Names already taken by built-in commands.  Mutated
             in-place as new names are added.
-        desc_limit: Max description length (40 for Telegram, 100 for Discord).
+        desc_limit: Max description length (40 for Telegram).
         sanitize_name: Optional name transform applied before clamping, e.g.
             :func:`_sanitize_telegram_name` for Telegram.  May return an
             empty string to signal "skip this entry".
@@ -672,276 +670,6 @@ def telegram_menu_commands(max_commands: int = 100) -> tuple[list[tuple[str, str
     all_commands.extend((n, d) for n, d, _k in entries)
     return all_commands[:max_commands], hidden_count
 
-
-def discord_skill_commands(
-    max_slots: int,
-    reserved_names: set[str],
-) -> tuple[list[tuple[str, str, str]], int]:
-    """Return skill entries for Discord slash command registration.
-
-    Same priority and filtering logic as :func:`telegram_menu_commands`
-    (plugins > skills, hub excluded, per-platform disabled excluded), but
-    adapted for Discord's constraints:
-
-    - Hyphens are allowed in names (no ``-`` → ``_`` sanitization)
-    - Descriptions capped at 100 chars (Discord's per-field max)
-
-    Args:
-        max_slots: Available command slots (100 minus existing built-in count).
-        reserved_names: Names of already-registered built-in commands.
-
-    Returns:
-        ``(entries, hidden_count)`` where *entries* is a list of
-        ``(discord_name, description, cmd_key)`` triples.  ``cmd_key`` is
-        the original ``/skill-name`` key needed for the slash handler callback.
-    """
-    return _collect_gateway_skill_entries(
-        platform="discord",
-        max_slots=max_slots,
-        reserved_names=set(reserved_names),  # copy — don't mutate caller's set
-        desc_limit=100,
-    )
-
-
-def discord_skill_commands_by_category(
-    reserved_names: set[str],
-) -> tuple[dict[str, list[tuple[str, str, str]]], list[tuple[str, str, str]], int]:
-    """Return skill entries organized by category for Discord ``/skill`` subcommand groups.
-
-    Skills whose directory is nested at least 2 levels under ``SKILLS_DIR``
-    (e.g. ``creative/ascii-art/SKILL.md``) are grouped by their top-level
-    category.  Root-level skills (e.g. ``dogfood/SKILL.md``) are returned as
-    *uncategorized* — the caller should register them as direct subcommands
-    of the ``/skill`` group.
-
-    The same filtering as :func:`discord_skill_commands` is applied: hub
-    skills excluded, per-platform disabled excluded, names clamped.
-
-    Returns:
-        ``(categories, uncategorized, hidden_count)``
-
-        - *categories*: ``{category_name: [(name, description, cmd_key), ...]}``
-        - *uncategorized*: ``[(name, description, cmd_key), ...]``
-        - *hidden_count*: skills dropped due to Discord group limits
-          (25 subcommand groups, 25 subcommands per group)
-    """
-    from pathlib import Path as _P
-
-    _platform_disabled: set[str] = set()
-    try:
-        from agent.skill_utils import get_disabled_skill_names
-        _platform_disabled = get_disabled_skill_names(platform="discord")
-    except (ImportError, ModuleNotFoundError):
-        pass
-
-    # Collect raw skill data --------------------------------------------------
-    categories: dict[str, list[tuple[str, str, str]]] = {}
-    uncategorized: list[tuple[str, str, str]] = []
-    _names_used: set[str] = set(reserved_names)
-    hidden = 0
-
-    try:
-        from agent.skill_commands import get_skill_commands
-        from tools.skills_tool import SKILLS_DIR
-        _skills_dir = SKILLS_DIR.resolve()
-        _hub_dir = (SKILLS_DIR / ".hub").resolve()
-        skill_cmds = get_skill_commands()
-
-        for cmd_key in sorted(skill_cmds):
-            info = skill_cmds[cmd_key]
-            skill_path = info.get("skill_md_path", "")
-            if not skill_path:
-                continue
-            sp = _P(skill_path).resolve()
-            # Skip skills outside SKILLS_DIR or from the hub
-            if not str(sp).startswith(str(_skills_dir)):
-                continue
-            if str(sp).startswith(str(_hub_dir)):
-                continue
-
-            skill_name = info.get("name", "")
-            if skill_name in _platform_disabled:
-                continue
-
-            raw_name = cmd_key.lstrip("/")
-            # Clamp to 32 chars (Discord limit)
-            discord_name = raw_name[:32]
-            if discord_name in _names_used:
-                continue
-            _names_used.add(discord_name)
-
-            desc = info.get("description", "")
-            if len(desc) > 100:
-                desc = desc[:97] + "..."
-
-            # Determine category from the relative path within SKILLS_DIR.
-            # e.g. creative/ascii-art/SKILL.md → parts = ("creative", "ascii-art")
-            try:
-                rel = sp.parent.relative_to(_skills_dir)
-            except ValueError:
-                continue
-            parts = rel.parts
-            if len(parts) >= 2:
-                cat = parts[0]
-                categories.setdefault(cat, []).append((discord_name, desc, cmd_key))
-            else:
-                uncategorized.append((discord_name, desc, cmd_key))
-    except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
-        pass
-
-    # Enforce Discord limits: 25 subcommand groups, 25 subcommands each ------
-    _MAX_GROUPS = 25
-    _MAX_PER_GROUP = 25
-
-    trimmed_categories: dict[str, list[tuple[str, str, str]]] = {}
-    group_count = 0
-    for cat in sorted(categories):
-        if group_count >= _MAX_GROUPS:
-            hidden += len(categories[cat])
-            continue
-        entries = categories[cat][:_MAX_PER_GROUP]
-        hidden += max(0, len(categories[cat]) - _MAX_PER_GROUP)
-        trimmed_categories[cat] = entries
-        group_count += 1
-
-    # Uncategorized skills also count against the 25 top-level limit
-    remaining_slots = _MAX_GROUPS - group_count
-    if len(uncategorized) > remaining_slots:
-        hidden += len(uncategorized) - remaining_slots
-        uncategorized = uncategorized[:remaining_slots]
-
-    return trimmed_categories, uncategorized, hidden
-
-
-# ---------------------------------------------------------------------------
-# Slack native slash commands
-# ---------------------------------------------------------------------------
-
-# Slack slash command name constraints: lowercase a-z, 0-9, hyphens,
-# underscores. Max 32 chars. Slack app manifest accepts up to 50 slash
-# commands per app.
-_SLACK_MAX_SLASH_COMMANDS = 50
-_SLACK_NAME_LIMIT = 32
-_SLACK_INVALID_CHARS = re.compile(r"[^a-z0-9_\-]")
-
-
-def _sanitize_slack_name(raw: str) -> str:
-    """Convert a command name to a valid Slack slash command name.
-
-    Slack allows lowercase a-z, digits, hyphens, and underscores. Max 32
-    chars. Uppercase is lowercased; invalid chars are stripped.
-    """
-    name = raw.lower()
-    name = _SLACK_INVALID_CHARS.sub("", name)
-    name = name.strip("-_")
-    return name[:_SLACK_NAME_LIMIT]
-
-
-def slack_native_slashes() -> list[tuple[str, str, str]]:
-    """Return (slash_name, description, usage_hint) triples for Slack.
-
-    Every gateway-available command in ``COMMAND_REGISTRY`` is surfaced as
-    a standalone Slack slash command (e.g. ``/btw``, ``/stop``, ``/model``),
-    matching Discord's and Telegram's model where every command is a
-    first-class slash and not a ``/hermes <verb>`` subcommand.
-
-    Both canonical names and aliases are included so users can type any
-    documented form (e.g. ``/background``, ``/bg``, and ``/btw`` all work).
-    Plugin-registered slash commands are included too.
-
-    Results are clamped to Slack's 50-command limit with duplicate-name
-    avoidance. ``/hermes`` is always reserved as the first entry so the
-    legacy ``/hermes <subcommand>`` form keeps working for anything that
-    gets dropped by the clamp or for free-form questions.
-    """
-    overrides = _resolve_config_gates()
-    entries: list[tuple[str, str, str]] = []
-    seen: set[str] = set()
-
-    # Reserve /hermes as the catch-all top-level command.
-    entries.append(("hermes", "Talk to Hermes or run a subcommand", "[subcommand] [args]"))
-    seen.add("hermes")
-
-    def _add(name: str, desc: str, hint: str) -> None:
-        slack_name = _sanitize_slack_name(name)
-        if not slack_name or slack_name in seen:
-            return
-        if len(entries) >= _SLACK_MAX_SLASH_COMMANDS:
-            return
-        # Slack description cap is 2000 chars; keep it short.
-        entries.append((slack_name, desc[:140], hint[:100]))
-        seen.add(slack_name)
-
-    # First pass: canonical names (so they win slots if we hit the cap).
-    for cmd in COMMAND_REGISTRY:
-        if not _is_gateway_available(cmd, overrides):
-            continue
-        _add(cmd.name, cmd.description, cmd.args_hint or "")
-
-    # Second pass: aliases.
-    for cmd in COMMAND_REGISTRY:
-        if not _is_gateway_available(cmd, overrides):
-            continue
-        for alias in cmd.aliases:
-            # Skip aliases that only differ from canonical by case/punctuation
-            # normalization (already covered by _add dedup).
-            _add(alias, f"Alias for /{cmd.name} — {cmd.description}", cmd.args_hint or "")
-
-    # Third pass: plugin commands.
-    for name, description, args_hint in _iter_plugin_command_entries():
-        _add(name, description, args_hint or "")
-
-    return entries
-
-
-def slack_app_manifest(request_url: str = "https://hermes-agent.local/slack/commands") -> dict[str, Any]:
-    """Generate a Slack app manifest with all gateway commands as slashes.
-
-    ``request_url`` is required by Slack's manifest schema for every slash
-    command, but in Socket Mode (which we use) Slack ignores it and routes
-    the command event through the WebSocket. A placeholder URL is fine.
-
-    The returned dict is the ``features.slash_commands`` portion only —
-    callers compose it into a full manifest (or merge into an existing
-    one). Keeping it narrow avoids coupling us to the rest of the manifest
-    schema (display_information, oauth_config, settings, etc.) which users
-    set up once in the Slack UI and rarely change.
-    """
-    slashes = []
-    for name, desc, usage in slack_native_slashes():
-        entry = {
-            "command": f"/{name}",
-            "description": desc or f"Run /{name}",
-            "should_escape": False,
-            "url": request_url,
-        }
-        if usage:
-            entry["usage_hint"] = usage
-        slashes.append(entry)
-    return {"features": {"slash_commands": slashes}}
-
-
-def slack_subcommand_map() -> dict[str, str]:
-    """Return subcommand -> /command mapping for Slack /hermes handler.
-
-    Maps both canonical names and aliases so /hermes bg do stuff works
-    the same as /hermes background do stuff.
-
-    Plugin-registered slash commands are included so ``/hermes <plugin-cmd>``
-    routes through the plugin handler.
-    """
-    overrides = _resolve_config_gates()
-    mapping: dict[str, str] = {}
-    for cmd in COMMAND_REGISTRY:
-        if not _is_gateway_available(cmd, overrides):
-            continue
-        mapping[cmd.name] = f"/{cmd.name}"
-        for alias in cmd.aliases:
-            mapping[alias] = f"/{alias}"
-    for name, _description, _args_hint in _iter_plugin_command_entries():
-        if name not in mapping:
-            mapping[name] = f"/{name}"
-    return mapping
 
 
 # ---------------------------------------------------------------------------
