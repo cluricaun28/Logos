@@ -229,6 +229,8 @@ TOOLSETS = {
             "browser_vision", "browser_console", "browser_cdp", "browser_dialog",
             # Planning & memory
             "todo", "memory",
+            # Session history search
+            "session_search",
             # Code execution + delegation
             "execute_code", "delegate_task",
             # Cronjob management

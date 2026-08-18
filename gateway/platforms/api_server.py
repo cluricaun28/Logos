@@ -698,7 +698,10 @@ class APIServerAdapter(BasePlatformAdapter):
             try:
                 from hermes_state import SessionDB
                 self._session_db = SessionDB()
-            except (ImportError, ModuleNotFoundError) as e:
+            except Exception as e:
+                # Lazy accessor: any failure (missing dep, DB locked, corrupt
+                # file) degrades to stateless mode — it must never break a
+                # request that could have succeeded without session history.
                 logger.debug("SessionDB unavailable for API server: %s", e)
         return self._session_db
 
@@ -894,11 +897,13 @@ class APIServerAdapter(BasePlatformAdapter):
                     status=400,
                 )
             session_id = provided_session_id
+            history = []
             try:
                 db = self._ensure_session_db()
                 if db is not None:
                     history = db.get_messages_as_conversation(session_id)
-            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
+            except Exception as e:
+                # DB trouble must degrade to a fresh conversation, not 500.
                 logger.warning("Failed to load session history for %s: %s", session_id, e)
                 history = []
         else:
@@ -2355,8 +2360,8 @@ class APIServerAdapter(BasePlatformAdapter):
 
         try:
             body = await request.json()
-        except (RuntimeError):
-            return web.json_response(_openai_error("Invalid JSON"), status=400)
+        except (json.JSONDecodeError, Exception):
+            return web.json_response(_openai_error("Invalid JSON in request body"), status=400)
 
         raw_input = body.get("input")
         if not raw_input:
