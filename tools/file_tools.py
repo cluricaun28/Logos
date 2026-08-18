@@ -308,7 +308,7 @@ def _get_file_ops(task_id: str = "default") -> ShellFileOperations:
 
     Respects the TERMINAL_ENV setting -- if the task_id doesn't have an
     environment yet, creates one using the configured backend (local, docker,
-    modal, etc.) rather than always defaulting to local.
+    docker) rather than always defaulting to local.
 
     Thread-safe: uses the same per-task creation locks as terminal_tool to
     prevent duplicate sandbox creation from concurrent tool calls.
@@ -368,12 +368,6 @@ def _get_file_ops(task_id: str = "default") -> ShellFileOperations:
 
             if env_type == "docker":
                 image = overrides.get("docker_image") or config["docker_image"]
-            elif env_type == "singularity":
-                image = overrides.get("singularity_image") or config["singularity_image"]
-            elif env_type == "modal":
-                image = overrides.get("modal_image") or config["modal_image"]
-            elif env_type == "daytona":
-                image = overrides.get("daytona_image") or config["daytona_image"]
             else:
                 image = ""
 

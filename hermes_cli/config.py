@@ -414,7 +414,6 @@ DEFAULT_CONFIG = {
     
     "terminal": {
         "backend": "local",
-        "modal_mode": "auto",
         "cwd": ".",  # Use current directory
         "timeout": 180,
         # Environment variables to pass through to sandboxed execution
@@ -455,10 +454,7 @@ DEFAULT_CONFIG = {
         # runs as a systemd service without access to the user's shell environment.
         # Example: {"SSH_AUTH_SOCK": "/run/user/1000/ssh-agent.sock"}
         "docker_env": {},
-        "singularity_image": "docker://nikolaik/python-nodejs:python3.11-nodejs20",
-        "modal_image": "nikolaik/python-nodejs:python3.11-nodejs20",
-        "daytona_image": "nikolaik/python-nodejs:python3.11-nodejs20",
-        # Container resource limits (docker, singularity, modal, daytona — ignored for local/ssh)
+        # Container resource limits (docker — ignored for local/ssh)
         "container_cpu": 1,
         "container_memory": 5120,       # MB (default 5GB)
         "container_disk": 51200,        # MB (default 50GB)
@@ -687,11 +683,6 @@ DEFAULT_CONFIG = {
             "enabled": False,
             "fields": ["model", "context_pct", "cwd"],  # Order shown; drop any to hide
         },
-    },
-
-    # Web dashboard settings
-    "dashboard": {
-        "theme": "default",  # Dashboard visual theme: "default", "midnight", "ember", "mono", "cyberpunk", "rose"
     },
 
     # Privacy settings
@@ -1078,7 +1069,7 @@ ENV_VARS_BY_VERSION: Dict[int, List[str]] = {
     5: ["WHATSAPP_ENABLED", "WHATSAPP_MODE", "WHATSAPP_ALLOWED_USERS",
         "SLACK_BOT_TOKEN", "SLACK_APP_TOKEN", "SLACK_ALLOWED_USERS"],
     10: ["TAVILY_API_KEY"],
-    11: ["TERMINAL_MODAL_MODE"],
+    11: [],
 }
 
 # Required environment variables with metadata for migration prompts.
@@ -3855,16 +3846,6 @@ def show_config():
     
     if terminal.get('backend') == 'docker':
         print(f"  Docker image: {terminal.get('docker_image', 'nikolaik/python-nodejs:python3.11-nodejs20')}")
-    elif terminal.get('backend') == 'singularity':
-        print(f"  Image:        {terminal.get('singularity_image', 'docker://nikolaik/python-nodejs:python3.11-nodejs20')}")
-    elif terminal.get('backend') == 'modal':
-        print(f"  Modal image:  {terminal.get('modal_image', 'nikolaik/python-nodejs:python3.11-nodejs20')}")
-        modal_token = get_env_value('MODAL_TOKEN_ID')
-        print(f"  Modal token:  {'configured' if modal_token else '(not set)'}")
-    elif terminal.get('backend') == 'daytona':
-        print(f"  Daytona image: {terminal.get('daytona_image', 'nikolaik/python-nodejs:python3.11-nodejs20')}")
-        daytona_key = get_env_value('DAYTONA_API_KEY')
-        print(f"  API key:      {'configured' if daytona_key else '(not set)'}")
     elif terminal.get('backend') == 'ssh':
         ssh_host = get_env_value('TERMINAL_SSH_HOST')
         ssh_user = get_env_value('TERMINAL_SSH_USER')
@@ -4046,11 +4027,7 @@ def set_config_value(key: str, value: str):
     # config.yaml is authoritative, but terminal_tool only reads TERMINAL_ENV etc.
     _config_to_env_sync = {
         "terminal.backend": "TERMINAL_ENV",
-        "terminal.modal_mode": "TERMINAL_MODAL_MODE",
         "terminal.docker_image": "TERMINAL_DOCKER_IMAGE",
-        "terminal.singularity_image": "TERMINAL_SINGULARITY_IMAGE",
-        "terminal.modal_image": "TERMINAL_MODAL_IMAGE",
-        "terminal.daytona_image": "TERMINAL_DAYTONA_IMAGE",
         "terminal.docker_mount_cwd_to_workspace": "TERMINAL_DOCKER_MOUNT_CWD_TO_WORKSPACE",
         "terminal.cwd": "TERMINAL_CWD",
         "terminal.timeout": "TERMINAL_TIMEOUT",

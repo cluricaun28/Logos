@@ -234,8 +234,6 @@ def show_status(args):
                 state = f"active via {current}"
             elif feature.included_by_default and features.nous_auth_present:
                 state = "included by subscription, not currently selected"
-            elif feature.key == "modal" and features.nous_auth_present:
-                state = "available via subscription (optional)"
             else:
                 state = "not configured"
             print(f"  {feature.label:<15} {check_mark(feature.available or feature.active or feature.managed_by_nous)} {state}")
@@ -317,9 +315,6 @@ def show_status(args):
     elif terminal_env == "docker":
         docker_image = os.getenv("TERMINAL_DOCKER_IMAGE", "python:3.11-slim")
         print(f"  Docker Image: {docker_image}")
-    elif terminal_env == "daytona":
-        daytona_image = os.getenv("TERMINAL_DAYTONA_IMAGE", "nikolaik/python-nodejs:python3.11-nodejs20")
-        print(f"  Daytona Image: {daytona_image}")
     
     sudo_password = os.getenv("SUDO_PASSWORD", "")
     print(f"  Sudo:         {check_mark(bool(sudo_password))} {'enabled' if sudo_password else 'disabled'}")

@@ -790,3 +790,24 @@ class BaseEnvironment(ABC):
 
         return _transform_sudo_command(command)
 
+def get_scratch_dir() -> Path:
+    """Scratch dir for sandbox working data (TERMINAL_SCRATCH_DIR > /scratch > sandbox dir)."""
+def get_scratch_dir() -> Path:
+    custom_scratch = os.getenv("TERMINAL_SCRATCH_DIR")
+    if custom_scratch:
+        scratch_path = Path(custom_scratch)
+        scratch_path.mkdir(parents=True, exist_ok=True)
+        return scratch_path
+
+    from tools.environments.base import get_sandbox_dir
+    sandbox = get_sandbox_dir() / "singularity"
+
+    scratch = Path("/scratch")
+    if scratch.exists() and os.access(scratch, os.W_OK):
+        user_scratch = scratch / os.getenv("USER", "hermes") / "hermes-agent"
+        user_scratch.mkdir(parents=True, exist_ok=True)
+        logger.info("Using /scratch for sandboxes: %s", user_scratch)
+        return user_scratch
+
+    sandbox.mkdir(parents=True, exist_ok=True)
+    return sandbox

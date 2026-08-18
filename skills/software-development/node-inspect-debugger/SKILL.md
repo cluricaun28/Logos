@@ -6,8 +6,8 @@ author: Hermes Agent
 license: MIT
 metadata:
   hermes:
-    tags: [debugging, nodejs, node-inspect, cdp, breakpoints, ui-tui]
-    related_skills: [systematic-debugging, python-debugpy, debugging-hermes-tui-commands]
+    tags: [debugging, nodejs, node-inspect, cdp, breakpoints]
+    related_skills: [systematic-debugging, python-debugpy]
 ---
 
 # Node.js Inspect Debugger
@@ -26,8 +26,6 @@ Two tools, pick one:
 ## When to Use
 
 - A Node test fails and you need to see intermediate state
-- ui-tui crashes or behaves wrong and you want to inspect React/Ink state pre-render
-- tui_gateway child processes (`_SlashWorker`, PTY bridge workers) misbehave
 - You need to inspect a value in a closure that `console.log` can't reach without patching
 - Perf: attach to a running process to capture a CPU profile or heap snapshot
 
@@ -71,7 +69,7 @@ The `debug>` prompt accepts:
 
 ## Attaching to a Running Process
 
-When the process is already running (e.g. a long-lived dev server or the TUI gateway):
+When the process is already running (e.g. a long-lived dev server):
 
 ```bash
 # 1. Send SIGUSR1 to enable the inspector on an existing process
@@ -166,67 +164,17 @@ Run it:
 node /tmp/cdp-debug.js
 ```
 
-Hermes-specific note: `chrome-remote-interface` is NOT in `ui-tui/package.json`. Install it to a throwaway location if you don't want to dirty the project:
+Note: `chrome-remote-interface` is usually not a project dependency. Install it to a throwaway location if you don't want to dirty the project:
 
 ```bash
 mkdir -p /tmp/cdp-tools && cd /tmp/cdp-tools && npm i chrome-remote-interface
 NODE_PATH=/tmp/cdp-tools/node_modules node /tmp/cdp-debug.js
 ```
 
-## Debugging Hermes ui-tui
-
-The TUI is built Ink + tsx. Two common scenarios:
-
-### Debugging a single Ink component under dev
-
-`ui-tui/package.json` has `npm run dev` (tsx --watch). Add `--inspect-brk` by running tsx directly:
-
-```bash
-cd /home/bb/hermes-agent/ui-tui
-npm run build    # produce dist/ once so transpile isn't needed on first load
-node --inspect-brk dist/entry.js
-# In another terminal:
-node inspect -p <node pid>
-```
-
-Then inside `debug>`:
-
-```
-sb('dist/app.js', 220)     # or wherever the suspect render is
-cont
-```
-
-When it pauses, `repl` → inspect `props`, state refs, `useInput` handler values, etc.
-
-### Debugging a running `hermes --tui`
-
-The TUI spawns Node from the Python CLI. Easiest path:
-
-```bash
-# 1. Launch TUI
-hermes --tui &
-TUI_PID=$(pgrep -f 'ui-tui/dist/entry' | head -1)
-
-# 2. Enable inspector on that Node PID
-kill -SIGUSR1 "$TUI_PID"
-
-# 3. Find the WS URL
-curl -s http://127.0.0.1:9229/json/list | jq -r '.[0].webSocketDebuggerUrl'
-
-# 4. Attach
-node inspect ws://127.0.0.1:9229/<uuid>
-```
-
-Interacting with the TUI (typing in its window) continues to advance execution; your debugger can pause it on a breakpoint at any `sb(...)`.
-
-### Debugging `_SlashWorker` / PTY child processes
-
-Those are Python, not Node — use the `python-debugpy` skill for them. Only Node portions (Ink UI, tui_gateway client, tsx-run tests under `ui-tui/`) use this skill.
-
 ## Running Vitest Tests Under the Debugger
 
 ```bash
-cd /home/bb/hermes-agent/ui-tui
+cd <project-with-vitest>
 # Run a single test file paused on entry
 node --inspect-brk ./node_modules/vitest/vitest.mjs run --no-file-parallelism src/app/foo.test.tsx
 ```

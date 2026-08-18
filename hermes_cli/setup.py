@@ -479,16 +479,6 @@ def _print_setup_summary(config: dict, hermes_home):
     else:
         tool_status.append(("Text-to-Speech (Edge TTS)", True, None))
 
-    if subscription_features.modal.managed_by_nous:
-        tool_status.append(("Modal Execution (Nous subscription)", True, None))
-    elif config.get("terminal", {}).get("backend") == "modal":
-        if subscription_features.modal.direct_override:
-            tool_status.append(("Modal Execution (direct Modal)", True, None))
-        else:
-            tool_status.append(("Modal Execution", False, "run 'hermes setup terminal'"))
-    elif managed_nous_tools_enabled() and subscription_features.nous_auth_present:
-        tool_status.append(("Modal Execution (optional via Nous subscription)", True, None))
-
     # Tinker + WandB (RL training)
     if get_env_value("TINKER_API_KEY") and get_env_value("WANDB_API_KEY"):
         tool_status.append(("RL Training (Tinker)", True, None))
@@ -496,15 +486,6 @@ def _print_setup_summary(config: dict, hermes_home):
         tool_status.append(("RL Training (Tinker)", False, "WANDB_API_KEY"))
     else:
         tool_status.append(("RL Training (Tinker)", False, "TINKER_API_KEY"))
-
-    # Spotify (OAuth via hermes auth spotify — check auth.json, not env vars)
-    try:
-        from hermes_cli.auth import get_provider_auth_state
-        _spotify_state = get_provider_auth_state("spotify") or {}
-        if _spotify_state.get("access_token") or _spotify_state.get("refresh_token"):
-            tool_status.append(("Spotify (PKCE OAuth)", True, None))
-    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
-        pass
 
     # Skills Hub
     if get_env_value("GITHUB_TOKEN"):
@@ -610,7 +591,7 @@ def _print_setup_summary(config: dict, hermes_home):
 
 
 def _prompt_container_resources(config: dict):
-    """Prompt for container resource settings (Docker, Singularity, Modal, Daytona)."""
+    """Prompt for container resource settings (Docker)."""
     terminal = config.setdefault("terminal", {})
 
     print()
@@ -1177,25 +1158,16 @@ def setup_terminal_backend(config: dict):
     print()
 
     current_backend = config.get("terminal", {}).get("backend", "local")
-    is_linux = _platform.system() == "Linux"
 
     # Build backend choices with descriptions
     terminal_choices = [
         "Local - run directly on this machine (default)",
         "Docker - isolated container with configurable resources",
-        "Modal - serverless cloud sandbox",
         "SSH - run on a remote machine",
-        "Daytona - persistent cloud development environment",
     ]
-    idx_to_backend = {0: "local", 1: "docker", 2: "modal", 3: "ssh", 4: "daytona"}
-    backend_to_idx = {"local": 0, "docker": 1, "modal": 2, "ssh": 3, "daytona": 4}
+    idx_to_backend = {0: "local", 1: "docker", 2: "ssh"}
 
-    next_idx = 5
-    if is_linux:
-        terminal_choices.append("Singularity/Apptainer - HPC-friendly container")
-        idx_to_backend[next_idx] = "singularity"
-        backend_to_idx["singularity"] = next_idx
-        next_idx += 1
+    next_idx = 3
 
     # Add keep current option
     keep_current_idx = next_idx
@@ -1265,186 +1237,6 @@ def setup_terminal_backend(config: dict):
 
         _prompt_container_resources(config)
 
-    elif selected_backend == "singularity":
-        print_success("Terminal backend: Singularity/Apptainer")
-
-        # Check if singularity/apptainer is available
-        sing_bin = shutil.which("apptainer") or shutil.which("singularity")
-        if not sing_bin:
-            print_warning("Singularity/Apptainer not found in PATH!")
-            print_info(
-                "Install: https://apptainer.org/docs/admin/main/installation.html"
-            )
-        else:
-            print_info(f"Found: {sing_bin}")
-
-        current_image = config.get("terminal", {}).get(
-            "singularity_image", "docker://nikolaik/python-nodejs:python3.11-nodejs20"
-        )
-        image = prompt("  Container image", current_image)
-        config["terminal"]["singularity_image"] = image
-        save_env_value("TERMINAL_SINGULARITY_IMAGE", image)
-
-        _prompt_container_resources(config)
-
-    elif selected_backend == "modal":
-        print_success("Terminal backend: Modal")
-        print_info("Serverless cloud sandboxes. Each session gets its own container.")
-        from tools.managed_tool_gateway import is_managed_tool_gateway_ready
-        from tools.tool_backend_helpers import normalize_modal_mode
-
-        managed_modal_available = bool(
-            managed_nous_tools_enabled()
-            and
-            get_nous_subscription_features(config).nous_auth_present
-            and is_managed_tool_gateway_ready("modal")
-        )
-        modal_mode = normalize_modal_mode(config.get("terminal", {}).get("modal_mode"))
-        use_managed_modal = False
-        if managed_modal_available:
-            modal_choices = [
-                "Use my Nous subscription",
-                "Use my own Modal account",
-            ]
-            if modal_mode == "managed":
-                default_modal_idx = 0
-            elif modal_mode == "direct":
-                default_modal_idx = 1
-            else:
-                default_modal_idx = 1 if get_env_value("MODAL_TOKEN_ID") else 0
-            modal_mode_idx = prompt_choice(
-                "Select how Modal execution should be billed:",
-                modal_choices,
-                default_modal_idx,
-            )
-            use_managed_modal = modal_mode_idx == 0
-
-        if use_managed_modal:
-            config["terminal"]["modal_mode"] = "managed"
-            print_info("Modal execution will use the managed Nous gateway and bill to your subscription.")
-            if get_env_value("MODAL_TOKEN_ID") or get_env_value("MODAL_TOKEN_SECRET"):
-                print_info(
-                    "Direct Modal credentials are still configured, but this backend is pinned to managed mode."
-                )
-        else:
-            config["terminal"]["modal_mode"] = "direct"
-            print_info("Requires a Modal account: https://modal.com")
-
-            # Check if modal SDK is installed
-            try:
-                __import__("modal")
-            except ImportError:
-                print_info("Installing modal SDK...")
-                import subprocess
-
-                uv_bin = shutil.which("uv")
-                if uv_bin:
-                    result = subprocess.run(
-                        [
-                            uv_bin,
-                            "pip",
-                            "install",
-                            "--python",
-                            sys.executable,
-                            "modal",
-                        ],
-                        capture_output=True,
-                        text=True,
-                    )
-                else:
-                    result = subprocess.run(
-                        [sys.executable, "-m", "pip", "install", "modal"],
-                        capture_output=True,
-                        text=True,
-                    )
-                if result.returncode == 0:
-                    print_success("modal SDK installed")
-                else:
-                    print_warning("Install failed — run manually: pip install modal")
-
-            # Modal token
-            print()
-            print_info("Modal authentication:")
-            print_info("  Get your token at: https://modal.com/settings")
-            existing_token = get_env_value("MODAL_TOKEN_ID")
-            if existing_token:
-                print_info("  Modal token: already configured")
-                if prompt_yes_no("  Update Modal credentials?", False):
-                    token_id = prompt("    Modal Token ID", password=True)
-                    token_secret = prompt("    Modal Token Secret", password=True)
-                    if token_id:
-                        save_env_value("MODAL_TOKEN_ID", token_id)
-                    if token_secret:
-                        save_env_value("MODAL_TOKEN_SECRET", token_secret)
-            else:
-                token_id = prompt("    Modal Token ID", password=True)
-                token_secret = prompt("    Modal Token Secret", password=True)
-                if token_id:
-                    save_env_value("MODAL_TOKEN_ID", token_id)
-                if token_secret:
-                    save_env_value("MODAL_TOKEN_SECRET", token_secret)
-
-        _prompt_container_resources(config)
-
-    elif selected_backend == "daytona":
-        print_success("Terminal backend: Daytona")
-        print_info("Persistent cloud development environments.")
-        print_info("Each session gets a dedicated sandbox with filesystem persistence.")
-        print_info("Sign up at: https://daytona.io")
-
-        # Check if daytona SDK is installed
-        try:
-            __import__("daytona")
-        except ImportError:
-            print_info("Installing daytona SDK...")
-            import subprocess
-
-            uv_bin = shutil.which("uv")
-            if uv_bin:
-                result = subprocess.run(
-                    [uv_bin, "pip", "install", "--python", sys.executable, "daytona"],
-                    capture_output=True,
-                    text=True,
-                )
-            else:
-                result = subprocess.run(
-                    [sys.executable, "-m", "pip", "install", "daytona"],
-                    capture_output=True,
-                    text=True,
-                )
-            if result.returncode == 0:
-                print_success("daytona SDK installed")
-            else:
-                print_warning("Install failed — run manually: pip install daytona")
-                if result.stderr:
-                    print_info(f"  Error: {result.stderr.strip().splitlines()[-1]}")
-
-        # Daytona API key
-        print()
-        existing_key = get_env_value("DAYTONA_API_KEY")
-        if existing_key:
-            print_info("  Daytona API key: already configured")
-            if prompt_yes_no("  Update API key?", False):
-                api_key = prompt("    Daytona API key", password=True)
-                if api_key:
-                    save_env_value("DAYTONA_API_KEY", api_key)
-                    print_success("    Updated")
-        else:
-            api_key = prompt("    Daytona API key", password=True)
-            if api_key:
-                save_env_value("DAYTONA_API_KEY", api_key)
-                print_success("    Configured")
-
-        # Daytona image
-        current_image = config.get("terminal", {}).get(
-            "daytona_image", "nikolaik/python-nodejs:python3.11-nodejs20"
-        )
-        image = prompt("  Sandbox image", current_image)
-        config["terminal"]["daytona_image"] = image
-        save_env_value("TERMINAL_DAYTONA_IMAGE", image)
-
-        _prompt_container_resources(config)
-
     elif selected_backend == "ssh":
         print_success("Terminal backend: SSH")
         print_info("Run commands on a remote machine via SSH.")
@@ -1496,8 +1288,6 @@ def setup_terminal_backend(config: dict):
     # Sync terminal backend to .env so terminal_tool picks it up directly.
     # config.yaml is the source of truth, but terminal_tool reads TERMINAL_ENV.
     save_env_value("TERMINAL_ENV", selected_backend)
-    if selected_backend == "modal":
-        save_env_value("TERMINAL_MODAL_MODE", config["terminal"].get("modal_mode", "auto"))
     save_config(config)
     print()
     print_success(f"Terminal backend set to: {selected_backend}")

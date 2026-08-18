@@ -762,351 +762,8 @@ def _resolve_session_by_name_or_id(name_or_id: str) -> Optional[str]:
     return None
 
 
-def _read_tui_active_session_file(path: Optional[str]) -> Optional[str]:
-    if not path:
-        return None
-    try:
-        data = json.loads(Path(path).read_text(encoding="utf-8"))
-        sid = str(data.get("session_id") or "").strip()
-        return sid or None
-    except (AttributeError, json.JSONDecodeError, KeyError, OSError, PermissionError, TypeError, ValueError):
-        return None
-
-
-def _print_tui_exit_summary(session_id: Optional[str], active_session_file: Optional[str] = None) -> None:
-    """Print a shell-visible epilogue after TUI exits."""
-    target = _read_tui_active_session_file(active_session_file) or session_id or _resolve_last_session(source="tui")
-    if not target:
-        return
-
-    db = None
-    try:
-        from hermes_state import SessionDB
-
-        db = SessionDB()
-        session = db.get_session(target)
-        if not session:
-            return
-
-        title = db.get_session_title(target)
-        message_count = int(session.get("message_count") or 0)
-        input_tokens = int(session.get("input_tokens") or 0)
-        output_tokens = int(session.get("output_tokens") or 0)
-        cache_read_tokens = int(session.get("cache_read_tokens") or 0)
-        cache_write_tokens = int(session.get("cache_write_tokens") or 0)
-        reasoning_tokens = int(session.get("reasoning_tokens") or 0)
-        total_tokens = (
-            input_tokens
-            + output_tokens
-            + cache_read_tokens
-            + cache_write_tokens
-            + reasoning_tokens
-        )
-    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
-        return
-    finally:
-        if db is not None:
-            db.close()
-
-    print()
-    print("Resume this session with:")
-    print(f"  hermes --tui --resume {target}")
-    if title:
-        print(f'  hermes --tui -c "{title}"')
-    print()
-    print(f"Session:        {target}")
-    if title:
-        print(f"Title:          {title}")
-    print(f"Messages:       {message_count}")
-    print(
-        "Tokens:         "
-        f"{total_tokens} (in {input_tokens}, out {output_tokens}, "
-        f"cache {cache_read_tokens + cache_write_tokens}, reasoning {reasoning_tokens})"
-    )
-
-
-def _tui_need_npm_install(root: Path) -> bool:
-    """True when @hermes/ink is missing or node_modules is behind package-lock.json (post-pull)."""
-    ink = root / "node_modules" / "@hermes" / "ink" / "package.json"
-    if not ink.is_file():
-        return True
-    lock = root / "package-lock.json"
-    if not lock.is_file():
-        return False
-    marker = root / "node_modules" / ".package-lock.json"
-    if not marker.is_file():
-        return True
-    return lock.stat().st_mtime > marker.stat().st_mtime
-
-
-def _find_bundled_tui(tui_dir: Path) -> Optional[Path]:
-    """Directory whose dist/entry.js we should run: HERMES_TUI_DIR first, else repo ui-tui."""
-    env = os.environ.get("HERMES_TUI_DIR")
-    if env:
-        p = Path(env)
-        if (p / "dist" / "entry.js").exists() and not _tui_need_npm_install(p):
-            return p
-    if (tui_dir / "dist" / "entry.js").exists() and not _tui_need_npm_install(tui_dir):
-        return tui_dir
-    return None
-
-
-def _tui_build_needed(tui_dir: Path) -> bool:
-    if _hermes_ink_bundle_stale(tui_dir):
-        return True
-    entry = tui_dir / "dist" / "entry.js"
-    if not entry.exists():
-        return True
-    dist_m = entry.stat().st_mtime
-    skip = frozenset({"node_modules", "dist"})
-    for dirpath, dirnames, filenames in os.walk(tui_dir, topdown=True):
-        dirnames[:] = [d for d in dirnames if d not in skip]
-        for fn in filenames:
-            if fn.endswith((".ts", ".tsx")):
-                if os.path.getmtime(os.path.join(dirpath, fn)) > dist_m:
-                    return True
-    for meta in (
-        "package.json",
-        "package-lock.json",
-        "tsconfig.json",
-        "tsconfig.build.json",
-    ):
-        mp = tui_dir / meta
-        if mp.exists() and mp.stat().st_mtime > dist_m:
-            return True
-    return False
-
-
-def _hermes_ink_bundle_stale(tui_dir: Path) -> bool:
-    ink_root = tui_dir / "packages" / "hermes-ink"
-    bundle = ink_root / "dist" / "ink-bundle.js"
-    if not bundle.exists():
-        return True
-    bm = bundle.stat().st_mtime
-    skip = frozenset({"node_modules", "dist"})
-    for dirpath, dirnames, filenames in os.walk(ink_root, topdown=True):
-        dirnames[:] = [d for d in dirnames if d not in skip]
-        for fn in filenames:
-            if fn.endswith((".ts", ".tsx")):
-                if os.path.getmtime(os.path.join(dirpath, fn)) > bm:
-                    return True
-    mp = ink_root / "package.json"
-    if mp.exists() and mp.stat().st_mtime > bm:
-        return True
-    return False
-
-
-def _ensure_tui_node() -> None:
-    """Make sure `node` + `npm` are on PATH for the TUI.
-
-    If either is missing and scripts/lib/node-bootstrap.sh is available, source
-    it and call `ensure_node` (fnm/nvm/proto/brew/bundled cascade). After
-    install, capture the resolved node binary path from the bash subprocess
-    and prepend its directory to os.environ["PATH"] so shutil.which finds the
-    new binaries in this Python process — regardless of which version manager
-    was used (nvm, fnm, proto, brew, or the bundled fallback).
-
-    Idempotent no-op when node+npm are already discoverable. Set
-    ``HERMES_SKIP_NODE_BOOTSTRAP=1`` to disable auto-install.
-    """
-    if shutil.which("node") and shutil.which("npm"):
-        return
-    if os.environ.get("HERMES_SKIP_NODE_BOOTSTRAP"):
-        return
-
-    helper = PROJECT_ROOT / "scripts" / "lib" / "node-bootstrap.sh"
-    if not helper.is_file():
-        return
-
-    hermes_home = os.environ.get("HERMES_HOME") or str(Path.home() / ".hermes")
-    try:
-        # Helper writes logs to stderr; we ask bash to print `command -v node`
-        # on stdout once ensure_node succeeds. Subshell PATH edits don't leak
-        # back into Python, so the stdout capture is the bridge.
-        result = subprocess.run(
-            [
-                "bash",
-                "-c",
-                f'source "{helper}" >&2 && ensure_node >&2 && command -v node',
-            ],
-            env={**os.environ, "HERMES_HOME": hermes_home},
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return
-
-    parts = os.environ.get("PATH", "").split(os.pathsep)
-    extras: list[Path] = []
-
-    resolved = (result.stdout or "").strip()
-    if resolved:
-        extras.append(Path(resolved).resolve().parent)
-
-    extras.extend([Path(hermes_home) / "node" / "bin", Path.home() / ".local" / "bin"])
-
-    for extra in extras:
-        s = str(extra)
-        if extra.is_dir() and s not in parts:
-            parts.insert(0, s)
-    os.environ["PATH"] = os.pathsep.join(parts)
-
-
-def _make_tui_argv(tui_dir: Path, tui_dev: bool) -> tuple[list[str], Path]:
-    """TUI: --dev → tsx src; else node dist (HERMES_TUI_DIR or ui-tui, build when stale)."""
-    _ensure_tui_node()
-
-    def _node_bin(bin: str) -> str:
-        if bin == "node":
-            env_node = os.environ.get("HERMES_NODE")
-            if env_node and os.path.isfile(env_node) and os.access(env_node, os.X_OK):
-                return env_node
-        path = shutil.which(bin)
-        if not path:
-            print(f"{bin} not found — install Node.js to use the TUI.")
-            sys.exit(1)
-        return path
-
-    # pre-built dist + node_modules (nix / full HERMES_TUI_DIR) skips npm.
-    if not tui_dev:
-        ext_dir = os.environ.get("HERMES_TUI_DIR")
-        if ext_dir:
-            p = Path(ext_dir)
-            if (p / "dist" / "entry.js").exists() and not _tui_need_npm_install(p):
-                node = _node_bin("node")
-                return [node, str(p / "dist" / "entry.js")], p
-
-    npm = _node_bin("npm")
-    if _tui_need_npm_install(tui_dir):
-        if not os.environ.get("HERMES_QUIET"):
-            print("Installing TUI dependencies…")
-        result = subprocess.run(
-            [npm, "install", "--silent", "--no-fund", "--no-audit", "--progress=false"],
-            cwd=str(tui_dir),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            text=True,
-            env={**os.environ, "CI": "1"},
-        )
-        if result.returncode != 0:
-            err = (result.stderr or "").strip()
-            preview = "\n".join(err.splitlines()[-30:])
-            print("npm install failed.")
-            if preview:
-                print(preview)
-            sys.exit(1)
-
-    if tui_dev:
-        if _hermes_ink_bundle_stale(tui_dir):
-            result = subprocess.run(
-                [npm, "run", "build", "--prefix", "packages/hermes-ink"],
-                cwd=str(tui_dir),
-                capture_output=True,
-                text=True,
-            )
-            if result.returncode != 0:
-                combined = f"{result.stdout or ''}{result.stderr or ''}".strip()
-                preview = "\n".join(combined.splitlines()[-30:])
-                print("@hermes/ink build failed.")
-                if preview:
-                    print(preview)
-                sys.exit(1)
-        tsx = tui_dir / "node_modules" / ".bin" / "tsx"
-        if tsx.exists():
-            return [str(tsx), "src/entry.tsx"], tui_dir
-        return [npm, "start"], tui_dir
-
-    if _tui_build_needed(tui_dir):
-        result = subprocess.run(
-            [npm, "run", "build"],
-            cwd=str(tui_dir),
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            combined = f"{result.stdout or ''}{result.stderr or ''}".strip()
-            preview = "\n".join(combined.splitlines()[-30:])
-            print("TUI build failed.")
-            if preview:
-                print(preview)
-            sys.exit(1)
-
-    root = _find_bundled_tui(tui_dir)
-    if not root:
-        print("TUI build did not produce dist/entry.js")
-        sys.exit(1)
-
-    node = _node_bin("node")
-    return [node, str(root / "dist" / "entry.js")], root
-
-
-def _launch_tui(
-    resume_session_id: Optional[str] = None,
-    tui_dev: bool = False,
-    model: Optional[str] = None,
-    provider: Optional[str] = None,
-):
-    """Replace current process with the TUI."""
-    tui_dir = PROJECT_ROOT / "ui-tui"
-
-    import tempfile
-
-    env = os.environ.copy()
-    active_session_fd, active_session_file = tempfile.mkstemp(
-        prefix="hermes-tui-active-session-", suffix=".json"
-    )
-    os.close(active_session_fd)
-    env["HERMES_TUI_ACTIVE_SESSION_FILE"] = active_session_file
-    env["HERMES_PYTHON_SRC_ROOT"] = os.environ.get(
-        "HERMES_PYTHON_SRC_ROOT", str(PROJECT_ROOT)
-    )
-    env.setdefault("HERMES_PYTHON", sys.executable)
-    env.setdefault("HERMES_CWD", os.getcwd())
-    env.setdefault("NODE_ENV", "development" if tui_dev else "production")
-    if model:
-        env["HERMES_MODEL"] = model
-        env["HERMES_INFERENCE_MODEL"] = model
-    if provider:
-        env["HERMES_TUI_PROVIDER"] = provider
-        env["HERMES_INFERENCE_PROVIDER"] = provider
-    # Guarantee an 8GB V8 heap + exposed GC for the TUI. Default node cap is
-    # ~1.5–4GB depending on version and can fatal-OOM on long sessions with
-    # large transcripts / reasoning blobs. Token-level merge: respect any
-    # user-supplied --max-old-space-size (they may have set it higher) and
-    # avoid duplicating --expose-gc.
-    _tokens = env.get("NODE_OPTIONS", "").split()
-    if not any(t.startswith("--max-old-space-size=") for t in _tokens):
-        _tokens.append("--max-old-space-size=8192")
-    if "--expose-gc" not in _tokens:
-        _tokens.append("--expose-gc")
-    env["NODE_OPTIONS"] = " ".join(_tokens)
-    if resume_session_id:
-        env["HERMES_TUI_RESUME"] = resume_session_id
-
-    argv, cwd = _make_tui_argv(tui_dir, tui_dev)
-    code: Optional[int] = None
-    try:
-        try:
-            code = subprocess.call(argv, cwd=str(cwd), env=env)
-        except KeyboardInterrupt:
-            code = 130
-
-        if code in (0, 130):
-            _print_tui_exit_summary(resume_session_id, active_session_file)
-    finally:
-        try:
-            os.unlink(active_session_file)
-        except OSError:
-            pass
-
-    sys.exit(code)
-
-
 def cmd_chat(args):
     """Run interactive chat CLI."""
-    use_tui = getattr(args, "tui", False) or os.environ.get("HERMES_TUI") == "1"
-
     # Resolve --continue into --resume with the latest session or by name
     continue_val = getattr(args, "continue_last", None)
     if continue_val and not getattr(args, "resume", None):
@@ -1121,15 +778,12 @@ def cmd_chat(args):
                 sys.exit(1)
         else:
             # -c with no argument — continue the most recent session
-            source = "tui" if use_tui else "cli"
-            last_id = _resolve_last_session(source=source)
-            if not last_id and source == "tui":
-                last_id = _resolve_last_session(source="cli")
+            last_id = _resolve_last_session(source="cli")
             if last_id:
                 args.resume = last_id
             else:
-                kind = "TUI" if use_tui else "CLI"
-                print(f"No previous {kind} session found to continue.")
+                print("No previous CLI session found to continue.")
+                sys.exit(1)
                 sys.exit(1)
 
     # Resolve --resume by title if it's not a direct session ID
@@ -1210,14 +864,6 @@ def cmd_chat(args):
     # --source: tag session source for filtering (e.g. 'tool' for third-party integrations)
     if getattr(args, "source", None):
         os.environ["HERMES_SESSION_SOURCE"] = args.source
-
-    if use_tui:
-        _launch_tui(
-            getattr(args, "resume", None),
-            tui_dev=getattr(args, "tui_dev", False),
-            model=getattr(args, "model", None),
-            provider=getattr(args, "provider", None),
-        )
 
     # Import and run the CLI
     from cli import main as cli_main
@@ -4839,215 +4485,6 @@ def _gateway_prompt(prompt_text: str, default: str = "", timeout: float = 300.0)
     return default
 
 
-def _web_ui_build_needed(web_dir: Path) -> bool:
-    """Return True if the web UI dist is missing or stale.
-
-    Mirrors the staleness logic used by ``_tui_build_needed()`` for the TUI.
-    The Vite build outputs to ``hermes_cli/web_dist/`` (per vite.config.ts
-    outDir: "../hermes_cli/web_dist"), NOT to ``web/dist/``.  Uses the Vite
-    manifest as the sentinel because it is written last and therefore has the
-    newest mtime of any build output.
-    """
-    dist_dir = web_dir.parent / "hermes_cli" / "web_dist"
-    sentinel = dist_dir / ".vite" / "manifest.json"
-    if not sentinel.exists():
-        sentinel = dist_dir / "index.html"
-    if not sentinel.exists():
-        return True
-    dist_mtime = sentinel.stat().st_mtime
-    skip = frozenset({"node_modules", "dist"})
-    for dirpath, dirnames, filenames in os.walk(web_dir, topdown=True):
-        dirnames[:] = [d for d in dirnames if d not in skip]
-        for fn in filenames:
-            if fn.endswith((".ts", ".tsx", ".js", ".jsx", ".css", ".html", ".vue")):
-                if os.path.getmtime(os.path.join(dirpath, fn)) > dist_mtime:
-                    return True
-    for meta in (
-        "package.json",
-        "package-lock.json",
-        "yarn.lock",
-        "pnpm-lock.yaml",
-        "vite.config.ts",
-        "vite.config.js",
-    ):
-        mp = web_dir / meta
-        if mp.exists() and mp.stat().st_mtime > dist_mtime:
-            return True
-    return False
-
-
-def _run_npm_install_deterministic(
-    npm: str,
-    cwd: Path,
-    *,
-    extra_args: tuple[str, ...] = (),
-    capture_output: bool = True,
-) -> subprocess.CompletedProcess:
-    """Run a deterministic npm install that does not mutate ``package-lock.json``.
-
-    Prefers ``npm ci`` (strict, lockfile-preserving) when a lockfile is present;
-    falls back to ``npm install`` only if ``npm ci`` fails (e.g. lockfile out of
-    sync on a WIP checkout).  Without this, ``npm install`` on npm ≥ 10 silently
-    rewrites committed lockfiles (stripping ``"peer": true`` etc.), which leaves
-    the working tree dirty and causes the next ``hermes update`` to stash the
-    lockfile — repeatedly.
-    """
-    lockfile = cwd / "package-lock.json"
-    if lockfile.exists():
-        ci_cmd = [npm, "ci", *extra_args]
-        ci_result = subprocess.run(
-            ci_cmd,
-            cwd=cwd,
-            capture_output=capture_output,
-            text=True,
-            check=False,
-        )
-        if ci_result.returncode == 0:
-            return ci_result
-        # Fall through to `npm install` — lockfile may be out of sync on a
-        # WIP fork/branch, or `npm ci` may not be available on very old npm.
-    install_cmd = [npm, "install", *extra_args]
-    return subprocess.run(
-        install_cmd,
-        cwd=cwd,
-        capture_output=capture_output,
-        text=True,
-        check=False,
-    )
-
-
-def _build_web_ui(web_dir: Path, *, fatal: bool = False) -> bool:
-    """Build the web UI frontend if npm is available.
-
-    Args:
-        web_dir: Path to the ``web/`` source directory.
-        fatal: If True, print error guidance and return False on failure
-               instead of a soft warning (used by ``hermes web``).
-
-    Returns True if the build succeeded or was skipped (no package.json).
-    """
-    if not (web_dir / "package.json").exists():
-        return True
-
-    if not _web_ui_build_needed(web_dir):
-        return True
-
-    npm = shutil.which("npm")
-    if not npm:
-        if fatal:
-            print("Web UI frontend not built and npm is not available.")
-            print("Install Node.js, then run:  cd web && npm install && npm run build")
-        return not fatal
-    print("→ Building web UI...")
-    r1 = _run_npm_install_deterministic(npm, web_dir, extra_args=("--silent",))
-    if r1.returncode != 0:
-        print(
-            f"  {'✗' if fatal else '⚠'} Web UI npm install failed"
-            + ("" if fatal else " (hermes web will not be available)")
-        )
-        if fatal:
-            print("  Run manually:  cd web && npm install && npm run build")
-        return False
-    r2 = subprocess.run([npm, "run", "build"], cwd=web_dir, capture_output=True)
-    if r2.returncode != 0:
-        print(
-            f"  {'✗' if fatal else '⚠'} Web UI build failed"
-            + ("" if fatal else " (hermes web will not be available)")
-        )
-        if fatal:
-            print("  Run manually:  cd web && npm install && npm run build")
-        return False
-    print("  ✓ Web UI built")
-    return True
-
-
-def _warn_stale_dashboard_processes() -> None:
-    """Warn about running dashboard processes that still hold pre-update code.
-
-    ``hermes dashboard`` is a long-lived server process commonly started and
-    forgotten.  When ``hermes update`` replaces files on disk, the running
-    process keeps the old Python backend in memory while the JS bundle on
-    disk is updated, causing a silent frontend/backend mismatch (e.g. new
-    auth headers the old backend doesn't recognise → every API call 401s).
-
-    Unlike the gateway, the dashboard has no service manager (systemd /
-    launchd), so we can only warn — we don't auto-kill user-managed
-    background processes.
-    """
-    patterns = [
-        "hermes dashboard",
-        "hermes_cli.main dashboard",
-        "hermes_cli/main.py dashboard",
-    ]
-    self_pid = os.getpid()
-    dashboard_pids: list[int] = []
-
-    try:
-        if sys.platform == "win32":
-            result = subprocess.run(
-                ["wmic", "process", "get", "ProcessId,CommandLine",
-                 "/FORMAT:LIST"],
-                capture_output=True, text=True, timeout=10,
-            )
-            if result.returncode != 0:
-                return
-            current_cmd = ""
-            for line in result.stdout.split("\n"):
-                line = line.strip()
-                if line.startswith("CommandLine="):
-                    current_cmd = line[len("CommandLine="):]
-                elif line.startswith("ProcessId="):
-                    pid_str = line[len("ProcessId="):]
-                    if (any(p in current_cmd for p in patterns)
-                            and int(pid_str) != self_pid):
-                        try:
-                            dashboard_pids.append(int(pid_str))
-                        except ValueError:
-                            pass
-        else:
-            # Linux / macOS: scan the process table via ps and match against
-            # the same explicit patterns list used on Windows.  Using ps
-            # (rather than `pgrep -f "hermes.*dashboard"`) keeps us consistent
-            # with `hermes_cli.gateway._scan_gateway_pids` and avoids the
-            # greedy regex matching unrelated cmdlines that merely contain
-            # both words (e.g. a chat session discussing "dashboard").
-            result = subprocess.run(
-                ["ps", "-A", "-o", "pid=,command="],
-                capture_output=True, text=True, timeout=10,
-            )
-            if result.returncode == 0:
-                for line in result.stdout.split("\n"):
-                    stripped = line.strip()
-                    if not stripped or "grep" in stripped:
-                        continue
-                    parts = stripped.split(None, 1)
-                    if len(parts) != 2:
-                        continue
-                    try:
-                        pid = int(parts[0])
-                    except ValueError:
-                        continue
-                    command = parts[1]
-                    if (any(p in command for p in patterns)
-                            and pid != self_pid):
-                        dashboard_pids.append(pid)
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-        return
-
-    if not dashboard_pids:
-        return
-
-    print()
-    print(f"⚠ {len(dashboard_pids)} dashboard process(es) still running "
-          f"with the previous version:")
-    for pid in dashboard_pids:
-        print(f"    PID {pid}")
-    print("  The running backend may not match the updated frontend,")
-    print("  causing silent auth failures or empty data.")
-    print("  Restart them to pick up the changes:")
-    print("    kill <pid> && hermes dashboard --port <port> ...")
-
-
 def _update_via_zip(args):
     """Update Hermes Agent by downloading a ZIP archive.
 
@@ -5156,8 +4593,6 @@ def _update_via_zip(args):
             )
         _install_python_dependencies_with_optional_fallback(pip_cmd)
 
-    _update_node_dependencies()
-    _build_web_ui(PROJECT_ROOT / "web")
 
     # Sync skills
     try:
@@ -5182,7 +4617,6 @@ def _update_via_zip(args):
 
     print()
     print("✓ Update complete!")
-    _warn_stale_dashboard_processes()
 
 
 def _stash_local_changes_if_needed(git_cmd: list[str], cwd: Path) -> Optional[str]:
@@ -5719,38 +5153,6 @@ def _install_python_dependencies_with_optional_fallback(
         print(
             f"  ⚠ Skipped optional extras that still failed: {', '.join(failed_extras)}"
         )
-
-
-def _update_node_dependencies() -> None:
-    npm = shutil.which("npm")
-    if not npm:
-        return
-
-    paths = (
-        ("repo root", PROJECT_ROOT),
-        ("ui-tui", PROJECT_ROOT / "ui-tui"),
-    )
-    if not any((path / "package.json").exists() for _, path in paths):
-        return
-
-    print("→ Updating Node.js dependencies...")
-    for label, path in paths:
-        if not (path / "package.json").exists():
-            continue
-
-        result = _run_npm_install_deterministic(
-            npm,
-            path,
-            extra_args=("--silent", "--no-fund", "--no-audit", "--progress=false"),
-        )
-        if result.returncode == 0:
-            print(f"  ✓ {label}")
-            continue
-
-        print(f"  ⚠ npm install failed in {label}")
-        stderr = (result.stderr or "").strip()
-        if stderr:
-            print(f"    {stderr.splitlines()[-1]}")
 
 
 class _UpdateOutputStream:
@@ -6471,8 +5873,6 @@ def _cmd_update_impl(args, gateway_mode: bool):
                 )
             _install_python_dependencies_with_optional_fallback(pip_cmd)
 
-        _update_node_dependencies()
-        _build_web_ui(PROJECT_ROOT / "web")
 
         print()
         print("✓ Code updated!")
@@ -7015,9 +6415,6 @@ def _cmd_update_impl(args, gateway_mode: bool):
         except (ImportError, ModuleNotFoundError) as e:
             logger.debug("Legacy unit check during update failed: %s", e)
 
-        # Warn about stale dashboard processes — the dashboard has no
-        # service manager, so we can only tell the user to restart them.
-        _warn_stale_dashboard_processes()
 
         print()
         print("Tip: You can now select a provider and model:")
@@ -7068,7 +6465,6 @@ def _coalesce_session_name_args(argv: list) -> list:
         "update",
         "uninstall",
         "profile",
-        "dashboard",
         "honcho",
         "claw",
         "plugins",
@@ -7408,37 +6804,6 @@ def cmd_profile(args):
             sys.exit(1)
 
 
-def cmd_dashboard(args):
-    """Start the web UI server."""
-    try:
-        import fastapi  # noqa: F401
-        import uvicorn  # noqa: F401
-    except ImportError as e:
-        print("Web UI dependencies not installed (need fastapi + uvicorn).")
-        print(
-            f"Re-install the package into this interpreter so metadata updates apply:\n"
-            f"  cd {PROJECT_ROOT}\n"
-            f"  {sys.executable} -m pip install -e .\n"
-            "If `pip` is missing in this venv, use:  uv pip install -e ."
-        )
-        print(f"Import error: {e}")
-        sys.exit(1)
-
-    if "HERMES_WEB_DIST" not in os.environ:
-        if not _build_web_ui(PROJECT_ROOT / "web", fatal=True):
-            sys.exit(1)
-
-    from hermes_cli.web_server import start_server
-
-    embedded_chat = args.tui or os.environ.get("HERMES_DASHBOARD_TUI") == "1"
-    start_server(
-        host=args.host,
-        port=args.port,
-        open_browser=not args.no_open,
-        allow_public=getattr(args, "insecure", False),
-        embedded_chat=embedded_chat,
-    )
-
 
 def cmd_completion(args, parser=None):
     """Print shell completion script."""
@@ -7545,7 +6910,7 @@ For more help on a command:
         default=None,
         help=(
             "Model override for this invocation (e.g. anthropic/claude-sonnet-4.6). "
-            "Applies to -z/--oneshot and --tui. Also settable via HERMES_INFERENCE_MODEL env var."
+            "Applies to -z/--oneshot. Also settable via HERMES_INFERENCE_MODEL env var."
         ),
     )
     parser.add_argument(
@@ -7553,7 +6918,7 @@ For more help on a command:
         default=None,
         help=(
             "Provider override for this invocation (e.g. openrouter, anthropic). "
-            "Applies to -z/--oneshot and --tui. Also settable via HERMES_INFERENCE_PROVIDER env var."
+            "Applies to -z/--oneshot. Also settable via HERMES_INFERENCE_PROVIDER env var."
         ),
     )
     parser.add_argument(
@@ -7621,19 +6986,6 @@ For more help on a command:
         action="store_true",
         default=False,
         help="Skip auto-injection of AGENTS.md, SOUL.md, .cursorrules, memory, and preloaded skills",
-    )
-    parser.add_argument(
-        "--tui",
-        action="store_true",
-        default=False,
-        help="Launch the modern TUI instead of the classic REPL",
-    )
-    parser.add_argument(
-        "--dev",
-        dest="tui_dev",
-        action="store_true",
-        default=False,
-        help="With --tui: run TypeScript sources via tsx (skip dist build)",
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
@@ -7777,19 +7129,6 @@ For more help on a command:
         "--source",
         default=None,
         help="Session source tag for filtering (default: cli). Use 'tool' for third-party integrations that should not appear in user session lists.",
-    )
-    chat_parser.add_argument(
-        "--tui",
-        action="store_true",
-        default=False,
-        help="Launch the modern TUI instead of the classic REPL",
-    )
-    chat_parser.add_argument(
-        "--dev",
-        dest="tui_dev",
-        action="store_true",
-        default=False,
-        help="With --tui: run TypeScript sources via tsx (skip dist build)",
     )
     chat_parser.set_defaults(func=cmd_chat)
 
@@ -8115,7 +7454,7 @@ For more help on a command:
     )
     logout_parser.add_argument(
         "--provider",
-        choices=["nous", "openai-codex", "spotify"],
+        choices=["nous", "openai-codex"],
         default=None,
         help="Provider to log out from (default: active provider)",
     )
@@ -8176,13 +7515,6 @@ For more help on a command:
     auth_status.add_argument("provider", help="Provider id")
     auth_logout = auth_subparsers.add_parser("logout", help="Log out a provider and clear stored auth state")
     auth_logout.add_argument("provider", help="Provider id")
-    auth_spotify = auth_subparsers.add_parser("spotify", help="Authenticate Hermes with Spotify via PKCE")
-    auth_spotify.add_argument("spotify_action", nargs="?", choices=["login", "status", "logout"], default="login")
-    auth_spotify.add_argument("--client-id", help="Spotify app client_id (or set HERMES_SPOTIFY_CLIENT_ID)")
-    auth_spotify.add_argument("--redirect-uri", help="Allow-listed localhost redirect URI for your Spotify app")
-    auth_spotify.add_argument("--scope", help="Override requested Spotify scopes")
-    auth_spotify.add_argument("--no-browser", action="store_true", help="Do not attempt to open the browser automatically")
-    auth_spotify.add_argument("--timeout", type=float, help="Callback/token exchange timeout in seconds")
     auth_parser.set_defaults(func=cmd_auth)
 
     # =========================================================================
@@ -8747,7 +8079,7 @@ Examples:
         "--yes",
         "-y",
         action="store_true",
-        help="Skip confirmation prompt (needed in TUI mode)",
+        help="Skip confirmation prompt",
     )
 
     skills_inspect = skills_subparsers.add_parser(
@@ -9747,38 +9079,6 @@ Examples:
         help="Shell type (default: bash)",
     )
     completion_parser.set_defaults(func=lambda args: cmd_completion(args, parser))
-
-    # =========================================================================
-    # dashboard command
-    # =========================================================================
-    dashboard_parser = subparsers.add_parser(
-        "dashboard",
-        help="Start the web UI dashboard",
-        description="Launch the Hermes Agent web dashboard for managing config, API keys, and sessions",
-    )
-    dashboard_parser.add_argument(
-        "--port", type=int, default=9119, help="Port (default 9119)"
-    )
-    dashboard_parser.add_argument(
-        "--host", default="127.0.0.1", help="Host (default 127.0.0.1)"
-    )
-    dashboard_parser.add_argument(
-        "--no-open", action="store_true", help="Don't open browser automatically"
-    )
-    dashboard_parser.add_argument(
-        "--insecure",
-        action="store_true",
-        help="Allow binding to non-localhost (DANGEROUS: exposes API keys on the network)",
-    )
-    dashboard_parser.add_argument(
-        "--tui",
-        action="store_true",
-        help=(
-            "Expose the in-browser Chat tab (embedded `hermes --tui` via PTY/WebSocket). "
-            "Alternatively set HERMES_DASHBOARD_TUI=1."
-        ),
-    )
-    dashboard_parser.set_defaults(func=cmd_dashboard)
 
     # =========================================================================
     # logs command

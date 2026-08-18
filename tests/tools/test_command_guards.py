@@ -61,18 +61,6 @@ class TestContainerSkip:
         result = check_all_command_guards("rm -rf /", "docker")
         assert result["approved"] is True
 
-    def test_singularity_skips_both(self):
-        result = check_all_command_guards("rm -rf /", "singularity")
-        assert result["approved"] is True
-
-    def test_modal_skips_both(self):
-        result = check_all_command_guards("rm -rf /", "modal")
-        assert result["approved"] is True
-
-    def test_daytona_skips_both(self):
-        result = check_all_command_guards("rm -rf /", "daytona")
-        assert result["approved"] is True
-
 
 # ---------------------------------------------------------------------------
 # tirith allow + safe command

@@ -1,12 +1,11 @@
-"""Tests for ``hermes_cli.voice`` — the TUI gateway's voice wrapper.
+"""Tests for ``hermes_cli.voice`` — process-wide voice recording + TTS.
 
-The module is imported *lazily* by ``tui_gateway/server.py`` so that a
-box with missing audio deps fails at call time (returning a clean RPC
-error) rather than at gateway startup. These tests therefore only
-assert the public contract the gateway depends on: the three symbols
-exist, ``stop_and_transcribe`` is a no-op when nothing is recording,
-and ``speak_text`` tolerates empty input without touching the provider
-stack.
+The module is imported *lazily* by callers (gateway, wake-word tool)
+so that a box with missing audio deps fails at call time rather than
+at startup. These tests therefore only assert the public contract
+callers depend on: the three symbols exist, ``stop_and_transcribe``
+is a no-op when nothing is recording, and ``speak_text`` tolerates
+empty input without touching the provider stack.
 """
 
 import os
@@ -19,7 +18,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 class TestPublicAPI:
     def test_gateway_symbols_importable(self):
-        """Match the exact import shape tui_gateway/server.py uses."""
+        """The three public symbols import and are callable."""
         from hermes_cli.voice import (
             speak_text,
             start_recording,

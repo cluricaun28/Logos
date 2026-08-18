@@ -12,11 +12,8 @@ from tools.managed_tool_gateway import is_managed_tool_gateway_ready
 from utils import is_truthy_value
 from tools.tool_backend_helpers import (
     fal_key_is_configured,
-    has_direct_modal_credentials,
     managed_nous_tools_enabled,
     normalize_browser_cloud_provider,
-    normalize_modal_mode,
-    resolve_modal_backend_state,
     resolve_openai_audio_api_key,
 )
 
@@ -70,12 +67,8 @@ class NousSubscriptionFeatures:
     def browser(self) -> NousFeatureState:
         return self.features["browser"]
 
-    @property
-    def modal(self) -> NousFeatureState:
-        return self.features["modal"]
-
     def items(self) -> Iterable[NousFeatureState]:
-        ordered = ("web", "image_gen", "tts", "browser", "modal")
+        ordered = ("web", "image_gen", "tts", "browser")
         for key in ordered:
             yield self.features[key]
 
@@ -247,12 +240,10 @@ def get_nous_subscription_features(
     image_tool_enabled = _toolset_enabled(config, "image_gen")
     tts_tool_enabled = _toolset_enabled(config, "tts")
     browser_tool_enabled = _toolset_enabled(config, "browser")
-    modal_tool_enabled = _toolset_enabled(config, "terminal")
 
     web_cfg = config.get("web") if isinstance(config.get("web"), dict) else {}
     tts_cfg = config.get("tts") if isinstance(config.get("tts"), dict) else {}
     browser_cfg = config.get("browser") if isinstance(config.get("browser"), dict) else {}
-    terminal_cfg = config.get("terminal") if isinstance(config.get("terminal"), dict) else {}
 
     web_backend = str(web_cfg.get("backend") or "").strip().lower()
     tts_provider = str(tts_cfg.get("provider") or "edge").strip().lower()
@@ -260,13 +251,6 @@ def get_nous_subscription_features(
     browser_provider = normalize_browser_cloud_provider(
         browser_cfg.get("cloud_provider") if browser_provider_explicit else None
     )
-    terminal_backend = (
-        str(terminal_cfg.get("backend") or "local").strip().lower()
-    )
-    modal_mode = normalize_modal_mode(
-        terminal_cfg.get("modal_mode")
-    )
-
     # use_gateway flags — when True, the user explicitly opted into the
     # Tool Gateway via `hermes model`, so direct credentials should NOT
     # prevent gateway routing.
@@ -286,7 +270,6 @@ def get_nous_subscription_features(
     direct_camofox = bool(get_env_value("CAMOFOX_URL"))
     direct_browserbase = bool(get_env_value("BROWSERBASE_API_KEY") and get_env_value("BROWSERBASE_PROJECT_ID"))
     direct_browser_use = bool(get_env_value("BROWSER_USE_API_KEY"))
-    direct_modal = has_direct_modal_credentials()
 
     # When use_gateway is set, suppress direct credentials for managed detection
     if web_use_gateway:
@@ -307,12 +290,6 @@ def get_nous_subscription_features(
     managed_image_available = managed_tools_flag and nous_auth_present and is_managed_tool_gateway_ready("fal-queue")
     managed_tts_available = managed_tools_flag and nous_auth_present and is_managed_tool_gateway_ready("openai-audio")
     managed_browser_available = managed_tools_flag and nous_auth_present and is_managed_tool_gateway_ready("browser-use")
-    managed_modal_available = managed_tools_flag and nous_auth_present and is_managed_tool_gateway_ready("modal")
-    modal_state = resolve_modal_backend_state(
-        modal_mode,
-        has_direct=direct_modal,
-        managed_ready=managed_modal_available,
-    )
 
     web_managed = web_backend == "firecrawl" and managed_web_available and not direct_firecrawl
     web_active = bool(
@@ -365,37 +342,6 @@ def get_nous_subscription_features(
         direct_firecrawl=direct_firecrawl,
         managed_browser_available=managed_browser_available,
     )
-
-    if terminal_backend != "modal":
-        modal_managed = False
-        modal_available = True
-        modal_active = bool(modal_tool_enabled)
-        modal_direct_override = False
-    elif modal_state["selected_backend"] == "managed":
-        modal_managed = bool(modal_tool_enabled)
-        modal_available = True
-        modal_active = bool(modal_tool_enabled)
-        modal_direct_override = False
-    elif modal_state["selected_backend"] == "direct":
-        modal_managed = False
-        modal_available = True
-        modal_active = bool(modal_tool_enabled)
-        modal_direct_override = bool(modal_tool_enabled)
-    elif modal_mode == "managed":
-        modal_managed = False
-        modal_available = bool(managed_modal_available)
-        modal_active = False
-        modal_direct_override = False
-    elif modal_mode == "direct":
-        modal_managed = False
-        modal_available = bool(direct_modal)
-        modal_active = False
-        modal_direct_override = False
-    else:
-        modal_managed = False
-        modal_available = bool(managed_modal_available or direct_modal)
-        modal_active = False
-        modal_direct_override = False
 
     tts_explicit_configured = False
     raw_tts_cfg = config.get("tts")
@@ -450,18 +396,6 @@ def get_nous_subscription_features(
             toolset_enabled=browser_tool_enabled,
             current_provider=_browser_label(browser_current_provider),
             explicit_configured=browser_provider_explicit,
-        ),
-        "modal": NousFeatureState(
-            key="modal",
-            label="Modal execution",
-            included_by_default=False,
-            available=modal_available,
-            active=modal_active,
-            managed_by_nous=modal_managed,
-            direct_override=terminal_backend == "modal" and modal_direct_override,
-            toolset_enabled=modal_tool_enabled,
-            current_provider="Modal" if terminal_backend == "modal" else terminal_backend or "local",
-            explicit_configured=terminal_backend == "modal",
         ),
     }
 

@@ -344,9 +344,6 @@ def load_cli_config() -> Dict[str, Any]:
             "lifetime_seconds": 300,
             "docker_image": "nikolaik/python-nodejs:python3.11-nodejs20",
             "docker_forward_env": [],
-            "singularity_image": "docker://nikolaik/python-nodejs:python3.11-nodejs20",
-            "modal_image": "nikolaik/python-nodejs:python3.11-nodejs20",
-            "daytona_image": "nikolaik/python-nodejs:python3.11-nodejs20",
             "docker_volumes": [],  # host:container volume mounts for Docker backend
             "docker_mount_cwd_to_workspace": False,  # explicit opt-in only; default off for sandbox isolation
         },
@@ -517,7 +514,7 @@ def load_cli_config() -> Dict[str, Any]:
     # Handle special cwd values: "." or "auto" means use current working directory.
     # Only resolve to the host's CWD for the local backend where the host
     # filesystem is directly accessible.  For ALL remote/container backends
-    # (ssh, docker, modal, singularity), the host path doesn't exist on the
+    # (ssh, docker), the host path doesn't exist on the
     # target -- remove the key so terminal_tool.py uses its per-backend default.
     #
     # GUARD: If TERMINAL_CWD is already set to a real absolute path (by the
@@ -548,15 +545,12 @@ def load_cli_config() -> Dict[str, Any]:
         "lifetime_seconds": "TERMINAL_LIFETIME_SECONDS",
         "docker_image": "TERMINAL_DOCKER_IMAGE",
         "docker_forward_env": "TERMINAL_DOCKER_FORWARD_ENV",
-        "singularity_image": "TERMINAL_SINGULARITY_IMAGE",
-        "modal_image": "TERMINAL_MODAL_IMAGE",
-        "daytona_image": "TERMINAL_DAYTONA_IMAGE",
         # SSH config
         "ssh_host": "TERMINAL_SSH_HOST",
         "ssh_user": "TERMINAL_SSH_USER",
         "ssh_port": "TERMINAL_SSH_PORT",
         "ssh_key": "TERMINAL_SSH_KEY",
-        # Container resource config (docker, singularity, modal, daytona -- ignored for local/ssh)
+        # Container resource config (docker -- ignored for local/ssh)
         "container_cpu": "TERMINAL_CONTAINER_CPU",
         "container_memory": "TERMINAL_CONTAINER_MEMORY",
         "container_disk": "TERMINAL_CONTAINER_DISK",

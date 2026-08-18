@@ -168,14 +168,6 @@ TOOLSETS = {
     # "honcho" toolset removed — Honcho is now a memory provider plugin.
     # Tools are injected via MemoryManager, not the toolset system.
 
-    "spotify": {
-        "description": "Native Spotify playback, search, playlist, album, and library tools",
-        "tools": [
-            "spotify_playback", "spotify_devices", "spotify_queue", "spotify_search",
-            "spotify_playlists", "spotify_albums", "spotify_library",
-        ],
-        "includes": []
-    },
 
 
     # Scenario-specific toolsets
@@ -255,7 +247,7 @@ TOOLSETS = {
     "hermes-cron": {
         # Mirrors hermes-cli so cron's "default" toolset is the same set of
         # core tools users see interactively — then `hermes tools` filters
-        # them down per the platform config. _DEFAULT_OFF_TOOLSETS (spotify)
+        # them down per the platform config. _DEFAULT_OFF_TOOLSETS (if any)
         # is excluded by _get_platform_tools() unless the user explicitly
         # enables it.
         "description": "Default cron toolset - same core tools as hermes-cli; gated by `hermes tools`",
