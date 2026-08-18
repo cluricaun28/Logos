@@ -2125,6 +2125,96 @@ class TelegramAdapter(BasePlatformAdapter):
             # Fallback: try as a regular photo
             return await self.send_image(chat_id, animation_url, caption, reply_to)
 
+    async def send_multiple_images(
+        self,
+        chat_id: str,
+        images: List[Tuple[str, str]],
+        metadata: Optional[Dict[str, Any]] = None,
+        human_delay: float = 0.0,
+    ) -> None:
+        """Send a batch of images as a native Telegram media group.
+
+        Photos are bundled into ``send_media_group`` albums (max 10 per
+        album — Telegram's cap). Animated GIFs are peeled off and sent
+        individually via ``send_animation`` (albums don't support
+        animations). Local ``file://`` images go through
+        ``send_image_file``. If ``send_media_group`` fails, the affected
+        photos fall back to per-image ``send_image`` so one bad batch
+        never loses the rest.
+        """
+        if not images:
+            return
+        if not self._bot:
+            await super().send_multiple_images(
+                chat_id, images, metadata=metadata, human_delay=human_delay
+            )
+            return
+
+        from urllib.parse import unquote as _unquote
+
+        photos: List[Tuple[str, str]] = []
+        animations: List[Tuple[str, str]] = []
+        files: List[Tuple[str, str]] = []
+        for url, alt in images:
+            if url.startswith("file://"):
+                files.append((url, alt))
+            elif self._is_animation_url(url):
+                animations.append((url, alt))
+            else:
+                photos.append((url, alt))
+
+        for url, alt in animations:
+            try:
+                await self.send_animation(
+                    chat_id=chat_id,
+                    animation_url=url,
+                    caption=alt if alt else None,
+                    metadata=metadata,
+                )
+            except Exception as e:
+                logger.error("[%s] Animation in image batch failed: %s", self.name, e, exc_info=True)
+
+        for url, alt in files:
+            try:
+                await self.send_image_file(
+                    chat_id=chat_id,
+                    image_path=_unquote(url[7:]),
+                    caption=alt if alt else None,
+                    metadata=metadata,
+                )
+            except Exception as e:
+                logger.error("[%s] File in image batch failed: %s", self.name, e, exc_info=True)
+
+        _album_thread = self._message_thread_id_for_send(self._metadata_thread_id(metadata))
+        for i in range(0, len(photos), 10):
+            chunk = photos[i:i + 10]
+            import telegram
+            media = [
+                telegram.InputMediaPhoto(url, caption=alt[:1024] if alt else None)
+                for url, alt in chunk
+            ]
+            try:
+                await self._bot.send_media_group(
+                    chat_id=int(chat_id),
+                    media=media,
+                    message_thread_id=_album_thread,
+                )
+            except Exception as e:
+                logger.warning(
+                    "[%s] send_media_group failed, falling back to per-image: %s",
+                    self.name, e, exc_info=True,
+                )
+                for url, alt in chunk:
+                    try:
+                        await self.send_image(
+                            chat_id=chat_id,
+                            image_url=url,
+                            caption=alt if alt else None,
+                            metadata=metadata,
+                        )
+                    except Exception as e2:
+                        logger.error("[%s] Fallback send_image failed: %s", self.name, e2, exc_info=True)
+
     async def send_typing(self, chat_id: str, metadata: Optional[Dict[str, Any]] = None) -> None:
         """Send typing indicator."""
         if self._bot:

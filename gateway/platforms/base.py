@@ -1509,6 +1509,61 @@ class BasePlatformAdapter(ABC):
         lower = url.lower().split('?')[0]  # Strip query params
         return lower.endswith('.gif')
 
+    async def send_multiple_images(
+        self,
+        chat_id: str,
+        images: List[Tuple[str, str]],
+        metadata: Optional[Dict[str, Any]] = None,
+        human_delay: float = 0.0,
+    ) -> None:
+        """Send a batch of images.
+
+        Accepts ``http(s)://`` or ``file://`` URIs in the first tuple
+        element.
+
+        Default implementation sends each item individually, routing
+        animated GIFs through ``send_animation`` and local files through
+        ``send_image_file``. Override in subclasses to bundle into a
+        single native API call (e.g., Telegram's send_media_group album).
+        """
+        from urllib.parse import unquote as _unquote
+
+        for image_url, alt_text in images:
+            if human_delay > 0:
+                await asyncio.sleep(human_delay)
+            try:
+                logger.info(
+                    "[%s] Sending image: %s (alt=%s)",
+                    self.name,
+                    safe_url_for_log(image_url),
+                    alt_text[:30] if alt_text else "",
+                )
+                if image_url.startswith("file://"):
+                    img_result = await self.send_image_file(
+                        chat_id=chat_id,
+                        image_path=_unquote(image_url[7:]),
+                        caption=alt_text if alt_text else None,
+                        metadata=metadata,
+                    )
+                elif self._is_animation_url(image_url):
+                    img_result = await self.send_animation(
+                        chat_id=chat_id,
+                        animation_url=image_url,
+                        caption=alt_text if alt_text else None,
+                        metadata=metadata,
+                    )
+                else:
+                    img_result = await self.send_image(
+                        chat_id=chat_id,
+                        image_url=image_url,
+                        caption=alt_text if alt_text else None,
+                        metadata=metadata,
+                    )
+                if not img_result.success:
+                    logger.error("[%s] Failed to send image: %s", self.name, img_result.error)
+            except Exception as img_err:
+                logger.error("[%s] Error sending image: %s", self.name, img_err, exc_info=True)
+
     @staticmethod
     def extract_images(content: str) -> Tuple[List[Tuple[str, str]], str]:
         """
@@ -2643,8 +2698,27 @@ class BasePlatformAdapter(ABC):
                     await typing_task
                 except asyncio.CancelledError:
                     pass
-                # Process pending message in new background task
-                await self._process_message_background(pending_event, session_key)
+                # Process pending message in a fresh background task
+                # (#17758: awaiting here recursed — each queued follow-up
+                # added a frame, exhausting the C stack at ~2000 nested
+                # drains under sustained pending-queue activity).
+                # Ownership of the session transfers to the drain task;
+                # the owner-check in the finally block below then leaves
+                # _active_sessions populated so the drain task reuses the
+                # same interrupt Event (guard identity preserved across
+                # the handoff).
+                drain_task = asyncio.create_task(
+                    self._process_message_background(pending_event, session_key)
+                )
+                self._session_tasks[session_key] = drain_task
+                try:
+                    self._background_tasks.add(drain_task)
+                    drain_task.add_done_callback(self._background_tasks.discard)
+                    drain_task.add_done_callback(self._expected_cancelled_tasks.discard)
+                except TypeError:
+                    # Tests stub create_task() with non-hashable sentinels;
+                    # the late-arrival drain tolerates the same.
+                    pass
                 return  # Already cleaned up
                 
         except asyncio.CancelledError:

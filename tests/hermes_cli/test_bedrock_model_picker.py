@@ -16,10 +16,18 @@ Covers the three paths changed by fix/bedrock-provider-model-ids-live-discovery:
 All Bedrock API calls are mocked — no real AWS credentials needed.
 """
 
+import importlib.util
 import os
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+# botocore is an optional dependency — only tests that patch
+# "botocore.session.get_session" require the real module.
+requires_botocore = pytest.mark.skipif(
+    importlib.util.find_spec("botocore") is None,
+    reason="botocore (AWS SDK) not installed",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -243,6 +251,7 @@ class TestBedrockRegionRouting:
     """End-to-end: region from botocore profile is used for discovery, so EU/AP
     users get eu.*/ap.* model IDs rather than the hardcoded us-east-1 list."""
 
+    @requires_botocore
     def test_eu_region_from_botocore_profile_yields_eu_models(self):
         """When botocore resolves eu-central-1, picker shows eu.* model IDs."""
         from hermes_cli.model_switch import list_authenticated_providers
@@ -277,6 +286,7 @@ class TestBedrockRegionRouting:
             assert model_id.startswith("us."), \
                 f"Expected us.* model ID from us-east-1, got {model_id!r}"
 
+    @requires_botocore
     def test_env_var_takes_priority_over_botocore_profile(self, monkeypatch):
         """AWS_REGION env var wins over botocore profile region."""
         from agent.bedrock_adapter import resolve_bedrock_region

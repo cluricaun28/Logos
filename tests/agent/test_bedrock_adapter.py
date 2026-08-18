@@ -15,7 +15,17 @@ import time
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch, PropertyMock
 
+import importlib.util
+
 import pytest
+
+# botocore is an optional dependency (the bedrock adapter degrades gracefully
+# without it) — only tests that need real botocore exception classes or
+# patch("botocore...") are marked.
+requires_botocore = pytest.mark.skipif(
+    importlib.util.find_spec("botocore") is None,
+    reason="botocore (AWS SDK) not installed",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -115,6 +125,7 @@ class TestResolveBedrocRegion:
         env = {"AWS_DEFAULT_REGION": "ap-northeast-1"}
         assert resolve_bedrock_region(env) == "ap-northeast-1"
 
+    @requires_botocore
     def test_defaults_to_us_east_1(self):
         from agent.bedrock_adapter import resolve_bedrock_region
         from unittest.mock import patch, MagicMock
@@ -123,6 +134,7 @@ class TestResolveBedrocRegion:
         with patch("botocore.session.get_session", return_value=mock_session):
             assert resolve_bedrock_region({}) == "us-east-1"
 
+    @requires_botocore
     def test_falls_back_to_botocore_profile_region(self):
         from agent.bedrock_adapter import resolve_bedrock_region
         from unittest.mock import patch, MagicMock
@@ -131,6 +143,7 @@ class TestResolveBedrocRegion:
         with patch("botocore.session.get_session", return_value=mock_session):
             assert resolve_bedrock_region({}) == "eu-central-1"
 
+    @requires_botocore
     def test_botocore_failure_falls_back_to_us_east_1(self):
         from agent.bedrock_adapter import resolve_bedrock_region
         from unittest.mock import patch
@@ -1282,18 +1295,21 @@ class TestInvalidateRuntimeClient:
 class TestIsStaleConnectionError:
     """Classifier that decides whether an exception warrants client eviction."""
 
+    @requires_botocore
     def test_detects_botocore_connection_closed_error(self):
         from agent.bedrock_adapter import is_stale_connection_error
         from botocore.exceptions import ConnectionClosedError
         exc = ConnectionClosedError(endpoint_url="https://bedrock.example")
         assert is_stale_connection_error(exc) is True
 
+    @requires_botocore
     def test_detects_botocore_endpoint_connection_error(self):
         from agent.bedrock_adapter import is_stale_connection_error
         from botocore.exceptions import EndpointConnectionError
         exc = EndpointConnectionError(endpoint_url="https://bedrock.example")
         assert is_stale_connection_error(exc) is True
 
+    @requires_botocore
     def test_detects_botocore_read_timeout(self):
         from agent.bedrock_adapter import is_stale_connection_error
         from botocore.exceptions import ReadTimeoutError
@@ -1349,6 +1365,7 @@ class TestIsStaleConnectionError:
         assert is_stale_connection_error(KeyError("missing")) is False
 
 
+@requires_botocore
 class TestCallConverseInvalidatesOnStaleError:
     """call_converse / call_converse_stream evict the cached client when the
     boto3 call raises a stale-connection error — so the next invocation

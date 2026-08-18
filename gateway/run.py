@@ -2114,7 +2114,7 @@ class GatewayRunner:
                     "Sent shutdown notification to %s:%s",
                     platform_str, chat_id,
                 )
-            except (AttributeError, ConnectionError, KeyError, RuntimeError, TimeoutError, TypeError) as e:
+            except Exception as e:
                 logger.debug(
                     "Failed to send shutdown notification to %s:%s: %s",
                     platform_str, chat_id, e,
@@ -7019,13 +7019,13 @@ class GatewayRunner:
                         metadata=_thread_metadata,
                     )
 
-                # Send extracted images
-                for image_url, alt_text in (images or []):
+                # Send extracted images (bundled as a native media group
+                # where the platform supports it, else per-image)
+                if images:
                     try:
-                        await adapter.send_image(
+                        await adapter.send_multiple_images(
                             chat_id=source.chat_id,
-                            image_url=image_url,
-                            caption=alt_text,
+                            images=images,
                             metadata=_thread_metadata,
                         )
                     except (RuntimeError):
