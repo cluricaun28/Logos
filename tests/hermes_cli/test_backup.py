@@ -1,5 +1,7 @@
 """Tests for hermes backup and import commands."""
 
+
+import importlib
 import json
 import os
 import sqlite3
@@ -1435,10 +1437,14 @@ class TestRunPreUpdateBackup:
         monkeypatch.setenv("HERMES_HOME", str(root))
         # Make Path.home() point at tmp_path for anything that uses it
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
-        # Bust caches for hermes_cli.config + hermes_constants so they pick up HERMES_HOME
-        for mod in list(__import__("sys").modules.keys()):
+        # Bust caches for hermes_cli.config + hermes_constants so they pick up
+        # HERMES_HOME. Reload in place (not delete+reimport) so other test
+        # modules' `from hermes_cli.config import ...` bindings stay live —
+        # reload re-runs the module body in the same namespace/dict.
+        _mods = __import__("sys").modules
+        for mod in list(_mods.keys()):
             if mod.startswith("hermes_cli.config") or mod == "hermes_constants":
-                del __import__("sys").modules[mod]
+                importlib.reload(_mods[mod])
         return root
 
     def test_backup_flag_creates_backup(self, hermes_home, capsys):
@@ -1486,9 +1492,13 @@ class TestRunPreUpdateBackup:
             "updates": {"pre_update_backup": True},
         }))
         import sys as _sys
+        # Reload (not delete+reimport): re-runs the module body to clear
+        # module-level config caches, but keeps the module object identity so
+        # other test modules' `from hermes_cli.config import ...` bindings
+        # stay live (their __globals__ is this same dict).
         for mod in list(_sys.modules.keys()):
             if mod.startswith("hermes_cli.config"):
-                del _sys.modules[mod]
+                importlib.reload(_sys.modules[mod])
 
         from hermes_cli.main import _run_pre_update_backup
         _run_pre_update_backup(Namespace(no_backup=False, backup=False))
@@ -1508,9 +1518,13 @@ class TestRunPreUpdateBackup:
         }))
         # Ensure config module re-reads
         import sys as _sys
+        # Reload (not delete+reimport): re-runs the module body to clear
+        # module-level config caches, but keeps the module object identity so
+        # other test modules' `from hermes_cli.config import ...` bindings
+        # stay live (their __globals__ is this same dict).
         for mod in list(_sys.modules.keys()):
             if mod.startswith("hermes_cli.config"):
-                del _sys.modules[mod]
+                importlib.reload(_sys.modules[mod])
 
         from hermes_cli.main import _run_pre_update_backup
         _run_pre_update_backup(Namespace(no_backup=False, backup=False))
@@ -1527,9 +1541,13 @@ class TestRunPreUpdateBackup:
             "updates": {"pre_update_backup": True},
         }))
         import sys as _sys
+        # Reload (not delete+reimport): re-runs the module body to clear
+        # module-level config caches, but keeps the module object identity so
+        # other test modules' `from hermes_cli.config import ...` bindings
+        # stay live (their __globals__ is this same dict).
         for mod in list(_sys.modules.keys()):
             if mod.startswith("hermes_cli.config"):
-                del _sys.modules[mod]
+                importlib.reload(_sys.modules[mod])
 
         from hermes_cli.main import _run_pre_update_backup
         _run_pre_update_backup(Namespace(no_backup=True, backup=False))
