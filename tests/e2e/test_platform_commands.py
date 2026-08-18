@@ -1,4 +1,4 @@
-"""E2E tests for gateway slash commands (Telegram, Discord).
+"""E2E tests for gateway slash commands (Telegram).
 
 Each test drives a message through the full async pipeline:
     adapter.handle_message(event)

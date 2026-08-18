@@ -39,23 +39,6 @@ def _make_event(
 # Discord text batching
 # =====================================================================
 
-def _make_discord_adapter():
-    """Create a minimal DiscordAdapter for testing text batching."""
-    from gateway.platforms.discord import DiscordAdapter
-
-    config = PlatformConfig(enabled=True, token="test-token")
-    adapter = object.__new__(DiscordAdapter)
-    adapter._platform = Platform.DISCORD
-    adapter.config = config
-    adapter._pending_text_batches = {}
-    adapter._pending_text_batch_tasks = {}
-    adapter._text_batch_delay_seconds = 0.1  # fast for tests
-    adapter._text_batch_split_delay_seconds = 0.3  # fast for tests
-    adapter._active_sessions = {}
-    adapter._pending_messages = {}
-    adapter._message_handler = AsyncMock()
-    adapter.handle_message = AsyncMock()
-    return adapter
 def _make_telegram_adapter():
     """Create a minimal TelegramAdapter for testing adaptive delay."""
     from gateway.platforms.telegram import TelegramAdapter

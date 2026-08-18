@@ -8,9 +8,6 @@ def _make_env_config(**overrides):
     base = {
         "env_type": "docker",
         "docker_image": "test-image:latest",
-        "singularity_image": "docker://test",
-        "modal_image": "test",
-        "daytona_image": "test",
         "cwd": "/workspace",
         "host_cwd": None,
         "timeout": 180,
