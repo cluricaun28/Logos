@@ -48,6 +48,7 @@ class TestCompressionBoundaryHook:
                 {"role": "user", "content": "tail question"},
             ]
             compressor.compression_count = 1
+            compressor.archive_count = 0
             compressor.last_prompt_tokens = 0
             compressor.last_completion_tokens = 0
             # Avoid the summary-error warning path
@@ -104,6 +105,7 @@ class TestCompressionBoundaryHook:
         compressor = MagicMock()
         compressor.compress.return_value = [{"role": "user", "content": "x"}]
         compressor.compression_count = 1
+        compressor.archive_count = 0
         compressor.last_prompt_tokens = 0
         compressor.last_completion_tokens = 0
         compressor._last_summary_error = None
@@ -134,6 +136,7 @@ class TestCompressionBoundaryHook:
             compressor = MagicMock()
             compressor.compress.return_value = [{"role": "user", "content": "summary"}]
             compressor.compression_count = 1
+            compressor.archive_count = 0
             compressor.last_prompt_tokens = 0
             compressor.last_completion_tokens = 0
             compressor._last_summary_error = None

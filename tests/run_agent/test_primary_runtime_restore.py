@@ -74,16 +74,16 @@ class TestPrimaryRuntimeSnapshot:
         assert rt["base_url"] == "https://my-llm.example.com/v1"
         assert rt["api_mode"] == agent.api_mode
         assert "client_kwargs" in rt
-        assert "compressor_context_length" in rt
+        assert "archiver_context_length" in rt
 
     def test_snapshot_includes_compressor_state(self):
         agent = _make_agent()
         rt = agent._primary_runtime
         cc = agent.context_compressor
-        assert rt["compressor_model"] == cc.model
-        assert rt["compressor_provider"] == cc.provider
-        assert rt["compressor_context_length"] == cc.context_length
-        assert rt["compressor_threshold_tokens"] == cc.threshold_tokens
+        assert rt["archiver_model"] == cc.model
+        assert rt["archiver_provider"] == cc.provider
+        assert rt["archiver_context_length"] == cc.context_length
+        assert rt["archiver_threshold_tokens"] == cc.threshold_tokens
 
     def test_snapshot_includes_anthropic_state_when_applicable(self):
         """Anthropic-mode agents should snapshot Anthropic-specific state."""

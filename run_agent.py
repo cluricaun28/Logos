@@ -7567,7 +7567,9 @@ class AIAgent:
                 self.model, self.provider,
             )
             return True
-        except (ImportError, ModuleNotFoundError, KeyError, TypeError) as e:
+        # Any failure here (e.g. client rebuild error) must not break the
+        # turn — returning False keeps the agent on the fallback.
+        except Exception as e:
             logging.warning("Failed to restore primary runtime: %s", e)
             return False
 
@@ -8995,7 +8997,7 @@ class AIAgent:
                     boundary_reason="archiving",
                     old_session_id=_old_sid,
                 )
-        except (AttributeError, TypeError, OSError) as _ce_err:
+        except Exception as _ce_err:
             logger.debug("context engine on_session_start (archiving): %s", _ce_err)
 
         # Warn on repeated archives (quality degrades with each pass)
