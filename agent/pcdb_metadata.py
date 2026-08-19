@@ -39,39 +39,50 @@ class _MetadataManager:
         if not self._initialized or not self._conn:
             return None
 
-        try:
-            with self._lock:
-                # Check for existing topic
-                cursor = self._conn.execute(
-                    "SELECT id FROM topics WHERE session_id = ? AND topic_name = ?",
-                    (session_id, topic_name),
-                )
-                if cursor.fetchone():
-                    return None  # Duplicate
+        for attempt in range(3):
+            try:
+                with self._lock:
+                    # Check for existing topic
+                    cursor = self._conn.execute(
+                        "SELECT id FROM topics WHERE session_id = ? AND topic_name = ?",
+                        (session_id, topic_name),
+                    )
+                    if cursor.fetchone():
+                        return None  # Duplicate
 
-                cursor = self._conn.execute(
-                    """INSERT INTO topics (session_id, topic_name, confidence)
-                       VALUES (?, ?, ?)""",
-                    (session_id, topic_name, confidence),
-                )
-                topic_id = cursor.lastrowid
+                    cursor = self._conn.execute(
+                        """INSERT INTO topics (session_id, topic_name, confidence)
+                           VALUES (?, ?, ?)""",
+                        (session_id, topic_name, confidence),
+                    )
+                    topic_id = cursor.lastrowid
 
-                # Update session metadata
-                self._conn.execute(
-                    """INSERT INTO session_metadata (session_id, topic_count, last_updated)
-                       VALUES (?, 1, ?)
-                       ON CONFLICT(session_id) DO UPDATE SET
-                           topic_count = topic_count + 1,
-                           last_updated = ?""",
-                    (session_id, time.time(), time.time()),
-                )
+                    # Update session metadata
+                    self._conn.execute(
+                        """INSERT INTO session_metadata (session_id, topic_count, last_updated)
+                           VALUES (?, 1, ?)
+                           ON CONFLICT(session_id) DO UPDATE SET
+                               topic_count = topic_count + 1,
+                               last_updated = ?""",
+                        (session_id, time.time(), time.time()),
+                    )
 
-                self._conn.commit()
-                return topic_id
+                    self._conn.commit()
+                    return topic_id
 
-        except Exception as e:
-            logger.error("Failed to add topic: %s", e)
-            return None
+            except sqlite3.OperationalError as e:
+                # WAL checkpoint locks can raise 'database is locked'
+                # immediately, outside busy_timeout's reach. The body is
+                # idempotent (duplicate SELECT first), so retry is safe.
+                if "locked" in str(e) and attempt < 2:
+                    time.sleep(0.1 * (4 ** attempt))
+                    continue
+                logger.error("Failed to add topic: %s", e)
+                return None
+            except Exception as e:
+                logger.error("Failed to add topic: %s", e)
+                return None
+        return None
 
     def link_topic_to_message(self, topic_id: int, message_id: int, similarity: float = 0.5) -> bool:
         """Link a topic to a message.
@@ -87,18 +98,27 @@ class _MetadataManager:
         if not self._initialized or not self._conn:
             return False
 
-        try:
-            with self._lock:
-                self._conn.execute(
-                    "INSERT OR IGNORE INTO topic_messages (topic_id, message_id, similarity) VALUES (?, ?, ?)",
-                    (topic_id, message_id, similarity),
-                )
-                self._conn.commit()
-                return True
+        for attempt in range(3):
+            try:
+                with self._lock:
+                    self._conn.execute(
+                        "INSERT OR IGNORE INTO topic_messages (topic_id, message_id, similarity) VALUES (?, ?, ?)",
+                        (topic_id, message_id, similarity),
+                    )
+                    self._conn.commit()
+                    return True
 
-        except sqlite3.Error as e:
-            logger.error("Failed to link topic to message: %s", e)
-            return False
+            except sqlite3.OperationalError as e:
+                # WAL checkpoint lock window — idempotent (OR IGNORE), retry safe.
+                if "locked" in str(e) and attempt < 2:
+                    time.sleep(0.1 * (4 ** attempt))
+                    continue
+                logger.error("Failed to link topic to message: %s", e)
+                return False
+            except sqlite3.Error as e:
+                logger.error("Failed to link topic to message: %s", e)
+                return False
+        return False
 
     def get_topic_flow(self, session_id: str) -> list[dict[str, Any]]:
         """Get the topic flow history for a session.

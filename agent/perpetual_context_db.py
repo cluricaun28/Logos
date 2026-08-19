@@ -352,6 +352,7 @@ class PerpetualContextDB(
                 # Connect to SQLite (create if not exists)
                 self._conn = sqlite3.connect(self._db_path, timeout=30, check_same_thread=False)
                 self._conn.execute("PRAGMA journal_mode=WAL")
+                self._conn.execute("PRAGMA busy_timeout=30000")
                 self._conn.execute("PRAGMA foreign_keys=ON")
                 self._create_tables()
 
@@ -375,6 +376,13 @@ class PerpetualContextDB(
                     self._conn.commit()
                 except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
                     logger.debug("Commit failed during shutdown")
+                # Drain the WAL while we still own the only snapshot —
+                # a blocked checkpoint balloons the -wal file and widens
+                # the 'database is locked' window for other processes.
+                try:
+                    self._conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
+                except sqlite3.Error:
+                    logger.debug("WAL checkpoint on shutdown skipped")
                 self._conn.close()
                 self._conn = None
             self._initialized = False
