@@ -12,11 +12,121 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import sqlite3
 import time as _time
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n?", re.DOTALL)
+
+
+def _read_skill_body(rl_root: Path, pointer_file: str, skill_name: str,
+                     max_chars: int) -> str | None:
+    """Read the full SKILL.md body for a pushed skill (budgeted).
+
+    Path: <rl_root>/skills/<pointer_file> → frontmatter skill_path → SKILL.md.
+    Returns None on any failure (push degrades to a one-line candidate).
+    """
+    try:
+        pointer = rl_root / "skills" / pointer_file
+        if not pointer.is_file():
+            return None
+        text = pointer.read_text(encoding="utf-8", errors="replace")
+        m = FRONTMATTER_RE.match(text)
+        if not m:
+            return None
+        skill_path = None
+        for line in m.group(1).splitlines():
+            if line.startswith("skill_path:"):
+                skill_path = line.split(":", 1)[1].strip()
+                break
+        if not skill_path:
+            return None
+        skill_md = Path(skill_path)
+        if not skill_md.is_file():
+            return None
+        body = skill_md.read_text(encoding="utf-8", errors="replace")
+        fm = FRONTMATTER_RE.match(body)
+        if fm:
+            body = body[fm.end():]
+        body = body.strip()
+        if not body:
+            return None
+        if len(body) > max_chars:
+            body = body[:max_chars].rstrip() + f"\n\n[… truncated — skill_view('{skill_name}') for the full skill]"
+        return body
+    except (OSError, ValueError) as e:  # noqa: BLE001 — degradation, never fail prefetch
+        logger.debug("skill push: could not read body for %s: %s", skill_name, e)
+        return None
+
+
+def _build_skill_push_block(
+    skill_results: list[dict],
+    rl_root: Path,
+    *,
+    gap: float,
+    min_score: float,
+    max_chars: int,
+    max_candidates: int,
+    session_id: str = "",
+) -> str:
+    """Build the L2 skill-push block from skill pointer search results.
+
+    Push rule (calibrated on the 56-pair recall probe): fused scores saturate
+    at the top, so absolute score is not a discriminator — separation is.
+    Push the full skill body only when the best skill pointer clears the
+    second-best by >= gap AND clears min_score. Otherwise list candidates
+    as one-liners so the model can pull via skill_view.
+    """
+    if not skill_results:
+        return ""
+    ranked = sorted(skill_results, key=lambda r: r.get("score", 0), reverse=True)
+    best = ranked[0]
+    best_score = best.get("score", 0)
+    if best_score < min_score:
+        return ""
+    second_score = ranked[1].get("score", 0) if len(ranked) > 1 else 0.0
+    # Canonical skill name = pointer filename stem (pointers are {name}.md);
+    # the display name may be title-cased when the index lacks a title.
+    skill_name = Path(best.get("file", "")).stem or best.get("name", "").replace(" ", "-")
+
+    parts: list[str] = []
+    candidates_pool = list(ranked[1:])
+    if best_score - second_score >= gap:
+        body = _read_skill_body(rl_root, best.get("file", ""), skill_name, max_chars)
+        if body:
+            parts.append(
+                f"**Skill match (auto-loaded — follow it if it fits the task):**\n"
+                f"[SKILL: {skill_name}] (relevance {best_score:.2f})\n{body}"
+            )
+            logger.info(
+                "L2 skill push: session=%s skill=%s score=%.2f gap=%.2f",
+                session_id or "?", skill_name, best_score, best_score - second_score,
+            )
+        else:
+            # Body unreadable — degrade: surface the skill as a candidate.
+            logger.info("L2 skill push: body unreadable, degraded to candidate: %s", skill_name)
+            candidates_pool = [best] + candidates_pool
+
+    candidates = [r for r in candidates_pool[:max_candidates]
+                  if r.get("score", 0) >= min_score - 0.15]
+    if candidates:
+        lines = ["Other skill candidates (load via skill_view if a better fit):"]
+        for r in candidates:
+            cand_name = Path(r.get("file", "")).stem or r.get("name", "").replace(" ", "-")
+            snippet = (r.get("snippet", "") or "").replace("\n", " ")[:100]
+            lines.append(f"- {cand_name} (score {r.get('score', 0):.2f}) — {snippet}")
+        parts.append("\n".join(lines))
+        logger.info(
+            "L2 skill candidates: session=%s candidates=%s",
+            session_id or "?",
+            [Path(r.get("file", "")).stem for r in candidates],
+        )
+
+    return "\n\n".join(parts)
 
 
 def run_prefetch_pipeline(
@@ -35,6 +145,13 @@ def run_prefetch_pipeline(
     prefetch_enabled: bool,
     recall_past_enabled: bool,
     deep_research_enabled: bool,
+    # L2 skill push (W2) — defaults keep the feature off until wired by the caller
+    rl_root: Path | str | None = None,
+    skill_push_enabled: bool = False,
+    skill_push_gap: float = 0.15,
+    skill_push_min_score: float = 0.5,
+    skill_push_max_chars: int = 2400,
+    skill_push_max_candidates: int = 2,
     # Module-level constants passed from __init__.py
     prefetch_trunc_chars: int,
     recall_output_max_chars: int,
@@ -79,23 +196,46 @@ def run_prefetch_pipeline(
     rl_data: dict = {}
     if routing.get("fire_prefetch") and prefetch_enabled and tools:
         try:
+            # Wider pool than displayed: skill pointers compete for the same
+            # top slots, and the push decision needs a few ranked candidates.
+            pool_k = max(10, rl_search_top_k * 2)
             rl_json = tools.handle_reference_library_search(
                 {
                     "query": query,
-                    "top_k": rl_search_top_k,
+                    "top_k": pool_k,
                 }
             )
             rl_data = json.loads(rl_json)
             rl_results = rl_data.get("results", [])
-            if rl_results:
+            skill_results = [r for r in rl_results if r.get("directory") == "skills"]
+            page_results = [r for r in rl_results if r.get("directory") != "skills"]
+
+            # L2 skill push — procedures first (skills matter at task start).
+            if skill_push_enabled and rl_root and skill_results:
+                try:
+                    skill_block = _build_skill_push_block(
+                        skill_results,
+                        Path(rl_root),
+                        gap=skill_push_gap,
+                        min_score=skill_push_min_score,
+                        max_chars=skill_push_max_chars,
+                        max_candidates=skill_push_max_candidates,
+                        session_id=session_id,
+                    )
+                    if skill_block:
+                        parts.append(skill_block)
+                except Exception as e:  # noqa: S110 — skill push must never kill prefetch
+                    logger.debug("Skill push failed (non-fatal): %s", e)
+
+            if page_results:
                 rl_parts = []
-                for r in rl_results[:rl_search_top_k]:
+                for r in page_results[:rl_search_top_k]:
                     name = r.get("name", "Unknown")
                     snippet = r.get("snippet", "")[:300]
                     score = r.get("score", 0)
                     rl_parts.append(f"[RL: {name} (score: {score})]\n{snippet}")
                 parts.append("\n\n---\n\n".join(rl_parts))
-                rl_results_count = len(rl_results)
+                rl_results_count = len(page_results)
         except Exception as e:  # noqa: S110 — degradation wrapper, must never fail pipeline
             logger.exception("Phase 1a RL search failed: %s", e)
             failures.append(f"RL search: {type(e).__name__}")

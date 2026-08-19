@@ -26,6 +26,7 @@ import sqlite3
 import threading
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from agent.memory_provider import MemoryProvider
@@ -84,6 +85,10 @@ class PerpetualContextProvider(MemoryProvider):
         self._recall_past_enabled: bool = False
         self._periodic_enabled: bool = False
         self._deep_research_enabled: bool = False
+        self._skill_push: dict[str, Any] = {
+            "enabled": True, "gap": 0.15, "min_score": 0.5,
+            "max_chars": 2400, "max_candidates": 2,
+        }
         # Sub-components (lazy-init via ComponentFactory)
         self._factory: Any | None = None
         # Periodic injection state
@@ -137,6 +142,21 @@ class PerpetualContextProvider(MemoryProvider):
         )
         self._periodic_enabled = bool(pc_config.get("pre_response_recall", False))
         self._deep_research_enabled = DEEP_RESEARCH_ENABLED
+
+        # L2 skill push (W2): prefetch pushes the full SKILL.md body when a
+        # skill pointer match is high-signal (separation-based, calibrated on
+        # the 56-pair recall probe). No-op unless pointer pages exist in the
+        # RL tree (skill_pointer_sync), so safe to default on.
+        skill_push_cfg = pc_config.get("skill_push", {})
+        if not isinstance(skill_push_cfg, dict):
+            skill_push_cfg = {}
+        self._skill_push = {
+            "enabled": bool(skill_push_cfg.get("enabled", True)),
+            "gap": float(skill_push_cfg.get("gap", 0.15)),
+            "min_score": float(skill_push_cfg.get("min_score", 0.5)),
+            "max_chars": int(skill_push_cfg.get("max_chars", 2400)),
+            "max_candidates": int(skill_push_cfg.get("max_candidates", 2)),
+        }
 
         db_path = pc_config.get("db_path")
         if not db_path:  # noqa: SIM108
@@ -263,6 +283,16 @@ class PerpetualContextProvider(MemoryProvider):
             worldview_blocked_domains=WORLDVIEW_BLOCKED_DOMAINS,
             deep_research_master=DEEP_RESEARCH_ENABLED,
             quality_scorer=factory.quality_scorer,
+            rl_root=(
+                Path(os.environ.get("HERMES_HOME")
+                     or os.path.expanduser("~/.hermes"))
+                / "reference-library"
+            ),
+            skill_push_enabled=self._skill_push["enabled"],
+            skill_push_gap=self._skill_push["gap"],
+            skill_push_min_score=self._skill_push["min_score"],
+            skill_push_max_chars=self._skill_push["max_chars"],
+            skill_push_max_candidates=self._skill_push["max_candidates"],
         )
 
     # -- Queued prefetch / recall --------------------------------------------
