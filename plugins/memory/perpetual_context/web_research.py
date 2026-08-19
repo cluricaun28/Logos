@@ -254,14 +254,14 @@ class WebResearchClient:
     def extract(self, url: str) -> str | None:
         """Extract content from a URL with fleet-wide egress guards.
 
-        Guards (logos.web_egress): per-domain bot-block cooldown first,
+        Guards (web_egress): per-domain bot-block cooldown first,
         then the shared URL extraction cache. Fail-open on guard errors.
         """
         if not url or not isinstance(url, str):
             return None
 
         try:
-            from logos import web_egress
+            import web_egress
         except ImportError:
             web_egress = None
 
@@ -337,7 +337,7 @@ class WebResearchClient:
             logger.debug("Firecrawl extraction request failed for %s: %s", str(url)[:URL_LOG_MAX_CHARS], e)
             # Surface bot-block statuses (403/429/503) to the egress cooldown
             try:
-                from logos import web_egress as _we
+                import web_egress as _we
                 if _we.enabled() and _we._blocked_by_status(e):
                     _we.record_block(url)
             except ImportError:

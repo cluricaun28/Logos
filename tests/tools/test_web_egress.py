@@ -1,4 +1,4 @@
-"""Tests for logos.web_egress — fleet-wide web egress guards.
+"""Tests for web_egress — fleet-wide web egress guards.
 
 Covers:
 - URL extraction cache: put/get, TTL expiry, key normalization
@@ -27,7 +27,7 @@ def egress(tmp_path, monkeypatch):
 
     The module reads config at import time, so we set env then reload.
     """
-    import logos.web_egress as we
+    import web_egress as we
 
     monkeypatch.setenv("HERMES_WEB_EGRESS_DIR", str(tmp_path))
     importlib.reload(we)
@@ -122,7 +122,7 @@ def test_cache_within_ttl_returned(egress):
 
 
 def test_cache_prunes_to_max_rows(egress, monkeypatch, tmp_path):
-    import logos.web_egress as we_mod
+    import web_egress as we_mod
 
     monkeypatch.setenv("HERMES_WEB_CACHE_MAX_ROWS", "5")
     importlib.reload(we_mod)
@@ -274,7 +274,7 @@ def test_bad_status_exception_detection(egress):
 def test_web_tools_guard_short_circuits_when_locked(egress, monkeypatch, tmp_path):
     """_local_extract_with_fallback must not call _extract_once when locked."""
     # ensure state dir for the reloaded module matches
-    import logos.tools.web_tools as wt
+    import tools.web_tools as wt
 
     calls = []
     monkeypatch.setattr(wt, "_extract_once", lambda url: calls.append(url) or {"success": True, "markdown": "x"})
@@ -286,7 +286,7 @@ def test_web_tools_guard_short_circuits_when_locked(egress, monkeypatch, tmp_pat
 
 
 def test_web_tools_guard_serves_cache(egress, monkeypatch):
-    import logos.tools.web_tools as wt
+    import tools.web_tools as wt
 
     calls = []
     monkeypatch.setattr(wt, "_extract_once", lambda url: calls.append(url) or {"success": True, "markdown": "x"})
@@ -299,7 +299,7 @@ def test_web_tools_guard_serves_cache(egress, monkeypatch):
 
 
 def test_web_tools_guard_records_block_on_403(egress, monkeypatch):
-    import logos.tools.web_tools as wt
+    import tools.web_tools as wt
 
     class Resp:
         status_code = 403
@@ -320,7 +320,7 @@ def test_web_tools_guard_records_block_on_403(egress, monkeypatch):
 
 
 def test_web_tools_guard_caches_success(egress, monkeypatch):
-    import logos.tools.web_tools as wt
+    import tools.web_tools as wt
 
     monkeypatch.setattr(wt, "_extract_once", lambda url: {"success": True, "markdown": "real body"})
     result = wt._local_extract_with_fallback("https://good.example.com/p")

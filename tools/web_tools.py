@@ -353,14 +353,14 @@ def _extract_once(url: str) -> dict[str, Any]:
 def _local_extract_with_fallback(url: str) -> dict[str, Any]:
     """Extract content from a URL with fleet-wide egress guards.
 
-    Guards (see logos.web_egress): per-domain bot-block cooldown checked
+    Guards (see web_egress): per-domain bot-block cooldown checked
     first, then the URL extraction cache. On a clean scrape the result is
     cached and the domain's strikes reset; on a block signal the domain's
     cooldown escalates. Guards are fail-open — any guard error falls
     through to normal extraction.
     """
     try:
-        from logos import web_egress
+        import web_egress
     except ImportError:  # standalone import of this module
         return _extract_once(url)
     if not web_egress.enabled():
