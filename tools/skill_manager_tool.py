@@ -312,6 +312,9 @@ def _atomic_write_text(file_path: Path, content: str, encoding: str = "utf-8") -
     try:
         with os.fdopen(fd, "w", encoding=encoding) as f:
             f.write(content)
+        # mkstemp creates at 0600; skills must stay readable by other fleet
+        # users on the shared tree (per-user private dirs make this moot).
+        os.chmod(temp_path, 0o644)
         atomic_replace(temp_path, file_path)
     except Exception:
         # Clean up temp file on error
