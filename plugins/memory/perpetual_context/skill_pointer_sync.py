@@ -49,6 +49,27 @@ def _parse_pointer_frontmatter(path: Path) -> dict[str, Any]:
         return {}
 
 
+def _yaml_scalar(value: str) -> str:
+    """Render a scalar for YAML frontmatter, quoting only when needed.
+
+    Quartz's frontmatter parser (and PyYAML) choke on unquoted values
+    containing `: `, `#`, or an unclosed `"` — e.g. a skill named
+    `Shopify: Admin` or a description cut mid-quote. yaml.safe_dump quotes
+    only when the plain form is ambiguous, keeping simple names readable.
+
+    PyYAML quirk (verified 2026-08-19): for plain scalars safe_dump appends
+    a document-end marker on line 2 (`plain\\n...\\n`); drop that line.
+    Values with embedded newlines fall back to JSON (a YAML subset).
+    """
+    import json  # noqa: PLC0415
+    import yaml  # noqa: PLC0415
+
+    if "\n" in value:
+        return json.dumps(value)
+    dumped = yaml.safe_dump(value, default_flow_style=True, width=4096).strip()
+    return dumped.split("\n", 1)[0].strip() if "\n" in dumped else dumped
+
+
 def _render_pointer(name: str, frontmatter: dict[str, Any], description: str,
                     skill_path: Path) -> str:
     """Render the pointer page content for one skill."""
@@ -64,11 +85,11 @@ def _render_pointer(name: str, frontmatter: dict[str, Any], description: str,
     lines = [
         "---",
         "type: skill",
-        f"name: {name}",
-        f'title: "{name}"',
-        f"category: {category}",
-        f"priority: {priority}",
-        f"skill_path: {skill_path}",
+        f"name: {_yaml_scalar(name)}",
+        f"title: {_yaml_scalar(name)}",
+        f"category: {_yaml_scalar(category)}",
+        f"priority: {_yaml_scalar(priority)}",
+        f"skill_path: {_yaml_scalar(str(skill_path))}",
         f"synced: {datetime.now(UTC).strftime('%Y-%m-%d')}",
         "---",
         f"# {name}",

@@ -103,3 +103,40 @@ def test_sync_handles_missing_dirs(tmp_path: Path) -> None:
     stats = sync_skill_pointers([tmp_path / "nope"], rl_root)
     assert stats["total_skills"] == 0
     assert stats["written"] == 0
+
+
+def test_pointer_frontmatter_survives_yaml_roundtrip(tmp_path: Path) -> None:
+    """Names with `: ` / quotes must render parseable frontmatter.
+
+    Regression: the 2026-08-19 nightly failure — an unescaped scalar
+    broke Quartz's frontmatter parser on one pointer page; and the
+    _yaml_scalar first fix left PyYAML's `...` document-end marker in
+    every frontmatter line.
+    """
+    import yaml
+
+    skills = tmp_path / "skills"
+    rl_root = tmp_path / "rl"
+    nasty = skills / "nasty"
+    nasty.mkdir(parents=True)
+    (nasty / "SKILL.md").write_text(
+        # NOTE: the line-based _parse_skill_file tolerates the bare colon
+        # (YAML would not) — exactly the case where the generated pointer
+        # page must quote the value to stay valid YAML for Quartz.
+        "---\n"
+        "name: shopify: admin\n"
+        "description: Handles colons: here.\n"
+        "---\n\n# shopify: admin\n\nBody.\n",
+        encoding="utf-8",
+    )
+    sync_skill_pointers([skills], rl_root)
+
+    page = rl_root / "skills" / "shopify: admin.md"
+    assert page.exists()
+    text = page.read_text(encoding="utf-8")
+    end = text.find("\n---", 3)
+    fm = yaml.safe_load(text[3:end])  # must not raise
+    assert isinstance(fm, dict) and fm.get("type") == "skill"
+    assert fm["name"] == "shopify: admin"
+    assert "..." not in text[3:end]  # no document-end marker in frontmatter
+
