@@ -330,12 +330,8 @@ def _camofox_scrape(url: str) -> dict[str, Any]:
                 pass
 
 
-def _local_extract_with_fallback(url: str) -> dict[str, Any]:
-    """Extract content from a URL using local Firecrawl, falling back to Camofox.
-
-    Firecrawl handles most pages. Camofox is the Tier 3 fallback for
-    JS-rendered pages, login walls, or sites that block scraping.
-    """
+def _extract_once(url: str) -> dict[str, Any]:
+    """Original Firecrawl -> Camofox extraction (unchanged behavior)."""
     try:
         result = _local_firecrawl_scrape(url)
         # Firecrawl v2 returns {success, data: {markdown, metadata}}
@@ -352,6 +348,54 @@ def _local_extract_with_fallback(url: str) -> dict[str, Any]:
     except (AttributeError, KeyError, OSError, RuntimeError, TypeError, ConnectionError) as e:
         logger.debug("Camofox also failed for %s: %s", url, e)
         return {"success": False, "error": str(e), "markdown": ""}
+
+
+def _local_extract_with_fallback(url: str) -> dict[str, Any]:
+    """Extract content from a URL with fleet-wide egress guards.
+
+    Guards (see logos.web_egress): per-domain bot-block cooldown checked
+    first, then the URL extraction cache. On a clean scrape the result is
+    cached and the domain's strikes reset; on a block signal the domain's
+    cooldown escalates. Guards are fail-open — any guard error falls
+    through to normal extraction.
+    """
+    try:
+        from logos import web_egress
+    except ImportError:  # standalone import of this module
+        return _extract_once(url)
+    if not web_egress.enabled():
+        return _extract_once(url)
+
+    locked, why = web_egress.cooldown_locked(url)
+    if locked:
+        logger.info("Egress cooldown, skipping scrape of %s: %s", url, why)
+        return {"success": False, "error": f"domain in bot-block cooldown ({why})", "markdown": ""}
+
+    cached = web_egress.cache_get(url)
+    if cached is not None:
+        logger.debug("Egress cache hit for %s", url)
+        return {"success": True, "markdown": cached, "cached": True}
+
+    try:
+        result = _extract_once(url)
+    except Exception as e:  # noqa: S110 — keep dict contract; e.g. HTTPStatusError
+        if web_egress._blocked_by_status(e):
+            web_egress.record_block(url)
+        return {"success": False, "error": str(e), "markdown": ""}
+
+    md = result.get("markdown") or ""
+    if result.get("success") and md:
+        if web_egress.looks_blocked(md):
+            web_egress.record_block(url)
+        else:
+            web_egress.record_success(url)
+            web_egress.cache_put(url, md)
+    else:
+        err = str(result.get("error") or "").lower()
+        if any(f" {s} " in f" {err} " or f"({s}" in err or f" {s}" in err
+               for s in ("403", "429", "503")) or web_egress.looks_blocked(err):
+            web_egress.record_block(url)
+    return result
 
 
 # ─── Firecrawl Client ────────────────────────────────────────────────────────

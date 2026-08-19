@@ -252,26 +252,65 @@ class WebResearchClient:
     # -----------------------------------------------------------------------
 
     def extract(self, url: str) -> str | None:
-        """Extract content from a URL using Firecrawl or Camofox fallback."""
+        """Extract content from a URL with fleet-wide egress guards.
+
+        Guards (logos.web_egress): per-domain bot-block cooldown first,
+        then the shared URL extraction cache. Fail-open on guard errors.
+        """
         if not url or not isinstance(url, str):
             return None
+
+        try:
+            from logos import web_egress
+        except ImportError:
+            web_egress = None
+
+        if web_egress is not None and web_egress.enabled():
+            locked, why = web_egress.cooldown_locked(url)
+            if locked:
+                logger.debug("Egress cooldown, skipping prefetch extract of %s: %s", str(url)[:80], why)
+                return None
+            cached = web_egress.cache_get(url)
+            if cached is not None:
+                logger.debug("Egress cache hit for %s", str(url)[:80])
+                return cached
+
+        blocked = False
 
         # Try Firecrawl first (better structured extraction)
         try:
             content = self._extract_firecrawl(url)
             if content:
-                return content
+                if web_egress is not None and web_egress.enabled() and web_egress.looks_blocked(content):
+                    blocked = True
+                else:
+                    if web_egress is not None and web_egress.enabled():
+                        web_egress.record_success(url)
+                        web_egress.cache_put(url, content)
+                    return content
         except Exception as e:  # noqa: S110 — degradation wrapper, must never crash agent
+            if web_egress is not None and web_egress.enabled() and web_egress._blocked_by_status(e):
+                blocked = True
             logger.warning("Firecrawl extraction failed for %s: %s", str(url)[:80], e)
 
         # Fallback to Camofox browser scraping
         try:
             content = self._extract_camofox(url)
             if content:
-                return content
+                if web_egress is not None and web_egress.enabled() and web_egress.looks_blocked(content):
+                    blocked = True
+                else:
+                    if web_egress is not None and web_egress.enabled():
+                        web_egress.record_success(url)
+                        web_egress.cache_put(url, content)
+                    return content
         except Exception as e:  # noqa: S110 — degradation wrapper, must never crash agent
+            if web_egress is not None and web_egress.enabled() and web_egress._blocked_by_status(e):
+                blocked = True
             logger.warning("Camofox extraction failed for %s: %s", str(url)[:80], e)
 
+        if blocked and web_egress is not None:
+            web_egress.record_block(url)
         return None
 
     def _extract_firecrawl(self, url: str) -> str | None:
@@ -296,6 +335,13 @@ class WebResearchClient:
             resp.raise_for_status()
         except Exception as e:  # noqa: S110 — graceful degradation, must not raise
             logger.debug("Firecrawl extraction request failed for %s: %s", str(url)[:URL_LOG_MAX_CHARS], e)
+            # Surface bot-block statuses (403/429/503) to the egress cooldown
+            try:
+                from logos import web_egress as _we
+                if _we.enabled() and _we._blocked_by_status(e):
+                    _we.record_block(url)
+            except ImportError:
+                pass
             return None
 
         data = resp.json()
