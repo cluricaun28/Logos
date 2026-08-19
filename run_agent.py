@@ -8916,6 +8916,27 @@ class AIAgent:
             # focus_topic — fall back to calling without it.
             archived = self.context_archiver.archive(messages, current_tokens=approx_tokens)
 
+        # c2 (2026-08-19): structured archive-event log for threshold tuning.
+        # Best-effort — never affects archiving behavior.
+        try:
+            from agent.context_engine import context_engine_log, estimate_content_tokens
+            context_engine_log({
+                "type": "archive",
+                "engine": getattr(self.context_archiver, "name", "unknown"),
+                "path": getattr(self.context_archiver, "_last_archive_path", "unknown"),
+                "session": self.session_id or "none",
+                "approx_tokens": approx_tokens,
+                "last_prompt_tokens": getattr(self.context_archiver, "last_prompt_tokens", 0),
+                "context_length": getattr(self.context_archiver, "context_length", 0),
+                "threshold_tokens": getattr(self.context_archiver, "threshold_tokens", 0),
+                "pre_msgs": _pre_msg_count,
+                "post_msgs": len(archived),
+                "pre_est": estimate_content_tokens(messages),
+                "post_est": estimate_content_tokens(archived),
+            })
+        except Exception as _ce_log_err:
+            logger.debug("context-engine archive log failed: %s", _ce_log_err)
+
         summary_error = getattr(self.context_archiver, "_last_summary_error", None)
         if summary_error:
             if getattr(self, "_last_archiving_summary_warning", None) != summary_error:

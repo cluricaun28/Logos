@@ -165,7 +165,7 @@ class HookRegistry:
                 # Support both sync and async handlers
                 if asyncio.iscoroutine(result):
                     await result
-            except (RuntimeError) as e:
+            except Exception as e:
                 print(f"[hooks] Error in handler for '{event_type}': {e}", flush=True)
 
     async def emit_collect(
@@ -193,6 +193,6 @@ class HookRegistry:
                     result = await result
                 if result is not None:
                     results.append(result)
-            except (RuntimeError) as e:
+            except Exception as e:
                 print(f"[hooks] Error in handler for '{event_type}': {e}", flush=True)
         return results

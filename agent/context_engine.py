@@ -30,6 +30,52 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Set, Optional
 # NOTE: torch, dataclasses, and sentence_transformers imports removed
 # with SemanticVectorEngine. See plugins/context_engine/rolling_window/
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+def context_engine_log(event: dict) -> None:
+    """Append a structured event to $HERMES_HOME/logs/context-engine.jsonl.
+
+    Best-effort instrumentation: never raises, never blocks the agent loop
+    for more than a file append. Events:
+      {"type": "archive", ...}     — one per archive() call (run_agent)
+      {"type": "calibration", ...} — actual prompt_tokens vs the engine's
+                                     chars//4 estimate for the post-archive
+                                     context (each engine's update_from_response)
+    """
+    try:
+        import json
+        import os
+        import time
+        from pathlib import Path
+
+        event = dict(event)
+        event.setdefault("ts", time.time())
+        home = os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes")
+        log_dir = Path(home) / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        with open(log_dir / "context-engine.jsonl", "a", encoding="utf-8") as f:
+            f.write(json.dumps(event, default=str) + "\n")
+    except Exception:
+        pass
+
+
+def estimate_content_tokens(messages: list) -> int:
+    """Chars//4 estimate of message CONTENT only (matches engine math).
+
+    Deliberately NOT the same as run_agent.estimate_messages_tokens_rough,
+    which counts len(str(msg)) including dict overhead. Calibration pairs
+    must use the same estimator the engine uses internally.
+    """
+    total = 0
+    for m in messages or []:
+        c = m.get("content") if isinstance(m, dict) else None
+        if isinstance(c, str):
+            total += len(c)
+    return total // 4
+
 
 class ContextEngine(ABC):
     """Base class all context engines must implement."""

@@ -569,7 +569,9 @@ class TelegramAdapter(BasePlatformAdapter):
                 self.name, name, chat_id, thread_id,
             )
             return thread_id
-        except (AttributeError, KeyError, RuntimeError, TypeError) as e:
+        except Exception as e:
+            # Any failure (Telegram APIError, network, malformed reply) is
+            # non-fatal — the bot works fine without DM topics.
             error_text = str(e).lower()
             # If topic already exists, try to find it via getForumTopicIconStickers
             # or we just log and skip — Telegram doesn't provide a "list topics" API
@@ -646,7 +648,9 @@ class TelegramAdapter(BasePlatformAdapter):
                     "[%s] Persisted thread_id=%s for topic '%s' in config.yaml",
                     self.name, thread_id, topic_name,
                 )
-        except (OSError, PermissionError, yaml.YAMLError) as e:
+        except Exception as e:
+            # Persistence is best-effort — a write failure must never take
+            # down topic setup (and 'yaml' is only imported as '_yaml' above).
             logger.warning("[%s] Failed to persist thread_id to config: %s", self.name, e, exc_info=True)
 
     async def _setup_dm_topics(self) -> None:

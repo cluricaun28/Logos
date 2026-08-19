@@ -172,7 +172,9 @@ def _append_to_sqlite(session_id: str, message: dict) -> None:
             role=message.get("role", "assistant"),
             content=message.get("content"),
         )
-    except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError) as e:
+    except Exception as e:
+        # Mirror writes are best-effort — any failure (DB locked, disk full,
+        # bad schema) must not propagate; the caller's turn must continue.
         logger.debug("Mirror SQLite write failed: %s", e)
     finally:
         if db is not None:

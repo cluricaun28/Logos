@@ -21,7 +21,11 @@ from typing import Any, Dict, List
 import tqdm
 tqdm.disable = True
 
-from agent.context_engine import ContextEngine
+from agent.context_engine import (
+    ContextEngine,
+    context_engine_log,
+    estimate_content_tokens,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +117,12 @@ class SemanticVectorContextEngine(ContextEngine):
     resolution_decay: int = 40
     state_map_max_chars: int = 800
     max_dormant_vectors: int = 10
+    # c5 (2026-08-19): per-topic rolling tail. 0 = legacy (keep ALL turns of
+    # Active topics). K > 0 = keep only the last K turns of each Active topic;
+    # older turns roll off into Perpetual Memory. This is what makes the
+    # window behave like a rolling window: per-topic in-context footprint is
+    # bounded regardless of session length or topic re-mentions.
+    active_tail_turns: int = 0
 
     # Rolling-window fallback knobs (C9-A, 2026-08-17): wired from the
     # context.rolling_window section of config.yaml. Defaults preserve the
@@ -165,6 +175,21 @@ class SemanticVectorContextEngine(ContextEngine):
 
     def update_from_response(self, usage: Dict[str, Any]) -> None:
         """Update tracked token usage from an API response."""
+        # c2 calibration: if we archived since the previous response, pair
+        # the ACTUAL prompt_tokens against our chars//4 estimate of the
+        # post-archive context. This is the data source for threshold tuning.
+        est = getattr(self, "_last_archive_post_est", 0)
+        actual = int(usage.get("prompt_tokens", 0) or 0)
+        if est > 0 and actual > 0:
+            context_engine_log({
+                "type": "calibration",
+                "engine": self.name,
+                "path": getattr(self, "_last_archive_path", "unknown"),
+                "estimated": est,
+                "actual": actual,
+                "ratio": round(actual / est, 3),
+            })
+        self._last_archive_post_est = 0
         self.last_prompt_tokens = usage.get("prompt_tokens", self.last_prompt_tokens)
         self.last_completion_tokens = usage.get("completion_tokens", self.last_completion_tokens)
         self.last_total_tokens = usage.get("total_tokens", self.last_total_tokens)
@@ -272,10 +297,20 @@ class SemanticVectorContextEngine(ContextEngine):
         ):
             keep_indices.add(i)
 
-        # Keep all turns belonging to Active vectors
+        # Keep turns belonging to Active vectors.
+        # c5 (2026-08-19): per-topic rolling tail. When active_tail_turns > 0,
+        # keep only the LAST K turns of each active topic — older turns of a
+        # still-active topic roll off (they live in Perpetual Memory). This
+        # bounds per-topic in-context footprint so long multi-topic sessions
+        # behave like a rolling window instead of accumulating the full
+        # history of every re-mentioned topic. 0 = legacy (keep all).
+        tail = self.active_tail_turns
         for vec in self._vectors:
             if vec.status == "Active":
-                for ti in vec.turn_indices:
+                indices = vec.turn_indices
+                if tail > 0:
+                    indices = indices[-tail:]
+                for ti in indices:
                     # Map turn index back to message index (skip system messages)
                     msg_idx = self._turn_to_msg_index(ti, messages)
                     if msg_idx is not None:
@@ -290,6 +325,8 @@ class SemanticVectorContextEngine(ContextEngine):
         # If we're not over threshold, just return original with state map
         if not self.should_archive(effective_tokens):
             result = list(messages)
+            self._last_archive_post_est = estimate_content_tokens(result)
+            self._last_archive_path = "semantic_below_threshold"
             state_map = self._build_state_map()
             if state_map and result:
                 self._inject_state_map(result, state_map)
@@ -363,6 +400,11 @@ class SemanticVectorContextEngine(ContextEngine):
             )
 
         self.archive_count += 1
+        # c2: record post-archive estimate for calibration pairing in
+        # update_from_response (actual prompt_tokens arrive with the next
+        # API response).
+        self._last_archive_post_est = estimate_content_tokens(result)
+        self._last_archive_path = "semantic"
         return result
 
     # -- Tail-off fallback ----------------------------------------------------
@@ -394,6 +436,8 @@ class SemanticVectorContextEngine(ContextEngine):
             self.protect_last_n,
         )
         self.archive_count += 1
+        self._last_archive_post_est = estimate_content_tokens(keep)
+        self._last_archive_path = "tailoff"
         return keep
 
     # -- Rolling window fallback (hard prune when nearing OOM) -----------------
@@ -497,6 +541,8 @@ class SemanticVectorContextEngine(ContextEngine):
             hard_ceiling_tokens,
         )
         self.archive_count += 1
+        self._last_archive_post_est = estimate_content_tokens(result)
+        self._last_archive_path = "rw_fallback"
         return result
 
     # -- Embedding helpers ----------------------------------------------------

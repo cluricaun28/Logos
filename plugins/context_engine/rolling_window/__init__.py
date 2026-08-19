@@ -32,7 +32,11 @@ import os
 import sys
 from typing import Any
 
-from agent.context_engine import ContextEngine
+from agent.context_engine import (
+    ContextEngine,
+    context_engine_log,
+    estimate_content_tokens,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +67,10 @@ class RollingWindowContextEngine(ContextEngine):
     threshold_percent: float = 0.75
     protect_first_n: int = 3
     protect_last_n: int = 6
+    # C9-B (2026-08-19): fallback knobs matching the semantic engine's names
+    archive_target: float = 0.0
+    hard_ceiling_percent: float = 0.85
+    danger_zone_percent: float = 0.90
 
     def __init__(self, **kwargs):
         super().__init__()
@@ -81,6 +89,15 @@ class RollingWindowContextEngine(ContextEngine):
         # Update protection parameters from kwargs
         self.protect_first_n: int = kwargs.get("protect_first_n", self.protect_first_n)
         self.protect_last_n: int = kwargs.get("protect_last_n", self.protect_last_n)
+
+        # C9-B (2026-08-19): wire the remaining config keys that were silently
+        # dropped before (C9-A only wired 4 keys). threshold_percent in
+        # context.rolling_window now actually controls the trigger, matching
+        # the semantic engine's behavior.
+        self.threshold_percent: float = kwargs.get("threshold_percent", self.threshold_percent)
+        self.archive_target: float = kwargs.get("archive_target", 0.0)
+        self.hard_ceiling_percent: float = kwargs.get("hard_ceiling_percent", self.hard_ceiling_percent)
+        self.danger_zone_percent: float = kwargs.get("danger_zone_percent", self.danger_zone_percent)
         
         # Lazy-import task-aware components (avoid circular imports)
         try:
@@ -120,6 +137,19 @@ class RollingWindowContextEngine(ContextEngine):
 
     def update_from_response(self, usage: dict[str, Any]) -> None:
         """Update tracked token usage from an API response."""
+        # c2 calibration (parity with semantic_vector engine)
+        est = getattr(self, "_last_archive_post_est", 0)
+        actual = int(usage.get("prompt_tokens", 0) or 0)
+        if est > 0 and actual > 0:
+            context_engine_log({
+                "type": "calibration",
+                "engine": self.name,
+                "path": getattr(self, "_last_archive_path", "unknown"),
+                "estimated": est,
+                "actual": actual,
+                "ratio": round(actual / est, 3),
+            })
+        self._last_archive_post_est = 0
         if isinstance(usage, dict):
             self.last_prompt_tokens = int(usage.get("prompt_tokens", 0))
             self.last_completion_tokens = int(usage.get("completion_tokens", 0))
@@ -201,6 +231,10 @@ class RollingWindowContextEngine(ContextEngine):
             keep_last = max(1, len(pruned) // 4)
             pruned = pruned[:keep_first] + pruned[-keep_last:]
 
+        # c2: calibration pairing (parity with semantic_vector engine).
+        # (archive_count is incremented at the top of archive() — pre-existing.)
+        self._last_archive_post_est = estimate_content_tokens(pruned)
+        self._last_archive_path = "rolling_window"
         return pruned
     
     def _fallback_window_prune(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
