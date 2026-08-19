@@ -184,6 +184,7 @@ class RLIndex:
                 try:
                     vectors = model.encode(
                         batch, convert_to_numpy=True, batch_size=batch_size,
+                        show_progress_bar=False,
                     )
                     if hasattr(vectors, "__len__") and not isinstance(vectors, str):
                         results.extend(v.tolist() for v in vectors)

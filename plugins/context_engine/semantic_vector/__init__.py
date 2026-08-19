@@ -628,8 +628,10 @@ class SemanticVectorContextEngine(ContextEngine):
                 # Test mock or direct embed method
                 result = engine.embed(text)
             elif hasattr(engine, "encode"):
-                # SentenceTransformer interface
-                result = engine.encode(text)
+                # SentenceTransformer interface. show_progress_bar=False is
+                # required: ST passes an explicit disable= to tqdm, which
+                # overrides the class-level tqdm.disable=True set above.
+                result = engine.encode(text, show_progress_bar=False)
                 result = (
                     result.tolist() if hasattr(result, "tolist") else list(result)
                 )
