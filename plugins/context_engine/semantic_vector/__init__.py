@@ -4,8 +4,11 @@ Tracks conversation topics using local embeddings and prunes dormant chatter
 instead of applying lossy summarization. Preserves raw signal fidelity while
 adapting aggressiveness based on context window pressure.
 
-CPU-only embedding — uses its own independent SentenceTransformer instance
-loaded on device="cpu" to avoid GPU contention with vLLM.
+Device-aware embedding (c4-backbone, 2026-08-19) — its own independent
+SentenceTransformer instance, loaded on the best available device
+(explicit `device` config or HERMES_EMBED_DEVICE > free-GPU ranked > CPU
+fallback). On a 32 GB GPU with vLLM, MiniLM (~90 MB) adds negligible
+contention; CPU remains the fallback when no GPU has headroom.
 
 The embedding model is cached in a module-level singleton so that new engine
 instances (created after session splits) reuse the already-loaded model
@@ -38,18 +41,24 @@ logger = logging.getLogger(__name__)
 
 _model_cache: Any = None
 _model_path_cache: str = ""
+_model_device_cache: str = ""
 
 
-def _get_model_cache() -> tuple[Any, str]:
-    """Return the cached (model, path) tuple."""
-    return _model_cache, _model_path_cache
+def _get_model_cache() -> tuple[Any, str, str]:
+    """Return the cached (model, path, device) tuple."""
+    return _model_cache, _model_path_cache, _model_device_cache
 
 
-def _set_model_cache(model: Any, path: str) -> None:
-    """Store model in module-level cache for reuse across engine instances."""
-    global _model_cache, _model_path_cache
+def _set_model_cache(model: Any, path: str, device: str = "") -> None:
+    """Store model in module-level cache for reuse across engine instances.
+
+    c4: keyed by (path, device) — a CPU-loaded cache must not be served to
+    an instance that explicitly wants CUDA (or vice versa).
+    """
+    global _model_cache, _model_path_cache, _model_device_cache
     _model_cache = model
     _model_path_cache = path
+    _model_device_cache = device
 
 
 # -- Data model ---------------------------------------------------------------
@@ -143,6 +152,11 @@ class SemanticVectorContextEngine(ContextEngine):
     # (the kwargs loop only sets existing attributes; the class attr was
     # previously '_model_path', so config values were silently dropped).
     model_path: str = ""
+
+    # c4-backbone: embedding device. Empty = auto-select (free-GPU ranked,
+    # CPU fallback) via _device_candidates(). Config or HERMES_EMBED_DEVICE
+    # override force a specific device. Mirrors the EmbeddingEngine pattern.
+    device: str = ""
 
     # Embedding state
     model: Any = None  # The SentenceTransformer model (also aliased as _model)
@@ -564,24 +578,35 @@ class SemanticVectorContextEngine(ContextEngine):
             return self.model
 
         # Check module-level cache
-        cached_model, cached_path = _get_model_cache()
+        cached_model, cached_path, cached_device = _get_model_cache()
         if cached_model is not None:
-            # If the path matches, use the cached model directly
-            if cached_path == self._model_path:
+            # c4: reuse only if the path matches AND the device is compatible.
+            # An explicit `device` config must be honored (a CPU cache is not
+            # served to a CUDA request); auto-select reuses whatever device
+            # was previously chosen.
+            want = (self.device or "").strip()
+            device_ok = (not want) or (cached_device == want)
+            # If the path matches and the device is compatible, use the cached
+            # model directly.
+            if cached_path == self._model_path and device_ok:
                 self.model = cached_model
                 logger.debug(
                     "SemanticVectorContextEngine: reused cached model from "
-                    "module cache (path=%s)",
+                    "module cache (path=%s device=%s)",
                     self._model_path,
+                    cached_device,
                 )
                 return cached_model
             else:
-                # Path differs — load new model but keep cache for future
+                # Path or device differs — load new model but keep cache for
+                # future instances that match.
                 logger.debug(
-                    "SemanticVectorContextEngine: cached path %s != requested %s, "
-                    "loading new model",
+                    "SemanticVectorContextEngine: cached (path=%s device=%s) "
+                    "!= requested (path=%s device=%s), loading new model",
                     cached_path,
+                    cached_device,
                     self._model_path,
+                    want or "auto",
                 )
 
         # Load fresh
@@ -742,48 +767,97 @@ class SemanticVectorContextEngine(ContextEngine):
 
     # -- Model loading --------------------------------------------------------
 
-    def _load_model(self) -> bool:
-        """Load the embedding model on CPU. Returns True if successful.
+    def _device_candidates(self) -> List[str]:
+        """Ordered embedding-device candidates (c4-backbone, 2026-08-19).
 
-        After loading, stores the model in the module-level cache so that
-        subsequent engine instances reuse it instead of reloading.
+        Mirrors ``agent.perpetual_context_db.EmbeddingEngine._select_device_candidates``:
+
+        1. Explicit ``device`` config or ``HERMES_EMBED_DEVICE`` env — tried
+           first and *only* (one knob controls all local embedders).
+        2. Otherwise every CUDA device ranked by free memory (most-free
+           first). Devices with < 2 GB free (e.g. a vLLM-packed GPU) are
+           tried last — a load there can OOM, but it can also work.
+        3. ``cpu`` as the final fallback.
+        """
+        forced = (self.device or os.environ.get("HERMES_EMBED_DEVICE", "")).strip()
+        if forced:
+            return [forced]
+        ordered: List[tuple] = []
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                for i in range(torch.cuda.device_count()):
+                    try:
+                        free, _total = torch.cuda.mem_get_info(i)
+                    except Exception:
+                        free = 0
+                    ordered.append((free, i))
+                ordered.sort(key=lambda t: t[0], reverse=True)
+        except Exception:
+            ordered = []
+        min_free = 2 * 1024 ** 3
+        free_gpus = [f"cuda:{i}" for free, i in ordered if free > min_free]
+        packed_gpus = [f"cuda:{i}" for free, i in ordered if free <= min_free]
+        return free_gpus + packed_gpus + ["cpu"]
+
+    def _load_model(self) -> bool:
+        """Load the embedding model on the best available device.
+
+        c4-backbone: walks ``_device_candidates()`` in order; the first
+        successful load wins and is stored in the module-level cache keyed
+        by (path, device) so subsequent engine instances reuse it instead of
+        reloading. Any device failure degrades to the next candidate — a GPU
+        hiccup must never take the engine down to tail-off.
+
+        Returns True if a model is loaded (on any device).
         """
         if self.model is not None:
             return True
 
         try:
             from sentence_transformers import SentenceTransformer
-
-            # Suppress tqdm progress bars during load and all future encode() calls
-            import tqdm
-            tqdm.disable = True
-
-            if os.path.isdir(self._model_path):
-                self.model = SentenceTransformer(self._model_path, device="cpu")
-                logger.info(
-                    "SemanticVectorContextEngine: loaded local model from %s "
-                    "on CPU",
-                    self._model_path,
-                )
-                # Store in module-level cache for reuse
-                _set_model_cache(self.model, self._model_path)
-                return True
-            else:
-                logger.warning(
-                    "SemanticVectorContextEngine: local model not found at %s",
-                    self._model_path,
-                )
-                return False
         except ImportError:
             logger.warning(
                 "SemanticVectorContextEngine: sentence-transformers not installed"
             )
             return False
-        except Exception as e:
+
+        if not os.path.isdir(self._model_path):
             logger.warning(
-                "SemanticVectorContextEngine: failed to load model: %s", e
+                "SemanticVectorContextEngine: local model not found at %s",
+                self._model_path,
             )
             return False
+
+        # Suppress tqdm progress bars during load and all future encode() calls
+        import tqdm
+        tqdm.disable = True
+
+        for device in self._device_candidates():
+            try:
+                self.model = SentenceTransformer(self._model_path, device=device)
+                # Store in module-level cache for reuse
+                _set_model_cache(self.model, self._model_path, device)
+                logger.info(
+                    "SemanticVectorContextEngine: loaded local model from %s "
+                    "on %s (c4)",
+                    self._model_path,
+                    device,
+                )
+                return True
+            except Exception as e:
+                logger.warning(
+                    "SemanticVectorContextEngine: load on %s failed: %s — "
+                    "trying next candidate",
+                    device,
+                    e,
+                )
+        logger.warning(
+            "SemanticVectorContextEngine: all device candidates failed for %s",
+            self._model_path,
+        )
+        return False
 
     # -- Legacy method aliases (for compatibility with test suites) ------------
 
