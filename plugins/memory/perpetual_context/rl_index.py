@@ -189,8 +189,12 @@ class RLIndex:
                         results.extend(v.tolist() for v in vectors)
                     else:
                         results.append(vectors.tolist())
-                except (AttributeError, TypeError, ValueError) as e:
-                    logger.debug("Batch embedding failed: %s", e)
+                except (AttributeError, TypeError, ValueError, RuntimeError) as e:
+                    # RuntimeError covers torch.cuda.OutOfMemoryError — a
+                    # batch-level OOM must degrade to None (loud) rather
+                    # than crash the whole build after rl_embeddings was
+                    # already truncated.
+                    logger.warning("Batch embedding failed on %s: %s", self._get_embedding_engine()._device, e)
                     results.extend([None] * len(batch))
             return results
         return fn

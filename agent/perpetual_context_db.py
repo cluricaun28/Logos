@@ -111,6 +111,7 @@ class EmbeddingEngine:
 
     def __init__(self) -> None:
         self._model = None  # Lazy-loaded SentenceTransformer model
+        self._device: str | None = None  # Device the model was loaded on
 
     @classmethod
     def get(cls) -> EmbeddingEngine:
@@ -121,27 +122,78 @@ class EmbeddingEngine:
                     cls._instance = cls()
         return cls._instance
 
+    @staticmethod
+    def _select_device_candidates(torch: Any) -> list[str]:
+        """Ordered device candidates for model loading.
+
+        1. ``HERMES_EMBED_DEVICE`` env override (e.g. ``cuda:3``, ``cpu``)
+           — tried first and *only*.
+        2. Otherwise every CUDA device ranked by free memory (most-free
+           first). Devices with < 2 GB free (e.g. cuda:0 under vLLM) are
+           tried last — a load there often OOMs, but it can work.
+        3. ``cpu`` as the final fallback.
+
+        ``mem_get_info`` itself can raise on a fully-occupied context;
+        those devices are ranked as packed (free=0) and still tried.
+        """
+        forced = os.environ.get("HERMES_EMBED_DEVICE", "").strip()
+        if forced:
+            return [forced]
+        ordered: list[tuple[int, int]] = []
+        try:
+            if torch.cuda.is_available():
+                for i in range(torch.cuda.device_count()):
+                    try:
+                        free, _total = torch.cuda.mem_get_info(i)
+                    except Exception:
+                        free = 0
+                    ordered.append((free, i))
+                ordered.sort(key=lambda t: t[0], reverse=True)
+        except Exception:
+            ordered = []
+        min_free = 2 * 1024 ** 3  # MiniLM ONNX needs far less; 2 GB is headroom
+        free_gpus = [f"cuda:{i}" for free, i in ordered if free > min_free]
+        packed_gpus = [f"cuda:{i}" for free, i in ordered if free <= min_free]
+        return free_gpus + packed_gpus + ["cpu"]
+
     def _load_model(self):
         """Load the SentenceTransformer model on first use.
 
         Loads from sovereign local path to ensure zero network latency and total sovereignty.
+
+        Device selection walks the candidate list from
+        :meth:`_select_device_candidates`; each failure is logged and the
+        next candidate tried, so a GPU packed by vLLM no longer silently
+        disables semantic search while free GPUs sit idle.
         """
         if self._model is not None:
             return self._model
         try:
             import torch
             from sentence_transformers import SentenceTransformer
-
-            local_path = os.path.expanduser("~/.hermes/models/embeddings/all-MiniLM-L6-v2")
-            logger.info("Loading embedding model from local path '%s'...", local_path)
-            self._model = SentenceTransformer(local_path, device="cuda" if torch.cuda.is_available() else "cpu", local_files_only=True)
-            logger.info("Embedding model loaded successfully (%d-dim vectors)", EMBED_DIM)
         except (ImportError, ModuleNotFoundError):
             logger.warning("sentence-transformers not installed — semantic search disabled. Install with: pip install sentence-transformers")
             self._model = None
-        except Exception as e:
-            logger.error("Failed to load embedding model from local path '%s': %s", local_path, e)
-            self._model = None
+            return self._model
+
+        local_path = os.path.expanduser("~/.hermes/models/embeddings/all-MiniLM-L6-v2")
+        for device in self._select_device_candidates(torch):
+            try:
+                logger.info("Loading embedding model from '%s' on %s...", local_path, device)
+                self._model = SentenceTransformer(local_path, device=device, local_files_only=True)
+                self._device = device
+                logger.info("Embedding model loaded on %s (%d-dim vectors)", device, EMBED_DIM)
+                return self._model
+            except Exception as e:
+                logger.warning(
+                    "Embedding model load failed on %s: %s — trying next device",
+                    device, e,
+                )
+        logger.error(
+            "Failed to load embedding model on any device — semantic search "
+            "disabled. Set HERMES_EMBED_DEVICE or free a GPU."
+        )
+        self._model = None
         return self._model
 
     def embed(self, text: str) -> list[float] | None:

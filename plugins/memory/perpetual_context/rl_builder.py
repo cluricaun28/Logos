@@ -180,6 +180,15 @@ def build_index(
             )
 
     stats["elapsed_seconds"] = round(time.time() - start, 1)
+    stats["embeddings_ok"] = stats["files_embedded"] > 0 or stats["files_indexed"] == 0
+    if not stats["embeddings_ok"]:
+        logger.error(
+            "RLIndex build: 0 embeddings produced for %d files — index is "
+            "FTS-ONLY (semantic search degraded). Embedding engine was "
+            "unavailable (GPU OOM? missing model?). Set HERMES_EMBED_DEVICE "
+            "or free a GPU and rebuild.",
+            stats["files_indexed"],
+        )
     logger.info(
         "RLIndex build complete: %d files, %d embeddings, %.1fs",
         stats["files_indexed"], stats["files_embedded"],
@@ -378,8 +387,16 @@ def reindex_stale(
 
         conn.commit()
 
-    logger.info(
-        "RLIndex reindex_stale: updated %d/%d, removed %d deleted",
-        count, len(stale), len(deleted),
-    )
+    if count == 0 and file_infos:
+        logger.warning(
+            "RLIndex reindex_stale: %d file(s) re-indexed but 0 embedded — "
+            "embedding engine unavailable (GPU OOM?). New/changed files are "
+            "FTS-only until the next successful embed.",
+            len(file_infos),
+        )
+    else:
+        logger.info(
+            "RLIndex reindex_stale: updated %d/%d, removed %d deleted",
+            count, len(stale), len(deleted),
+        )
     return count
