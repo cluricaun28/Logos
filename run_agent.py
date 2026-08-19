@@ -4501,8 +4501,36 @@ class AIAgent:
             return
         if not (self._memory_manager and final_response and original_user_message):
             return
+
+        # PM recall gap fix (2026-08-19): collect THIS turn's tool results so
+        # providers that support it can persist them. Tool output is the
+        # dominant token class in technical sessions but was never synced to
+        # Perpetual Context (only user+assistant text), making pruned tool
+        # output unrecoverable. Sliced from _session_messages: everything
+        # after the last user message is this turn (sync fires at turn end).
+        tool_results = None
         try:
-            self._memory_manager.sync_all(original_user_message, final_response)
+            _msgs = getattr(self, "_session_messages", None) or []
+            _start = 0
+            for _i in range(len(_msgs) - 1, -1, -1):
+                if isinstance(_msgs[_i], dict) and _msgs[_i].get("role") == "user":
+                    _start = _i
+                    break
+            _turn_tools = [
+                (m.get("name") or "tool", m.get("content"))
+                for m in _msgs[_start + 1:]
+                if isinstance(m, dict) and m.get("role") == "tool"
+                and isinstance(m.get("content"), str)
+            ]
+            if _turn_tools:
+                tool_results = _turn_tools
+        except Exception:
+            tool_results = None
+
+        try:
+            self._memory_manager.sync_all(
+                original_user_message, final_response, tool_results=tool_results
+            )
             self._memory_manager.queue_prefetch_all(original_user_message)
         except Exception as _e:
             logger.warning("Memory sync/queue_prefetch failed (non-fatal): %s", _e)

@@ -404,16 +404,44 @@ class MemoryManager:
 
     # -- Sync ----------------------------------------------------------------
 
-    def sync_all(self, user_content: str, assistant_content: str, *, session_id: str = "") -> None:
-        """Sync a completed turn to all providers."""
+    def sync_all(self, user_content: str, assistant_content: str, *, session_id: str = "", tool_results: list | None = None) -> None:
+        """Sync a completed turn to all providers.
+
+        tool_results: optional list of (tool_name, content) tuples from this
+        turn. Forwarded only to providers whose sync_turn accepts it
+        (signature-checked once per provider; others get the legacy call).
+        """
         for provider in self._providers:
             try:
-                provider.sync_turn(user_content, assistant_content, session_id=session_id)
+                if tool_results and self._provider_accepts_tool_results(provider):
+                    provider.sync_turn(
+                        user_content, assistant_content,
+                        session_id=session_id, tool_results=tool_results,
+                    )
+                else:
+                    provider.sync_turn(user_content, assistant_content, session_id=session_id)
             except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
                 logger.warning(
                     "Memory provider '%s' sync_turn failed: %s",
                     provider.name, e,
                 )
+
+    @staticmethod
+    def _provider_accepts_tool_results(provider) -> bool:
+        """Check (and cache) whether provider.sync_turn accepts tool_results."""
+        cache = getattr(MemoryManager, "_tool_results_sig_cache", None)
+        if cache is None:
+            cache = MemoryManager._tool_results_sig_cache = {}
+        pid = id(provider)
+        if pid not in cache:
+            try:
+                import inspect
+                cache[pid] = "tool_results" in inspect.signature(
+                    provider.sync_turn
+                ).parameters
+            except (TypeError, ValueError):
+                cache[pid] = False
+        return cache[pid]
 
     # -- Tools ---------------------------------------------------------------
 

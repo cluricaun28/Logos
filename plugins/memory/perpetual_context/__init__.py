@@ -336,6 +336,7 @@ class PerpetualContextProvider(MemoryProvider):
         assistant_content: str,
         *,
         session_id: str = "",
+        tool_results: list | None = None,
     ) -> None:
         with self._lock:
             if not self._db or not self._db._initialized:
@@ -360,6 +361,24 @@ class PerpetualContextProvider(MemoryProvider):
                 content=assistant_content,
                 metadata={"synced_at": time.time()},
             )
+            # Tool results (2026-08-19): persist so pruned tool output stays
+            # recallable. Bounded: head 3000 + tail 3000 chars (errors and
+            # summaries live at both ends); role='tool' keeps them filterable,
+            # and _store_embedding already skips tool messages (zero
+            # embedding cost). FTS auto-indexes via trigger.
+            for _name, _content in (tool_results or []):
+                if not _content or len(_content) < 10:
+                    continue
+                if len(_content) > 6000:
+                    _content = (
+                        _content[:3000] + "\n...[truncated]...\n" + _content[-3000:]
+                    )
+                db.add_message(
+                    session_id=effective_session,
+                    role="tool",
+                    content=_content,
+                    metadata={"tool": _name, "synced_at": time.time()},
+                )
         except Exception as e:  # noqa: S110 — degradation wrapper, must never crash agent
             logger.exception("Perpetual sync_turn failed: %s", e)
 
