@@ -1319,6 +1319,11 @@ def _render_final_assistant_content(text: str, mode: str = "render"):
     """Render final assistant content as markdown, stripped text, or raw text."""
     from rich.markdown import Markdown
 
+    # Engine scaffolding (e.g. [Conversation State] maps) is for the model,
+    # not the human reading the terminal — strip it from the display copy.
+    from agent.context_scaffolding import strip_engine_scaffolding
+
+    text = strip_engine_scaffolding(text or "")
     normalized_mode = str(mode or "render").strip().lower()
     if normalized_mode == "strip":
         return _RichText(_strip_markdown_syntax(text))

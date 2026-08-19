@@ -4998,6 +4998,13 @@ class GatewayRunner:
 
             response = agent_result.get("final_response") or ""
 
+            # Engine scaffolding (e.g. [Conversation State] maps) is for the
+            # model, not the human on the platform — strip from the delivered
+            # copy. Stored messages are untouched.
+            from agent.context_scaffolding import strip_engine_scaffolding
+
+            response = strip_engine_scaffolding(response)
+
             # Convert the agent's internal "(empty)" sentinel into a
             # user-friendly message.  "(empty)" means the model failed to
             # produce visible content after exhausting all retries (nudge,
@@ -7009,6 +7016,11 @@ class GatewayRunner:
             result = await self._run_in_executor_with_context(run_sync)
 
             response = result.get("final_response", "") if result else ""
+            # Strip engine scaffolding from the delivered copy (stored data
+            # is untouched).
+            from agent.context_scaffolding import strip_engine_scaffolding
+
+            response = strip_engine_scaffolding(response)
             if not response and result and result.get("error"):
                 response = f"Error: {result['error']}"
 

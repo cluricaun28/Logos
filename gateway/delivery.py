@@ -237,6 +237,16 @@ class DeliveryRouter:
         if not target.chat_id:
             raise ValueError(f"No chat ID for {target.platform.value} delivery")
         
+        # Engine scaffolding (e.g. [Conversation State] maps) is for the
+        # model, not the human on the platform — strip from the delivered
+        # copy.  The full output is still saved locally when truncated.
+        from agent.context_scaffolding import strip_engine_scaffolding
+
+        content = strip_engine_scaffolding(content or "")
+        if not content.strip():
+            logger.info("Cron delivery skipped: content was engine scaffolding only")
+            return {"skipped": True, "reason": "scaffolding-only content"}
+        
         # Guard: truncate oversized cron output to stay within platform limits
         if len(content) > MAX_PLATFORM_OUTPUT:
             job_id = (metadata or {}).get("job_id", "unknown")

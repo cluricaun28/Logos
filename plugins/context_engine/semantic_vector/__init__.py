@@ -743,6 +743,12 @@ class SemanticVectorContextEngine(ContextEngine):
         for i in range(len(messages) - 1, -1, -1):
             if messages[i].get("role") == "assistant":
                 content = messages[i].get("content", "")
+                # Replace (not stack) any previously-injected state map —
+                # legacy behavior left one map per archive event in the
+                # stored transcript.
+                from agent.context_scaffolding import strip_state_map
+
+                content = strip_state_map(content)
                 messages[i]["content"] = state_map + "\n\n" + content
                 return
 
