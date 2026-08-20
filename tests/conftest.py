@@ -201,6 +201,23 @@ _HERMES_BEHAVIORAL_VARS = frozenset({
     "HERMES_BACKGROUND_NOTIFICATIONS",
     "HERMES_EXEC_ASK",
     "HERMES_HOME_MODE",
+    # Cron scheduler sets this in-process (cron/scheduler.py) and it
+    # persists process-wide — leaky tests change approval gating for
+    # every later test (see TestAcpExecAskGate cross-dir flake).
+    "HERMES_CRON_SESSION",
+    # Other vars set by production code paths that leak across tests
+    # when those paths run in-process.
+    "HERMES_ACCEPT_HOOKS",
+    "HERMES_AGENT_NOTIFY_INTERVAL",
+    "HERMES_AGENT_TIMEOUT",
+    "HERMES_AGENT_TIMEOUT_WARNING",
+    "HERMES_AUTO_CONTINUE_FRESHNESS",
+    "HERMES_GATEWAY_BUSY_INPUT_MODE",
+    "HERMES_IGNORE_RULES",
+    "HERMES_IGNORE_USER_CONFIG",
+    "HERMES_RESTART_DRAIN_TIMEOUT",
+    "HERMES_RPC_SOCKET",
+    "HERMES_SPINNER_PAUSE",
     "BROWSER_CDP_URL",
     "CAMOFOX_URL",
     # Platform allowlists — not credentials, but if set from any source
