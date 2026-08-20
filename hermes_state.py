@@ -156,6 +156,21 @@ END;
 """
 
 
+# Agent-only injected user messages (Context Bridge sections from the
+# perpetual-context archiver, and the todo-snapshot marker). These are
+# internal state restored for the agent, not things a user typed.
+_CONTEXT_BRIDGE_MARKERS = (
+    "## Context Bridge",
+    "## Active Tasks (with retrieval pointers)",
+    "## Files Currently Being Edited",
+    "## Known Errors/Issues",
+    "## Knowledge Gaps (Pending Reference Library Entries)",
+    "## Historical Context Retrieval",
+    "## \u26a0 Preservation Warning",
+    "[Your active task list was preserved across context compression]",
+)
+
+
 class SessionDB:
     """
     SQLite-backed session storage with FTS5 search.
@@ -1337,11 +1352,17 @@ class SessionDB:
         return session_id
 
     def get_messages_as_conversation(
-        self, session_id: str, include_ancestors: bool = False
+        self, session_id: str, include_ancestors: bool = False,
+        include_context_bridge: bool = True,
     ) -> List[Dict[str, Any]]:
         """
         Load messages in the OpenAI conversation format (role + content dicts).
         Used by the gateway to restore conversation history.
+
+        When ``include_context_bridge`` is False, agent-only injected user
+        messages (Context Bridge sections, todo-snapshot markers) are omitted.
+        Used by user-facing A2A history endpoints so external clients see
+        only actual user/assistant exchanges.
         """
         session_ids = [session_id]
         if include_ancestors:
@@ -1360,6 +1381,13 @@ class SessionDB:
         messages = []
         for row in rows:
             content = row["content"]
+            if (
+                not include_context_bridge
+                and row["role"] == "user"
+                and isinstance(content, str)
+                and content.lstrip().startswith(_CONTEXT_BRIDGE_MARKERS)
+            ):
+                continue
             if row["role"] in {"user", "assistant"} and isinstance(content, str):
                 content = sanitize_context(content).strip()
             msg = {"role": row["role"], "content": content}

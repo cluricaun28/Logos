@@ -901,7 +901,8 @@ class APIServerAdapter(BasePlatformAdapter):
             try:
                 db = self._ensure_session_db()
                 if db is not None:
-                    history = db.get_messages_as_conversation(session_id)
+                    # Hide the agent-only Context Bridge from user-facing history.
+                    history = db.get_messages_as_conversation(session_id, include_context_bridge=False)
             except Exception as e:
                 # DB trouble must degrade to a fresh conversation, not 500.
                 logger.warning("Failed to load session history for %s: %s", session_id, e)
