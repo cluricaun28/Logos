@@ -379,6 +379,43 @@ def _looks_like_error_output(content: str) -> bool:
     )
 
 
+def _looks_like_intermediate_summary(
+    summary: str, messages: Optional[List[Dict[str, Any]]]
+) -> bool:
+    """Detect a 'thin' summary that is an intermediate intent message rather
+    than the subagent's actual result (the "returned the intro line" mode).
+    Either signal suffices:
+      - the conversation ends on a *tool* result (the final text predates the
+        last tool call, so final_response is a stale pre-tool message); or
+      - the summary is short and matches a first-person intent pattern.
+    """
+    import re
+
+    if not summary or not isinstance(summary, str):
+        return False
+    s = summary.strip()
+    if not s:
+        return False
+    if len(s) > 240:
+        return False
+    last_role = None
+    for m in reversed(messages or []):
+        if isinstance(m, dict) and m.get("role") in {"assistant", "tool"}:
+            last_role = m.get("role")
+            break
+    if last_role == "tool":
+        return True
+    intro = re.match(
+        r"^(i'll|i will|let me|let's|i'm|i am (going to|about to)|now i|"
+        r"first,|sure,|great,|okay,|ok,|now let's|i'll now|i'll first|"
+        r"i'll (read|research|search|use|do|write|download|fetch|analyze|run|"
+        r"check|pull|make|create|build|render|verify|test|look|open|find))",
+        s,
+        re.IGNORECASE,
+    )
+    return bool(intro)
+
+
 def _normalize_role(r: Optional[str]) -> str:
     """Normalise a caller-provided role to 'leaf' or 'orchestrator'.
 
@@ -1629,7 +1666,20 @@ def _run_single_child(
 
         # Run child with a hard timeout to prevent indefinite blocking
         # when the child's API call or tool-level HTTP request hangs.
-        child_timeout = _get_child_timeout()
+        # A per-task override (threaded from delegate_task's `timeout`) takes
+        # precedence over the global delegation.child_timeout_seconds config.
+        _override_timeout = _kwargs.get("child_timeout")
+        if _override_timeout is None:
+            child_timeout = _get_child_timeout()
+        else:
+            try:
+                child_timeout = max(1.0, float(_override_timeout))
+            except (TypeError, ValueError):
+                logger.warning(
+                    "child_timeout override %r not numeric; using config default",
+                    _override_timeout,
+                )
+                child_timeout = _get_child_timeout()
         _timeout_executor = ThreadPoolExecutor(
             max_workers=1,
             # Install a non-interactive approval callback in the worker thread
@@ -1733,6 +1783,30 @@ def _run_single_child(
             else:
                 _err = str(_timeout_exc)
 
+            # Resume-from-partial: if the child did real work before timing
+            # out, surface a resume hint + best-effort partial output so the
+            # parent can re-dispatch intelligently instead of restarting.
+            _resume_hint = None
+            _partial_output = None
+            if is_timeout and child_api_calls > 0:
+                _resume_hint = (
+                    f"Timed out after {child_timeout}s with "
+                    f"{child_api_calls} API call(s) already completed. "
+                    f"Re-dispatch the same goal with a note like: 'Resume: a "
+                    f"prior run completed {child_api_calls} API calls before "
+                    f"timing out; continue from where the partial output stops "
+                    f"(do not redo completed work).'"
+                )
+                _msgs = getattr(child, "messages", None) or getattr(
+                    child, "_messages", None
+                )
+                if isinstance(_msgs, list) and _msgs:
+                    try:
+                        _partial_output = _extract_output_tail(
+                            {"messages": _msgs}, max_entries=6, max_chars=4000
+                        ) or None
+                    except Exception:
+                        _partial_output = None
             return {
                 "task_index": task_index,
                 "status": "timeout" if is_timeout else "error",
@@ -1743,6 +1817,8 @@ def _run_single_child(
                 "duration_seconds": duration,
                 "_child_role": getattr(child, "_delegate_role", None),
                 "diagnostic_path": diagnostic_path,
+                "resume_hint": _resume_hint,
+                "partial_output": _partial_output,
             }
         finally:
             # Shut down executor without waiting — if the child thread
@@ -1809,6 +1885,26 @@ def _run_single_child(
                         # Fallback for messages without tool_call_id
                         tool_trace[-1].update(result_meta)
 
+        # Detect a 'thin' / intermediate summary -- the "returned the intro
+        # line" failure mode, where final_response is an early intent message
+        # because the child's last real action was a tool call. Flag it and
+        # attach the real output tail so the parent sees the actual result.
+        summary_quality = "ok"
+        output_tail: Optional[List[Dict[str, Any]]] = None
+        if summary and _looks_like_intermediate_summary(summary, messages):
+            summary_quality = "intermediate_suspected"
+            try:
+                output_tail = _extract_output_tail(
+                    {"messages": messages}, max_entries=6, max_chars=4000
+                ) or None
+            except Exception:
+                output_tail = None
+            logger.warning(
+                "Subagent %d: summary looks intermediate (ends-on-tool / intro "
+                "pattern); attached output_tail. summary=%r",
+                task_index, summary[:120],
+            )
+
         # Determine exit reason
         if interrupted:
             exit_reason = "interrupted"
@@ -1830,6 +1926,8 @@ def _run_single_child(
             "duration_seconds": duration,
             "model": _model if isinstance(_model, str) else None,
             "exit_reason": exit_reason,
+            "summary_quality": summary_quality,
+            "output_tail": output_tail,
             "tokens": {
                 "input": (
                     _input_tokens if isinstance(_input_tokens, (int, float)) else 0
@@ -2041,6 +2139,7 @@ def delegate_task(
     acp_args: Optional[List[str]] = None,
     role: Optional[str] = None,
     background: Optional[bool] = None,
+    timeout: Optional[float] = None,
     parent_agent=None,
 ) -> str:
     """
@@ -2236,8 +2335,12 @@ def delegate_task(
             # Capture parent session for PM traceability
             _parent_session_id = getattr(parent_agent, "session_id", "") or ""
 
-            def _async_runner(_child=child, _goal=_t["goal"]):
-                return _run_single_child(0, _goal, _child, parent_agent)
+            def _async_runner(
+                _child=child, _goal=_t["goal"], _cto=(_t.get("timeout") or timeout)
+            ):
+                return _run_single_child(
+                    0, _goal, _child, parent_agent, child_timeout=_cto
+                )
 
             def _async_interrupt(_child=child):
                 try:
@@ -2288,7 +2391,10 @@ def delegate_task(
                 )
 
         # Sync path — run directly
-        result = _run_single_child(0, _t["goal"], child, parent_agent)
+        result = _run_single_child(
+            0, _t["goal"], child, parent_agent,
+            child_timeout=(_t.get("timeout") or timeout),
+        )
         results.append(result)
     else:
         # Batch -- run in parallel with per-task progress lines
@@ -2304,6 +2410,7 @@ def delegate_task(
                     goal=t["goal"],
                     child=child,
                     parent_agent=parent_agent,
+                    child_timeout=(t.get("timeout") or timeout),
                 )
                 futures[future] = i
 
@@ -2803,6 +2910,10 @@ DELEGATE_TASK_SCHEMA = {
                             "enum": ["leaf", "orchestrator"],
                             "description": "Per-task role override. See top-level 'role' for semantics.",
                         },
+                        "timeout": {
+                            "type": "number",
+                            "description": "Optional per-task timeout in seconds (overrides the top-level 'timeout' / config default of 600s). On timeout the result includes a 'resume_hint' + 'partial_output'.",
+                        },
                     },
                     "required": ["goal"],
                 },
@@ -2854,6 +2965,10 @@ DELEGATE_TASK_SCHEMA = {
                     "Use this for long-running research tasks that don't need to block "
                     "the main conversation."
                 ),
+            },
+            "timeout": {
+                "type": "number",
+                "description": "Optional per-call timeout in seconds applied to every task (overrides the delegation.child_timeout_seconds config default of 600s). Raise it for long work (e.g. 900-1200). On timeout the result includes a 'resume_hint' + 'partial_output' for re-dispatch. For a single task, prefer the per-task 'timeout'.",
             },
         },
         "required": [],
