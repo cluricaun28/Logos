@@ -349,6 +349,12 @@ class PerpetualContextDB(
         """
         try:
             with self._lock:
+                # Pre-flight (2026-08-20): if this first boot must rebuild a v1
+                # messages table, do it on a throwaway connection so the main
+                # connection opens on the final schema. A rebuild on the main
+                # connection left its cached schema stale and rejected
+                # role='tool' rows until the next restart.
+                self._preconnect_v3_check()
                 # Connect to SQLite (create if not exists)
                 self._conn = sqlite3.connect(self._db_path, timeout=30, check_same_thread=False)
                 self._conn.execute("PRAGMA journal_mode=WAL")

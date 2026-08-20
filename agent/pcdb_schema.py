@@ -298,7 +298,30 @@ class _SchemaManager:
             logger.warning("Failed to add optional column %s.%s: %s", table, column, e)
             return False
 
-    def _migrate_messages_check_v3(self) -> None:
+    def _preconnect_v3_check(self) -> None:
+        """Rebuild a v1 messages table BEFORE the main connection opens.
+
+        If the rebuild happened on the main connection after it had cached
+        the old table schema, that connection kept rejecting role='tool'
+        rows (stale schema cache) until the next restart. Running the same
+        12-step rebuild on a throwaway connection first guarantees every
+        connection opened in this process sees the final 4-role CHECK.
+        No-op on fresh or already-migrated databases.
+        """
+        try:
+            tmp = sqlite3.connect(self._db_path, timeout=30)
+            try:
+                row = tmp.execute(
+                    "SELECT sql FROM sqlite_master WHERE type='table' AND name='messages'"
+                ).fetchone()
+                if row and row[0] and "'tool'" not in row[0]:
+                    self._migrate_messages_check_v3(conn=tmp)
+            finally:
+                tmp.close()
+        except Exception as e:  # noqa: BLE001 — fail-open; _create_tables re-checks
+            logger.warning("preconnect v3 schema check: %s", e)
+
+    def _migrate_messages_check_v3(self, conn: "sqlite3.Connection | None" = None) -> None:
         """Rebuild the messages table so its CHECK constraint admits role='tool'.
 
         Preserves ids (FTS rowids, child-table message_id refs stay valid).
@@ -310,7 +333,8 @@ class _SchemaManager:
         validated. Fresh databases already have the 4-role CHECK and never
         reach this method.
         """
-        conn = self._conn
+        if conn is None:
+            conn = self._conn
         _fk_was_on = conn.execute("PRAGMA foreign_keys").fetchone()[0]
         if _fk_was_on:
             # No-op inside a transaction — must happen before BEGIN.
