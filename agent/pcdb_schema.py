@@ -54,6 +54,18 @@ class _SchemaManager:
             )
         """)
 
+        # v3 migration (2026-08-19): pre-v3 tables carry
+        # CHECK(role IN ('user','assistant','system')) which silently rejects
+        # role='tool' rows (PM tool-result persistence) with an IntegrityError
+        # swallowed by the sync wrapper. SQLite cannot ALTER a CHECK
+        # constraint, so rebuild the table preserving ids and data. Fresh
+        # databases already have the 4-role CHECK and skip this entirely.
+        _msg_sql_row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='messages'"
+        ).fetchone()
+        if _msg_sql_row and _msg_sql_row[0] and "'tool'" not in _msg_sql_row[0]:
+            self._migrate_messages_check_v3()
+
         # Backward compatibility: add missing columns from old schema (only if schema < v2).
         # NOTE: SQLite does NOT support function calls in ALTER TABLE ADD COLUMN defaults.
         # Use constant defaults here; triggers handle auto-timestamping where needed.
@@ -285,6 +297,135 @@ class _SchemaManager:
                 return False  # Expected — column exists
             logger.warning("Failed to add optional column %s.%s: %s", table, column, e)
             return False
+
+    def _migrate_messages_check_v3(self) -> None:
+        """Rebuild the messages table so its CHECK constraint admits role='tool'.
+
+        Preserves ids (FTS rowids, child-table message_id refs stay valid).
+        SQLite cannot ALTER a CHECK constraint, and with foreign_keys=ON it
+        refuses to DROP a parent table while child rows exist — so this uses
+        the standard 12-step pattern: FKs off (outside the transaction),
+        children copied to temp + dropped, parent renamed/recreated/repopulated,
+        children recreated pointing at the new parent, then FKs back on and
+        validated. Fresh databases already have the 4-role CHECK and never
+        reach this method.
+        """
+        conn = self._conn
+        _fk_was_on = conn.execute("PRAGMA foreign_keys").fetchone()[0]
+        if _fk_was_on:
+            # No-op inside a transaction — must happen before BEGIN.
+            conn.execute("PRAGMA foreign_keys=OFF")
+        _children = (
+            ("entity_mentions",
+             "CREATE TABLE entity_mentions (\n"
+             "        message_id INTEGER,\n"
+             "        entity_id INTEGER,\n"
+             "        FOREIGN KEY(message_id) REFERENCES messages(id),\n"
+             "        FOREIGN KEY(entity_id) REFERENCES entities(id)\n"
+             "    )"),
+            ("topic_messages",
+             "CREATE TABLE topic_messages (\n"
+             "                topic_id INTEGER REFERENCES topics(id),\n"
+             "                message_id INTEGER REFERENCES messages(id),\n"
+             "                similarity REAL,\n"
+             "                PRIMARY KEY (topic_id, message_id)\n"
+             "            )"),
+            ("turn_signals",
+             "CREATE TABLE turn_signals (\n"
+             "                id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
+             "                turn_id INTEGER NOT NULL REFERENCES messages(id),\n"
+             "                cluster_id INTEGER NOT NULL REFERENCES signal_clusters(cluster_id),\n"
+             "                heat_score REAL NOT NULL DEFAULT 0.5 CHECK(heat_score >= 0.0 AND heat_score <= 1.0),\n"
+             "                recency_score REAL NOT NULL DEFAULT 0.5 CHECK(recency_score >= 0.0 AND recency_score <= 1.0),\n"
+             "                frequency_count INTEGER NOT NULL DEFAULT 1,\n"
+             "                depth_score REAL NOT NULL DEFAULT 0.5 CHECK(depth_score >= 0.0 AND depth_score <= 1.0),\n"
+             "                centrality_score REAL NOT NULL DEFAULT 0.5 CHECK(centrality_score >= 0.0 AND centrality_score <= 1.0),\n"
+             "                composite_score REAL NOT NULL DEFAULT 0.5,\n"
+             "                last_updated REAL NOT NULL,\n"
+             "                UNIQUE(turn_id, cluster_id)\n"
+             "            )"),
+        )
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+
+            # 1-2. Temp-copy each child that exists, then drop it so its FK
+            # reference to messages no longer blocks the parent rebuild.
+            _present = []
+            for _name, _ddl in _children:
+                _exists = conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (_name,)
+                ).fetchone()
+                if not _exists:
+                    continue
+                conn.execute(f"CREATE TEMP TABLE _mig_{_name} AS SELECT * FROM {_name}")
+                conn.execute(f"DROP TABLE {_name}")
+                _present.append((_name, _ddl))
+
+            # 3-4. Rename old parent, create new parent with 4-role CHECK.
+            conn.execute("ALTER TABLE messages RENAME TO messages_v2_backup")
+            conn.execute("""
+                CREATE TABLE messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT NOT NULL,
+                    role TEXT NOT NULL CHECK(role IN ('user', 'assistant', 'system', 'tool')),
+                    content TEXT NOT NULL,
+                    metadata TEXT DEFAULT '{}',
+                    created_at REAL DEFAULT 0
+                )
+            """)
+
+            # 5. Preserve legacy/extended columns from the old table.
+            _old_cols = {
+                row[1] for row in conn.execute("PRAGMA table_info(messages_v2_backup)").fetchall()
+            }
+            for _col, _def in (
+                ("timestamp", "REAL DEFAULT 0"),
+                ("token_count", "INTEGER DEFAULT 0"),
+                ("embedding", "BLOB"),
+                ("chunk_index", "INTEGER DEFAULT 0"),
+                ("topic_tags", "TEXT"),
+            ):
+                if _col in _old_cols:
+                    conn.execute(f"ALTER TABLE messages ADD COLUMN {_col} {_def}")
+
+            # 6. Copy rows, preserving ids.
+            _new_cols = [row[1] for row in conn.execute("PRAGMA table_info(messages)").fetchall()]
+            _shared = [c for c in _new_cols if c in _old_cols]
+            conn.execute(
+                f"INSERT INTO messages ({', '.join(_shared)}) "
+                f"SELECT {', '.join(_shared)} FROM messages_v2_backup"
+            )
+
+            # 7-8. Recreate children against the new parent, restore rows.
+            for _name, _ddl in _present:
+                conn.execute(_ddl)
+                if _name == "turn_signals":
+                    conn.execute(
+                        "CREATE INDEX idx_turn_signals_turn ON turn_signals(turn_id)"
+                    )
+                    conn.execute(
+                        "CREATE INDEX idx_turn_signals_cluster ON turn_signals(cluster_id)"
+                    )
+                conn.execute(f"INSERT INTO {_name} SELECT * FROM _mig_{_name}")
+                conn.execute(f"DROP TABLE _mig_{_name}")
+
+            # 9. Backup parent is now unreferenced — safe to drop.
+            conn.execute("DROP TABLE messages_v2_backup")
+            conn.execute("COMMIT")
+            _count = conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
+            logger.info("messages table rebuilt to v3 CHECK (role 'tool' allowed); %d rows preserved", _count)
+        except sqlite3.Error as e:
+            try:
+                conn.execute("ROLLBACK")
+            except sqlite3.Error:
+                logger.debug("v3 migration rollback failed (nothing to roll back?)")
+            logger.warning("messages v3 CHECK migration failed (non-fatal): %s", e)
+        finally:
+            if _fk_was_on:
+                conn.execute("PRAGMA foreign_keys=ON")
+                _bad = conn.execute("PRAGMA foreign_key_check").fetchall()
+                if _bad:
+                    logger.warning("v3 migration left %d FK inconsistencies: %s", len(_bad), _bad[:5])
 
     def _migrate_timestamps_to_created_at(self) -> None:
         """Migrate existing timestamp data to created_at for backward compatibility.
