@@ -76,6 +76,13 @@ def load_briefs(pinned_dir: Path, now: datetime | None = None) -> list[dict]:
             try:
                 text = path.read_text(encoding="utf-8")
                 meta, body = _parse_frontmatter(text)
+                # active: false → toggled OFF without deleting/archiving the
+                # file. Re-add `active: true` (or remove the line) to re-enable.
+                # Fail-open: any missing/other value counts as active.
+                if str(meta.get("active", "true")).strip().lower() in (
+                    "false", "0", "no", "off",
+                ):
+                    continue
                 expires = meta.get("expires", "")
                 if expires:
                     try:

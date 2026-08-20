@@ -258,3 +258,42 @@ def test_pinned_disabled_leaves_block_untouched(tmp_path: Path):
     p._pinned_dir = tmp_path
     out = p.system_prompt_block()
     assert "Pinned Project Briefs" not in out
+
+
+# ── active: toggle (on/off without deleting the file) ────────────────────
+
+def test_active_false_excludes_but_keeps_file(tmp_path: Path):
+    (tmp_path / "proj.md").write_text(
+        BRIEF.format(project="alpha", extra="active: false", body="paused"),
+        encoding="utf-8",
+    )
+    assert load_briefs(tmp_path) == []
+    # File stays on disk (not archived) so it can be re-enabled later.
+    assert (tmp_path / "proj.md").exists()
+    assert not (tmp_path / "archive" / "proj.md").exists()
+
+
+def test_active_false_reactivates_on_flip(tmp_path: Path):
+    path = tmp_path / "proj.md"
+    path.write_text(
+        BRIEF.format(project="alpha", extra="active: false", body="paused"),
+        encoding="utf-8",
+    )
+    assert load_briefs(tmp_path) == []
+    # Flip the flag back on — content preserved, no re-typing.
+    path.write_text(
+        BRIEF.format(project="alpha", extra="active: true", body="paused"),
+        encoding="utf-8",
+    )
+    briefs = load_briefs(tmp_path)
+    assert len(briefs) == 1
+    assert briefs[0]["project"] == "alpha"
+    assert "paused" in briefs[0]["body"]
+
+
+def test_active_default_is_on(tmp_path: Path):
+    (tmp_path / "proj.md").write_text(
+        BRIEF.format(project="alpha", extra="", body="live"),
+        encoding="utf-8",
+    )
+    assert len(load_briefs(tmp_path)) == 1
