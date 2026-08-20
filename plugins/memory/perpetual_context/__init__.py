@@ -37,6 +37,7 @@ from . import schemas as _schemas
 
 # Import split modules (SRP compliance)
 from .extraction_engine import _STOPWORDS
+from .pinned_briefs import get_pinned_block
 from .semantic_intent_router import classify_injection_intent
 from .session_end_extractor import extract_topics_from_messages
 
@@ -143,6 +144,15 @@ class PerpetualContextProvider(MemoryProvider):
         self._periodic_enabled = bool(pc_config.get("pre_response_recall", False))
         self._deep_research_enabled = DEEP_RESEARCH_ENABLED
 
+        # p1: pinned project briefs (system-prompt-persisted project context)
+        pinned_cfg = pc_config.get("pinned", {})
+        if not isinstance(pinned_cfg, dict):
+            pinned_cfg = {}
+        self._pinned_enabled = bool(pinned_cfg.get("enabled", True))
+        self._pinned_dir = (
+            Path(os.path.expanduser(pinned_cfg["dir"])) if pinned_cfg.get("dir") else None
+        )
+
         # L2 skill push (W2): prefetch pushes the full SKILL.md body when a
         # skill pointer match is high-signal (separation-based, calibrated on
         # the 56-pair recall probe). No-op unless pointer pages exist in the
@@ -190,7 +200,7 @@ class PerpetualContextProvider(MemoryProvider):
             depth = self._current_depth
         stats = db.get_stats()
         current_time = datetime.now().astimezone().strftime("%A, %B %d, %Y %-I:%M %p (%Z)")
-        return (
+        block = (
             f"[Current Time: {current_time}]\n"
             f"[Perpetual Context Memory: {stats.get('message_count', 0)} messages "
             f"across {stats.get('session_count', 0)} sessions, depth={depth}]\n"
@@ -211,6 +221,12 @@ class PerpetualContextProvider(MemoryProvider):
             "known patterns. Use this intelligence to present information through "
             "the user's worldview rather than the source's frame."
         )
+        # p1: pinned project briefs — system-prompt-protected project context
+        if getattr(self, "_pinned_enabled", True):
+            pinned = get_pinned_block(getattr(self, "_pinned_dir", None))
+            if pinned:
+                block = block + pinned
+        return block
 
     # -- Prefetch (delegates to prefetch_pipeline) ---------------------------
 
