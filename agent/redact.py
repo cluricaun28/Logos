@@ -58,7 +58,7 @@ _SENSITIVE_BODY_KEYS = frozenset({
 
 # Snapshot at import time so runtime env mutations (e.g. LLM-generated
 # `export HERMES_REDACT_SECRETS=***`) cannot enable/disable redaction
-# mid-session.  OFF by default in upstream Hermes — user must opt in via
+# mid-session.  OFF by default in upstream Logos — user must opt in via
 # `security.redact_secrets: true` in config.yaml (bridged to this env var
 # in logos_cli/main.py and gateway/run.py) or `HERMES_REDACT_SECRETS=***`
 # in ~/.hermes/.env. This fork enables it by default.

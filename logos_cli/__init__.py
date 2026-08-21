@@ -1,12 +1,12 @@
 """
-Hermes CLI - Unified command-line interface for Hermes Agent.
+Logos CLI - Unified command-line interface for Logos.
 
 Provides subcommands for:
-- hermes chat          - Interactive chat (same as ./hermes)
-- hermes gateway       - Run gateway in foreground
-- hermes gateway start - Start gateway service
-- hermes gateway stop  - Stop gateway service  
-- hermes setup         - Interactive setup wizard
+- logos chat          - Interactive chat (same as ./hermes)
+- logos gateway       - Run gateway in foreground
+- logos gateway start - Start gateway service
+- logos gateway stop  - Stop gateway service  
+- logos setup         - Interactive setup wizard
 - hermes status        - Show status of all components
 - hermes cron          - Manage cron jobs
 """

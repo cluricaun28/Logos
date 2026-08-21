@@ -28,7 +28,7 @@ PERPETUAL_SEARCH_SCHEMA: dict[str, Any] = {
         "• top_k: Number of results (default 5, max 20)\\\n"
         "\\\n"
         "EXAMPLES:\\\n"
-        "• 'Hermes configuration' — Find messages about setup\\\n"
+        "• 'Logos configuration' — Find messages about setup\\\n"
         "• 'GPU training' — Find messages mentioning GPU training\\\n"
         "• session_id='20260421_023037' — Limit to one session"
     ),

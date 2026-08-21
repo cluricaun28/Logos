@@ -190,9 +190,9 @@ def test_model_command_uses_existing_codex_session_without_relogin(monkeypatch):
 
 
 def _make_cli(model="anthropic/claude-opus-4.6", **kwargs):
-    """Create a HermesCLI with minimal mocking."""
+    """Create a LogosCLI with minimal mocking."""
     import cli as _cli_mod
-    from cli import HermesCLI
+    from cli import LogosCLI
 
     _clean_config = {
         "model": {
@@ -210,7 +210,7 @@ def _make_cli(model="anthropic/claude-opus-4.6", **kwargs):
         patch.dict("os.environ", clean_env, clear=False),
         patch.dict(_cli_mod.__dict__, {"CLI_CONFIG": _clean_config}),
     ):
-        cli = HermesCLI(model=model, **kwargs)
+        cli = LogosCLI(model=model, **kwargs)
     return cli
 
 
@@ -306,8 +306,8 @@ class TestNormalizeModelForProvider:
             patch.dict("os.environ", {"LLM_MODEL": "", "HERMES_MAX_ITERATIONS": ""}, clear=False),
             patch.dict(_cli_mod.__dict__, {"CLI_CONFIG": _clean_config}),
         ):
-            from cli import HermesCLI
-            cli = HermesCLI()
+            from cli import LogosCLI
+            cli = LogosCLI()
 
         assert cli._model_is_default is True
         with patch(
@@ -337,8 +337,8 @@ class TestNormalizeModelForProvider:
             patch.dict("os.environ", {"LLM_MODEL": "", "HERMES_MAX_ITERATIONS": ""}, clear=False),
             patch.dict(_cli_mod.__dict__, {"CLI_CONFIG": _clean_config}),
         ):
-            from cli import HermesCLI
-            cli = HermesCLI()
+            from cli import LogosCLI
+            cli = LogosCLI()
 
         with patch(
             "logos_cli.codex_models.get_codex_model_ids",

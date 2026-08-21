@@ -1,2 +1,2 @@
-# Hermes plugins package
+# Logos plugins package
 from __future__ import annotations

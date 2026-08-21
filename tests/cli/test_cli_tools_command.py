@@ -2,12 +2,12 @@
 
 from unittest.mock import MagicMock, patch, call
 
-from cli import HermesCLI
+from cli import LogosCLI
 
 
 def _make_cli(enabled_toolsets=None):
-    """Build a minimal HermesCLI stub without running __init__."""
-    cli_obj = HermesCLI.__new__(HermesCLI)
+    """Build a minimal LogosCLI stub without running __init__."""
+    cli_obj = LogosCLI.__new__(LogosCLI)
     cli_obj.enabled_toolsets = set(enabled_toolsets or ["web", "memory"])
     cli_obj._command_running = False
     cli_obj.console = MagicMock()

@@ -216,7 +216,7 @@ class TestGenerate:
         call_args = mock_post.call_args
         headers = call_args.kwargs.get("headers") or call_args[1].get("headers")
         assert "Bearer test-key-12345" in headers["Authorization"]
-        assert "Hermes-Agent" in headers["User-Agent"]
+        assert "Logos-Agent" in headers["User-Agent"]
 
 
 # ---------------------------------------------------------------------------

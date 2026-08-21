@@ -1,4 +1,4 @@
-"""hermes memory setup|status — configure memory provider plugins.
+"""logos memory setup|status — configure memory provider plugins.
 
 Auto-detects installed memory providers via the plugin system.
 Interactive curses-based UI for provider selection, then walks through
@@ -16,7 +16,7 @@ from logos_constants import get_hermes_home
 
 
 # ---------------------------------------------------------------------------
-# Curses-based interactive picker (same pattern as hermes tools)
+# Curses-based interactive picker (same pattern as logos tools)
 # ---------------------------------------------------------------------------
 
 def _curses_select(title: str, items: list[tuple[str, str]], default: int = 0) -> int:
@@ -104,7 +104,7 @@ def _install_dependencies(provider_name: str) -> None:
     if not uv_path:
         print(f"  ⚠ uv not found — cannot install dependencies")
         print(f"  Install uv: curl -LsSf https://astral.sh/uv/install.sh | sh")
-        print(f"  Then re-run: hermes memory setup")
+        print(f"  Then re-run: logos memory setup")
         return
 
     try:
@@ -194,7 +194,7 @@ def cmd_setup_provider(provider_name: str) -> None:
 
     if not match:
         print(f"\n  Memory provider '{provider_name}' not found.")
-        print("  Run 'hermes memory setup' to see available providers.\n")
+        print("  Run 'logos memory setup' to see available providers.\n")
         return
 
     name, _, provider = match

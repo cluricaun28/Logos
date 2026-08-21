@@ -119,8 +119,8 @@ def cron_list(show_all: bool = False):
     from logos_cli.gateway import find_gateway_pids
     if not find_gateway_pids():
         print(color("  ⚠  Gateway is not running — jobs won't fire automatically.", Colors.YELLOW))
-        print(color("     Start it with: hermes gateway install", Colors.DIM))
-        print(color("                    sudo hermes gateway install --system  # Linux servers", Colors.DIM))
+        print(color("     Start it with: logos gateway install", Colors.DIM))
+        print(color("                    sudo logos gateway install --system  # Linux servers", Colors.DIM))
         print()
 
 
@@ -145,9 +145,9 @@ def cron_status():
         print(color("✗ Gateway is not running — cron jobs will NOT fire", Colors.RED))
         print()
         print("  To enable automatic execution:")
-        print("    hermes gateway install    # Install as a user service")
-        print("    sudo hermes gateway install --system  # Linux servers: boot-time system service")
-        print("    hermes gateway            # Or run in foreground")
+        print("    logos gateway install    # Install as a user service")
+        print("    sudo logos gateway install --system  # Linux servers: boot-time system service")
+        print("    logos gateway            # Or run in foreground")
 
     print()
 

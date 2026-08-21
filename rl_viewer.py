@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-RL Live Viewer — read-only Wikipedia-style browser for a Hermes Reference Library.
+RL Live Viewer — read-only Wikipedia-style browser for a Logos Reference Library.
 No build step: renders markdown off-disk on request, so it is never stale.
 Cross-linking (wikilinks + backlinks) is the primary feature. Search reuses the
 exact FTS5 index the agents use (search.db / rl_fts), so human + agent views agree.

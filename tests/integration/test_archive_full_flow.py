@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch, PropertyMock
 # --- Fixtures for realistic chat data ---
 
 def make_realistic_conversation():
-    """Build a multi-turn conversation simulating real Hermes usage with tasks, tool calls, and memory context."""
+    """Build a multi-turn conversation simulating real Logos usage with tasks, tool calls, and memory context."""
     return [
         # System prompt (protected)
         {"role": "system", "content": "You are a personal assistant."},
@@ -64,7 +64,7 @@ def make_long_conversation_with_many_tasks():
         ("Audit Reference Library entity pages", "Audited 150+ pages. Found 3 duplicates, consolidated."),
         ("Configure vLLM inference server", "vLLM running with qwen3.6-27b on localhost:8000."),
         ("Review DPO training dataset quality", "Dataset has 15K examples. Quality score: 0.87/1.0."),
-        ("Update Hermes fork README", "README updated with perpetual memory docs."),
+        ("Update Logos fork README", "README updated with perpetual memory docs."),
         ("Test gateway Telegram adapter", "All platform tests passing. Gateway healthy."),
     ]
 

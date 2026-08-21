@@ -1,4 +1,4 @@
-"""Helpers for loading Hermes .env files consistently across entrypoints."""
+"""Helpers for loading Logos .env files consistently across entrypoints."""
 
 from __future__ import annotations
 
@@ -75,7 +75,7 @@ def _sanitize_loaded_credentials() -> None:
             "rich-text editor, or web page that substituted lookalike\n"
             "  Unicode glyphs for ASCII letters. If authentication fails "
             "(e.g. \"API key not valid\"), re-copy the key from the\n"
-            "  provider's dashboard and run `hermes setup` (or edit the "
+            "  provider's dashboard and run `logos setup` (or edit the "
             ".env file in a plain-text editor).",
             file=sys.stderr,
         )
@@ -103,7 +103,7 @@ def _sanitize_env_file_if_needed(path: Path) -> None:
     (see #8908).
 
     We delegate to ``logos_cli.config._sanitize_env_lines`` which
-    already knows all valid Hermes env-var names and can split
+    already knows all valid Logos env-var names and can split
     concatenated lines correctly.
     """
     if not path.exists():
@@ -144,7 +144,7 @@ def load_hermes_dotenv(
     hermes_home: str | os.PathLike | None = None,
     project_env: str | os.PathLike | None = None,
 ) -> list[Path]:
-    """Load Hermes environment files with user config taking precedence.
+    """Load Logos environment files with user config taking precedence.
 
     Behavior:
     - `~/.hermes/.env` overrides stale shell-exported values when present.

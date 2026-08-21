@@ -252,7 +252,7 @@ def get_nous_subscription_features(
         browser_cfg.get("cloud_provider") if browser_provider_explicit else None
     )
     # use_gateway flags — when True, the user explicitly opted into the
-    # Tool Gateway via `hermes model`, so direct credentials should NOT
+    # Tool Gateway via `logos model`, so direct credentials should NOT
     # prevent gateway routing.
     web_use_gateway = _uses_gateway(web_cfg)
     tts_use_gateway = _uses_gateway(tts_cfg)

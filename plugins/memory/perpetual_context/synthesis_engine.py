@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Configuration constants — LOCAL INFERENCE ONLY
-# Reads active provider from Hermes config; defaults to vLLM on localhost:8000
+# Reads active provider from Logos config; defaults to vLLM on localhost:8000
 # ---------------------------------------------------------------------------
 SYNTHESIS_PASS_TIMEOUT = 30  # Seconds per inference pass
 CONTEXT_BUDGET_KB_DEFAULT = 6  # Default KB budget for context block (4-8 recommended)
@@ -39,7 +39,7 @@ RL_CONTRADICTION_THRESHOLD = 3  # Min term overlap to flag potential contradicti
 
 
 def get_active_model() -> dict[str, Any]:
-    """Read the active model from Hermes config.
+    """Read the active model from Logos config.
 
     All auxiliary tools (synthesis, distillation, archiving, web_extract)
     use this single source of truth. No hardcoded model names anywhere.

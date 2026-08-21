@@ -1,4 +1,4 @@
-"""Skill dependency resolution for Hermes Agent.
+"""Skill dependency resolution for Logos.
 
 When multiple skills are loaded (via preloading or system prompt injection),
 they may declare dependencies on other skills. This module resolves those

@@ -91,7 +91,7 @@ def is_write_denied(path: str) -> bool:
 
 
 def get_read_block_error(path: str) -> Optional[str]:
-    """Return an error message when a read targets internal Hermes cache files."""
+    """Return an error message when a read targets internal Logos cache files."""
     resolved = Path(path).expanduser().resolve()
     hermes_home = _hermes_home_path().resolve()
     blocked_dirs = [
@@ -104,7 +104,7 @@ def get_read_block_error(path: str) -> Optional[str]:
         except ValueError:
             continue
         return (
-            f"Access denied: {path} is an internal Hermes cache file "
+            f"Access denied: {path} is an internal Logos cache file "
             "and cannot be read directly to prevent prompt injection. "
             "Use the skills_list or skill_view tools instead."
         )

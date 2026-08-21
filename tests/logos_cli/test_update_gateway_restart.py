@@ -72,13 +72,13 @@ def _make_run_side_effect(
             if "--user" in joined and systemd_active:
                 return subprocess.CompletedProcess(
                     cmd, 0,
-                    stdout="hermes-gateway.service loaded active running Hermes Gateway\n",
+                    stdout="hermes-gateway.service loaded active running Logos Gateway\n",
                     stderr="",
                 )
             elif "--user" not in joined and system_service_active:
                 return subprocess.CompletedProcess(
                     cmd, 0,
-                    stdout="hermes-gateway.service loaded active running Hermes Gateway\n",
+                    stdout="hermes-gateway.service loaded active running Logos Gateway\n",
                     stderr="",
                 )
             return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
@@ -833,7 +833,7 @@ class TestGetServicePids:
             if "list-units" in joined:
                 return subprocess.CompletedProcess(
                     cmd, 0,
-                    stdout="hermes-gateway.service loaded active running Hermes Gateway\n",
+                    stdout="hermes-gateway.service loaded active running Logos Gateway\n",
                     stderr="",
                 )
             if "show" in joined and "MainPID" in joined:
@@ -883,7 +883,7 @@ class TestGetServicePids:
             if "list-units" in joined:
                 return subprocess.CompletedProcess(
                     cmd, 0,
-                    stdout="hermes-gateway.service loaded inactive dead Hermes Gateway\n",
+                    stdout="hermes-gateway.service loaded inactive dead Logos Gateway\n",
                     stderr="",
                 )
             if "show" in joined and "MainPID" in joined:
@@ -1086,7 +1086,7 @@ class TestGatewayModeWritesExitCodeEarly:
 class TestCmdUpdateLegacyGatewayWarning:
     """Tests for the legacy hermes.service warning printed by `hermes update`.
 
-    Users who installed Hermes before the service rename often have a
+    Users who installed Logos before the service rename often have a
     dormant ``hermes.service`` that starts flap-fighting the current
     ``hermes-gateway.service`` after PR #5646. Every ``hermes update``
     should remind them to run ``hermes gateway migrate-legacy`` until
@@ -1094,7 +1094,7 @@ class TestCmdUpdateLegacyGatewayWarning:
     """
 
     _OUR_UNIT_TEXT = (
-        "[Unit]\nDescription=Hermes Gateway\n[Service]\n"
+        "[Unit]\nDescription=Logos Gateway\n[Service]\n"
         "ExecStart=/usr/bin/python -m logos_cli.main gateway run --replace\n"
     )
 
@@ -1126,7 +1126,7 @@ class TestCmdUpdateLegacyGatewayWarning:
             cmd_update(mock_args)
 
         captured = capsys.readouterr().out
-        assert "Legacy Hermes gateway unit(s) detected" in captured
+        assert "Legacy Logos gateway unit(s) detected" in captured
         assert "hermes.service" in captured
         assert "hermes gateway migrate-legacy" in captured
         assert "(user scope)" in captured
@@ -1157,7 +1157,7 @@ class TestCmdUpdateLegacyGatewayWarning:
             cmd_update(mock_args)
 
         captured = capsys.readouterr().out
-        assert "Legacy Hermes gateway" not in captured
+        assert "Legacy Logos gateway" not in captured
         assert "migrate-legacy" not in captured
 
     @patch("shutil.which", return_value=None)
@@ -1197,7 +1197,7 @@ class TestCmdUpdateLegacyGatewayWarning:
             cmd_update(mock_args)
 
         captured = capsys.readouterr().out
-        assert "Legacy Hermes gateway" not in captured
+        assert "Legacy Logos gateway" not in captured
         assert "hermes-gateway-coder.service" not in captured  # not flagged
 
     @patch("shutil.which", return_value=None)
@@ -1229,7 +1229,7 @@ class TestCmdUpdateLegacyGatewayWarning:
 
         captured = capsys.readouterr().out
         # Must not print the warning on non-systemd platforms
-        assert "Legacy Hermes gateway" not in captured
+        assert "Legacy Logos gateway" not in captured
 
     @patch("shutil.which", return_value=None)
     @patch("subprocess.run")
@@ -1258,6 +1258,6 @@ class TestCmdUpdateLegacyGatewayWarning:
             cmd_update(mock_args)
 
         captured = capsys.readouterr().out
-        assert "Legacy Hermes gateway" in captured
+        assert "Legacy Logos gateway" in captured
         assert "(system scope)" in captured
         assert "sudo" in captured

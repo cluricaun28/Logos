@@ -1644,7 +1644,7 @@ def _handle_auth_error_and_retry(
     return json.dumps({
         "error": (
             f"MCP server '{server_name}' requires re-authentication. "
-            f"Run `hermes mcp login {server_name}` (or delete the tokens "
+            f"Run `logos mcp login {server_name}` (or delete the tokens "
             f"file under ~/.hermes/mcp-tokens/ and restart). Do NOT retry "
             f"this tool — ask the user to re-authenticate."
         ),
@@ -1910,7 +1910,7 @@ def _interpolate_env_vars(value):
 
 
 def _load_mcp_config() -> Dict[str, dict]:
-    """Read ``mcp_servers`` from the Hermes config file.
+    """Read ``mcp_servers`` from the Logos config file.
 
     Returns a dict of ``{server_name: server_config}`` or empty dict.
     Server config can contain either ``command``/``args``/``env`` for stdio
@@ -2470,7 +2470,7 @@ def _normalize_mcp_input_schema(schema: dict | None) -> dict:
 def sanitize_mcp_name_component(value: str) -> str:
     """Return an MCP name component safe for tool and prefix generation.
 
-    Preserves Hermes's historical behavior of converting hyphens to
+    Preserves Logos's historical behavior of converting hyphens to
     underscores, and also replaces any other character outside
     ``[A-Za-z0-9_]`` with ``_`` so generated tool names are compatible with
     provider validation rules.
@@ -2479,7 +2479,7 @@ def sanitize_mcp_name_component(value: str) -> str:
 
 
 def _convert_mcp_schema(server_name: str, mcp_tool) -> dict:
-    """Convert an MCP tool listing to the Hermes registry schema format.
+    """Convert an MCP tool listing to the Logos registry schema format.
 
     Args:
         server_name: The logical server name for prefixing.
@@ -2956,9 +2956,9 @@ def get_mcp_status() -> List[dict]:
 def probe_mcp_server_tools() -> Dict[str, List[tuple]]:
     """Temporarily connect to configured MCP servers and list their tools.
 
-    Designed for ``hermes tools`` interactive configuration — connects to each
+    Designed for ``logos tools`` interactive configuration — connects to each
     enabled server, grabs tool names and descriptions, then disconnects.
-    Does NOT register tools in the Hermes registry.
+    Does NOT register tools in the Logos registry.
 
     Returns:
         Dict mapping server name to list of (tool_name, description) tuples.

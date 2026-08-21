@@ -16,7 +16,7 @@ Features:
 
 Cloud sandbox note:
 - Persistent filesystems preserve working state across sandbox recreation
-- Persistent filesystems do NOT guarantee the same live sandbox or long-running processes survive cleanup, idle reaping, or Hermes exit
+- Persistent filesystems do NOT guarantee the same live sandbox or long-running processes survive cleanup, idle reaping, or Logos exit
 
 Usage:
     from terminal_tool import terminal_tool
@@ -53,7 +53,7 @@ logger = logging.getLogger(__name__)
 # long-running subprocesses immediately instead of blocking until timeout.
 # ---------------------------------------------------------------------------
 from tools.interrupt import is_interrupted, _interrupt_event  # noqa: F401 — re-exported
-# display_hermes_home imported lazily at call site (stale-module safety during hermes update)
+# display_hermes_home imported lazily at call site (stale-module safety during logos update)
 
 
 
@@ -783,7 +783,7 @@ TERMINAL_TOOL_DESCRIPTION = """Execute shell commands on a Linux environment. Fi
 
 Do NOT use cat/head/tail to read files (use read_file), grep/rg/find to search or ls to list (use search_files), sed/awk to edit (use patch), or echo/heredoc to create files (use write_file). Reserve terminal for: builds, installs, git, processes, scripts, network, package managers, and anything that needs a shell.
 
-Foreground (default): returns instantly when done, even with a high timeout — set timeout=300 for long builds and you still get the result in seconds if it's fast. Background: background=true returns a session_id; use it for (1) long-lived processes (servers, watchers) or (2) long tasks with notify_on_complete=true (auto-notified on exit while you keep working). Never wrap backgrounded work in nohup/disown/setsid/trailing '&' in foreground mode — Hermes must own the lifecycle. Verify server readiness with a health check, not sleep loops; use process(action="poll") / process(action="wait").
+Foreground (default): returns instantly when done, even with a high timeout — set timeout=300 for long builds and you still get the result in seconds if it's fast. Background: background=true returns a session_id; use it for (1) long-lived processes (servers, watchers) or (2) long tasks with notify_on_complete=true (auto-notified on exit while you keep working). Never wrap backgrounded work in nohup/disown/setsid/trailing '&' in foreground mode — Logos must own the lifecycle. Verify server readiness with a health check, not sleep loops; use process(action="poll") / process(action="wait").
 
 workdir: per-command cwd. pty=true for interactive CLIs (REPLs, Codex, Claude Code) — vim/nano hang without it. Pipe git output to cat if it might page."""
 
@@ -1341,7 +1341,7 @@ def _foreground_background_guidance(command: str) -> str | None:
     if _SHELL_LEVEL_BACKGROUND_RE.search(command):
         return (
             "Foreground command uses shell-level background wrappers (nohup/disown/setsid). "
-            "Use terminal(background=true) so Hermes can track the process, then run "
+            "Use terminal(background=true) so Logos can track the process, then run "
             "readiness checks and tests in separate commands."
         )
 

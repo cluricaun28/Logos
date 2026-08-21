@@ -819,7 +819,7 @@ class TestPreprocessImagesWithVision:
 
     @pytest.fixture
     def cli(self):
-        """Minimal HermesCLI with mocked internals."""
+        """Minimal LogosCLI with mocked internals."""
         with patch("cli.load_cli_config") as mock_cfg:
             mock_cfg.return_value = {
                 "model": {"default": "test/model", "base_url": "http://x", "provider": "auto"},
@@ -834,8 +834,8 @@ class TestPreprocessImagesWithVision:
             }
             with patch.dict("os.environ", {"OPENROUTER_API_KEY": "test-key"}):
                 with patch("cli.CLI_CONFIG", mock_cfg.return_value):
-                    from cli import HermesCLI
-                    cli_obj = HermesCLI.__new__(HermesCLI)
+                    from cli import LogosCLI
+                    cli_obj = LogosCLI.__new__(LogosCLI)
                     # Manually init just enough state
                     cli_obj._attached_images = []
                     cli_obj._image_counter = 0
@@ -932,8 +932,8 @@ class TestTryAttachClipboardImage:
 
     @pytest.fixture
     def cli(self):
-        from cli import HermesCLI
-        cli_obj = HermesCLI.__new__(HermesCLI)
+        from cli import LogosCLI
+        cli_obj = LogosCLI.__new__(LogosCLI)
         cli_obj._attached_images = []
         cli_obj._image_counter = 0
         return cli_obj
@@ -995,8 +995,8 @@ class TestAutoAttachClipboardImageOnPaste:
 class TestVoiceSubmission:
     @pytest.fixture
     def cli(self):
-        from cli import HermesCLI
-        cli_obj = HermesCLI.__new__(HermesCLI)
+        from cli import LogosCLI
+        cli_obj = LogosCLI.__new__(LogosCLI)
         cli_obj._attached_images = [Path("/tmp/stale.png")]
         cli_obj._pending_input = queue.Queue()
         cli_obj._voice_lock = MagicMock()

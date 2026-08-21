@@ -69,7 +69,7 @@ class TestBuildAnthropicClient:
             assert "api_key" not in kwargs
 
     def test_oauth_does_not_send_claude_code_spoof_headers(self):
-        """OAuth requests identify as Hermes — no claude-cli UA, no x-app: cli.
+        """OAuth requests identify as Logos — no claude-cli UA, no x-app: cli.
 
         Anthropic's OAuth-gated Messages API accepts requests from non-Claude-Code
         clients as long as auth is correct and the OAuth beta headers are present.

@@ -52,10 +52,10 @@ class TestSingleWordJunkFilter:
 
     def test_domain_nouns_preserved(self):
         result = extract_topics_from_messages(
-            _msgs("Working on the Hermes Gateway today. Telegram polling tested."),
+            _msgs("Working on the Logos Gateway today. Telegram polling tested."),
             STOPWORDS,
         )
-        assert "Hermes Gateway" in result
+        assert "Logos Gateway" in result
         assert "Telegram" in result
 
     def test_multiword_phrases_preserved(self):

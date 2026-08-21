@@ -154,7 +154,7 @@ class ToolRouterConfig:
 # ---------------------------------------------------------------------------
 
 class ToolRouter:
-    """Selective injection router for Hermes Agent tools.
+    """Selective injection router for Logos tools.
 
     Splits tools into essential (full schema) and deferred (index +
     promotion-on-first-call). Thread-safe, configurable, with failure

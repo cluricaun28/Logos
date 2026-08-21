@@ -978,6 +978,6 @@ class SemanticVectorContextEngine(ContextEngine):
 
 
 def register(collector, config=None):
-    """Register this engine with the Hermes plugin system."""
+    """Register this engine with the Logos plugin system."""
     engine = SemanticVectorContextEngine(**(config or {}))
     collector.register_context_engine(engine)

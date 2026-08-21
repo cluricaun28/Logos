@@ -18,12 +18,12 @@ Usage:
     db.add_message(
         session_id="20260421_023037",
         role="user",
-        content="Hello, how do I configure Hermes?",
+        content="Hello, how do I configure Logos?",
         metadata={"turn": 1}
     )
 
     # Search via FTS5 + SQL
-    results = db.hybrid_search("Hermes configuration", top_k=5)
+    results = db.hybrid_search("Logos configuration", top_k=5)
 
     # Track topic flow
     topics = db.get_topic_flow(session_id="20260421_023037")

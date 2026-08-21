@@ -53,7 +53,7 @@ class TestHandleFastCommand(unittest.TestCase):
             patch.object(cli_mod, "_cprint") as mock_cprint,
             patch.object(cli_mod, "save_config_value") as mock_save,
         ):
-            cli_mod.HermesCLI._handle_fast_command(stub, "/fast")
+            cli_mod.LogosCLI._handle_fast_command(stub, "/fast")
 
         # Bare /fast shows status, does not change config
         mock_save.assert_not_called()
@@ -68,7 +68,7 @@ class TestHandleFastCommand(unittest.TestCase):
             patch.object(cli_mod, "_cprint") as mock_cprint,
             patch.object(cli_mod, "save_config_value") as mock_save,
         ):
-            cli_mod.HermesCLI._handle_fast_command(stub, "/fast")
+            cli_mod.LogosCLI._handle_fast_command(stub, "/fast")
 
         mock_save.assert_not_called()
         printed = " ".join(str(c) for c in mock_cprint.call_args_list)
@@ -81,7 +81,7 @@ class TestHandleFastCommand(unittest.TestCase):
             patch.object(cli_mod, "_cprint"),
             patch.object(cli_mod, "save_config_value", return_value=True) as mock_save,
         ):
-            cli_mod.HermesCLI._handle_fast_command(stub, "/fast normal")
+            cli_mod.LogosCLI._handle_fast_command(stub, "/fast normal")
 
         mock_save.assert_called_once_with("agent.service_tier", "normal")
         self.assertIsNone(stub.service_tier)
@@ -102,7 +102,7 @@ class TestHandleFastCommand(unittest.TestCase):
             patch.object(cli_mod, "_cprint") as mock_cprint,
             patch.object(cli_mod, "save_config_value") as mock_save,
         ):
-            cli_mod.HermesCLI._handle_fast_command(stub, "/fast")
+            cli_mod.LogosCLI._handle_fast_command(stub, "/fast")
 
         mock_save.assert_not_called()
         self.assertTrue(mock_cprint.called)
@@ -190,15 +190,15 @@ class TestFastModeRouting(unittest.TestCase):
         cli_mod = _import_cli()
         stub = SimpleNamespace(provider="auto", requested_provider="auto", model="gpt-5.4", agent=None)
 
-        assert cli_mod.HermesCLI._fast_command_available(stub) is True
+        assert cli_mod.LogosCLI._fast_command_available(stub) is True
 
     def test_fast_command_exposed_for_non_codex_models(self):
         cli_mod = _import_cli()
         stub = SimpleNamespace(provider="openai", requested_provider="openai", model="gpt-4.1", agent=None)
-        assert cli_mod.HermesCLI._fast_command_available(stub) is True
+        assert cli_mod.LogosCLI._fast_command_available(stub) is True
 
         stub = SimpleNamespace(provider="openrouter", requested_provider="openrouter", model="o3", agent=None)
-        assert cli_mod.HermesCLI._fast_command_available(stub) is True
+        assert cli_mod.LogosCLI._fast_command_available(stub) is True
 
     def test_turn_route_injects_overrides_without_provider_switch(self):
         """Fast mode should add request_overrides but NOT change the provider/runtime."""
@@ -215,7 +215,7 @@ class TestFastModeRouting(unittest.TestCase):
             service_tier="priority",
         )
 
-        route = cli_mod.HermesCLI._resolve_turn_agent_config(stub, "hi")
+        route = cli_mod.LogosCLI._resolve_turn_agent_config(stub, "hi")
 
         # Provider should NOT have changed
         assert route["runtime"]["provider"] == "openrouter"
@@ -237,7 +237,7 @@ class TestFastModeRouting(unittest.TestCase):
             service_tier="priority",
         )
 
-        route = cli_mod.HermesCLI._resolve_turn_agent_config(stub, "hi")
+        route = cli_mod.LogosCLI._resolve_turn_agent_config(stub, "hi")
 
         assert route["runtime"]["provider"] == "openrouter"
         assert route.get("request_overrides") is None
@@ -318,7 +318,7 @@ class TestAnthropicFastMode(unittest.TestCase):
             provider="anthropic", requested_provider="anthropic",
             model="claude-opus-4-6", agent=None,
         )
-        assert cli_mod.HermesCLI._fast_command_available(stub) is True
+        assert cli_mod.LogosCLI._fast_command_available(stub) is True
 
     def test_fast_command_exposed_for_anthropic_sonnet(self):
         """Sonnet now supports Anthropic Fast Mode — the adapter gates on base_url."""
@@ -327,7 +327,7 @@ class TestAnthropicFastMode(unittest.TestCase):
             provider="anthropic", requested_provider="anthropic",
             model="claude-sonnet-4-6", agent=None,
         )
-        assert cli_mod.HermesCLI._fast_command_available(stub) is True
+        assert cli_mod.LogosCLI._fast_command_available(stub) is True
 
     def test_fast_command_hidden_for_non_claude_non_openai(self):
         """Non-Claude, non-OpenAI models should not expose /fast."""
@@ -336,7 +336,7 @@ class TestAnthropicFastMode(unittest.TestCase):
             provider="gemini", requested_provider="gemini",
             model="gemini-3-pro-preview", agent=None,
         )
-        assert cli_mod.HermesCLI._fast_command_available(stub) is False
+        assert cli_mod.LogosCLI._fast_command_available(stub) is False
 
     def test_turn_route_injects_speed_for_anthropic(self):
         """Anthropic models should get speed:'fast' override, not service_tier."""
@@ -353,7 +353,7 @@ class TestAnthropicFastMode(unittest.TestCase):
             service_tier="priority",
         )
 
-        route = cli_mod.HermesCLI._resolve_turn_agent_config(stub, "hi")
+        route = cli_mod.LogosCLI._resolve_turn_agent_config(stub, "hi")
 
         assert route["runtime"]["provider"] == "anthropic"
         assert route["request_overrides"] == {"speed": "fast"}

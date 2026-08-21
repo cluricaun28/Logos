@@ -1,6 +1,6 @@
-"""Anthropic Messages API adapter for Hermes Agent.
+"""Anthropic Messages API adapter for Logos.
 
-Translates between Hermes's internal OpenAI-style message format and
+Translates between Logos's internal OpenAI-style message format and
 Anthropic's Messages API. Follows the same pattern as the codex_responses
 adapter — all provider-specific logic is isolated here.
 
@@ -46,7 +46,7 @@ def _get_anthropic_sdk():
 logger = logging.getLogger(__name__)
 
 THINKING_BUDGET = {"xhigh": 32000, "high": 16000, "medium": 8000, "low": 4000}
-# Hermes effort → Anthropic adaptive-thinking effort (output_config.effort).
+# Logos effort → Anthropic adaptive-thinking effort (output_config.effort).
 # Anthropic exposes 5 levels on 4.7+: low, medium, high, xhigh, max.
 # Opus/Sonnet 4.6 only expose 4 levels: low, medium, high, max — no xhigh.
 # We preserve xhigh as xhigh on 4.7+ (the recommended default for coding/
@@ -471,7 +471,7 @@ def build_anthropic_client(api_key: str, base_url: str = None, timeout: float = 
         # OAuth access token / setup-token → Bearer auth + OAuth-only betas.
         # The OAuth-specific beta headers are still required by Anthropic's
         # OAuth-gated Messages API path; the Claude Code user-agent / x-app
-        # spoofing is deliberately NOT sent — Hermes identifies as itself.
+        # spoofing is deliberately NOT sent — Logos identifies as itself.
         #
         # ``context-1m-2025-08-07`` is stripped here: Anthropic rejects
         # OAuth requests that carry it with
@@ -803,7 +803,7 @@ def _resolve_claude_code_token_from_credentials(creds: Optional[Dict[str, Any]] 
 def _prefer_refreshable_claude_code_token(env_token: str, creds: Optional[Dict[str, Any]]) -> Optional[str]:
     """Prefer Claude Code creds when a persisted env OAuth token would shadow refresh.
 
-    Hermes historically persisted setup tokens into ANTHROPIC_TOKEN. That makes
+    Logos historically persisted setup tokens into ANTHROPIC_TOKEN. That makes
     later refresh impossible because the static env token wins before we ever
     inspect Claude Code's refreshable credential file. If we have a refreshable
     Claude Code credential record, prefer it over the static env OAuth token.
@@ -826,12 +826,12 @@ def resolve_anthropic_token() -> Optional[str]:
     """Resolve an Anthropic token from all available sources.
 
     Priority:
-      1. Hermes credential pool (``~/.hermes/auth.json`` →
-         ``credential_pool.anthropic``) — OAuth tokens minted by Hermes'
+      1. Logos credential pool (``~/.hermes/auth.json`` →
+         ``credential_pool.anthropic``) — OAuth tokens minted by Logos'
          own PKCE login flow. Entries are auto-refreshed when near
          expiry. Env-sourced pool entries (``source="env:..."``) are
          skipped here so the env-var priority logic below still runs.
-      2. ANTHROPIC_TOKEN env var (OAuth/setup token saved by Hermes)
+      2. ANTHROPIC_TOKEN env var (OAuth/setup token saved by Logos)
       3. CLAUDE_CODE_OAUTH_TOKEN env var
       4. Claude Code credentials (~/.claude.json or ~/.claude/.credentials.json)
          — with automatic refresh if expired and a refresh token is available
@@ -839,8 +839,8 @@ def resolve_anthropic_token() -> Optional[str]:
 
     Returns the token string or None.
     """
-    # 1. Hermes credential pool — the live source of truth for tokens
-    #    minted via ``hermes login anthropic`` / the dashboard PKCE flow.
+    # 1. Logos credential pool — the live source of truth for tokens
+    #    minted via ``logos login anthropic`` / the dashboard PKCE flow.
     #    ``select()`` picks the best available entry and refreshes it if
     #    it's near expiry, so callers always get a fresh token.
     #
@@ -864,7 +864,7 @@ def resolve_anthropic_token() -> Optional[str]:
 
     creds = read_claude_code_credentials()
 
-    # 2. Hermes-managed OAuth/setup token env var
+    # 2. Logos-managed OAuth/setup token env var
     token = os.getenv("ANTHROPIC_TOKEN", "").strip()
     if token:
         preferred = _prefer_refreshable_claude_code_token(token, creds)
@@ -886,7 +886,7 @@ def resolve_anthropic_token() -> Optional[str]:
         return resolved_claude_token
 
     # 5. Regular API key, or a legacy OAuth token saved in ANTHROPIC_API_KEY.
-    # This remains as a compatibility fallback for pre-migration Hermes configs.
+    # This remains as a compatibility fallback for pre-migration Logos configs.
     api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
     if api_key:
         return api_key
@@ -934,7 +934,7 @@ def run_oauth_setup_token() -> Optional[str]:
     return None
 
 
-# ── Hermes-native PKCE OAuth flow ────────────────────────────────────────
+# ── Logos-native PKCE OAuth flow ────────────────────────────────────────
 # Mirrors the flow used by Claude Code, pi-ai, and OpenCode.
 # Stores credentials in ~/.hermes/.anthropic_oauth.json (our own file).
 
@@ -959,7 +959,7 @@ def _generate_pkce() -> tuple:
 
 
 def run_hermes_oauth_login_pure() -> Optional[Dict[str, Any]]:
-    """Run Hermes-native OAuth PKCE flow and return credential state."""
+    """Run Logos-native OAuth PKCE flow and return credential state."""
     import time
     import webbrowser
 
@@ -980,7 +980,7 @@ def run_hermes_oauth_login_pure() -> Optional[Dict[str, Any]]:
     auth_url = f"https://claude.ai/oauth/authorize?{urlencode(params)}"
 
     print()
-    print("Authorize Hermes with your Claude Pro/Max subscription.")
+    print("Authorize Logos with your Claude Pro/Max subscription.")
     print()
     print("╭─ Claude Pro/Max Authorization ────────────────────╮")
     print("│                                                   │")
@@ -1057,14 +1057,14 @@ def run_hermes_oauth_login_pure() -> Optional[Dict[str, Any]]:
 
 
 def read_hermes_oauth_credentials() -> Optional[Dict[str, Any]]:
-    """Read Hermes-managed OAuth credentials from ~/.hermes/.anthropic_oauth.json."""
+    """Read Logos-managed OAuth credentials from ~/.hermes/.anthropic_oauth.json."""
     if _HERMES_OAUTH_FILE.exists():
         try:
             data = json.loads(_HERMES_OAUTH_FILE.read_text(encoding="utf-8"))
             if data.get("accessToken"):
                 return data
         except (json.JSONDecodeError, OSError, IOError) as e:
-            logger.debug("Failed to read Hermes OAuth credentials: %s", e)
+            logger.debug("Failed to read Logos OAuth credentials: %s", e)
     return None
 
 
@@ -1653,7 +1653,7 @@ def build_anthropic_kwargs(
     When *is_oauth* is True, enables the OAuth-only beta headers required by
     Anthropic's subscription-gated Messages endpoint (fast-mode branch only;
     the default headers are set by build_anthropic_client). No system-prompt
-    or tool-name rewriting is performed — Hermes identifies as itself.
+    or tool-name rewriting is performed — Logos identifies as itself.
 
     When *preserve_dots* is True, model name dots are not converted to hyphens
     (for Alibaba/DashScope anthropic-compatible endpoints: qwen3.5-plus).
@@ -1687,8 +1687,8 @@ def build_anthropic_kwargs(
         effective_max_tokens = max(context_length - 1, 1)
 
     # OAuth requests go through Anthropic's subscription-gated Messages
-    # endpoint but otherwise send the real Hermes system prompt and real
-    # Hermes tool names — the only OAuth-specific wire differences are
+    # endpoint but otherwise send the real Logos system prompt and real
+    # Logos tool names — the only OAuth-specific wire differences are
     # Bearer auth and the _OAUTH_ONLY_BETAS header (applied in
     # build_anthropic_client and the fast-mode branch below).
 
@@ -1735,7 +1735,7 @@ def build_anthropic_kwargs(
     # extra_body in the ChatCompletionsTransport — see #13503.)
     #
     # On 4.7+ the `thinking.display` field defaults to "omitted", which
-    # silently hides reasoning text that Hermes surfaces in its CLI. We
+    # silently hides reasoning text that Logos surfaces in its CLI. We
     # request "summarized" so the reasoning blocks stay populated — matching
     # 4.6 behavior and preserving the activity-feed UX during long tool runs.
     _is_kimi_coding = _is_kimi_coding_endpoint(base_url)

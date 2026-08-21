@@ -162,7 +162,7 @@ def test_list_enumerates_dict_format_models_alongside_default(monkeypatch):
     """custom_providers entry with dict-format ``models:`` plus singular
     ``model:`` should surface the default and every dict key.
 
-    Regression: Hermes's own writer stores configured models as a dict
+    Regression: Logos's own writer stores configured models as a dict
     keyed by model id, but the /model picker previously only honored the
     singular ``model:`` field, so multi-model custom providers appeared
     to have only the active model.

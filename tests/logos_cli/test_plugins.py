@@ -1,4 +1,4 @@
-"""Tests for the Hermes plugin system (logos_cli.plugins)."""
+"""Tests for the Logos plugin system (logos_cli.plugins)."""
 
 import logging
 import os

@@ -2,7 +2,7 @@
 
 All handler functions are defined here as module-level functions that accept
 (tool_handler, args) and return a JSON string.  This keeps the module
-self-contained so the Hermes plugin loader (which only discovers flat .py
+self-contained so the Logos plugin loader (which only discovers flat .py
 files, not sub-packages) can import it without missing submodules.
 """
 
@@ -727,7 +727,7 @@ class ToolHandler:
     """Thin dispatcher holding shared state for handler functions.
 
     All handler functions live at module level and accept (self, args).
-    This keeps the module self-contained for the Hermes plugin loader.
+    This keeps the module self-contained for the Logos plugin loader.
     """
 
     def __init__(

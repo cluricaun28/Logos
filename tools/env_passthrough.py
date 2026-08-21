@@ -45,7 +45,7 @@ _config_passthrough: frozenset[str] | None = None
 
 
 def _is_hermes_provider_credential(name: str) -> bool:
-    """True if ``name`` is a Hermes-managed provider credential (API key,
+    """True if ``name`` is a Logos-managed provider credential (API key,
     token, or similar) per ``_HERMES_PROVIDER_ENV_BLOCKLIST``.
 
     Skill-declared ``required_environment_variables`` frontmatter must
@@ -71,10 +71,10 @@ def register_env_passthrough(var_names: Iterable[str]) -> None:
 
     Typically called when a skill declares ``required_environment_variables``.
 
-    Variables that are Hermes-managed provider credentials (from
+    Variables that are Logos-managed provider credentials (from
     ``_HERMES_PROVIDER_ENV_BLOCKLIST``) are rejected here to preserve
     the ``execute_code`` sandbox's credential-scrubbing guarantee per
-    GHSA-rhgp-j443-p4rf. A skill that needs to talk to a Hermes-managed
+    GHSA-rhgp-j443-p4rf. A skill that needs to talk to a Logos-managed
     provider should do so via the agent's main-process tools (web_search,
     web_extract, etc.) where the credential remains safely in the main
     process.
@@ -88,7 +88,7 @@ def register_env_passthrough(var_names: Iterable[str]) -> None:
             continue
         if _is_hermes_provider_credential(name):
             logger.warning(
-                "env passthrough: refusing to register Hermes provider "
+                "env passthrough: refusing to register Logos provider "
                 "credential %r (blocked by _HERMES_PROVIDER_ENV_BLOCKLIST). "
                 "Skills must not override the execute_code sandbox's "
                 "credential scrubbing; see GHSA-rhgp-j443-p4rf.",

@@ -1,4 +1,4 @@
-"""Shared ANSI color utilities for Hermes CLI modules."""
+"""Shared ANSI color utilities for Logos CLI modules."""
 from __future__ import annotations
 
 import os

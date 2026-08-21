@@ -2,11 +2,11 @@ from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from cli import HermesCLI
+from cli import LogosCLI
 
 
 def _make_cli(model: str = "anthropic/claude-sonnet-4-20250514"):
-    cli_obj = HermesCLI.__new__(HermesCLI)
+    cli_obj = LogosCLI.__new__(LogosCLI)
     cli_obj.model = model
     cli_obj.session_start = datetime.now() - timedelta(minutes=14, seconds=32)
     cli_obj.conversation_history = [{"role": "user", "content": "hi"}]
@@ -119,7 +119,7 @@ class TestCLIStatusBar:
 
         mock_app = MagicMock()
         mock_app.output.get_size.return_value = MagicMock(columns=14)
-        with patch.object(HermesCLI, "_get_tui_prompt_text", return_value="❯ "), \
+        with patch.object(LogosCLI, "_get_tui_prompt_text", return_value="❯ "), \
              patch("prompt_toolkit.application.get_app", return_value=mock_app):
             assert _input_height() == 2
 
@@ -161,7 +161,7 @@ class TestCLIStatusBar:
 
         mock_app = MagicMock()
         mock_app.output.get_size.return_value = MagicMock(columns=14)
-        with patch.object(HermesCLI, "_get_tui_prompt_text", return_value="❯ "), \
+        with patch.object(LogosCLI, "_get_tui_prompt_text", return_value="❯ "), \
              patch("prompt_toolkit.application.get_app", return_value=mock_app), \
              patch("shutil.get_terminal_size") as mock_shutil:
             assert _input_height() == 2

@@ -296,7 +296,7 @@ class LogosOrchestrator:
 
         # Determine subdirectory — default to topics/ for all distilled content.
         # Determine subdirectory (topics/ for general, system/ for internal configs)
-        # Default to topics/ — only use system/ for actual Hermes internals
+        # Default to topics/ — only use system/ for actual Logos internals
         draft_lower = draft_content.lower()
         if any(kw in draft_lower for kw in ["hermes agent", "perpetual context provider", "memory provider"]):
             subdir = self.rl_dir / "system"

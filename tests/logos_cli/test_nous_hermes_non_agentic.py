@@ -6,7 +6,7 @@ local Modelfiles such as ``hermes-brain:qwen3-14b-ctx16k`` — a tool-capable
 Qwen3 wrapper that happens to live under the "hermes" tag namespace.
 
 ``is_nous_hermes_non_agentic`` should only match the actual Nous Research
-Hermes-3 / Hermes-4 chat family.
+Logos-3 / Logos-4 chat family.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from logos_cli.model_switch import (
         "NousResearch/Hermes-3-Llama-3.1-70B",
         "NousResearch/Hermes-3-Llama-3.1-405B",
         "hermes-3",
-        "Hermes-3",
+        "Logos-3",
         "hermes-4",
         "hermes-4-405b",
         "hermes_4_70b",
@@ -60,7 +60,7 @@ def test_matches_real_nous_hermes_chat_models(model_name: str) -> None:
         "openai/gpt-4o",
         "google/gemini-2.5-flash",
         "deepseek-chat",
-        # Non-chat Hermes models we don't warn about
+        # Non-chat Logos models we don't warn about
         "hermes-llm-2",
         "hermes2-pro",
         "nous-hermes-2-mistral",

@@ -185,7 +185,7 @@ TOOLSETS = {
     },
     
     # ==========================================================================
-    # Full Hermes toolsets (CLI + messaging platforms)
+    # Full Logos toolsets (CLI + messaging platforms)
     #
     # All platforms share the same core tools (including send_message,
     # which is gated on gateway running via its check_fn).
@@ -248,11 +248,11 @@ TOOLSETS = {
 
     "hermes-cron": {
         # Mirrors hermes-cli so cron's "default" toolset is the same set of
-        # core tools users see interactively — then `hermes tools` filters
+        # core tools users see interactively — then `logos tools` filters
         # them down per the platform config. _DEFAULT_OFF_TOOLSETS (if any)
         # is excluded by _get_platform_tools() unless the user explicitly
         # enables it.
-        "description": "Default cron toolset - same core tools as hermes-cli; gated by `hermes tools`",
+        "description": "Default cron toolset - same core tools as hermes-cli; gated by `logos tools`",
         "tools": _HERMES_CORE_TOOLS,
         "includes": []
     },

@@ -310,7 +310,7 @@ class RollingWindowContextEngine(ContextEngine):
 # -- Plugin registration (required for discovery) --------------------------
 
 def register(collector, config=None):
-    """Register this engine with the Hermes plugin system.
+    """Register this engine with the Logos plugin system.
 
     C9-A: accept the config dict from the loader so the user's
     context.rolling_window section (window_size, max_tokens, thresholds)

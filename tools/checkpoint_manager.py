@@ -129,7 +129,7 @@ def _shadow_repo_path(working_dir: str) -> Path:
 def _git_env(shadow_repo: Path, working_dir: str) -> dict:
     """Build env dict that redirects git to the shadow repo.
 
-    The shadow repo is internal Hermes infrastructure — it must NOT inherit
+    The shadow repo is internal Logos infrastructure — it must NOT inherit
     the user's global or system git config.  User-level settings like
     ``commit.gpgsign = true``, signing hooks, or credential helpers would
     either break background snapshots or, worse, spawn interactive prompts
@@ -233,7 +233,7 @@ def _init_shadow_repo(shadow_repo: Path, working_dir: str) -> Optional[str]:
         return f"Shadow repo init failed: {err}"
 
     _run_git(["config", "user.email", "hermes@local"], shadow_repo, working_dir)
-    _run_git(["config", "user.name", "Hermes Checkpoint"], shadow_repo, working_dir)
+    _run_git(["config", "user.name", "Logos Checkpoint"], shadow_repo, working_dir)
     # Explicitly disable commit/tag signing in the shadow repo.  _git_env
     # already isolates from the user's global config, but writing these into
     # the shadow's own config is belt-and-suspenders — it guarantees the

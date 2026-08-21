@@ -1,4 +1,4 @@
-"""``hermes plugins`` CLI subcommand — install, update, remove, and list plugins.
+"""``logos plugins`` CLI subcommand — install, update, remove, and list plugins.
 
 Plugins are installed from Git repositories into ``~/.hermes/plugins/``.
 Supports full URLs and ``owner/repo`` shorthand (resolves to GitHub).
@@ -372,7 +372,7 @@ def cmd_install(
                 console.print(
                     f"[red]Error:[/red] Plugin '{plugin_name}' already exists at {target}.\n"
                     f"Use [bold]--force[/bold] to remove and reinstall, or "
-                    f"[bold]hermes plugins update {plugin_name}[/bold] to pull latest."
+                    f"[bold]logos plugins update {plugin_name}[/bold] to pull latest."
                 )
                 sys.exit(1)
             console.print(f"[dim]  Removing existing {plugin_name}...[/dim]")
@@ -385,7 +385,7 @@ def cmd_install(
     if not (target / "plugin.yaml").exists() and not (target / "__init__.py").exists():
         console.print(
             f"[yellow]Warning:[/yellow] {plugin_name} doesn't contain plugin.yaml "
-            f"or __init__.py. It may not be a valid Hermes plugin."
+            f"or __init__.py. It may not be a valid Logos plugin."
         )
 
     # Copy .example files to their real names (e.g. config.yaml.example → config.yaml)
@@ -430,11 +430,11 @@ def cmd_install(
     else:
         console.print(
             f"[dim]Plugin installed but not enabled. "
-            f"Run `hermes plugins enable {installed_name}` to activate.[/dim]"
+            f"Run `logos plugins enable {installed_name}` to activate.[/dim]"
         )
 
     console.print("[dim]Restart the gateway for the plugin to take effect:[/dim]")
-    console.print("[dim]  hermes gateway restart[/dim]")
+    console.print("[dim]  logos gateway restart[/dim]")
     console.print()
 
 
@@ -703,7 +703,7 @@ def cmd_list() -> None:
     entries = _discover_all_plugins()
     if not entries:
         console.print("[dim]No plugins installed.[/dim]")
-        console.print("[dim]Install with:[/dim] hermes plugins install owner/repo")
+        console.print("[dim]Install with:[/dim] logos plugins install owner/repo")
         return
 
     enabled = _get_enabled_set()
@@ -728,8 +728,8 @@ def cmd_list() -> None:
     console.print()
     console.print(table)
     console.print()
-    console.print("[dim]Interactive toggle:[/dim] hermes plugins")
-    console.print("[dim]Enable/disable:[/dim] hermes plugins enable/disable <name>")
+    console.print("[dim]Interactive toggle:[/dim] logos plugins")
+    console.print("[dim]Enable/disable:[/dim] logos plugins enable/disable <name>")
     console.print("[dim]Plugins are opt-in by default — only 'enabled' plugins load.[/dim]")
 
 
@@ -915,7 +915,7 @@ def cmd_toggle() -> None:
 
     if not has_plugins and not has_categories:
         console.print("[dim]No plugins installed and no provider categories available.[/dim]")
-        console.print("[dim]Install with:[/dim] hermes plugins install owner/repo")
+        console.print("[dim]Install with:[/dim] logos plugins install owner/repo")
         return
 
     # Non-TTY fallback
@@ -1243,7 +1243,7 @@ def _run_composite_fallback(plugin_names, plugin_labels, plugin_selected,
 
 
 def plugins_command(args) -> None:
-    """Dispatch hermes plugins subcommands."""
+    """Dispatch logos plugins subcommands."""
     action = getattr(args, "plugins_action", None)
 
     if action == "install":

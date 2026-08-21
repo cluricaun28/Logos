@@ -1277,7 +1277,7 @@ def _find_agent_browser() -> str:
     """
     Find the agent-browser CLI executable.
     
-    Checks in order: current PATH, Homebrew/common bin dirs, Hermes-managed
+    Checks in order: current PATH, Homebrew/common bin dirs, Logos-managed
     node, local node_modules/.bin/, npx fallback.
     
     Returns:
@@ -1308,7 +1308,7 @@ def _find_agent_browser() -> str:
         _agent_browser_resolved = True
         return which_result
 
-    # Build an extended search PATH including Hermes-managed Node, macOS
+    # Build an extended search PATH including Logos-managed Node, macOS
     # versioned Homebrew installs, and fallback system dirs like Termux.
     extended_path = _merge_browser_path("")
     if extended_path:
