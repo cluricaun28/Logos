@@ -191,13 +191,14 @@ def set_approval_callback(cb):
 
 
 def _get_sudo_password_cache_scope() -> str:
+    from logos_constants import logos_env
     """Return the cache scope for interactive sudo passwords."""
     try:
         from gateway.session_context import get_session_env
 
-        session_key = get_session_env("HERMES_SESSION_KEY", "")
+        session_key = get_session_env("LOGOS_SESSION_KEY", "")
     except (ImportError, ModuleNotFoundError):
-        session_key = os.getenv("HERMES_SESSION_KEY", "")
+        session_key = logos_env("SESSION_KEY", "")
     if session_key:
         return f"session:{session_key}"
 
@@ -288,7 +289,8 @@ def _handle_sudo_failure(output: str, env_type: str) -> str:
     
     Returns enhanced output if sudo failed in messaging context, else original.
     """
-    is_gateway = os.getenv("HERMES_GATEWAY_SESSION")
+    from logos_constants import logos_env
+    is_gateway = logos_env("GATEWAY_SESSION")
     
     if not is_gateway:
         return output
@@ -302,7 +304,7 @@ def _handle_sudo_failure(output: str, env_type: str) -> str:
     
     for failure in sudo_failures:
         if failure in output:
-            from logos_constants import display_logos_home as _dhh
+            from logos_constants import display_logos_home as _dhh, logos_env, logos_env_set, logos_env_delete
             return output + f"\n\n💡 Tip: To enable sudo over messaging, add SUDO_PASSWORD to {_dhh()}/.env on the agent machine."
     
     return output
@@ -322,6 +324,7 @@ def _prompt_for_sudo_password(timeout_seconds: int = 45) -> str:
     so the prompt integrates with prompt_toolkit's UI.  Otherwise reads
     directly from /dev/tty with echo disabled.
     """
+    from logos_constants import logos_env_delete, logos_env_set
     import sys
     
     # Use the registered callback when available (prompt_toolkit-compatible)
@@ -383,7 +386,7 @@ def _prompt_for_sudo_password(timeout_seconds: int = 45) -> str:
             result["done"] = True
     
     try:
-        os.environ["HERMES_SPINNER_PAUSE"] = "1"
+        os.environ["LOGOS_SPINNER_PAUSE"] = "1"
         time.sleep(0.2)
         
         print()
@@ -429,8 +432,8 @@ def _prompt_for_sudo_password(timeout_seconds: int = 45) -> str:
         sys.stdout.flush()
         return ""
     finally:
-        if "HERMES_SPINNER_PAUSE" in os.environ:
-            del os.environ["HERMES_SPINNER_PAUSE"]
+        if logos_env_set("SPINNER_PAUSE"):
+            logos_env_delete("SPINNER_PAUSE")
 
 def _safe_command_preview(command: Any, limit: int = 200) -> str:
     """Return a log-safe preview for possibly-invalid command values."""
@@ -747,6 +750,7 @@ def _transform_sudo_command(command: str | None) -> tuple[str | None, str | None
     If SUDO_PASSWORD is not set and NOT interactive:
       Command runs as-is (fails gracefully with "sudo: a password is required").
     """
+    from logos_constants import logos_env
     if command is None:
         return None, None
     transformed, has_real_sudo = _rewrite_real_sudo_invocations(command)
@@ -760,7 +764,7 @@ def _transform_sudo_command(command: str | None) -> tuple[str | None, str | None
         else _get_cached_sudo_password()
     )
 
-    if not has_configured_password and not sudo_password and os.getenv("HERMES_INTERACTIVE"):
+    if not has_configured_password and not sudo_password and logos_env("INTERACTIVE"):
         sudo_password = _prompt_for_sudo_password(timeout_seconds=45)
         if sudo_password:
             _set_cached_sudo_password(sudo_password)

@@ -283,6 +283,7 @@ def get_auth_url():
 
 
 def exchange_auth_code(code: str):
+    from logos_constants import display_logos_home
     """Exchange the authorization code for a token and save it."""
     if not CLIENT_SECRET_PATH.exists():
         print("ERROR: No client secret stored. Run --client-secret first.")

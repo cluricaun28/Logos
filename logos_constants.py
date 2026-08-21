@@ -105,9 +105,10 @@ def get_optional_skills_dir(default: Path | None = None) -> Path:
     """Return the optional-skills directory, honoring package-manager wrappers.
 
     Packaged installs may ship ``optional-skills`` outside the Python package
-    tree and expose it via ``HERMES_OPTIONAL_SKILLS``.
+    tree and expose it via ``LOGOS_OPTIONAL_SKILLS`` (legacy
+    ``HERMES_OPTIONAL_SKILLS`` still honored).
     """
-    override = os.getenv("HERMES_OPTIONAL_SKILLS", "").strip()
+    override = logos_env("OPTIONAL_SKILLS", "").strip()
     if override:
         return Path(override)
     if default is not None:
@@ -162,6 +163,50 @@ def display_logos_home() -> str:
 
 # Legacy alias (pre-rebrand name).
 display_hermes_home = display_logos_home
+
+
+# ─── Legacy env-var compatibility shims ──────────────────────────────────────
+# The Hermes→Logos rebrand renamed every ``HERMES_*`` environment variable to
+# ``LOGOS_*``.  Fleet ``.env`` files still carry the old names until the deploy
+# wave, so every env-var read in the codebase goes through these shims:
+# ``LOGOS_*`` wins when set, otherwise the legacy ``HERMES_*`` value is honored.
+# This is the single documented legacy-compatibility point for env vars.
+
+
+def logos_env(name: str, default: str | None = None) -> str | None:
+    """Read ``LOGOS_<name>``, falling back to legacy ``HERMES_<name>``.
+
+    If both are set, ``LOGOS_<name>`` wins.  Returns *default* when neither is
+    set.  Drop-in replacement for the pre-rebrand ``os.getenv("HERMES_<name>")``
+    reads — behavior is a strict superset (the legacy value is still honored).
+    """
+    val = os.environ.get("LOGOS_" + name)
+    if val is None:
+        val = os.environ.get("HERMES_" + name)
+    if val is None:
+        return default
+    return val
+
+
+def logos_env_set(name: str) -> bool:
+    """True when either ``LOGOS_<name>`` or legacy ``HERMES_<name>`` is set."""
+    return ("LOGOS_" + name) in os.environ or ("HERMES_" + name) in os.environ
+
+
+def logos_env_raw(name: str) -> str:
+    """``LOGOS_<name>``-first read that preserves ``KeyError`` when unset.
+
+    Drop-in for pre-rebrand ``os.environ["HERMES_<name>"]`` reads.
+    """
+    if ("LOGOS_" + name) in os.environ:
+        return os.environ["LOGOS_" + name]
+    return os.environ["HERMES_" + name]  # raises KeyError if absent
+
+
+def logos_env_delete(name: str) -> None:
+    """Clear both ``LOGOS_<name>`` and legacy ``HERMES_<name>`` if present."""
+    os.environ.pop("LOGOS_" + name, None)
+    os.environ.pop("HERMES_" + name, None)
 
 
 def get_subprocess_home() -> str | None:

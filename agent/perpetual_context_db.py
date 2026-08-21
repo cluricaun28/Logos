@@ -55,6 +55,7 @@ torch = None
 # call site (see EmbeddingEngine.embed below). This module-level disable is
 # belt-and-suspenders and matches rl_index.py / semantic_vector/__init__.py.
 import tqdm as _tqdm
+from logos_constants import logos_env
 _tqdm.disable = True
 
 logger = logging.getLogger(__name__)
@@ -145,7 +146,7 @@ class EmbeddingEngine:
         ``mem_get_info`` itself can raise on a fully-occupied context;
         those devices are ranked as packed (free=0) and still tried.
         """
-        forced = os.environ.get("HERMES_EMBED_DEVICE", "").strip()
+        forced = logos_env("EMBED_DEVICE", "").strip()
         if forced:
             return [forced]
         ordered: list[tuple[int, int]] = []
@@ -317,7 +318,7 @@ class PerpetualContextDB(
             db_path: Path to the SQLite database file. Defaults to
                 ~/.hermes/perpetual_context.db if not specified.
         """
-        self._db_path = db_path or os.path.join(os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes"), "perpetual_context.db")
+        self._db_path = db_path or os.path.join(logos_env("HOME") or os.path.expanduser("~/.hermes"), "perpetual_context.db")
         self._conn: sqlite3.Connection | None = None
         self._lock = threading.RLock()  # Changed to RLock for reentrant calls
         self._initialized = False

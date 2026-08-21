@@ -17,6 +17,7 @@ from typing import Optional
 
 from tools.environments.base import BaseEnvironment, _popen_bash
 from tools.environments.local import _HERMES_PROVIDER_ENV_BLOCKLIST
+from logos_constants import logos_env
 
 logger = logging.getLogger(__name__)
 
@@ -115,7 +116,7 @@ def find_docker() -> Optional[str]:
         return _docker_executable
 
     # 1. Explicit override via env var (e.g. for Podman on immutable distros)
-    override = os.getenv("HERMES_DOCKER_BINARY")
+    override = logos_env("DOCKER_BINARY")
     if override and os.path.isfile(override) and os.access(override, os.X_OK):
         _docker_executable = override
         logger.info("Using HERMES_DOCKER_BINARY override: %s", override)

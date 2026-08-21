@@ -31,6 +31,7 @@ import socket
 from urllib.parse import urlparse
 
 from utils import is_truthy_value
+from logos_constants import logos_env
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +97,7 @@ def _global_allow_private_urls() -> bool:
     _cached_allow_private = False  # safe default
 
     # 1. Env var override (highest priority)
-    env_val = os.getenv("HERMES_ALLOW_PRIVATE_URLS", "").strip().lower()
+    env_val = logos_env("ALLOW_PRIVATE_URLS", "").strip().lower()
     if env_val in ("true", "1", "yes"):
         _cached_allow_private = True
         return _cached_allow_private

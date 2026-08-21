@@ -15,6 +15,7 @@ import os
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+from logos_constants import logos_env
 
 # Minimum word length for reference library search tokens
 _MIN_SEARCH_WORD_LEN = 2
@@ -446,7 +447,7 @@ def _hybrid_rl_search(query: str, top_k: int) -> list[dict[str, Any]] | None:
         from . import rl_search  # noqa: PLC0415
         from agent.perpetual_context_db import EmbeddingEngine  # noqa: PLC0415
 
-        db_path = os.path.join(os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes"), "rl_index.db")
+        db_path = os.path.join(logos_env("HOME") or os.path.expanduser("~/.hermes"), "rl_index.db")
         if not os.path.exists(db_path):
             return None
         if _RL_INDEX_CONN is None:

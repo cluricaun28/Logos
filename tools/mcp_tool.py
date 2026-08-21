@@ -122,7 +122,7 @@ def _get_mcp_stderr_log() -> Any:
         if _mcp_stderr_log_fh is not None:
             return _mcp_stderr_log_fh
         try:
-            from logos_constants import get_logos_home
+            from logos_constants import get_logos_home, logos_env
             log_dir = get_logos_home() / "logs"
             log_dir.mkdir(parents=True, exist_ok=True)
             log_path = log_dir / "mcp-stderr.log"
@@ -374,6 +374,7 @@ def _resolve_stdio_command(command: str, env: dict) -> tuple[str, dict]:
     This primarily exists to make bare ``npx``/``npm``/``node`` commands work
     reliably even when MCP subprocesses run under a filtered PATH.
     """
+    from logos_constants import logos_env
     resolved_command = os.path.expanduser(str(command).strip())
     resolved_env = dict(env or {})
 
@@ -384,9 +385,7 @@ def _resolve_stdio_command(command: str, env: dict) -> tuple[str, dict]:
             resolved_command = which_hit
         elif resolved_command in {"npx", "npm", "node"}:
             hermes_home = os.path.expanduser(
-                os.getenv(
-                    "HERMES_HOME", os.path.join(os.path.expanduser("~"), ".hermes")
-                )
+                logos_env("HOME", os.path.join(os.path.expanduser("~"), ".hermes"))
             )
             candidates = [
                 os.path.join(hermes_home, "node", "bin", resolved_command),

@@ -26,7 +26,7 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
-from logos_constants import get_logos_home
+from logos_constants import get_logos_home, logos_env
 from typing import Dict, List, Optional, Set
 
 logger = logging.getLogger(__name__)
@@ -61,7 +61,7 @@ DEFAULT_EXCLUDES = [
 ]
 
 # Git subprocess timeout (seconds).
-_GIT_TIMEOUT: int = max(10, min(60, int(os.getenv("HERMES_CHECKPOINT_TIMEOUT", "30"))))
+_GIT_TIMEOUT: int = max(10, min(60, int(logos_env("CHECKPOINT_TIMEOUT", "30"))))
 
 # Max files to snapshot — skip huge directories to avoid slowdowns.
 _MAX_FILES = 50_000

@@ -1851,6 +1851,7 @@ def tools_command(args=None, first_install: bool = False, config: dict = None):
             wizard, the wizard passes its own dict so that platform_toolsets
             are written into it and survive the wizard's final save_config().
     """
+    from logos_constants import display_logos_home
     if config is None:
         config = load_config()
     enabled_platforms = _get_enabled_platforms()

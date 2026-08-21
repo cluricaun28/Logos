@@ -58,6 +58,7 @@ _HF_DOWNLOAD_ROOT.mkdir(parents=True, exist_ok=True)
 # ---------------------------------------------------------------------------
 
 import importlib.util as _ilu
+from logos_constants import logos_env
 
 
 def _safe_find_spec(module_name: str) -> bool:
@@ -707,7 +708,7 @@ def _transcribe_xai(file_path: str, model_name: str) -> Dict[str, Any]:
     ).strip().rstrip("/")
     language = str(
         xai_config.get("language")
-        or os.getenv("HERMES_LOCAL_STT_LANGUAGE")
+        or logos_env("LOCAL_STT_LANGUAGE")
         or DEFAULT_LOCAL_STT_LANGUAGE
     ).strip()
     # .get("format", True) already defaults to True when the key is absent;

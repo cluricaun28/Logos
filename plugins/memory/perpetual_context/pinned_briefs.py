@@ -41,6 +41,7 @@ import re
 import time
 from datetime import datetime
 from pathlib import Path
+from logos_constants import logos_env
 
 logger = logging.getLogger(__name__)
 
@@ -190,7 +191,7 @@ def get_pinned_block(pinned_dir: Path | None = None) -> str:
 
 
 def _default_pinned_dir() -> Path:
-    hermes_home = os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes")
+    hermes_home = logos_env("HOME") or os.path.expanduser("~/.hermes")
     return Path(hermes_home) / "state" / "pinned"
 
 

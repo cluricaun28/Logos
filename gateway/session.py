@@ -216,6 +216,7 @@ def build_session_context_prompt(
     Routing still uses the original values (they stay in SessionSource).
     """
     # Only apply redaction on platforms where IDs aren't needed for mentions
+    from logos_constants import display_logos_home
     redact_pii = redact_pii and context.source.platform in _PII_SAFE_PLATFORMS
     lines = [
         "## Current Session Context",

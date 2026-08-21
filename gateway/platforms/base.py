@@ -420,7 +420,7 @@ sys.path.insert(0, str(_Path(__file__).resolve().parents[2]))
 
 from gateway.config import Platform, PlatformConfig
 from gateway.session import SessionSource, build_session_key
-from logos_constants import get_logos_dir
+from logos_constants import get_logos_dir, logos_env
 
 
 GATEWAY_SECRET_CAPTURE_UNSUPPORTED_MESSAGE = (
@@ -2427,11 +2427,11 @@ class BasePlatformAdapter(ABC):
           HERMES_HUMAN_DELAY_MIN_MS: minimum delay in ms (default 800, custom mode)
           HERMES_HUMAN_DELAY_MAX_MS: maximum delay in ms (default 2500, custom mode)
         """
-        mode = os.getenv("HERMES_HUMAN_DELAY_MODE", "off").lower()
+        mode = logos_env("HUMAN_DELAY_MODE", "off").lower()
         if mode == "off":
             return 0.0
-        min_ms = int(os.getenv("HERMES_HUMAN_DELAY_MIN_MS", "800"))
-        max_ms = int(os.getenv("HERMES_HUMAN_DELAY_MAX_MS", "2500"))
+        min_ms = int(logos_env("HUMAN_DELAY_MIN_MS", "800"))
+        max_ms = int(logos_env("HUMAN_DELAY_MAX_MS", "2500"))
         if mode == "natural":
             min_ms, max_ms = 800, 2500
         return random.uniform(min_ms / 1000.0, max_ms / 1000.0)

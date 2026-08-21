@@ -19,6 +19,7 @@ from _logos_home import get_logos_home
 
 
 def get_token_path() -> Path:
+    from logos_constants import get_logos_home
     return get_logos_home() / "google_token.json"
 
 

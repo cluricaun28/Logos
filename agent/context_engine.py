@@ -31,6 +31,7 @@ from typing import Any, Dict, List, Set, Optional
 # NOTE: torch, dataclasses, and sentence_transformers imports removed
 # with SemanticVectorEngine. See plugins/context_engine/rolling_window/
 import logging
+from logos_constants import logos_env
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +54,7 @@ def context_engine_log(event: dict) -> None:
 
         event = dict(event)
         event.setdefault("ts", time.time())
-        home = os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes")
+        home = logos_env("HOME") or os.path.expanduser("~/.hermes")
         log_dir = Path(home) / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
         with open(log_dir / "context-engine.jsonl", "a", encoding="utf-8") as f:

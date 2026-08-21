@@ -98,11 +98,12 @@ def _get_token_dir() -> Path:
     Uses HERMES_HOME so each profile gets its own OAuth tokens.
     Layout: ``HERMES_HOME/mcp-tokens/``
     """
+    from logos_constants import logos_env
     try:
         from logos_constants import get_logos_home
         base = Path(get_logos_home())
     except ImportError:
-        base = Path(os.environ.get("HERMES_HOME", str(Path.home() / ".hermes")))
+        base = Path(logos_env("HOME", str(Path.home() / ".hermes")))
     return base / "mcp-tokens"
 
 

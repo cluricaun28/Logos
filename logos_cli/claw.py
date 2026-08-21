@@ -303,6 +303,7 @@ def claw_command(args):
 
 def _cmd_migrate(args):
     """Run the OpenClaw → Logos migration."""
+    from logos_constants import get_logos_home
     # Check current and legacy OpenClaw directories
     explicit_source = getattr(args, "source", None)
     if explicit_source:

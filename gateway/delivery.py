@@ -121,6 +121,7 @@ class DeliveryRouter:
             config: Gateway configuration
             adapters: Dict mapping platforms to their adapter instances
         """
+        from logos_constants import get_logos_home
         self.config = config
         self.adapters = adapters or {}
         self.output_dir = get_logos_home() / "cron" / "output"
@@ -214,6 +215,7 @@ class DeliveryRouter:
         }
     
     def _save_full_output(self, content: str, job_id: str) -> Path:
+        from logos_constants import get_logos_home
         """Save full cron output to disk and return the file path."""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         out_dir = get_logos_home() / "cron" / "output"

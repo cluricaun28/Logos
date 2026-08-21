@@ -32,15 +32,17 @@ _TOOL_CALL_JSON_RE = re.compile(r"\{\s*\"id\"\s*:\s*\"[^\"]+\"\s*,\s*\"type\"\s*
 
 
 def _resolve_command() -> str:
+    from logos_constants import logos_env
     return (
-        os.getenv("HERMES_COPILOT_ACP_COMMAND", "").strip()
+        logos_env("COPILOT_ACP_COMMAND", "").strip()
         or os.getenv("COPILOT_CLI_PATH", "").strip()
         or "copilot"
     )
 
 
 def _resolve_args() -> list[str]:
-    raw = os.getenv("HERMES_COPILOT_ACP_ARGS", "").strip()
+    from logos_constants import logos_env
+    raw = logos_env("COPILOT_ACP_ARGS", "").strip()
     if not raw:
         return ["--acp", "--stdio"]
     return shlex.split(raw)
@@ -50,7 +52,7 @@ def _resolve_home_dir() -> str:
     """Return a stable HOME for child ACP processes."""
 
     try:
-        from logos_constants import get_subprocess_home
+        from logos_constants import get_subprocess_home, logos_env
 
         profile_home = get_subprocess_home()
         if profile_home:

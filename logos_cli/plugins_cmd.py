@@ -168,6 +168,7 @@ def _prompt_plugin_env_vars(manifest: dict, console) -> None:
 
     Already-set variables are skipped.  Values are saved to the user's ``.env``.
     """
+    from logos_constants import display_logos_home
     requires_env = manifest.get("requires_env") or []
     if not requires_env:
         return

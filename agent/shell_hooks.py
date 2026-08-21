@@ -75,7 +75,7 @@ try:
 except ImportError:  # pragma: no cover
     fcntl = None  # type: ignore[assignment]
 
-from logos_constants import get_logos_home
+from logos_constants import get_logos_home, logos_env
 from utils import atomic_replace
 
 logger = logging.getLogger(__name__)
@@ -751,7 +751,7 @@ def _resolve_effective_accept(
     """
     if accept_hooks_arg:
         return True
-    env = os.environ.get("HERMES_ACCEPT_HOOKS", "").strip().lower()
+    env = logos_env("ACCEPT_HOOKS", "").strip().lower()
     if env in ("1", "true", "yes", "on"):
         return True
     cfg_val = cfg.get("hooks_auto_accept", False)

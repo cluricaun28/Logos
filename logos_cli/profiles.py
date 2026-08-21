@@ -593,9 +593,12 @@ def _cleanup_gateway_service(name: str, profile_dir: Path) -> None:
     import platform as _platform
 
     # Derive service name for this profile
-    # Temporarily set HERMES_HOME so _profile_suffix resolves correctly
+    # Temporarily set LOGOS_HOME (and legacy HERMES_HOME) so _profile_suffix
+    # resolves correctly.
+    old_logos_home = os.environ.get("LOGOS_HOME")
     old_home = os.environ.get("HERMES_HOME")
     try:
+        os.environ["LOGOS_HOME"] = str(profile_dir)
         os.environ["HERMES_HOME"] = str(profile_dir)
         from logos_cli.gateway import get_service_name, get_launchd_plist_path
 
@@ -630,6 +633,10 @@ def _cleanup_gateway_service(name: str, profile_dir: Path) -> None:
     except Exception as e:
         print(f"⚠ Service cleanup: {e}")
     finally:
+        if old_logos_home is not None:
+            os.environ["LOGOS_HOME"] = old_logos_home
+        elif "LOGOS_HOME" in os.environ:
+            del os.environ["LOGOS_HOME"]
         if old_home is not None:
             os.environ["HERMES_HOME"] = old_home
         elif "HERMES_HOME" in os.environ:

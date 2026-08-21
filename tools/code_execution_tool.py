@@ -222,7 +222,7 @@ def _connect():
     global _sock
     if _sock is None:
         _sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        _sock.connect(os.environ["HERMES_RPC_SOCKET"])
+        _sock.connect(logos_env_raw("RPC_SOCKET"))
         _sock.settimeout(300)
     return _sock
 
@@ -257,7 +257,7 @@ _FILE_TRANSPORT_HEADER = '''\
 """Auto-generated Logos tools RPC stubs (file-based transport)."""
 import json, os, shlex, tempfile, threading, time
 
-_RPC_DIR = os.environ.get("HERMES_RPC_DIR") or os.path.join(tempfile.gettempdir(), "hermes_rpc")
+_RPC_DIR = logos_env("RPC_DIR") or os.path.join(tempfile.gettempdir(), "hermes_rpc")
 _seq = 0
 # `_seq += 1` is not atomic (read-modify-write), so concurrent _call()
 # invocations from multiple threads could allocate the same sequence number
@@ -721,6 +721,7 @@ def _execute_remote(
     the remote environment, and tool calls are proxied through a polling
     thread that communicates via request/response files.
     """
+    from logos_constants import logos_env
 
     _cfg = _load_config()
     timeout = _cfg.get("timeout", DEFAULT_TIMEOUT)
@@ -793,7 +794,7 @@ def _execute_remote(
             f"HERMES_RPC_DIR={shlex.quote(f'{sandbox_dir}/rpc')} "
             f"PYTHONDONTWRITEBYTECODE=1"
         )
-        tz = os.getenv("HERMES_TIMEZONE", "").strip()
+        tz = logos_env("TIMEZONE", "").strip()
         if tz:
             env_prefix += f" TZ={tz}"
 
@@ -1043,14 +1044,15 @@ def execute_code(
         # code reflects the correct wall-clock time.  Only TZ is set —
         # HERMES_TIMEZONE is an internal Logos setting and must not leak
         # into child processes.
-        _tz_name = os.getenv("HERMES_TIMEZONE", "").strip()
+        from logos_constants import logos_env
+        _tz_name = logos_env("TIMEZONE", "").strip()
         if _tz_name:
             child_env["TZ"] = _tz_name
         child_env.pop("HERMES_TIMEZONE", None)
 
         # Per-profile HOME isolation: redirect system tool configs into
         # {HERMES_HOME}/home/ when that directory exists.
-        from logos_constants import get_subprocess_home
+        from logos_constants import get_subprocess_home, logos_env, logos_env_raw
         _profile_home = get_subprocess_home()
         if _profile_home:
             child_env["HOME"] = _profile_home

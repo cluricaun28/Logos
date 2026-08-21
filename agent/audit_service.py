@@ -16,6 +16,7 @@ import logging
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+from logos_constants import logos_env
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,7 @@ class AuditService:
     """
 
     def __init__(self, db_path: Optional[Path] = None):
-        self.db_path = db_path or Path(os.environ.get("HERMES_HOME") or str(Path.home() / ".hermes")) / "perpetual_context.db"
+        self.db_path = db_path or Path(logos_env("HOME") or str(Path.home() / ".hermes")) / "perpetual_context.db"
 
     def audit_draft(
         self,

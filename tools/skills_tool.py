@@ -70,7 +70,7 @@ from __future__ import annotations
 import json
 import logging
 
-from logos_constants import get_logos_home, display_logos_home
+from logos_constants import get_logos_home, display_logos_home, logos_env
 import os
 import re
 from enum import Enum
@@ -363,10 +363,10 @@ def _capture_required_environment_variables(
 
 
 def _is_gateway_surface() -> bool:
-    if os.getenv("HERMES_GATEWAY_SESSION"):
+    if logos_env("GATEWAY_SESSION"):
         return True
     from gateway.session_context import get_session_env
-    return bool(get_session_env("HERMES_SESSION_PLATFORM"))
+    return bool(get_session_env("LOGOS_SESSION_PLATFORM"))
 
 
 def _get_terminal_backend_name() -> str:
@@ -517,7 +517,7 @@ def _get_session_platform() -> str:
     """
     try:
         from gateway.session_context import get_session_env
-        return get_session_env("HERMES_SESSION_PLATFORM") or ""
+        return get_session_env("LOGOS_SESSION_PLATFORM") or ""
     except (ImportError, ModuleNotFoundError):
         return ""
 
@@ -534,7 +534,7 @@ def _is_skill_disabled(name: str, platform: str = None) -> bool:
         from logos_cli.config import load_config
         config = load_config()
         skills_cfg = config.get("skills", {})
-        resolved_platform = platform or os.getenv("HERMES_PLATFORM") or _get_session_platform()
+        resolved_platform = platform or logos_env("PLATFORM") or _get_session_platform()
         if resolved_platform:
             platform_disabled = skills_cfg.get("platform_disabled", {}).get(resolved_platform)
             if platform_disabled is not None:

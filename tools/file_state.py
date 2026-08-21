@@ -39,6 +39,7 @@ from collections import defaultdict
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
+from logos_constants import logos_env
 
 
 # ── Public stamp type ────────────────────────────────────────────────
@@ -268,7 +269,7 @@ def get_registry() -> FileStateRegistry:
 
 def _disabled() -> bool:
     # Re-read each call so tests can toggle via monkeypatch.setenv.
-    return os.environ.get("HERMES_DISABLE_FILE_STATE_GUARD", "").strip() == "1"
+    return logos_env("DISABLE_FILE_STATE_GUARD", "").strip() == "1"
 
 
 def _fmt_ts(ts: float) -> str:

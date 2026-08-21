@@ -329,6 +329,7 @@ class GatewayConfig:
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "GatewayConfig":
+        from logos_constants import get_logos_home
         platforms = {}
         for platform_name, platform_data in data.get("platforms", {}).items():
             try:
@@ -418,6 +419,7 @@ def load_gateway_config() -> GatewayConfig:
     3. ~/.hermes/gateway.json (legacy — provides defaults under config.yaml)
     4. Built-in defaults
     """
+    from logos_constants import get_logos_home
     _home = get_logos_home()
     gw_data: dict = {}
 

@@ -96,7 +96,7 @@ OpenAI = _OpenAIProxy()  # module-level name, resolves lazily on call/isinstance
 
 from agent.credential_pool import load_pool
 from logos_cli.config import get_logos_home
-from logos_constants import OPENROUTER_BASE_URL
+from logos_constants import OPENROUTER_BASE_URL, logos_env
 from utils import base_url_host_matches, base_url_hostname, normalize_proxy_env_vars
 
 logger = logging.getLogger(__name__)
@@ -954,8 +954,8 @@ def _resolve_nous_runtime_api(*, force_refresh: bool = False) -> Optional[tuple[
         from logos_cli.auth import resolve_nous_runtime_credentials
 
         creds = resolve_nous_runtime_credentials(
-            min_key_ttl_seconds=max(60, int(os.getenv("HERMES_NOUS_MIN_KEY_TTL_SECONDS", "1800"))),
-            timeout_seconds=float(os.getenv("HERMES_NOUS_TIMEOUT_SECONDS", "15")),
+            min_key_ttl_seconds=max(60, int(logos_env("NOUS_MIN_KEY_TTL_SECONDS", "1800"))),
+            timeout_seconds=float(logos_env("NOUS_TIMEOUT_SECONDS", "15")),
             force_mint=force_refresh,
         )
     except (ImportError, ModuleNotFoundError, OSError) as exc:
@@ -1644,8 +1644,8 @@ def _refresh_provider_credentials(provider: str) -> bool:
                 from logos_cli.auth import resolve_nous_runtime_credentials
 
                 creds = resolve_nous_runtime_credentials(
-                    min_key_ttl_seconds=max(60, int(os.getenv("HERMES_NOUS_MIN_KEY_TTL_SECONDS", "1800"))),
-                    timeout_seconds=float(os.getenv("HERMES_NOUS_TIMEOUT_SECONDS", "15")),
+                    min_key_ttl_seconds=max(60, int(logos_env("NOUS_MIN_KEY_TTL_SECONDS", "1800"))),
+                    timeout_seconds=float(logos_env("NOUS_TIMEOUT_SECONDS", "15")),
                     force_mint=True,
                 )
                 if not str(creds.get("api_key", "") or "").strip():

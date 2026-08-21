@@ -72,7 +72,7 @@ _MANAGED_SYSTEM_NAMES = {
 
 def get_managed_system() -> Optional[str]:
     """Return the package manager owning this install, if any."""
-    raw = os.getenv("HERMES_MANAGED", "").strip()
+    raw = logos_env("MANAGED", "").strip()
     if raw:
         normalized = raw.lower()
         if normalized in _MANAGED_TRUE_VALUES:
@@ -113,7 +113,7 @@ def recommended_update_command() -> str:
 def format_managed_message(action: str = "modify this Logos installation") -> str:
     """Build a user-facing error for managed installs."""
     managed_system = get_managed_system() or "a package manager"
-    raw = os.getenv("HERMES_MANAGED", "").strip().lower()
+    raw = logos_env("MANAGED", "").strip().lower()
 
     if managed_system == "NixOS":
         env_hint = "true" if raw in _MANAGED_TRUE_VALUES else raw or "true"
@@ -158,10 +158,10 @@ def get_container_exec_info() -> Optional[dict]:
     container.enable = true. It tells the host CLI to exec into the container
     instead of running locally.
     """
-    if os.environ.get("HERMES_DEV") == "1":
+    from logos_constants import is_container, logos_env
+    if logos_env("DEV") == "1":
         return None
 
-    from logos_constants import is_container
     if is_container():
         return None
 
@@ -197,7 +197,7 @@ def get_container_exec_info() -> Optional[dict]:
 # =============================================================================
 
 # Re-export from logos_constants — canonical definition lives there.
-from logos_constants import get_logos_home  # noqa: F811,E402
+from logos_constants import get_logos_home, is_container, logos_env  # noqa: F811,E402
 from utils import atomic_replace
 
 def get_config_path() -> Path:
@@ -228,7 +228,7 @@ def _secure_dir(path):
     if is_managed():
         return
     try:
-        mode_str = os.environ.get("HERMES_HOME_MODE", "").strip()
+        mode_str = logos_env("HOME_MODE", "").strip()
         mode = int(mode_str, 8) if mode_str else 0o700
     except ValueError:
         mode = 0o700
@@ -247,7 +247,7 @@ def _is_container() -> bool:
     permissions.
     """
     # Explicit opt-out
-    if os.environ.get("HERMES_CONTAINER") or os.environ.get("HERMES_SKIP_CHMOD"):
+    if logos_env("CONTAINER") or logos_env("SKIP_CHMOD"):
         return True
     # Docker / Podman marker file
     if os.path.exists("/.dockerenv"):
@@ -2477,7 +2477,7 @@ def warn_deprecated_cwd_env_vars(config: Optional[Dict[str, Any]] = None) -> Non
             f"this is deprecated."
         )
     if lines:
-        hint_path = os.environ.get("HERMES_HOME", "~/.hermes")
+        hint_path = logos_env("HOME", "~/.hermes")
         lines.insert(0, "\033[33m⚠ Deprecated .env settings detected:\033[0m")
         lines.append(
             f"  \033[2mMove to config.yaml instead:  "
@@ -2540,7 +2540,7 @@ def migrate_config(interactive: bool = True, quiet: bool = False) -> Dict[str, A
     if current_ver < 5:
         config = load_config()
         if "timezone" not in config:
-            old_tz = os.getenv("HERMES_TIMEZONE", "")
+            old_tz = logos_env("TIMEZONE", "")
             if old_tz and old_tz.strip():
                 config["timezone"] = old_tz.strip()
                 results["config_added"].append(f"timezone={old_tz.strip()} (from HERMES_TIMEZONE)")

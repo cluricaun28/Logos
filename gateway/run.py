@@ -112,7 +112,8 @@ def _auto_continue_freshness_window() -> float:
     the freshness gate (restores the pre-fix "always fresh" behaviour for
     users who want to opt out).
     """
-    raw = os.environ.get("HERMES_AUTO_CONTINUE_FRESHNESS")
+    from logos_constants import logos_env
+    raw = logos_env("AUTO_CONTINUE_FRESHNESS")
     if raw is None or raw == "":
         return float(_AUTO_CONTINUE_FRESHNESS_SECS_DEFAULT)
     try:
@@ -222,7 +223,7 @@ _ensure_ssl_certs()
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Resolve Logos home directory (respects HERMES_HOME override)
-from logos_constants import get_logos_home
+from logos_constants import get_logos_home, logos_env_set
 from utils import atomic_yaml_write, base_url_host_matches, is_truthy_value
 _hermes_home = get_logos_home()
 
@@ -333,39 +334,39 @@ if _config_path.exists():
         _agent_cfg = _cfg.get("agent", {})
         if _agent_cfg and isinstance(_agent_cfg, dict):
             if "max_turns" in _agent_cfg:
-                os.environ["HERMES_MAX_ITERATIONS"] = str(_agent_cfg["max_turns"])
+                os.environ["LOGOS_MAX_ITERATIONS"] = str(_agent_cfg["max_turns"])
             # Bridge agent.gateway_timeout → HERMES_AGENT_TIMEOUT env var.
             # Env var from .env takes precedence (already in os.environ).
-            if "gateway_timeout" in _agent_cfg and "HERMES_AGENT_TIMEOUT" not in os.environ:
-                os.environ["HERMES_AGENT_TIMEOUT"] = str(_agent_cfg["gateway_timeout"])
-            if "gateway_timeout_warning" in _agent_cfg and "HERMES_AGENT_TIMEOUT_WARNING" not in os.environ:
-                os.environ["HERMES_AGENT_TIMEOUT_WARNING"] = str(_agent_cfg["gateway_timeout_warning"])
-            if "gateway_notify_interval" in _agent_cfg and "HERMES_AGENT_NOTIFY_INTERVAL" not in os.environ:
-                os.environ["HERMES_AGENT_NOTIFY_INTERVAL"] = str(_agent_cfg["gateway_notify_interval"])
-            if "restart_drain_timeout" in _agent_cfg and "HERMES_RESTART_DRAIN_TIMEOUT" not in os.environ:
-                os.environ["HERMES_RESTART_DRAIN_TIMEOUT"] = str(_agent_cfg["restart_drain_timeout"])
+            if "gateway_timeout" in _agent_cfg and not logos_env_set("AGENT_TIMEOUT"):
+                os.environ["LOGOS_AGENT_TIMEOUT"] = str(_agent_cfg["gateway_timeout"])
+            if "gateway_timeout_warning" in _agent_cfg and not logos_env_set("AGENT_TIMEOUT_WARNING"):
+                os.environ["LOGOS_AGENT_TIMEOUT_WARNING"] = str(_agent_cfg["gateway_timeout_warning"])
+            if "gateway_notify_interval" in _agent_cfg and not logos_env_set("AGENT_NOTIFY_INTERVAL"):
+                os.environ["LOGOS_AGENT_NOTIFY_INTERVAL"] = str(_agent_cfg["gateway_notify_interval"])
+            if "restart_drain_timeout" in _agent_cfg and not logos_env_set("RESTART_DRAIN_TIMEOUT"):
+                os.environ["LOGOS_RESTART_DRAIN_TIMEOUT"] = str(_agent_cfg["restart_drain_timeout"])
             if (
                 "gateway_auto_continue_freshness" in _agent_cfg
-                and "HERMES_AUTO_CONTINUE_FRESHNESS" not in os.environ
+                and not logos_env_set("AUTO_CONTINUE_FRESHNESS")
             ):
-                os.environ["HERMES_AUTO_CONTINUE_FRESHNESS"] = str(
+                os.environ["LOGOS_AUTO_CONTINUE_FRESHNESS"] = str(
                     _agent_cfg["gateway_auto_continue_freshness"]
                 )
         _display_cfg = _cfg.get("display", {})
         if _display_cfg and isinstance(_display_cfg, dict):
-            if "busy_input_mode" in _display_cfg and "HERMES_GATEWAY_BUSY_INPUT_MODE" not in os.environ:
-                os.environ["HERMES_GATEWAY_BUSY_INPUT_MODE"] = str(_display_cfg["busy_input_mode"])
+            if "busy_input_mode" in _display_cfg and not logos_env_set("GATEWAY_BUSY_INPUT_MODE"):
+                os.environ["LOGOS_GATEWAY_BUSY_INPUT_MODE"] = str(_display_cfg["busy_input_mode"])
         # Timezone: bridge config.yaml → HERMES_TIMEZONE env var.
         # HERMES_TIMEZONE from .env takes precedence (already in os.environ).
         _tz_cfg = _cfg.get("timezone", "")
-        if _tz_cfg and isinstance(_tz_cfg, str) and "HERMES_TIMEZONE" not in os.environ:
-            os.environ["HERMES_TIMEZONE"] = _tz_cfg.strip()
+        if _tz_cfg and isinstance(_tz_cfg, str) and not logos_env_set("TIMEZONE"):
+            os.environ["LOGOS_TIMEZONE"] = _tz_cfg.strip()
         # Security settings
         _security_cfg = _cfg.get("security", {})
         if isinstance(_security_cfg, dict):
             _redact = _security_cfg.get("redact_secrets")
             if _redact is not None:
-                os.environ["HERMES_REDACT_SECRETS"] = str(_redact).lower()
+                os.environ["LOGOS_REDACT_SECRETS"] = str(_redact).lower()
     except Exception:
         pass  # Non-fatal; gateway can still run with .env values
 
@@ -393,10 +394,10 @@ except Exception:
     pass
 
 # Gateway runs in quiet mode - suppress debug output and use cwd directly (no temp dirs)
-os.environ["HERMES_QUIET"] = "1"
+os.environ["LOGOS_QUIET"] = "1"
 
 # Enable interactive exec approval for dangerous commands on messaging platforms
-os.environ["HERMES_EXEC_ASK"] = "1"
+os.environ["LOGOS_EXEC_ASK"] = "1"
 
 # Set terminal working directory for messaging platforms.
 # config.yaml terminal.cwd is the canonical source (bridged to TERMINAL_CWD
@@ -453,6 +454,7 @@ def _resolve_runtime_agent_kwargs() -> dict:
     resolve credentials using the fallback provider chain from config.yaml
     before giving up.
     """
+    from logos_constants import logos_env
     from logos_cli.runtime_provider import (
         resolve_runtime_provider,
         format_runtime_provider_error,
@@ -461,7 +463,7 @@ def _resolve_runtime_agent_kwargs() -> dict:
 
     try:
         runtime = resolve_runtime_provider(
-            requested=os.getenv("HERMES_INFERENCE_PROVIDER"),
+            requested=logos_env("INFERENCE_PROVIDER"),
         )
     except AuthError as auth_exc:
         # Primary provider auth failed (expired token, revoked key, etc.).
@@ -1525,7 +1527,8 @@ class GatewayRunner:
         the prefill_messages_file key in ~/.hermes/config.yaml.
         Relative paths are resolved from ~/.hermes/.
         """
-        file_path = os.getenv("HERMES_PREFILL_MESSAGES_FILE", "")
+        from logos_constants import logos_env
+        file_path = logos_env("PREFILL_MESSAGES_FILE", "")
         if not file_path:
             try:
                 import yaml as _y
@@ -1562,7 +1565,8 @@ class GatewayRunner:
         Checks HERMES_EPHEMERAL_SYSTEM_PROMPT env var first, then falls back to
         agent.system_prompt in ~/.hermes/config.yaml.
         """
-        prompt = os.getenv("HERMES_EPHEMERAL_SYSTEM_PROMPT", "")
+        from logos_constants import logos_env
+        prompt = logos_env("EPHEMERAL_SYSTEM_PROMPT", "")
         if prompt:
             return prompt
         try:
@@ -1703,8 +1707,9 @@ class GatewayRunner:
 
     @staticmethod
     def _load_busy_input_mode() -> str:
+        from logos_constants import logos_env
         """Load gateway drain-time busy-input behavior from config/env."""
-        mode = os.getenv("HERMES_GATEWAY_BUSY_INPUT_MODE", "").strip().lower()
+        mode = logos_env("GATEWAY_BUSY_INPUT_MODE", "").strip().lower()
         if not mode:
             try:
                 import yaml as _y
@@ -1723,8 +1728,9 @@ class GatewayRunner:
 
     @staticmethod
     def _load_restart_drain_timeout() -> float:
+        from logos_constants import logos_env
         """Load graceful gateway restart/stop drain timeout in seconds."""
-        raw = os.getenv("HERMES_RESTART_DRAIN_TIMEOUT", "").strip()
+        raw = logos_env("RESTART_DRAIN_TIMEOUT", "").strip()
         if not raw:
             try:
                 import yaml as _y
@@ -1757,7 +1763,8 @@ class GatewayRunner:
           - ``error``  — only the final message when exit code is non-zero
           - ``off``    — no watcher messages at all
         """
-        mode = os.getenv("HERMES_BACKGROUND_NOTIFICATIONS", "")
+        from logos_constants import logos_env
+        mode = logos_env("BACKGROUND_NOTIFICATIONS", "")
         if not mode:
             try:
                 import yaml as _y
@@ -3396,6 +3403,7 @@ class GatewayRunner:
         6. Run agent conversation
         7. Return response
         """
+        from logos_constants import logos_env
         source = event.source
 
         # Internal events (e.g. background-process completion notifications)
@@ -3574,7 +3582,7 @@ class GatewayRunner:
         # has been *idle* beyond the inactivity threshold (or when the agent
         # object has no activity tracker and wall-clock age is extreme).
         try:
-            _raw_stale_timeout = float(os.getenv("HERMES_AGENT_TIMEOUT", 1800))
+            _raw_stale_timeout = float(logos_env("AGENT_TIMEOUT", 1800))
         except (ValueError, TypeError):
             _raw_stale_timeout = 1800.0
         _stale_ts = self._running_agents_ts.get(_quick_key, 0)
@@ -3816,7 +3824,7 @@ class GatewayRunner:
                 return None
 
             _telegram_followup_grace = float(
-                os.getenv("HERMES_TELEGRAM_FOLLOWUP_GRACE_SECONDS", "3.0")
+                logos_env("TELEGRAM_FOLLOWUP_GRACE_SECONDS", "3.0")
             )
             _started_at = self._running_agents_ts.get(_quick_key, 0)
             if (
@@ -6941,6 +6949,7 @@ class GatewayRunner:
     async def _run_background_task(
         self, prompt: str, source: "SessionSource", task_id: str
     ) -> None:
+        from logos_constants import logos_env
         """Execute a background agent task and deliver the result to the chat."""
         from run_agent import AIAgent
 
@@ -6971,7 +6980,7 @@ class GatewayRunner:
             enabled_toolsets = sorted(_get_platform_tools(user_config, platform_key))
 
             pr = self._provider_routing
-            max_iterations = int(os.getenv("HERMES_MAX_ITERATIONS", "90"))
+            max_iterations = int(logos_env("MAX_ITERATIONS", "90"))
             reasoning_config = self._resolve_session_reasoning_config(source=source)
             self._reasoning_config = reasoning_config
             self._service_tier = self._load_service_tier()
@@ -9829,6 +9838,7 @@ class GatewayRunner:
         This is run in a thread pool to not block the event loop.
         Supports interruption via new messages.
         """
+        from logos_constants import logos_env
         # ---- Proxy mode: delegate to remote API server ----
         if self._get_proxy_url():
             return await self._run_agent_via_proxy(
@@ -9877,7 +9887,7 @@ class GatewayRunner:
         _resolved_tp = resolve_display_setting(user_config, platform_key, "tool_progress")
         progress_mode = (
             _resolved_tp
-            or os.getenv("HERMES_TOOL_PROGRESS_MODE")
+            or logos_env("TOOL_PROGRESS_MODE")
             or "all"
         )
         from gateway.config import Platform
@@ -10227,15 +10237,16 @@ class GatewayRunner:
             # local variable in the entire function.  `nonlocal` lets us
             # read *and* reassign the outer `_run_agent` parameter without
             # triggering an UnboundLocalError on the earlier read at
+            from logos_constants import logos_env
             # `_resolve_turn_agent_config(message, …)`.
             nonlocal message
 
             # session_key is now set via contextvars in _set_session_env()
             # (concurrency-safe). Keep os.environ as fallback for CLI/cron.
-            os.environ["HERMES_SESSION_KEY"] = session_key or ""
+            os.environ["LOGOS_SESSION_KEY"] = session_key or ""
 
             # Read from env var or use default (same as CLI)
-            max_iterations = int(os.getenv("HERMES_MAX_ITERATIONS", "90"))
+            max_iterations = int(logos_env("MAX_ITERATIONS", "90"))
             
             # Map platform enum to the platform hint key the agent understands.
             # Platform.LOCAL ("local") maps to "cli"; others pass through as-is.
@@ -11018,7 +11029,7 @@ class GatewayRunner:
         # HERMES_AGENT_NOTIFY_INTERVAL env var.  Default 180s (3 min).
         # 0 = disable notifications.
         try:
-            _NOTIFY_INTERVAL_RAW = float(os.getenv("HERMES_AGENT_NOTIFY_INTERVAL", 180))
+            _NOTIFY_INTERVAL_RAW = float(logos_env("AGENT_NOTIFY_INTERVAL", 180))
         except (ValueError, TypeError):
             _NOTIFY_INTERVAL_RAW = 180.0
         _NOTIFY_INTERVAL = _NOTIFY_INTERVAL_RAW if _NOTIFY_INTERVAL_RAW > 0 else None
@@ -11069,12 +11080,12 @@ class GatewayRunner:
             # HERMES_AGENT_TIMEOUT env var (env var takes precedence).
             # Default 1800s (30 min inactivity).  0 = unlimited.
             try:
-                _agent_timeout_raw = float(os.getenv("HERMES_AGENT_TIMEOUT", 1800))
+                _agent_timeout_raw = float(logos_env("AGENT_TIMEOUT", 1800))
             except (ValueError, TypeError):
                 _agent_timeout_raw = 1800.0
             _agent_timeout = _agent_timeout_raw if _agent_timeout_raw > 0 else None
             try:
-                _agent_warning_raw = float(os.getenv("HERMES_AGENT_TIMEOUT_WARNING", 900))
+                _agent_warning_raw = float(logos_env("AGENT_TIMEOUT_WARNING", 900))
             except (ValueError, TypeError):
                 _agent_warning_raw = 900.0
             _agent_warning = _agent_warning_raw if _agent_warning_raw > 0 else None
@@ -11630,6 +11641,7 @@ async def start_gateway(config: Optional[GatewayConfig] = None, replace: bool = 
     # Prevent two gateways from running under the same HERMES_HOME.
     # The PID file is scoped to HERMES_HOME, so future multi-profile
     # setups (each profile using a distinct HERMES_HOME) will naturally
+    from logos_constants import logos_env
     # allow concurrent instances without tripping this guard.
     from gateway.status import (
         acquire_gateway_runtime_lock,
@@ -11899,7 +11911,7 @@ async def start_gateway(config: Optional[GatewayConfig] = None, replace: bool = 
     # that should not block the gateway from running.
     try:
         from logos_cli.voice import start_continuous
-        voice_active = os.environ.get("HERMES_VOICE", "").strip() == "1"
+        voice_active = logos_env("VOICE", "").strip() == "1"
         if voice_active:
             start_continuous(
                 on_transcript=lambda t: None,  # TUI will pick this up via voice.emit

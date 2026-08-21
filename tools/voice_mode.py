@@ -93,6 +93,7 @@ def detect_audio_environment() -> dict:
     reasons that block voice mode), and 'notices' (list of informational
     messages that do NOT block voice mode).
     """
+    from logos_constants import is_container
     warnings = []   # hard-fail: these block voice mode
     notices = []     # informational: logged but don't block
     termux_mic_cmd = _termux_microphone_command()

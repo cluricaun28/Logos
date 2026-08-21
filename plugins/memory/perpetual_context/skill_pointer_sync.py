@@ -24,6 +24,7 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from logos_constants import logos_env
 
 logger = logging.getLogger(__name__)
 
@@ -209,7 +210,7 @@ def default_skills_dirs() -> list[Path]:
 
 
 def default_rl_root() -> Path:
-    hermes_home = os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes")
+    hermes_home = logos_env("HOME") or os.path.expanduser("~/.hermes")
     return Path(hermes_home) / "reference-library"
 
 

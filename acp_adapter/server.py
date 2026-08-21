@@ -62,6 +62,7 @@ from acp_adapter.events import (
 )
 from acp_adapter.permissions import make_approval_callback
 from acp_adapter.session import SessionManager, SessionState, _expand_acp_enabled_toolsets
+from logos_constants import logos_env, logos_env_delete
 
 logger = logging.getLogger(__name__)
 
@@ -599,8 +600,8 @@ class HermesACPAgent(acp.Agent):
                     logger.debug("Could not set ACP approval callback", exc_info=True)
             # Signal to tools.approval that we have an interactive callback
             # and the non-interactive auto-approve path must not fire.
-            previous_interactive = os.environ.get("HERMES_INTERACTIVE")
-            os.environ["HERMES_INTERACTIVE"] = "1"
+            previous_interactive = logos_env("INTERACTIVE")
+            os.environ["LOGOS_INTERACTIVE"] = "1"
             try:
                 result = agent.run_conversation(
                     user_message=user_text,
@@ -612,11 +613,11 @@ class HermesACPAgent(acp.Agent):
                 logger.exception("Agent error in session %s", session_id)
                 return {"final_response": f"Error: {e}", "messages": state.history}
             finally:
-                # Restore HERMES_INTERACTIVE.
+                # Restore LOGOS_INTERACTIVE (or legacy HERMES_INTERACTIVE).
                 if previous_interactive is None:
-                    os.environ.pop("HERMES_INTERACTIVE", None)
+                    logos_env_delete("INTERACTIVE")
                 else:
-                    os.environ["HERMES_INTERACTIVE"] = previous_interactive
+                    os.environ["LOGOS_INTERACTIVE"] = previous_interactive
                 if approval_cb:
                     try:
                         from tools import terminal_tool as _terminal_tool

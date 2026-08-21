@@ -29,6 +29,7 @@ from agent.context_engine import (
     context_engine_log,
     estimate_content_tokens,
 )
+from logos_constants import logos_env
 
 logger = logging.getLogger(__name__)
 
@@ -787,7 +788,7 @@ class SemanticVectorContextEngine(ContextEngine):
            tried last — a load there can OOM, but it can also work.
         3. ``cpu`` as the final fallback.
         """
-        forced = (self.device or os.environ.get("HERMES_EMBED_DEVICE", "")).strip()
+        forced = (self.device or logos_env("EMBED_DEVICE", "")).strip()
         if forced:
             return [forced]
         ordered: List[tuple] = []

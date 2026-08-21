@@ -1010,9 +1010,9 @@ class TestRunJobSessionPersistence:
 
             def run_conversation(self, *args, **kwargs):
                 from gateway.session_context import get_session_env
-                seen["platform"] = get_session_env("HERMES_CRON_AUTO_DELIVER_PLATFORM") or None
-                seen["chat_id"] = get_session_env("HERMES_CRON_AUTO_DELIVER_CHAT_ID") or None
-                seen["thread_id"] = get_session_env("HERMES_CRON_AUTO_DELIVER_THREAD_ID") or None
+                seen["platform"] = get_session_env("LOGOS_CRON_AUTO_DELIVER_PLATFORM") or None
+                seen["chat_id"] = get_session_env("LOGOS_CRON_AUTO_DELIVER_CHAT_ID") or None
+                seen["thread_id"] = get_session_env("LOGOS_CRON_AUTO_DELIVER_THREAD_ID") or None
                 return {"final_response": "ok"}
 
         with patch("cron.scheduler._hermes_home", tmp_path), \
@@ -1074,9 +1074,9 @@ class TestRunJobSessionPersistence:
 
                 seen.append(
                     {
-                        "platform": get_session_env("HERMES_CRON_AUTO_DELIVER_PLATFORM") or None,
-                        "chat_id": get_session_env("HERMES_CRON_AUTO_DELIVER_CHAT_ID") or None,
-                        "thread_id": get_session_env("HERMES_CRON_AUTO_DELIVER_THREAD_ID") or None,
+                        "platform": get_session_env("LOGOS_CRON_AUTO_DELIVER_PLATFORM") or None,
+                        "chat_id": get_session_env("LOGOS_CRON_AUTO_DELIVER_CHAT_ID") or None,
+                        "thread_id": get_session_env("LOGOS_CRON_AUTO_DELIVER_THREAD_ID") or None,
                     }
                 )
                 return {"final_response": "ok"}
@@ -1932,8 +1932,8 @@ class TestParallelTick:
             )
             import time
             time.sleep(0.05)  # give other thread time to set its vars
-            platform = get_session_env("HERMES_SESSION_PLATFORM")
-            chat_id = get_session_env("HERMES_SESSION_CHAT_ID")
+            platform = get_session_env("LOGOS_SESSION_PLATFORM")
+            chat_id = get_session_env("LOGOS_SESSION_CHAT_ID")
             seen[job["id"]] = {"platform": platform, "chat_id": chat_id}
             clear_session_vars(tokens)
             return (True, "output", "response", None)

@@ -53,7 +53,7 @@ if __name__ == "__main__":
 from datetime import datetime
 from pathlib import Path
 
-from logos_constants import get_logos_home
+from logos_constants import get_logos_home, logos_env
 
 
 _OPENAI_CLS_CACHE: Optional[type] = None
@@ -1661,7 +1661,7 @@ class AIAgent:
             try:
                 self._session_db.create_session(
                     session_id=self.session_id,
-                    source=self.platform or os.environ.get("HERMES_SESSION_SOURCE", "cli"),
+                    source=self.platform or logos_env("SESSION_SOURCE", "cli"),
                     model=self.model,
                     model_config={
                         "max_iterations": self.max_iterations,
@@ -2792,7 +2792,7 @@ class AIAgent:
         cfg = get_provider_request_timeout(self.provider, self.model)
         if cfg is not None:
             return cfg
-        return float(os.getenv("HERMES_API_TIMEOUT", 1800.0))
+        return float(logos_env("API_TIMEOUT", 1800.0))
 
     def _resolved_api_call_stale_timeout_base(self) -> tuple[float, bool]:
         """Resolve the base non-stream stale timeout and whether it is implicit.
@@ -2812,7 +2812,7 @@ class AIAgent:
         if cfg is not None:
             return cfg, False
 
-        env_timeout = os.getenv("HERMES_API_CALL_STALE_TIMEOUT")
+        env_timeout = logos_env("API_CALL_STALE_TIMEOUT")
         if env_timeout is not None:
             return float(env_timeout), False
 
@@ -3566,7 +3566,7 @@ class AIAgent:
             ),
             "session_id": self.session_id or "",
             "parent_session_id": self._parent_session_id or "",
-            "platform": self.platform or os.environ.get("HERMES_SESSION_SOURCE", "cli"),
+            "platform": self.platform or logos_env("SESSION_SOURCE", "cli"),
             "tool_name": "memory",
         }
         if task_id:
@@ -6065,8 +6065,8 @@ class AIAgent:
             from logos_cli.auth import resolve_nous_runtime_credentials
 
             creds = resolve_nous_runtime_credentials(
-                min_key_ttl_seconds=max(60, int(os.getenv("HERMES_NOUS_MIN_KEY_TTL_SECONDS", "1800"))),
-                timeout_seconds=float(os.getenv("HERMES_NOUS_TIMEOUT_SECONDS", "15")),
+                min_key_ttl_seconds=max(60, int(logos_env("NOUS_MIN_KEY_TTL_SECONDS", "1800"))),
+                timeout_seconds=float(logos_env("NOUS_TIMEOUT_SECONDS", "15")),
                 force_mint=force,
             )
         except (ConnectionError, TimeoutError, OSError, AttributeError) as exc:
@@ -6751,14 +6751,14 @@ class AIAgent:
             _base_timeout = (
                 _provider_timeout_cfg
                 if _provider_timeout_cfg is not None
-                else float(os.getenv("HERMES_API_TIMEOUT", 1800.0))
+                else float(logos_env("API_TIMEOUT", 1800.0))
             )
             # Read timeout: config wins here too.  Otherwise use
             # HERMES_STREAM_READ_TIMEOUT (default 120s) for cloud providers.
             if _provider_timeout_cfg is not None:
                 _stream_read_timeout = _provider_timeout_cfg
             else:
-                _stream_read_timeout = float(os.getenv("HERMES_STREAM_READ_TIMEOUT", 120.0))
+                _stream_read_timeout = float(logos_env("STREAM_READ_TIMEOUT", 120.0))
                 # Local providers (Ollama, llama.cpp, vLLM) can take minutes for
                 # prefill on large contexts before producing the first token.
                 # Auto-increase the httpx read timeout unless the user explicitly
@@ -7055,7 +7055,7 @@ class AIAgent:
         def _call():
             import httpx as _httpx
 
-            _max_stream_retries = int(os.getenv("HERMES_STREAM_RETRIES", 2))
+            _max_stream_retries = int(logos_env("STREAM_RETRIES", 2))
 
             try:
                 for _stream_attempt in range(_max_stream_retries + 1):
@@ -7309,7 +7309,7 @@ class AIAgent:
                 if request_client is not None:
                     self._close_request_openai_client(request_client, reason="stream_request_complete")
 
-        _stream_stale_timeout_base = float(os.getenv("HERMES_STREAM_STALE_TIMEOUT", 180.0))
+        _stream_stale_timeout_base = float(logos_env("STREAM_STALE_TIMEOUT", 180.0))
         # Local providers (Ollama, oMLX, llama-cpp) can take 300+ seconds
         # for prefill on large contexts.  Disable the stale detector unless
         # the user explicitly set HERMES_STREAM_STALE_TIMEOUT.
@@ -9163,7 +9163,7 @@ class AIAgent:
                 self.session_log_file = self.logs_dir / f"session_{self.session_id}.json"
                 self._session_db.create_session(
                     session_id=self.session_id,
-                    source=self.platform or os.environ.get("HERMES_SESSION_SOURCE", "cli"),
+                    source=self.platform or logos_env("SESSION_SOURCE", "cli"),
                     model=self.model,
                     parent_session_id=old_session_id,
                 )

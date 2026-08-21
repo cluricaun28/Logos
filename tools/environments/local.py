@@ -120,6 +120,7 @@ _HERMES_PROVIDER_ENV_BLOCKLIST = _build_provider_env_blocklist()
 
 def _sanitize_subprocess_env(base_env: dict | None, extra_env: dict | None = None) -> dict:
     """Filter Logos-managed secrets from a subprocess environment."""
+    from logos_constants import get_subprocess_home
     try:
         from tools.env_passthrough import is_env_passthrough as _is_passthrough
     except Exception:
@@ -141,7 +142,7 @@ def _sanitize_subprocess_env(base_env: dict | None, extra_env: dict | None = Non
             sanitized[key] = value
 
     # Per-profile HOME isolation for background processes (same as _make_run_env).
-    from logos_constants import get_subprocess_home
+    from logos_constants import get_subprocess_home, logos_env
     _profile_home = get_subprocess_home()
     if _profile_home:
         sanitized["HOME"] = _profile_home
@@ -150,6 +151,7 @@ def _sanitize_subprocess_env(base_env: dict | None, extra_env: dict | None = Non
 
 
 def _find_bash() -> str:
+    from logos_constants import logos_env
     """Find bash for command execution."""
     if not _IS_WINDOWS:
         return (
@@ -160,7 +162,7 @@ def _find_bash() -> str:
             or "/bin/sh"
         )
 
-    custom = os.environ.get("HERMES_GIT_BASH_PATH")
+    custom = logos_env("GIT_BASH_PATH")
     if custom and os.path.isfile(custom):
         return custom
 
@@ -196,6 +198,7 @@ _SANE_PATH = (
 
 def _make_run_env(env: dict) -> dict:
     """Build a run environment with a sane PATH and provider-var stripping."""
+    from logos_constants import get_subprocess_home
     try:
         from tools.env_passthrough import is_env_passthrough as _is_passthrough
     except Exception:

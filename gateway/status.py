@@ -20,7 +20,7 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from logos_constants import get_logos_home
+from logos_constants import get_logos_home, logos_env
 from typing import Any, Optional
 
 if sys.platform == "win32":
@@ -58,7 +58,7 @@ def _get_runtime_status_path() -> Path:
 
 def _get_lock_dir() -> Path:
     """Return the machine-local directory for token-scoped gateway locks."""
-    override = os.getenv("HERMES_GATEWAY_LOCK_DIR")
+    override = logos_env("GATEWAY_LOCK_DIR")
     if override:
         return Path(override)
     state_home = Path(os.getenv("XDG_STATE_HOME", Path.home() / ".local" / "state"))

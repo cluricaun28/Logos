@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+from logos_constants import logos_env
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +63,7 @@ _SENSITIVE_BODY_KEYS = frozenset({
 # `security.redact_secrets: true` in config.yaml (bridged to this env var
 # in logos_cli/main.py and gateway/run.py) or `HERMES_REDACT_SECRETS=***`
 # in ~/.hermes/.env. This fork enables it by default.
-_REDACT_ENABLED = os.getenv("HERMES_REDACT_SECRETS", "").lower() in ("1", "true", "yes", "on")
+_REDACT_ENABLED = logos_env("REDACT_SECRETS", "").lower() in ("1", "true", "yes", "on")
 
 # Known API key prefixes -- match the prefix + contiguous token chars
 _PREFIX_PATTERNS = [

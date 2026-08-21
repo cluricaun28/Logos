@@ -13,7 +13,7 @@ import threading
 from collections import OrderedDict
 from pathlib import Path
 
-from logos_constants import get_logos_home, get_skills_dir, is_wsl
+from logos_constants import get_logos_home, get_skills_dir, is_wsl, logos_env
 from typing import Optional
 
 from agent.skill_utils import (
@@ -698,8 +698,8 @@ def build_skills_system_prompt(
     # produce distinct cache entries (gateway serves multiple platforms).
     from gateway.session_context import get_session_env
     _platform_hint = (
-        os.environ.get("HERMES_PLATFORM")
-        or get_session_env("HERMES_SESSION_PLATFORM")
+        logos_env("PLATFORM")
+        or get_session_env("LOGOS_SESSION_PLATFORM")
         or ""
     )
     disabled = get_disabled_skill_names()

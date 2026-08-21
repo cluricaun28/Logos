@@ -43,6 +43,7 @@ except ImportError:
     web = None  # type: ignore[assignment]
 
 from gateway.config import Platform, PlatformConfig
+from logos_constants import logos_env
 from gateway.platforms.base import (
     BasePlatformAdapter,
     SendResult,
@@ -291,6 +292,7 @@ class ResponseStore:
     """
 
     def __init__(self, max_size: int = MAX_STORED_RESPONSES, db_path: str = None):
+        from logos_constants import get_logos_home
         self._max_size = max_size
         if db_path is None:
             try:
@@ -736,7 +738,7 @@ class APIServerAdapter(BasePlatformAdapter):
         user_config = _load_gateway_config()
         enabled_toolsets = sorted(_get_platform_tools(user_config, "api_server"))
 
-        max_iterations = int(os.getenv("HERMES_MAX_ITERATIONS", "90"))
+        max_iterations = int(logos_env("MAX_ITERATIONS", "90"))
 
         # Load fallback provider chain so the API server platform has the
         # same fallback behaviour as Telegram/Discord/Slack (fixes #4954).

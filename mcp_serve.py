@@ -60,12 +60,12 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 def _get_sessions_dir() -> Path:
-    """Return the sessions directory using HERMES_HOME."""
+    """Return the sessions directory using the Logos home (LOGOS_HOME)."""
     try:
         from logos_constants import get_logos_home
         return get_logos_home() / "sessions"
     except ImportError:
-        return Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes")) / "sessions"
+        return Path(os.environ.get("LOGOS_HOME") or os.environ.get("HERMES_HOME") or (Path.home() / ".hermes")) / "sessions"
 
 
 def _get_session_db():
@@ -102,7 +102,7 @@ def _load_channel_directory() -> dict:
         directory_file = get_logos_home() / "channel_directory.json"
     except ImportError:
         directory_file = Path(
-            os.environ.get("HERMES_HOME", Path.home() / ".hermes")
+            os.environ.get("LOGOS_HOME") or os.environ.get("HERMES_HOME") or (Path.home() / ".hermes")
         ) / "channel_directory.json"
 
     if not directory_file.exists():
@@ -346,7 +346,7 @@ class EventBridge:
             from logos_constants import get_logos_home
             db_file = get_logos_home() / "state.db"
         except ImportError:
-            db_file = Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes")) / "state.db"
+            db_file = Path(os.environ.get("LOGOS_HOME") or os.environ.get("HERMES_HOME") or (Path.home() / ".hermes")) / "state.db"
 
         try:
             db_mtime = db_file.stat().st_mtime if db_file.exists() else 0.0

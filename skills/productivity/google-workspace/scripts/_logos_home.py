@@ -60,6 +60,7 @@ except (ModuleNotFoundError, ImportError):
         """Return a user-friendly ``~/``-shortened display string.
 
         Mirrors ``logos_constants.display_logos_home()``."""
+        from logos_constants import get_logos_home
         home = get_logos_home()
         try:
             return "~/" + str(home.relative_to(Path.home()))

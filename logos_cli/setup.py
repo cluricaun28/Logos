@@ -2177,6 +2177,7 @@ def run_setup_wizard(args):
       logos setup tools     — just tool configuration
       logos setup agent     — just agent settings
     """
+    from logos_constants import get_logos_home
     from logos_cli.config import is_managed, managed_error
     if is_managed():
         managed_error("run setup wizard")

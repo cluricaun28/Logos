@@ -84,6 +84,7 @@ from logos_constants import is_termux as _is_termux
 
 
 def show_status(args):
+    from logos_constants import get_logos_home
     """Show status of all Logos components."""
     show_all = getattr(args, 'all', False)
     deep = getattr(args, 'deep', False)

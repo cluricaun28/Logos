@@ -42,7 +42,7 @@ import httpx
 import yaml
 
 from logos_cli.config import get_logos_home, get_config_path, read_raw_config
-from logos_constants import OPENROUTER_BASE_URL
+from logos_constants import OPENROUTER_BASE_URL, logos_env
 from utils import atomic_replace
 
 logger = logging.getLogger(__name__)
@@ -650,7 +650,7 @@ def _token_fingerprint(token: Any) -> Optional[str]:
 
 
 def _oauth_trace_enabled() -> bool:
-    raw = os.getenv("HERMES_OAUTH_TRACE", "").strip().lower()
+    raw = logos_env("OAUTH_TRACE", "").strip().lower()
     return raw in {"1", "true", "yes", "on"}
 
 
@@ -669,6 +669,7 @@ def _oauth_trace(event: str, *, sequence_id: Optional[str] = None, **fields: Any
 # =============================================================================
 
 def _auth_file_path() -> Path:
+    from logos_constants import get_logos_home
     path = get_logos_home() / "auth.json"
     # Seat belt: if pytest is running and HERMES_HOME resolves to the real
     # user's auth store, refuse rather than silently corrupt it. This catches
@@ -1408,7 +1409,7 @@ def resolve_qwen_runtime_credentials(
             code="qwen_access_token_missing",
         )
 
-    base_url = os.getenv("HERMES_QWEN_BASE_URL", "").strip().rstrip("/") or DEFAULT_QWEN_BASE_URL
+    base_url = logos_env("QWEN_BASE_URL", "").strip().rstrip("/") or DEFAULT_QWEN_BASE_URL
     return {
         "provider": "qwen-oauth",
         "base_url": base_url,
@@ -1762,7 +1763,7 @@ def resolve_codex_runtime_credentials(
     data = _read_codex_tokens()
     tokens = dict(data["tokens"])
     access_token = str(tokens.get("access_token", "") or "").strip()
-    refresh_timeout_seconds = float(os.getenv("HERMES_CODEX_REFRESH_TIMEOUT_SECONDS", "20"))
+    refresh_timeout_seconds = float(logos_env("CODEX_REFRESH_TIMEOUT_SECONDS", "20"))
 
     should_refresh = bool(force_refresh)
     if (not should_refresh) and refresh_if_expiring:
@@ -1783,7 +1784,7 @@ def resolve_codex_runtime_credentials(
                 access_token = str(tokens.get("access_token", "") or "").strip()
 
     base_url = (
-        os.getenv("HERMES_CODEX_BASE_URL", "").strip().rstrip("/")
+        logos_env("CODEX_BASE_URL", "").strip().rstrip("/")
         or DEFAULT_CODEX_BASE_URL
     )
 
@@ -1835,7 +1836,7 @@ def _resolve_verify(
     effective_ca = (
         ca_bundle
         or tls_state.get("ca_bundle")
-        or os.getenv("HERMES_CA_BUNDLE")
+        or logos_env("CA_BUNDLE")
         or os.getenv("SSL_CERT_FILE")
         or os.getenv("REQUESTS_CA_BUNDLE")
     )
@@ -2113,7 +2114,7 @@ def resolve_nous_access_token(
 
         portal_base_url = (
             _optional_base_url(state.get("portal_base_url"))
-            or os.getenv("HERMES_PORTAL_BASE_URL")
+            or logos_env("PORTAL_BASE_URL")
             or os.getenv("NOUS_PORTAL_BASE_URL")
             or DEFAULT_NOUS_PORTAL_URL
         ).rstrip("/")
@@ -2378,7 +2379,7 @@ def resolve_nous_runtime_credentials(
 
         portal_base_url = (
             _optional_base_url(state.get("portal_base_url"))
-            or os.getenv("HERMES_PORTAL_BASE_URL")
+            or logos_env("PORTAL_BASE_URL")
             or os.getenv("NOUS_PORTAL_BASE_URL")
             or DEFAULT_NOUS_PORTAL_URL
         ).rstrip("/")
@@ -2799,11 +2800,11 @@ def get_external_process_provider_status(provider_id: str) -> Dict[str, Any]:
         return {"configured": False}
 
     command = (
-        os.getenv("HERMES_COPILOT_ACP_COMMAND", "").strip()
+        logos_env("COPILOT_ACP_COMMAND", "").strip()
         or os.getenv("COPILOT_CLI_PATH", "").strip()
         or "copilot"
     )
-    raw_args = os.getenv("HERMES_COPILOT_ACP_ARGS", "").strip()
+    raw_args = logos_env("COPILOT_ACP_ARGS", "").strip()
     args = shlex.split(raw_args) if raw_args else ["--acp", "--stdio"]
     base_url = os.getenv(pconfig.base_url_env_var, "").strip() if pconfig.base_url_env_var else ""
     if not base_url:
@@ -2909,11 +2910,11 @@ def resolve_external_process_provider_credentials(provider_id: str) -> Dict[str,
         base_url = pconfig.inference_base_url
 
     command = (
-        os.getenv("HERMES_COPILOT_ACP_COMMAND", "").strip()
+        logos_env("COPILOT_ACP_COMMAND", "").strip()
         or os.getenv("COPILOT_CLI_PATH", "").strip()
         or "copilot"
     )
-    raw_args = os.getenv("HERMES_COPILOT_ACP_ARGS", "").strip()
+    raw_args = logos_env("COPILOT_ACP_ARGS", "").strip()
     args = shlex.split(raw_args) if raw_args else ["--acp", "--stdio"]
     resolved_command = shutil.which(command) if command else None
     if not resolved_command and not base_url.startswith("acp+tcp://"):
@@ -3312,7 +3313,7 @@ def _login_openai_codex(
                 do_import = "n"
             if do_import in ("y", "yes"):
                 _save_codex_tokens(cli_tokens)
-                base_url = os.getenv("HERMES_CODEX_BASE_URL", "").strip().rstrip("/") or DEFAULT_CODEX_BASE_URL
+                base_url = logos_env("CODEX_BASE_URL", "").strip().rstrip("/") or DEFAULT_CODEX_BASE_URL
                 config_path = _update_config_for_provider("openai-codex", base_url)
                 print()
                 print("Credentials imported. Note: if Codex CLI refreshes its token,")
@@ -3467,7 +3468,7 @@ def _codex_device_code_login() -> Dict[str, Any]:
 
     # Return tokens for the caller to persist (no longer writes to ~/.codex/)
     base_url = (
-        os.getenv("HERMES_CODEX_BASE_URL", "").strip().rstrip("/")
+        logos_env("CODEX_BASE_URL", "").strip().rstrip("/")
         or DEFAULT_CODEX_BASE_URL
     )
 
@@ -3499,7 +3500,7 @@ def _nous_device_code_login(
     pconfig = PROVIDER_REGISTRY["nous"]
     portal_base_url = (
         portal_base_url
-        or os.getenv("HERMES_PORTAL_BASE_URL")
+        or logos_env("PORTAL_BASE_URL")
         or os.getenv("NOUS_PORTAL_BASE_URL")
         or pconfig.portal_base_url
     ).rstrip("/")
@@ -3620,7 +3621,7 @@ def _login_nous(args, pconfig: ProviderConfig) -> None:
     insecure = bool(getattr(args, "insecure", False))
     ca_bundle = (
         getattr(args, "ca_bundle", None)
-        or os.getenv("HERMES_CA_BUNDLE")
+        or logos_env("CA_BUNDLE")
         or os.getenv("SSL_CERT_FILE")
     )
 

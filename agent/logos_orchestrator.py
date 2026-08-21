@@ -18,6 +18,7 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from logos_constants import logos_env
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +43,7 @@ class LogosOrchestrator:
         from agent.synthesis_service import SynthesisService
         from agent.audit_service import AuditService
 
-        _hh = Path(os.environ.get("HERMES_HOME") or (Path.home() / ".hermes"))
+        _hh = Path(logos_env("HOME") or (Path.home() / ".hermes"))
         self.rl_dir = rl_dir or _hh / "reference-library"
         self.staging_dir = staging_dir or _hh / "staging"
         self.db_path = db_path or _hh / "perpetual_context.db"

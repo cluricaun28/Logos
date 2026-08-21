@@ -40,6 +40,7 @@ from .extraction_engine import _STOPWORDS
 from .pinned_briefs import get_pinned_block
 from .semantic_intent_router import classify_injection_intent
 from .session_end_extractor import extract_topics_from_messages
+from logos_constants import logos_env
 
 logger = logging.getLogger(__name__)
 
@@ -170,7 +171,7 @@ class PerpetualContextProvider(MemoryProvider):
 
         db_path = pc_config.get("db_path")
         if not db_path:  # noqa: SIM108
-            db_path = os.path.join(os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes"), "perpetual_context.db")
+            db_path = os.path.join(logos_env("HOME") or os.path.expanduser("~/.hermes"), "perpetual_context.db")
         else:
             db_path = os.path.expanduser(db_path)
 
@@ -300,7 +301,7 @@ class PerpetualContextProvider(MemoryProvider):
             deep_research_master=DEEP_RESEARCH_ENABLED,
             quality_scorer=factory.quality_scorer,
             rl_root=(
-                Path(os.environ.get("HERMES_HOME")
+                Path(logos_env("HOME")
                      or os.path.expanduser("~/.hermes"))
                 / "reference-library"
             ),

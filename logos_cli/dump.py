@@ -175,6 +175,7 @@ def _config_overrides(config: dict) -> dict[str, str]:
 
 
 def run_dump(args):
+    from logos_constants import get_logos_home
     """Output a compact, copy-pasteable setup summary."""
     show_keys = getattr(args, "show_keys", False)
 

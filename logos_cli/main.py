@@ -62,7 +62,7 @@ def _add_accept_hooks_flag(parser) -> None:
         default=argparse.SUPPRESS,
         help=(
             "Auto-approve unseen shell hooks without a TTY prompt "
-            "(equivalent to HERMES_ACCEPT_HOOKS=1 / hooks_auto_accept: true)."
+            "(equivalent to LOGOS_ACCEPT_HOOKS=1 / hooks_auto_accept: true)."
         ),
     )
 
@@ -90,16 +90,16 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 
 # ---------------------------------------------------------------------------
-# Profile override — MUST happen before any hermes module import.
+# Profile override — MUST happen before any logos module import.
 #
-# Many modules cache HERMES_HOME at import time (module-level constants).
+# Many modules cache LOGOS_HOME at import time (module-level constants).
 # We intercept --profile/-p from sys.argv here and set the env var so that
-# every subsequent ``os.getenv("HERMES_HOME", ...)`` resolves correctly.
+# every subsequent ``os.getenv("LOGOS_HOME", ...)`` resolves correctly.
 # The flag is stripped from sys.argv so argparse never sees it.
 # Falls back to ~/.hermes/active_profile for sticky default.
 # ---------------------------------------------------------------------------
 def _apply_profile_override() -> None:
-    """Pre-parse --profile/-p and set HERMES_HOME before module imports."""
+    """Pre-parse --profile/-p and set LOGOS_HOME before module imports."""
     argv = sys.argv[1:]
     profile_name = None
     consume = 0
@@ -129,7 +129,7 @@ def _apply_profile_override() -> None:
         except (UnicodeDecodeError, OSError):
             pass  # corrupted file, skip
 
-    # 3. If we found a profile, resolve and set HERMES_HOME
+    # 3. If we found a profile, resolve and set LOGOS_HOME
     if profile_name is not None:
         try:
             from logos_cli.profiles import resolve_profile_env
@@ -145,6 +145,10 @@ def _apply_profile_override() -> None:
                 file=sys.stderr,
             )
             return
+        # Set both: LOGOS_HOME is the primary; HERMES_HOME kept in sync so
+        # external tooling that still reads the legacy name sees the same
+        # profile (strict superset of pre-rebrand behavior).
+        os.environ["LOGOS_HOME"] = hermes_home
         os.environ["HERMES_HOME"] = hermes_home
         # Strip the flag from argv so argparse doesn't choke
         if consume > 0:
@@ -165,16 +169,17 @@ _apply_profile_override()
 # User-managed env files should override stale shell exports on restart.
 from logos_cli.config import get_logos_home
 from logos_cli.env_loader import load_hermes_dotenv
+from logos_constants import logos_env, logos_env_set
 
 load_hermes_dotenv(project_env=PROJECT_ROOT / ".env")
 
-# Bridge security.redact_secrets from config.yaml → HERMES_REDACT_SECRETS env
+# Bridge security.redact_secrets from config.yaml → LOGOS_REDACT_SECRETS env
 # var BEFORE logos_logging imports agent.redact (which snapshots the flag at
 # module-import time). Without this, config.yaml's toggle is ignored because
 # the setup_logging() call below imports agent.redact, which reads the env var
 # exactly once. Env var in .env still wins — this is config.yaml fallback only.
 try:
-    if "HERMES_REDACT_SECRETS" not in os.environ:
+    if not logos_env_set("REDACT_SECRETS"):
         import yaml as _yaml_early
         _cfg_path = get_logos_home() / "config.yaml"
         if _cfg_path.exists():
@@ -183,7 +188,7 @@ try:
             if isinstance(_early_sec_cfg, dict):
                 _early_redact = _early_sec_cfg.get("redact_secrets")
                 if _early_redact is not None:
-                    os.environ["HERMES_REDACT_SECRETS"] = str(_early_redact).lower()
+                    os.environ["LOGOS_REDACT_SECRETS"] = str(_early_redact).lower()
             del _early_sec_cfg
         del _cfg_path
 except Exception:
@@ -240,6 +245,7 @@ def _relative_time(ts) -> str:
 
 
 def _has_any_provider_configured() -> bool:
+    from logos_constants import get_logos_home
     """Check if at least one inference provider is usable."""
     from logos_cli.config import get_env_path, get_logos_home, load_config
     from logos_cli.auth import get_auth_status
@@ -845,7 +851,7 @@ def cmd_chat(args):
 
     # --yolo: bypass all dangerous command approvals
     if getattr(args, "yolo", False):
-        os.environ["HERMES_YOLO_MODE"] = "1"
+        os.environ["LOGOS_YOLO_MODE"] = "1"
 
     # --ignore-user-config: make load_cli_config() / load_config() skip the
     # user's ~/.hermes/config.yaml and return built-in defaults. Set BEFORE
@@ -853,17 +859,17 @@ def cmd_chat(args):
     # import time). Credentials in .env are still loaded — this flag only
     # ignores behavioral/config settings.
     if getattr(args, "ignore_user_config", False):
-        os.environ["HERMES_IGNORE_USER_CONFIG"] = "1"
+        os.environ["LOGOS_IGNORE_USER_CONFIG"] = "1"
 
     # --ignore-rules: skip auto-injection of AGENTS.md/SOUL.md/.cursorrules
     # (rules), memory entries, and any preloaded skills coming from user config.
     # Maps to AIAgent(skip_context_files=True, skip_memory=True).
     if getattr(args, "ignore_rules", False):
-        os.environ["HERMES_IGNORE_RULES"] = "1"
+        os.environ["LOGOS_IGNORE_RULES"] = "1"
 
     # --source: tag session source for filtering (e.g. 'tool' for third-party integrations)
     if getattr(args, "source", None):
-        os.environ["HERMES_SESSION_SOURCE"] = args.source
+        os.environ["LOGOS_SESSION_SOURCE"] = args.source
 
     # Import and run the CLI
     from cli import main as cli_main
@@ -950,7 +956,7 @@ def select_provider_and_model(args=None):
         config_provider = model_cfg.get("provider")
 
     effective_provider = (
-        config_provider or os.getenv("HERMES_INFERENCE_PROVIDER") or "auto"
+        config_provider or logos_env("INFERENCE_PROVIDER") or "auto"
     )
     compatible_custom_providers = get_compatible_custom_providers(config)
     active = None
@@ -4445,6 +4451,7 @@ def _gateway_prompt(prompt_text: str, default: str = "", timeout: float = 300.0)
     config migration) are forwarded to the messenger instead of being silently
     skipped.
     """
+    from logos_constants import get_logos_home
     import json as _json
     import uuid as _uuid
     from logos_constants import get_logos_home
@@ -5599,6 +5606,7 @@ def cmd_update(args):
 def _cmd_update_impl(args, gateway_mode: bool):
     """Body of ``cmd_update`` — kept separate so the wrapper can always
     restore stdio even on ``sys.exit``."""
+    from logos_constants import get_logos_home
     # In gateway mode, use file-based IPC for prompts instead of stdin
     gw_input_fn = (
         (lambda prompt, default="": _gateway_prompt(prompt, default))
@@ -6506,6 +6514,7 @@ def _coalesce_session_name_args(argv: list) -> list:
 
 def cmd_profile(args):
     """Profile management — create, delete, list, switch, alias."""
+    from logos_constants import display_logos_home
     from logos_cli.profiles import (
         list_profiles,
         create_profile,
@@ -8594,6 +8603,7 @@ Examples:
             return False
 
     def cmd_sessions(args):
+        from logos_constants import get_logos_home
         import json as _json
 
         try:

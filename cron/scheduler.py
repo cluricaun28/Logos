@@ -488,6 +488,7 @@ _SCRIPT_TIMEOUT = _DEFAULT_SCRIPT_TIMEOUT
 
 
 def _get_script_timeout() -> int:
+    from logos_constants import logos_env
     """Resolve cron pre-run script timeout from module/env/config with a safe default."""
     if _SCRIPT_TIMEOUT != _DEFAULT_SCRIPT_TIMEOUT:
         try:
@@ -497,7 +498,7 @@ def _get_script_timeout() -> int:
         except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
             logger.warning("Invalid patched _SCRIPT_TIMEOUT=%r; using env/config/default", _SCRIPT_TIMEOUT)
 
-    env_value = os.getenv("HERMES_CRON_SCRIPT_TIMEOUT", "").strip()
+    env_value = logos_env("CRON_SCRIPT_TIMEOUT", "").strip()
     if env_value:
         try:
             timeout = int(float(env_value))
@@ -797,6 +798,7 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
     Returns:
         Tuple of (success, full_output_doc, final_response, error_message)
     """
+    from logos_constants import logos_env
     job_id = job["id"]
     job_name = job["name"]
 
@@ -952,7 +954,7 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
     # Mark this as a cron session so the approval system can apply cron_mode.
     # This env var is process-wide and persists for the lifetime of the
     # scheduler process — every job this process runs is a cron job.
-    os.environ["HERMES_CRON_SESSION"] = "1"
+    os.environ["LOGOS_CRON_SESSION"] = "1"
 
     # Use ContextVars for per-job session/delivery state so parallel jobs
     # don't clobber each other's targets (os.environ is process-global).
@@ -1014,7 +1016,7 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
                 else str(delivery_target["thread_id"])
             )
 
-        model = job.get("model") or os.getenv("HERMES_MODEL") or ""
+        model = job.get("model") or logos_env("MODEL") or ""
 
         # Load config.yaml for model, reasoning, prefill, toolsets, provider routing
         _cfg = {}
@@ -1049,7 +1051,7 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
 
         # Prefill messages from env or config.yaml
         prefill_messages = None
-        prefill_file = os.getenv("HERMES_PREFILL_MESSAGES_FILE", "") or _cfg.get("prefill_messages_file", "")
+        prefill_file = logos_env("PREFILL_MESSAGES_FILE", "") or _cfg.get("prefill_messages_file", "")
         if prefill_file:
             pfpath = Path(prefill_file).expanduser()
             if not pfpath.is_absolute():
@@ -1077,7 +1079,7 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
         from logos_cli.auth import AuthError
         try:
             runtime_kwargs = {
-                "requested": job.get("provider") or os.getenv("HERMES_INFERENCE_PROVIDER"),
+                "requested": job.get("provider") or logos_env("INFERENCE_PROVIDER"),
             }
             if job.get("base_url"):
                 runtime_kwargs["explicit_base_url"] = job.get("base_url")
@@ -1164,7 +1166,7 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
         #
         # Uses the agent's built-in activity tracker (updated by
         # _touch_activity() on every tool call, API call, and stream delta).
-        _cron_timeout = float(os.getenv("HERMES_CRON_TIMEOUT", 600))
+        _cron_timeout = float(logos_env("CRON_TIMEOUT", 600))
         _cron_inactivity_limit = _cron_timeout if _cron_timeout > 0 else None
         _POLL_INTERVAL = 5.0
         _cron_pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
@@ -1346,6 +1348,7 @@ def tick(verbose: bool = True, adapters=None, loop=None) -> int:
     Returns:
         Number of jobs executed (0 if another tick is already running)
     """
+    from logos_constants import logos_env
     _LOCK_DIR.mkdir(parents=True, exist_ok=True)
 
     # Cross-platform file locking: fcntl on Unix, msvcrt on Windows
@@ -1381,7 +1384,7 @@ def tick(verbose: bool = True, adapters=None, loop=None) -> int:
         # Set HERMES_CRON_MAX_PARALLEL=1 to restore old serial behaviour.
         _max_workers: Optional[int] = None
         try:
-            _env_par = os.getenv("HERMES_CRON_MAX_PARALLEL", "").strip()
+            _env_par = logos_env("CRON_MAX_PARALLEL", "").strip()
             if _env_par:
                 _max_workers = int(_env_par) or None
         except (ValueError, TypeError):

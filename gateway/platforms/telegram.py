@@ -255,6 +255,7 @@ class TelegramAdapter(BasePlatformAdapter):
     _GENERAL_TOPIC_THREAD_ID = "1"
     
     def __init__(self, config: PlatformConfig):
+        from logos_constants import logos_env
         super().__init__(config, Platform.TELEGRAM)
         self._app: Optional[Application] = None
         self._bot: Optional[Bot] = None
@@ -264,15 +265,15 @@ class TelegramAdapter(BasePlatformAdapter):
         self._disable_link_previews: bool = self._coerce_bool_extra("disable_link_previews", False)
         # Buffer rapid/album photo updates so Telegram image bursts are handled
         # as a single MessageEvent instead of self-interrupting multiple turns.
-        self._media_batch_delay_seconds = float(os.getenv("HERMES_TELEGRAM_MEDIA_BATCH_DELAY_SECONDS", "0.8"))
+        self._media_batch_delay_seconds = float(logos_env("TELEGRAM_MEDIA_BATCH_DELAY_SECONDS", "0.8"))
         self._pending_photo_batches: Dict[str, MessageEvent] = {}
         self._pending_photo_batch_tasks: Dict[str, asyncio.Task] = {}
         self._media_group_events: Dict[str, MessageEvent] = {}
         self._media_group_tasks: Dict[str, asyncio.Task] = {}
         # Buffer rapid text messages so Telegram client-side splits of long
         # messages are aggregated into a single MessageEvent.
-        self._text_batch_delay_seconds = float(os.getenv("HERMES_TELEGRAM_TEXT_BATCH_DELAY_SECONDS", "0.6"))
-        self._text_batch_split_delay_seconds = float(os.getenv("HERMES_TELEGRAM_TEXT_BATCH_SPLIT_DELAY_SECONDS", "2.0"))
+        self._text_batch_delay_seconds = float(logos_env("TELEGRAM_TEXT_BATCH_DELAY_SECONDS", "0.6"))
+        self._text_batch_split_delay_seconds = float(logos_env("TELEGRAM_TEXT_BATCH_SPLIT_DELAY_SECONDS", "2.0"))
         self._pending_text_batches: Dict[str, MessageEvent] = {}
         self._pending_text_batch_tasks: Dict[str, asyncio.Task] = {}
         self._polling_error_task: Optional[asyncio.Task] = None
@@ -737,6 +738,7 @@ class TelegramAdapter(BasePlatformAdapter):
             TELEGRAM_WEBHOOK_PORT   Local listen port (default 8443)
             TELEGRAM_WEBHOOK_SECRET Secret token for update verification
         """
+        from logos_constants import logos_env
         if not TELEGRAM_AVAILABLE:
             logger.error(
                 "[%s] python-telegram-bot not installed. Run: pip install python-telegram-bot",
@@ -788,7 +790,7 @@ class TelegramAdapter(BasePlatformAdapter):
                 "write_timeout": _env_float("HERMES_TELEGRAM_HTTP_WRITE_TIMEOUT", 20.0),
             }
 
-            disable_fallback = (os.getenv("HERMES_TELEGRAM_DISABLE_FALLBACK_IPS", "").strip().lower() in ("1", "true", "yes", "on"))
+            disable_fallback = (logos_env("TELEGRAM_DISABLE_FALLBACK_IPS", "").strip().lower() in ("1", "true", "yes", "on"))
             fallback_ips = self._fallback_ips()
             if not fallback_ips:
                 fallback_ips = await discover_fallback_ips()

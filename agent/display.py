@@ -15,6 +15,7 @@ from difflib import unified_diff
 from pathlib import Path
 
 from utils import safe_json_loads
+from logos_constants import logos_env
 
 # ANSI escape codes for coloring tool failure indicators
 _RED = "\033[31m"
@@ -726,7 +727,7 @@ class KawaiiSpinner:
         wings = skin.get_spinner_wings() if skin else []
 
         while self.running:
-            if os.getenv("HERMES_SPINNER_PAUSE"):
+            if logos_env("SPINNER_PAUSE"):
                 time.sleep(0.1)
                 continue
             frame = self.spinner_frames[self.frame_idx % len(self.spinner_frames)]

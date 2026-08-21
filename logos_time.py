@@ -16,7 +16,7 @@ crashes due to a bad timezone string.
 import logging
 import os
 from datetime import datetime
-from logos_constants import get_config_path
+from logos_constants import get_config_path, logos_env
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -41,7 +41,7 @@ def _resolve_timezone_name() -> str:
     should cache the result rather than calling on every ``now()``.
     """
     # 1. Environment variable (highest priority — set by Supervisor, etc.)
-    tz_env = os.getenv("HERMES_TIMEZONE", "").strip()
+    tz_env = logos_env("TIMEZONE", "").strip()
     if tz_env:
         return tz_env
 

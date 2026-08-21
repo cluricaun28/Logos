@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from logos_constants import display_logos_home
+from logos_constants import display_logos_home, logos_env
 
 logger = logging.getLogger(__name__)
 
@@ -71,10 +71,10 @@ def _scan_cron_prompt(prompt: str) -> str:
 
 def _origin_from_env() -> Optional[Dict[str, str]]:
     from gateway.session_context import get_session_env
-    origin_platform = get_session_env("HERMES_SESSION_PLATFORM")
-    origin_chat_id = get_session_env("HERMES_SESSION_CHAT_ID")
+    origin_platform = get_session_env("LOGOS_SESSION_PLATFORM")
+    origin_chat_id = get_session_env("LOGOS_SESSION_CHAT_ID")
     if origin_platform and origin_chat_id:
-        thread_id = get_session_env("HERMES_SESSION_THREAD_ID") or None
+        thread_id = get_session_env("LOGOS_SESSION_THREAD_ID") or None
         if thread_id:
             logger.debug(
                 "Cron origin captured thread_id=%s for %s:%s",
@@ -83,7 +83,7 @@ def _origin_from_env() -> Optional[Dict[str, str]]:
         return {
             "platform": origin_platform,
             "chat_id": origin_chat_id,
-            "chat_name": get_session_env("HERMES_SESSION_CHAT_NAME") or None,
+            "chat_name": get_session_env("LOGOS_SESSION_CHAT_NAME") or None,
             "thread_id": thread_id,
         }
     return None
@@ -190,6 +190,7 @@ def _validate_cron_script_path(script: Optional[str]) -> Optional[str]:
 
     Returns an error string if blocked, else None (valid).
     """
+    from logos_constants import get_logos_home
     if not script or not script.strip():
         return None  # empty/None = clearing the field, always OK
 
@@ -599,9 +600,9 @@ def check_cronjob_requirements() -> bool:
     so no external crontab executable is required.
     """
     return bool(
-        os.getenv("HERMES_INTERACTIVE")
-        or os.getenv("HERMES_GATEWAY_SESSION")
-        or os.getenv("HERMES_EXEC_ASK")
+        logos_env("INTERACTIVE")
+        or logos_env("GATEWAY_SESSION")
+        or logos_env("EXEC_ASK")
     )
 
 

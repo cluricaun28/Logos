@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from typing import Optional
+from logos_constants import logos_env
 
 
 def _hermes_home_path() -> Path:
@@ -63,7 +64,7 @@ def build_write_denied_prefixes(home: str) -> list[str]:
 
 def get_safe_write_root() -> Optional[str]:
     """Return the resolved HERMES_WRITE_SAFE_ROOT path, or None if unset."""
-    root = os.getenv("HERMES_WRITE_SAFE_ROOT", "")
+    root = logos_env("WRITE_SAFE_ROOT", "")
     if not root:
         return None
     try:

@@ -90,6 +90,7 @@ async def build_channel_directory(adapters: Dict[Any, Any]) -> Dict[str, Any]:
 
 
 def _build_from_sessions(platform_name: str) -> List[Dict[str, str]]:
+    from logos_constants import get_logos_home
     """Pull known channels/contacts from sessions.json origin data."""
     sessions_path = get_logos_home() / "sessions" / "sessions.json"
     if not sessions_path.exists():

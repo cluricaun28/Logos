@@ -27,7 +27,7 @@ import logging
 import os
 import shutil
 from pathlib import Path
-from logos_constants import get_logos_home
+from logos_constants import get_logos_home, logos_env
 from typing import Dict, List, Tuple
 from utils import atomic_replace
 
@@ -45,7 +45,7 @@ def _get_bundled_dir() -> Path:
     Checks HERMES_BUNDLED_SKILLS env var first (set by Nix wrapper),
     then falls back to the relative path from this source file.
     """
-    env_override = os.getenv("HERMES_BUNDLED_SKILLS")
+    env_override = logos_env("BUNDLED_SKILLS")
     if env_override:
         return Path(env_override)
     return Path(__file__).parent.parent / "skills"

@@ -28,11 +28,12 @@ from pathlib import Path
 from typing import Any
 
 import tqdm
+from logos_constants import logos_env
 tqdm.disable = True
 
 logger = logging.getLogger(__name__)
 
-_RL_HOME = os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes")
+_RL_HOME = logos_env("HOME") or os.path.expanduser("~/.hermes")
 RL_INDEX_DB_PATH = os.path.join(_RL_HOME, "rl_index.db")
 RL_BASE_DIR = os.path.join(_RL_HOME, "reference-library")
 RL_EMBED_DIM = 384

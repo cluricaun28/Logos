@@ -37,7 +37,7 @@ from typing import List, Dict, Any, Optional
 logger = logging.getLogger(__name__)
 
 # Suppress startup messages for clean CLI experience
-os.environ["HERMES_QUIET"] = "1"  # Our own modules
+os.environ["LOGOS_QUIET"] = "1"  # Our own modules
 
 import yaml
 
@@ -316,13 +316,14 @@ def load_cli_config() -> Dict[str, Any]:
     Credentials in ``.env`` are still loaded — this flag only suppresses
     behavioral/config settings.
     """
+    from logos_constants import logos_env
     # Check user config first ({HERMES_HOME}/config.yaml)
     user_config_path = _hermes_home / 'config.yaml'
     project_config_path = Path(__file__).parent / 'cli-config.yaml'
 
     # --ignore-user-config: force-skip the user config.yaml (still honor project
     # config as a fallback so defaults stay sensible).
-    ignore_user_config = os.environ.get("HERMES_IGNORE_USER_CONFIG") == "1"
+    ignore_user_config = logos_env("IGNORE_USER_CONFIG") == "1"
 
     # Use user config if it exists, otherwise project config
     if user_config_path.exists() and not ignore_user_config:
@@ -639,7 +640,7 @@ def load_cli_config() -> Dict[str, Any]:
     if isinstance(security_config, dict):
         redact = security_config.get("redact_secrets")
         if redact is not None:
-            os.environ["HERMES_REDACT_SECRETS"] = str(redact).lower()
+            os.environ["LOGOS_REDACT_SECRETS"] = str(redact).lower()
 
     return defaults
 
@@ -1973,6 +1974,7 @@ class LogosCLI:
             resume: Session ID to resume (restores conversation history from SQLite)
             pass_session_id: Include the session ID in the agent's system prompt
         """
+        from logos_constants import logos_env
         # Initialize Rich console
         self.console = Console()
         self.config = CLI_CONFIG
@@ -2067,7 +2069,7 @@ class LogosCLI:
         self.requested_provider = (
             provider
             or CLI_CONFIG["model"].get("provider")
-            or os.getenv("HERMES_INFERENCE_PROVIDER")
+            or logos_env("INFERENCE_PROVIDER")
             or "auto"
         )
         self._provider_source: Optional[str] = None
@@ -2094,8 +2096,8 @@ class LogosCLI:
             self.max_turns = CLI_CONFIG["agent"]["max_turns"]
         elif CLI_CONFIG.get("max_turns"):  # Backwards compat: root-level max_turns
             self.max_turns = CLI_CONFIG["max_turns"]
-        elif os.getenv("HERMES_MAX_ITERATIONS"):
-            self.max_turns = int(os.getenv("HERMES_MAX_ITERATIONS"))
+        elif logos_env("MAX_ITERATIONS"):
+            self.max_turns = int(logos_env("MAX_ITERATIONS"))
         else:
             self.max_turns = 90
         
@@ -2121,11 +2123,11 @@ class LogosCLI:
         # by `logos chat --ignore-rules` in logos_cli/main.py. When true we
         # pass skip_context_files=True and skip_memory=True to AIAgent so
         # AGENTS.md/SOUL.md/.cursorrules and persistent memory are not loaded.
-        self.ignore_rules = ignore_rules or os.environ.get("HERMES_IGNORE_RULES") == "1"
+        self.ignore_rules = ignore_rules or logos_env("IGNORE_RULES") == "1"
         
         # Ephemeral system prompt: env var takes precedence, then config
         self.system_prompt = (
-            os.getenv("HERMES_EPHEMERAL_SYSTEM_PROMPT", "")
+            logos_env("EPHEMERAL_SYSTEM_PROMPT", "")
             or CLI_CONFIG["agent"].get("system_prompt", "")
         )
         self.personalities = CLI_CONFIG["agent"].get("personalities", {})
@@ -4823,6 +4825,7 @@ class LogosCLI:
             pass
 
     def new_session(self, silent=False):
+        from logos_constants import logos_env
         """Start a fresh session with a new session ID and cleared agent state."""
         if self.agent and self.conversation_history:
             # Trigger memory extraction on the old session before session_id rotates.
@@ -4866,7 +4869,7 @@ class LogosCLI:
                 try:
                     self._session_db.create_session(
                         session_id=self.session_id,
-                        source=os.environ.get("HERMES_SESSION_SOURCE", "cli"),
+                        source=logos_env("SESSION_SOURCE", "cli"),
                         model=self.model,
                         model_config={
                             "max_iterations": self.max_turns,
@@ -4982,6 +4985,7 @@ class LogosCLI:
         explore a different approach without losing the original session state.
         Inspired by Claude Code's /branch command.
         """
+        from logos_constants import logos_env
         if not self.conversation_history:
             _cprint("  No conversation to branch — send a message first.")
             return
@@ -5023,7 +5027,7 @@ class LogosCLI:
         try:
             self._session_db.create_session(
                 session_id=new_session_id,
-                source=os.environ.get("HERMES_SESSION_SOURCE", "cli"),
+                source=logos_env("SESSION_SOURCE", "cli"),
                 model=self.model,
                 model_config={
                     "max_iterations": self.max_turns,
@@ -6975,11 +6979,12 @@ class LogosCLI:
         _cprint(labels.get(self.tool_progress_mode, ""))
 
     def _toggle_yolo(self):
+        from logos_constants import logos_env
         """Toggle YOLO mode — skip all dangerous command approval prompts."""
         import os
         from logos_cli.colors import Colors as _Colors
 
-        current = bool(os.environ.get("HERMES_YOLO_MODE"))
+        current = bool(logos_env("YOLO_MODE"))
         if current:
             os.environ.pop("HERMES_YOLO_MODE", None)
             _cprint(
@@ -6987,7 +6992,7 @@ class LogosCLI:
                 " — dangerous commands will require approval."
             )
         else:
-            os.environ["HERMES_YOLO_MODE"] = "1"
+            os.environ["LOGOS_YOLO_MODE"] = "1"
             _cprint(
                 f"  ⚡ YOLO mode {_Colors.BOLD}{_Colors.GREEN}ON{_Colors.RESET}"
                 " — all commands auto-approved. Use with caution."
@@ -9314,6 +9319,7 @@ class LogosCLI:
         # Push the entire TUI to the bottom of the terminal so the banner,
         # responses, and prompt all appear pinned to the bottom — empty
         # space stays above, not below.  This prints enough blank lines to
+        from logos_constants import logos_env
         # scroll the cursor to the last row before any content is rendered.
         try:
             _term_lines = shutil.get_terminal_size().lines
@@ -11062,12 +11068,13 @@ class LogosCLI:
             return from _wait_for_process.  ``time.sleep`` releases the
             GIL so the daemon actually runs during the window.
             """
+            from logos_constants import logos_env
             logger.debug("Received signal %s, triggering graceful shutdown", signum)
             try:
                 if getattr(self, "agent", None) and getattr(self, "_agent_running", False):
                     self.agent.interrupt(f"received signal {signum}")
                     try:
-                        _grace = float(os.getenv("HERMES_SIGTERM_GRACE", "1.5"))
+                        _grace = float(logos_env("SIGTERM_GRACE", "1.5"))
                     except (TypeError, ValueError):
                         _grace = 1.5
                     if _grace > 0:
@@ -11264,7 +11271,7 @@ def main(
 
     # Signal to terminal_tool that we're in interactive mode
     # This enables interactive sudo password prompts with timeout
-    os.environ["HERMES_INTERACTIVE"] = "1"
+    os.environ["LOGOS_INTERACTIVE"] = "1"
     
     # Handle gateway mode (messaging + cron)
     if gateway:
@@ -11393,13 +11400,14 @@ def main(
     # so main unwinds normally.  HERMES_SIGTERM_GRACE overrides the 1.5 s
     # default for debugging.
     def _signal_handler_q(signum, frame):
+        from logos_constants import logos_env
         logger.debug("Received signal %s in single-query mode", signum)
         try:
             _agent = getattr(cli, "agent", None)
             if _agent is not None:
                 _agent.interrupt(f"received signal {signum}")
                 try:
-                    _grace = float(os.getenv("HERMES_SIGTERM_GRACE", "1.5"))
+                    _grace = float(logos_env("SIGTERM_GRACE", "1.5"))
                 except (TypeError, ValueError):
                     _grace = 1.5
                 if _grace > 0:

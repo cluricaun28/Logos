@@ -245,6 +245,7 @@ def _scan_gateway_pids(exclude_pids: set[int], all_profiles: bool = False) -> li
     a live gateway when the PID file is stale/missing, and ``--all`` sweeps can
     discover gateways outside the current profile.
     """
+    from logos_constants import get_logos_home
     pids: list[int] = []
     patterns = [
         "logos_cli.main gateway",
@@ -553,7 +554,7 @@ def get_gateway_runtime_snapshot(system: bool = False) -> GatewayRuntimeSnapshot
             gateway_pids=gateway_pids,
         )
 
-    from logos_constants import is_container
+    from logos_constants import is_container, logos_env
 
     if is_linux() and is_container():
         return GatewayRuntimeSnapshot(
@@ -747,6 +748,7 @@ def _profile_suffix() -> str:
     ``<root>/profiles/<name>``, or a short hash for any other path.
     Works correctly in Docker (HERMES_HOME=/opt/data) and standard deployments.
     """
+    from logos_constants import get_logos_home
     import hashlib
     import re
     from logos_constants import get_logos_root
@@ -778,6 +780,7 @@ def _profile_arg(hermes_home: str | None = None) -> str:
             ``get_logos_home()`` value. Should be passed when generating a
             service definition for a different user (e.g. system service).
     """
+    from logos_constants import get_logos_home
     import re
     from logos_constants import get_logos_root
     home = Path(hermes_home or str(get_logos_home())).resolve()
@@ -1501,6 +1504,7 @@ def _hermes_home_for_target_user(target_home_dir: str) -> str:
     Both the new (``.logos``) and legacy (``.hermes``) default directory
     names are handled so pre-rebrand profile homes remap correctly too.
     """
+    from logos_constants import get_logos_home
     current_hermes = get_logos_home().resolve()
     current_home = Path.home()
     target_home = Path(target_home_dir)
@@ -1520,6 +1524,7 @@ def _hermes_home_for_target_user(target_home_dir: str) -> str:
 
 
 def generate_systemd_unit(system: bool = False, run_as_user: str | None = None) -> str:
+    from logos_constants import get_logos_home
     python_path = get_python_path()
     working_dir = str(PROJECT_ROOT)
     detected_venv = _detect_venv_dir()
@@ -1736,8 +1741,9 @@ def _select_systemd_scope(system: bool = False) -> bool:
 
 
 def _get_restart_drain_timeout() -> float:
+    from logos_constants import logos_env
     """Return the configured gateway restart drain timeout in seconds."""
-    raw = os.getenv("HERMES_RESTART_DRAIN_TIMEOUT", "").strip()
+    raw = logos_env("RESTART_DRAIN_TIMEOUT", "").strip()
     if not raw:
         cfg = read_raw_config()
         agent_cfg = cfg.get("agent", {}) if isinstance(cfg, dict) else {}
@@ -2016,6 +2022,7 @@ def _launchd_domain() -> str:
 
 
 def generate_launchd_plist() -> str:
+    from logos_constants import get_logos_home
     python_path = get_python_path()
     working_dir = str(PROJECT_ROOT)
     hermes_home = str(get_logos_home().resolve())
@@ -2289,6 +2296,7 @@ def launchd_restart():
         print("✓ Service restarted")
 
 def launchd_status(deep: bool = False):
+    from logos_constants import get_logos_home
     plist_path = get_launchd_plist_path()
     label = get_launchd_label()
     try:
