@@ -317,8 +317,10 @@ class MemoryManager:
 
         self._providers.append(provider)
 
-        # Index tool names → provider for routing
-        for schema in provider.get_tool_schemas():
+        # Index tool names → provider for routing. Use the FULL schema set
+        # (core + deferred) so deferred PM tools remain dispatchable once
+        # their schemas are promoted on first call.
+        for schema in provider.get_all_tool_schemas():
             tool_name = schema.get("name", "")
             if tool_name and tool_name not in self._tool_to_provider:
                 self._tool_to_provider[tool_name] = provider
@@ -334,7 +336,7 @@ class MemoryManager:
         logger.info(
             "Memory provider '%s' registered (%d tools)",
             provider.name,
-            len(provider.get_tool_schemas()),
+            len(provider.get_all_tool_schemas()),
         )
 
     @property
@@ -446,7 +448,12 @@ class MemoryManager:
     # -- Tools ---------------------------------------------------------------
 
     def get_all_tool_schemas(self) -> List[Dict[str, Any]]:
-        """Collect tool schemas from all providers."""
+        """Collect the CORE (always-injected) tool schemas from all providers.
+
+        Under selective injection providers return only their core schemas
+        here; deferred schemas are exposed via get_extended_tool_schemas()
+        and promoted on first call.
+        """
         schemas = []
         seen = set()
         for provider in self._providers:
@@ -459,6 +466,33 @@ class MemoryManager:
             except (AttributeError, KeyError, TypeError) as e:
                 logger.warning(
                     "Memory provider '%s' get_tool_schemas() failed: %s",
+                    provider.name, e,
+                )
+        return schemas
+
+    def get_extended_tool_schemas(self) -> List[Dict[str, Any]]:
+        """Deferred (core-excluded) tool schemas across all providers.
+
+        Used by run_agent._promote_deferred_tool() to load a deferred PM
+        tool's schema on first call. These tools are still dispatchable
+        (registered in _tool_to_provider) — they just aren't injected.
+        """
+        injected = {
+            s.get("name") for s in self.get_all_tool_schemas()
+        }
+        schemas = []
+        seen = set()
+        for provider in self._providers:
+            try:
+                for schema in provider.get_all_tool_schemas():
+                    name = schema.get("name", "")
+                    if not name or name in injected or name in seen:
+                        continue
+                    schemas.append(schema)
+                    seen.add(name)
+            except (AttributeError, KeyError, TypeError) as e:
+                logger.warning(
+                    "Memory provider '%s' get_all_tool_schemas() failed: %s",
                     provider.name, e,
                 )
         return schemas

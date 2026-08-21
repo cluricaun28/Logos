@@ -23,6 +23,7 @@ Public API (signatures preserved from the original 2,400-line version):
 import json
 import asyncio
 import logging
+import os
 import threading
 import time
 from typing import Dict, Any, List, Optional, Tuple
@@ -62,7 +63,12 @@ def resolve_profile(profile_name: str) -> list[str]:
     return []
 
 def _get_tool_router():
-    """Lazy-initialized, thread-safe ToolRouter singleton."""
+    """Lazy-initialized, thread-safe ToolRouter singleton.
+
+    Import order: repo copy first (version-controlled, ships with the fork),
+    safe-harbor copy (~/.hermes/plugins/tool_router/) as fallback/override for
+    installations without the in-repo plugin.
+    """
     global _tool_router_instance
     if _tool_router_instance is not None:
         return _tool_router_instance
@@ -72,15 +78,32 @@ def _get_tool_router():
             return _tool_router_instance
         
         try:
-            # Import from safe harbor location
+            # Import from repo location first, then safe harbor
             import sys
-            plugin_dir = str(Path.home() / ".hermes" / "plugins" / "tool_router")
-            if plugin_dir not in sys.path:
-                sys.path.insert(0, plugin_dir)
-            
-            from tool_router import ToolRouter, get_tool_router as _tr_get
-            _tool_router_instance = _tr_get()
-            logger.info("ToolRouter initialized — selective injection active")
+            candidate_dirs = [
+                str(Path(__file__).resolve().parent / "plugins" / "tool_router"),
+                str(Path.home() / ".hermes" / "plugins" / "tool_router"),
+            ]
+            loaded = False
+            for plugin_dir in candidate_dirs:
+                if not os.path.isdir(plugin_dir):
+                    continue
+                if plugin_dir not in sys.path:
+                    sys.path.insert(0, plugin_dir)
+                try:
+                    from tool_router import get_tool_router as _tr_get
+                    _tool_router_instance = _tr_get()
+                    if _tool_router_instance is not None:
+                        logger.info(
+                            "ToolRouter initialized from %s — selective injection active",
+                            plugin_dir,
+                        )
+                        loaded = True
+                        break
+                except ImportError:
+                    continue
+            if not loaded:
+                logger.warning("ToolRouter unavailable in any known location")
         except Exception as e:
             logger.warning("Failed to initialize ToolRouter (selective injection disabled): %s", e)
         
@@ -96,17 +119,24 @@ def get_tool_router():
         return None
 
 
-def get_deferred_tools_index() -> Optional[str]:
+def get_deferred_tools_index(
+    injected_names: set[str] | frozenset[str] | None = None,
+) -> Optional[str]:
     """Get the deferred tools index for system prompt injection.
-    
+
     Returns a formatted markdown string listing all deferred tools with
-    one-line descriptions and RL lookup path, or empty string if ToolRouter unavailable.
+    one-line descriptions and RL lookup path, or empty string if ToolRouter
+    unavailable or nothing is deferred.
+
+    ``injected_names``: tools that already have full schemas injected
+    (e.g. via force_toolsets) — excluded from the index so no tool is
+    listed twice.
     """
     router = _get_tool_router()
     if router is None:
         return ""
     try:
-        return router.get_deferred_index()
+        return router.get_deferred_index(injected_names=injected_names) or ""
     except Exception as e:
         logger.warning("Failed to get deferred tools index: %s", e)
         return ""

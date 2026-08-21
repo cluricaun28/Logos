@@ -401,6 +401,20 @@ class PerpetualContextProvider(MemoryProvider):
     # -- Tools ---------------------------------------------------------------
 
     def get_tool_schemas(self) -> list[dict[str, Any]]:
+        """Core PM tool schemas — injected on every API call.
+
+        Extended PM tools (query_messages, get_messages, smart_retrieve,
+        source_analyze, topic_flow, context_depth) are deferred: they are
+        listed in the system-prompt index and their schemas are promoted
+        on first call. Dispatch registration still covers them via
+        get_all_tool_schemas() below.
+        """
+        return [s for s in _schemas.TOOL_SCHEMAS if s["name"] in _schemas.CORE_TOOL_NAMES]
+
+    def get_all_tool_schemas(self) -> list[dict[str, Any]]:
+        """All PM tool schemas — used for dispatch registration
+        (memory_manager._tool_to_provider) so deferred tools remain
+        callable once promoted."""
         return list(_schemas.TOOL_SCHEMAS)
 
     def handle_tool_call(

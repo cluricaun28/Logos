@@ -126,7 +126,18 @@ class MemoryProvider(ABC):
         {"name": "...", "description": "...", "parameters": {...}}
 
         Return empty list if this provider has no tools (context-only).
+        Under selective injection this is the CORE (always-injected) set;
+        providers with deferred tools override get_all_tool_schemas() for
+        dispatch registration and list the deferred set for promotion.
         """
+
+    def get_all_tool_schemas(self) -> List[Dict[str, Any]]:
+        """All tool schemas this provider exposes (core + deferred).
+
+        Used by MemoryManager for dispatch registration so deferred tools
+        remain callable once promoted. Default: same as get_tool_schemas().
+        """
+        return self.get_tool_schemas()
 
     def handle_tool_call(self, tool_name: str, args: Dict[str, Any], **kwargs) -> str:
         """Handle a tool call for one of this provider's tools.

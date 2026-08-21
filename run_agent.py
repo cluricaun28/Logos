@@ -1526,6 +1526,26 @@ class AIAgent:
         selective_injection_cfg = _agent_cfg.get("selective_injection", True)
         self.selective_injection = str(selective_injection_cfg).lower() in ("true", "1", "yes")
 
+        # Force-included toolsets for selective injection: tools in these
+        # toolsets get full schemas even though they're in the deferred tier.
+        # Default: none (the router's essential/deferred split is the
+        # source of truth). Opt-in per user via config.yaml:
+        #   agent:
+        #     selective_force_toolsets: [browser]
+        # NOTE: do NOT pass enabled_toolsets here — the platform-resolved
+        # enabled set is a meta-level "what's available" list, not an
+        # explicit per-toolset user choice, and force-including it nullifies
+        # the whole selective split (2026-08-21 tool-payload audit).
+        self._selective_force_toolsets: list[str] | None = None
+        try:
+            _si_agent_section = _agent_cfg.get("agent", {})
+            if isinstance(_si_agent_section, dict):
+                _forced = _si_agent_section.get("selective_force_toolsets")
+                if isinstance(_forced, list) and _forced:
+                    self._selective_force_toolsets = [str(t) for t in _forced]
+        except Exception:
+            pass
+
         # Get available tools — selective injection (essential tools only) or full injection
         # Deferred tools are listed in system prompt and looked up from RL when needed
         if self.selective_injection:
@@ -1533,7 +1553,7 @@ class AIAgent:
                 enabled_toolsets=enabled_toolsets,
                 disabled_toolsets=disabled_toolsets,
                 quiet_mode=self.quiet_mode,
-                force_essential=enabled_toolsets,
+                force_essential=self._selective_force_toolsets,
             )
         else:
             self.tools = get_tool_definitions(
@@ -4813,9 +4833,12 @@ class AIAgent:
         # Deferred tools index — compact listing of non-essential tools
         # that require RL lookup before use. Injected after skills so the
         # model sees both indexes together. Only injected when selective injection is enabled.
+        # Pass the injected set so force-included tools aren't double-listed.
         if self.selective_injection:
             try:
-                deferred_index = get_deferred_tools_index()
+                deferred_index = get_deferred_tools_index(
+                    injected_names=self.valid_tool_names,
+                )
                 if deferred_index:
                     prompt_parts.append(deferred_index)
             except (AttributeError, TypeError) as e:
@@ -5167,6 +5190,62 @@ class AIAgent:
             else:
                 logger.warning("Removed duplicate tool call: %s", tc.function.name)
         return unique if len(unique) < len(tool_calls) else tool_calls
+
+    def _promote_deferred_tool(self, tool_name: str) -> bool:
+        """Promote a deferred (un-injected) tool into the active tool set.
+
+        Selective injection only puts essential tool schemas in the API
+        `tools` array; deferred tools are listed in the system-prompt index
+        and must be promoted before the model can call them. This method
+        performs that promotion at dispatch time: if the tool is registered
+        and currently available (its check_fn passes), its schema is
+        appended to self.tools and the name added to valid_tool_names so
+        the in-flight call proceeds and later calls need no promotion.
+
+        Returns True if the tool was promoted (or was already present).
+        Returns False for unregistered/unavailable tools so the caller
+        falls through to the normal "unknown tool" self-correction path.
+        """
+        if not self.tools:
+            return False
+        try:
+            from tools.registry import registry
+            defs = registry.get_definitions({tool_name}, quiet=True)
+            if not defs:
+                # Memory-provider tools (PM/RL extended suite) dispatch via
+                # memory_manager, not the registry — fall back to the
+                # deferred provider schemas.
+                if self._memory_manager is not None:
+                    try:
+                        for schema in self._memory_manager.get_extended_tool_schemas():
+                            if schema.get("name") == tool_name:
+                                existing = {
+                                    t.get("function", {}).get("name")
+                                    for t in self.tools
+                                    if isinstance(t, dict)
+                                }
+                                if tool_name not in existing:
+                                    self.tools.append(
+                                        {"type": "function", "function": schema}
+                                    )
+                                self.valid_tool_names.add(tool_name)
+                                return True
+                    except Exception:
+                        pass
+                return False
+            schema = defs[0]
+            existing = {
+                t.get("function", {}).get("name")
+                for t in self.tools
+                if isinstance(t, dict)
+            }
+            if tool_name not in existing:
+                self.tools.append(schema)
+            self.valid_tool_names.add(tool_name)
+            return True
+        except Exception as e:
+            logger.debug("Deferred promotion failed for '%s': %s", tool_name, e)
+            return False
 
     def _repair_tool_call(self, tool_name: str) -> str | None:
         """Attempt to repair a mismatched tool name before aborting.
@@ -12792,6 +12871,21 @@ class AIAgent:
                             if repaired:
                                 print(f"{self.log_prefix}🔧 Auto-repaired tool name: '{tc.function.name}' -> '{repaired}'")
                                 tc.function.name = repaired
+                    # Deferred-tier promotion (selective injection): if the
+                    # model calls a tool that is registered + available but
+                    # whose schema wasn't injected (deferred tier), add the
+                    # schema to the active set and let the call proceed.
+                    # Idempotent — subsequent calls find the tool already
+                    # in valid_tool_names.
+                    if self.selective_injection:
+                        for tc in assistant_message.tool_calls:
+                            if tc.function.name not in self.valid_tool_names:
+                                if self._promote_deferred_tool(tc.function.name):
+                                    self._vprint(
+                                        f"{self.log_prefix}📥 Promoted deferred tool "
+                                        f"'{tc.function.name}' into active tool set",
+                                        force=True,
+                                    )
                     invalid_tool_calls = [
                         tc.function.name for tc in assistant_message.tool_calls
                         if tc.function.name not in self.valid_tool_names

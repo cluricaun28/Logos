@@ -529,6 +529,20 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     SOURCE_ANALYZE_SCHEMA,
 ]
 
+# Selective-injection tier (2026-08-21 tool-payload audit).
+# Core PM tools keep full schemas injected on every call. The extended
+# tools are deferred: listed in the system-prompt index, schema promoted
+# on first call (run_agent._promote_deferred_tool + memory_manager
+# .get_extended_tool_schemas fallback).
+#
+# Must stay in sync with PM_CORE_TOOLS in plugins/tool_router/tool_router.py.
+CORE_TOOL_NAMES: set[str] = {
+    "perpetual_search",
+    "reference_library_search",
+    "session_search",
+    "recent_messages",
+}
+
 __all__ = [
     "PERPETUAL_SEARCH_SCHEMA",
     "TOPIC_FLOW_SCHEMA",
@@ -541,4 +555,5 @@ __all__ = [
     "SESSION_SEARCH_SCHEMA",
     "SOURCE_ANALYZE_SCHEMA",
     "TOOL_SCHEMAS",
+    "CORE_TOOL_NAMES",
 ]
