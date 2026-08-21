@@ -90,13 +90,13 @@ cd logos
 # Install in development mode
 pip install -e ".[dev]"
 
-# Run Hermes setup to configure model, gateway, and plugins
-hermes setup
+# Run Logos setup to configure model, gateway, and plugins
+logos setup
 ```
 
 ### Step 2: Enable Perpetual Memory Plugin
 
-Add to your `~/.hermes/config.yaml`:
+Add to your `~/.logos/config.yaml` (pre-rebrand `~/.hermes` homes still work — the resolver falls back to it when `~/.logos` doesn't exist):
 
 ```yaml
 plugins:
@@ -104,7 +104,7 @@ plugins:
     - perpetual_context
 ```
 
-The plugin initializes the SQLite database (`~/.hermes/perpetual_context.db`) on first run. No manual DB creation needed.
+The plugin initializes the SQLite database (`~/.logos/perpetual_context.db`) on first run. No manual DB creation needed.
 
 ### Step 3: Set Up Your Persona (SOUL.md)
 
@@ -113,10 +113,10 @@ The plugin initializes the SQLite database (`~/.hermes/perpetual_context.db`) on
 Copy the template and customize it:
 
 ```bash
-cp extras/soul-template.md ~/.hermes/SOUL.md
+cp extras/soul-template.md ~/.logos/SOUL.md
 ```
 
-Then edit `~/.hermes/SOUL.md`:
+Then edit `~/.logos/SOUL.md`:
 1. Replace all `[YOUR NAME]` with your actual name
 2. Customize the **Worldview Baseline** section with your values and beliefs
 3. Customize the **Tone & Style** section with your preferred communication style
@@ -130,12 +130,12 @@ The Reference Library is your agent's curated knowledge base. Start with the tem
 
 ```bash
 # Copy the template to create your reference library skeleton
-cp -r extras/reference-library-template ~/.hermes/reference-library
+cp -r extras/reference-library-template ~/.logos/reference-library
 ```
 
 This creates:
 ```
-~/.hermes/reference-library/
+~/.logos/reference-library/
 ├── index.md              ← Master index (update as you add entries)
 ├── topics/               ← System docs, workflows, research
 │   └── context-window-management.md  ← Example entry
@@ -151,7 +151,7 @@ This creates:
 
 ### Step 5: Understand Skills On-Demand Loading
 
-Skills are reusable procedures stored in `~/.hermes/skills/`. They load on demand — only when relevant to your current task. This keeps the context window lean.
+Skills are reusable procedures stored in `~/.logos/skills/`. They load on demand — only when relevant to your current task. This keeps the context window lean.
 
 The template shows the structure:
 ```
@@ -177,8 +177,8 @@ For web search with source extraction (SearXNG + Firecrawl), see [`extras/deep-r
 
 ### Starting a Session
 ```bash
-hermes gateway start    # Start the agent gateway
-hermes                  # Open interactive session
+logos gateway start    # Start the agent gateway
+logos                  # Open interactive session
 ```
 
 The agent will:
@@ -230,24 +230,24 @@ Other projects (OpenClaw, Claude Code, Codex) may also yield useful patterns. Th
 Your data lives in three places:
 ```bash
 # Perpetual Memory database (conversation history)
-~/.hermes/perpetual_context.db
+~/.logos/perpetual_context.db
 
 # Reference Library (curated knowledge)
-~/.hermes/reference-library/
+~/.logos/reference-library/
 
 # Skills (reusable procedures)
-~/.hermes/skills/
+~/.logos/skills/
 ```
 
 Back them up regularly:
 ```bash
 # Quick backup script
-tar czf hermes-data-$(date +%Y%m%d).tar.gz \
-  ~/.hermes/perpetual_context.db \
-  ~/.hermes/reference-library/ \
-  ~/.hermes/skills/ \
-  ~/.hermes/SOUL.md \
-  ~/.hermes/config.yaml
+tar czf logos-data-$(date +%Y%m%d).tar.gz \
+  ~/.logos/perpetual_context.db \
+  ~/.logos/reference-library/ \
+  ~/.logos/skills/ \
+  ~/.logos/SOUL.md \
+  ~/.logos/config.yaml
 ```
 
 ### Troubleshooting
@@ -267,7 +267,7 @@ tar czf hermes-data-$(date +%Y%m%d).tar.gz \
 ## What's Not Here (By Design)
 
 This project does **not** include:
-- Personal data, tokens, or credentials — those live in your local `~/.hermes/` directory
+- Personal data, tokens, or credentials — those live in your local `~/.logos/` directory
 - Reference library content — starts as a template, grows through use (including `sources/` dossiers created by `source_analyze`)
 - Skill definitions — starts with examples, grows as you solve problems
 - SQLite database files — created on first run, persists locally
