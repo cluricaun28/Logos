@@ -47,6 +47,9 @@ class _FakeOpenAI:
 
 def _make_agent(monkeypatch, provider, api_mode="chat_completions", base_url="https://openrouter.ai/api/v1", model=None):
     monkeypatch.setattr("run_agent.get_tool_definitions", lambda **kw: _tool_defs("web_search", "terminal"))
+    # Selective injection (default on) sources self.tools from a different
+    # entry point — patch it too so the fake tool list applies to both paths.
+    monkeypatch.setattr("run_agent.get_selective_tool_definitions", lambda **kw: _tool_defs("web_search", "terminal"))
     monkeypatch.setattr("run_agent.check_toolset_requirements", lambda: {})
     monkeypatch.setattr("run_agent.OpenAI", _FakeOpenAI)
     kwargs = dict(

@@ -207,7 +207,7 @@ class TestDetectOpenclawResidue:
 class TestOpenclawResidueHint:
     def test_hint_mentions_cleanup_command(self):
         msg = openclaw_residue_hint_cli()
-        assert "hermes claw cleanup" in msg
+        assert "logos claw cleanup" in msg
         assert "~/.openclaw" in msg
 
     def test_hint_not_empty(self):
