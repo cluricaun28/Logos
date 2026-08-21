@@ -1,8 +1,8 @@
 """
 Cron job storage and management.
 
-Jobs are stored in ~/.hermes/cron/jobs.json
-Output is saved to ~/.hermes/cron/output/{job_id}/{timestamp}.md
+Jobs are stored in ~/.logos/cron/jobs.json
+Output is saved to ~/.logos/cron/output/{job_id}/{timestamp}.md
 """
 from __future__ import annotations
 
@@ -316,7 +316,7 @@ def compute_next_run(schedule: Dict[str, Any], last_run_at: Optional[str] = None
             logger.warning(
                 "Cannot compute next run for cron schedule %r: 'croniter' "
                 "is not installed. Install the 'cron' extra (pip install "
-                "'hermes-agent[cron]') to re-enable recurring cron jobs.",
+                "'logos[cron]') to re-enable recurring cron jobs.",
                 schedule.get("expr"),
             )
             return None
@@ -451,7 +451,7 @@ def create_job(
                 delivered verbatim. Without ``no_agent``, its stdout is
                 injected into the agent's prompt as context (data-collection /
                 change-detection pattern). Paths resolve under
-                ~/.hermes/scripts/; ``.sh`` / ``.bash`` files run via bash,
+                ~/.logos/scripts/; ``.sh`` / ``.bash`` files run via bash,
                 anything else via Python.
         context_from: Optional job ID (or list of job IDs) whose most recent output
                       is injected into the prompt as context before each run.

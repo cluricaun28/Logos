@@ -1033,10 +1033,10 @@ class GatewayRunner:
     # -- Setup skill availability ----------------------------------------
 
     def _has_setup_skill(self) -> bool:
-        """Check if the hermes-agent-setup skill is installed."""
+        """Check if the logos skill is installed."""
         try:
             from tools.skill_manager_tool import _find_skill
-            return _find_skill("hermes-agent-setup") is not None
+            return _find_skill("logos") is not None
         except (ImportError, ModuleNotFoundError):
             return False
 
@@ -4340,7 +4340,7 @@ class GatewayRunner:
                                 "then /restart the gateway."
                             )
                             if self._has_setup_skill():
-                                _stt_msg += "\n\nFor full setup instructions, type: `/skill hermes-agent-setup`"
+                                _stt_msg += "\n\nFor full setup instructions, type: `/skill logos`"
                             await _stt_adapter.send(
                                 source.chat_id,
                                 _stt_msg,
@@ -8760,7 +8760,7 @@ class GatewayRunner:
             disabled_note = "[The user sent voice message(s), but transcription is disabled in config."
             if self._has_setup_skill():
                 disabled_note += (
-                    " You have a skill called hermes-agent-setup that can help "
+                    " You have a skill called logos that can help "
                     "users configure Logos features including voice, tools, and more."
                 )
             disabled_note += "]"
@@ -8795,7 +8795,7 @@ class GatewayRunner:
                         )
                         if self._has_setup_skill():
                             _no_stt_note += (
-                                " You have a skill called hermes-agent-setup "
+                                " You have a skill called logos "
                                 "that can help users configure Logos features "
                                 "including voice, tools, and more."
                             )

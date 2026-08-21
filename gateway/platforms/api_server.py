@@ -693,7 +693,7 @@ class APIServerAdapter(BasePlatformAdapter):
     def _ensure_session_db(self):
         """Lazily initialise and return the shared SessionDB instance.
 
-        Sessions are persisted to ``state.db`` so that ``hermes sessions list``
+        Sessions are persisted to ``state.db`` so that ``logos sessions list``
         shows API-server conversations alongside CLI and gateway ones.
         """
         if self._session_db is None:
