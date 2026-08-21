@@ -6,7 +6,7 @@
 # Uses uv for desktop/server setup and Python's stdlib venv + pip on Termux.
 #
 # Usage:
-#   ./setup-hermes.sh
+#   ./setup-logos.sh
 #
 # This script:
 # 1. Detects desktop/server vs Android/Termux setup path

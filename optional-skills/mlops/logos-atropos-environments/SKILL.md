@@ -1,6 +1,6 @@
 ---
-name: hermes-atropos-environments
-description: Build, test, and debug Hermes Agent RL environments for Atropos training. Covers the HermesAgentBaseEnv interface, reward functions, agent loop integration, evaluation with tools, wandb logging, and the three CLI modes (serve/process/evaluate). Use when creating, reviewing, or fixing RL environments in the hermes-agent repo.
+name: logos-atropos-environments
+description: Build, test, and debug Logos RL environments for Atropos training. Covers the HermesAgentBaseEnv interface, reward functions, agent loop integration, evaluation with tools, wandb logging, and the three CLI modes (serve/process/evaluate). Use when creating, reviewing, or fixing RL environments in the logos repo.
 version: 1.1.0
 author: Hermes Agent
 license: MIT

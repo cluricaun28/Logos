@@ -1,14 +1,17 @@
-"""Tests for the top-level `./hermes` launcher script."""
+"""Tests for the top-level ``./logos`` and legacy ``./hermes`` launcher scripts."""
 
 import runpy
 import sys
 import types
 from pathlib import Path
 
+import pytest
 
-def test_launcher_delegates_to_argparse_entrypoint(monkeypatch):
-    """`./hermes` should use `logos_cli.main`, not the legacy Fire wrapper."""
-    launcher_path = Path(__file__).resolve().parents[2] / "hermes"
+
+@pytest.mark.parametrize("launcher_name", ["logos", "hermes"])
+def test_launcher_delegates_to_argparse_entrypoint(monkeypatch, launcher_name):
+    """Each launcher should use `logos_cli.main`, not the legacy Fire wrapper."""
+    launcher_path = Path(__file__).resolve().parents[2] / launcher_name
     called = []
 
     fake_main_module = types.ModuleType("logos_cli.main")

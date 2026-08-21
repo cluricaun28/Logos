@@ -90,7 +90,7 @@ _BUNDLED_MODEL_ALIASES = frozenset({"", "hey_logos", "hey logos", "hermes"})
 
 
 def _bundled_wakeword_path(framework: str = "onnx") -> str:
-    """Path to the shipped hey_hermes model (.onnx/.tflite) for ``framework``."""
+    """Path to the shipped hey_logos model (.onnx/.tflite) for ``framework``."""
     ext = "tflite" if str(framework).strip().lower() == "tflite" else "onnx"
     return os.path.join(os.path.dirname(__file__), "wakewords", f"{_BUNDLED_MODEL_NAME}.{ext}")
 
