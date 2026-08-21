@@ -823,7 +823,7 @@ def test_cron_store_is_archived_without_config_cron_section(tmp_path: Path):
     assert Path(archived_store["destination"]).joinpath("jobs.json").exists()
 
     notes_text = (output_dir / "MIGRATION_NOTES.md").read_text(encoding="utf-8")
-    assert "Run `hermes cron` to recreate scheduled tasks" in notes_text
+    assert "Run `logos cron` to recreate scheduled tasks" in notes_text
     assert "archive/cron-config.json" not in notes_text
 
 
@@ -862,19 +862,19 @@ def test_rebrand_text_replaces_openclaw_variants():
     assert mod.rebrand_text("I told Open Claw to use dark mode") == "I told Logos to use dark mode"
     assert mod.rebrand_text("Open-Claw config is great") == "Logos config is great"
     assert mod.rebrand_text("OPENCLAW uses tools well") == "Logos uses tools well"
-    # All-lowercase matches → lowercase ``hermes``; this preserves the
-    # real filesystem path ``~/.hermes`` (Logos home) when rebranding
+    # All-lowercase matches → lowercase ``logos``; this preserves the
+    # real filesystem path ``~/.logos`` (Logos home) when rebranding
     # memory entries that reference ``~/.openclaw`` or ``openclaw`` prose.
-    assert mod.rebrand_text("openclaw should always respond concisely") == "hermes should always respond concisely"
+    assert mod.rebrand_text("openclaw should always respond concisely") == "logos should always respond concisely"
 
 
 def test_rebrand_text_replaces_legacy_bot_names():
     mod = load_module()
     # Same case-preservation rule as above.
     assert mod.rebrand_text("ClawdBot remembers my timezone") == "Logos remembers my timezone"
-    assert mod.rebrand_text("clawdbot prefers tabs") == "hermes prefers tabs"
+    assert mod.rebrand_text("clawdbot prefers tabs") == "logos prefers tabs"
     assert mod.rebrand_text("MoltBot was configured for Spanish") == "Logos was configured for Spanish"
-    assert mod.rebrand_text("moltbot uses Python") == "hermes uses Python"
+    assert mod.rebrand_text("moltbot uses Python") == "logos uses Python"
 
 
 def test_rebrand_text_preserves_unrelated_content():
@@ -891,7 +891,7 @@ def test_rebrand_text_handles_multiple_replacements():
 
 def test_rebrand_text_preserves_filesystem_path_casing():
     """Lowercase matches — especially ``.openclaw`` filesystem paths — must
-    rewrite to lowercase ``.hermes`` (the real Logos home), not the broken
+    rewrite to lowercase ``.logos`` (the real Logos home), not the broken
     ``.Logos``.
 
     Regression test for @versun's OpenClaw-residue feedback: after migration,
@@ -901,12 +901,12 @@ def test_rebrand_text_preserves_filesystem_path_casing():
     """
     mod = load_module()
     assert mod.rebrand_text("config is at ~/.openclaw/config.yaml") == \
-        "config is at ~/.hermes/config.yaml"
-    assert mod.rebrand_text("use .openclaw directory") == "use .hermes directory"
-    assert mod.rebrand_text("Path.home() / '.openclaw'") == "Path.home() / '.hermes'"
+        "config is at ~/.logos/config.yaml"
+    assert mod.rebrand_text("use .openclaw directory") == "use .logos directory"
+    assert mod.rebrand_text("Path.home() / '.openclaw'") == "Path.home() / '.logos'"
     # Sentence with both lowercase path and capitalized prose.
     assert mod.rebrand_text("openclaw config path: ~/.openclaw/") == \
-        "hermes config path: ~/.hermes/"
+        "logos config path: ~/.logos/"
 
 
 def test_migrate_memory_rebrands_entries(tmp_path):

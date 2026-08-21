@@ -259,11 +259,11 @@ class TestExchangeAuthCode:
 
 
 class TestHermesConstantsFallback:
-    """Tests for _hermes_home.py fallback when logos_constants is unavailable."""
+    """Tests for _logos_home.py fallback when logos_constants is unavailable."""
 
     HELPER_PATH = (
         Path(__file__).resolve().parents[2]
-        / "skills/productivity/google-workspace/scripts/_hermes_home.py"
+        / "skills/productivity/google-workspace/scripts/_logos_home.py"
     )
 
     def _load_helper(self, monkeypatch):
