@@ -997,10 +997,22 @@ class TestHermesHomeIsolation:
         assert "hermes_test" in hermes_home, "Should point to test temp dir"
 
     def test_get_hermes_home_fallback(self):
-        """Without HERMES_HOME set, falls back to ~/.hermes."""
+        """Without env vars, an existing ~/.hermes home is kept (legacy)."""
         from tools.tirith_security import _get_logos_home
-        with patch.dict(os.environ, {}, clear=True):
-            # Remove HERMES_HOME entirely
-            os.environ.pop("HERMES_HOME", None)
-            result = _get_logos_home()
-        assert result == os.path.join(os.path.expanduser("~"), ".hermes")
+        import tempfile
+        # Pin HOME to a tempdir so resolution is deterministic (clear=True
+        # alone wipes HOME and makes ~ env-dependent).
+        with tempfile.TemporaryDirectory() as tmp_home:
+            os.makedirs(os.path.join(tmp_home, ".hermes"))
+            with patch.dict(os.environ, {"HOME": tmp_home}, clear=True):
+                result = _get_logos_home()
+            assert result == os.path.join(tmp_home, ".hermes")
+
+    def test_get_logos_home_new_install_default(self):
+        """Without env vars and no existing home, defaults to ~/.logos."""
+        from tools.tirith_security import _get_logos_home
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp_home:
+            with patch.dict(os.environ, {"HOME": tmp_home}, clear=True):
+                result = _get_logos_home()
+            assert result == os.path.join(tmp_home, ".logos")

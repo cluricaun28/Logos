@@ -26,8 +26,9 @@ def get_logos_home() -> Path:
     Resolution order:
     1. ``$LOGOS_HOME`` env var
     2. ``$HERMES_HOME`` env var (legacy, still honored)
-    3. ``~/.logos`` if it exists (new-install default)
-    4. ``~/.hermes`` (legacy fallback)
+    3. ``~/.hermes`` if it already exists on disk (legacy home — kept
+       working with zero migration)
+    4. ``~/.logos`` (new-install default)
 
     This is the single source of truth — all other copies should import this.
     """

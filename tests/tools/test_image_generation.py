@@ -443,7 +443,7 @@ class TestManagedGatewayErrorTranslation:
         assert "fal-ai/nano-banana-pro" in msg
         assert "403" in msg
         assert "FAL_KEY" in msg
-        assert "hermes tools" in msg
+        assert "logos tools" in msg
         # Original exception chained for debugging
         assert exc_info.value.__cause__ is bad_request
 
