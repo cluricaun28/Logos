@@ -355,7 +355,7 @@ class TestHealthEndpoint:
             assert resp.status == 200
             data = await resp.json()
             assert data["status"] == "ok"
-            assert data["platform"] == "hermes-agent"
+            assert data["platform"] == "logos-agent"
 
     @pytest.mark.asyncio
     async def test_v1_health_alias_returns_ok(self, adapter):
@@ -366,7 +366,7 @@ class TestHealthEndpoint:
             assert resp.status == 200
             data = await resp.json()
             assert data["status"] == "ok"
-            assert data["platform"] == "hermes-agent"
+            assert data["platform"] == "logos-agent"
 
 
 # ---------------------------------------------------------------------------
@@ -391,7 +391,7 @@ class TestHealthDetailedEndpoint:
                 assert resp.status == 200
                 data = await resp.json()
                 assert data["status"] == "ok"
-                assert data["platform"] == "hermes-agent"
+                assert data["platform"] == "logos-agent"
                 assert data["gateway_state"] == "running"
                 assert data["platforms"] == {"telegram": {"state": "connected"}}
                 assert data["active_agents"] == 2
@@ -428,20 +428,39 @@ class TestHealthDetailedEndpoint:
 
 class TestModelsEndpoint:
     @pytest.mark.asyncio
-    async def test_models_returns_hermes_agent(self, adapter):
+    async def test_models_advertises_primary_and_legacy_alias(self, adapter):
+        """Default profile: /v1/models advertises 'logos-agent' plus the legacy
+        'hermes-agent' alias (pre-rebrand clients may be pinned to the old name)."""
         app = _create_app(adapter)
         async with TestClient(TestServer(app)) as cli:
             resp = await cli.get("/v1/models")
             assert resp.status == 200
             data = await resp.json()
             assert data["object"] == "list"
+            assert len(data["data"]) == 2
+            assert data["data"][0]["id"] == "logos-agent"
+            assert data["data"][0]["owned_by"] == "logos"
+            assert data["data"][1]["id"] == "hermes-agent"
+            assert data["data"][1]["root"] == "logos-agent"
+
+    @pytest.mark.asyncio
+    async def test_models_advertises_single_model_when_primary_is_legacy(self, adapter):
+        """When the primary name IS 'hermes-agent' (explicitly configured), the
+        alias must not be duplicated in the list."""
+        with patch("gateway.platforms.api_server.APIServerAdapter._resolve_model_name", return_value="hermes-agent"):
+            adapter = _make_adapter()
+        app = _create_app(adapter)
+        async with TestClient(TestServer(app)) as cli:
+            resp = await cli.get("/v1/models")
+            assert resp.status == 200
+            data = await resp.json()
             assert len(data["data"]) == 1
             assert data["data"][0]["id"] == "hermes-agent"
-            assert data["data"][0]["owned_by"] == "hermes"
 
     @pytest.mark.asyncio
     async def test_models_returns_profile_name(self):
-        """When running under a named profile, /v1/models advertises the profile name."""
+        """When running under a named profile, /v1/models advertises the profile
+        name (plus the legacy 'hermes-agent' alias)."""
         with patch("gateway.platforms.api_server.APIServerAdapter._resolve_model_name", return_value="lucas"):
             adapter = _make_adapter()
         app = _create_app(adapter)
@@ -451,6 +470,8 @@ class TestModelsEndpoint:
             data = await resp.json()
             assert data["data"][0]["id"] == "lucas"
             assert data["data"][0]["root"] == "lucas"
+            ids = [m["id"] for m in data["data"]]
+            assert "hermes-agent" in ids
 
     @pytest.mark.asyncio
     async def test_models_returns_explicit_model_name(self):
@@ -464,9 +485,9 @@ class TestModelsEndpoint:
         assert APIServerAdapter._resolve_model_name("my-bot") == "my-bot"
 
     def test_resolve_model_name_default_profile(self):
-        """Default profile falls back to 'hermes-agent'."""
+        """Default profile falls back to 'logos-agent'."""
         with patch("logos_cli.profiles.get_active_profile_name", return_value="default"):
-            assert APIServerAdapter._resolve_model_name("") == "hermes-agent"
+            assert APIServerAdapter._resolve_model_name("") == "logos-agent"
 
     def test_resolve_model_name_named_profile(self):
         """Named profile uses the profile name as model name."""
@@ -2216,6 +2237,28 @@ class TestConversationParameter:
 
 
 class TestSessionIdHeader:
+    @pytest.mark.asyncio
+    async def test_logos_session_id_header_honored(self, auth_adapter):
+        """X-Logos-Session-Id (new primary spelling) is honored and both
+        spellings are echoed back in the response."""
+        mock_result = {"final_response": "Continuing!", "messages": [], "api_calls": 1}
+        mock_db = MagicMock()
+        mock_db.get_messages_as_conversation.return_value = []
+        auth_adapter._session_db = mock_db
+        app = _create_app(auth_adapter)
+        async with TestClient(TestServer(app)) as cli:
+            with patch.object(auth_adapter, "_run_agent", new_callable=AsyncMock) as mock_run:
+                mock_run.return_value = (mock_result, {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0})
+                resp = await cli.post(
+                    "/v1/chat/completions",
+                    headers={"X-Logos-Session-Id": "logos-session-1", "Authorization": "Bearer sk-secret"},
+                    json={"model": "logos-agent", "messages": [{"role": "user", "content": "Continue"}]},
+                )
+            assert resp.status == 200
+            assert resp.headers.get("X-Logos-Session-Id") == "logos-session-1"
+            assert resp.headers.get("X-Hermes-Session-Id") == "logos-session-1"
+            assert mock_run.call_args.kwargs["session_id"] == "logos-session-1"
+
     @pytest.mark.asyncio
     async def test_new_session_response_includes_session_id_header(self, adapter):
         """Without X-Hermes-Session-Id, a new session is created and returned in the header."""

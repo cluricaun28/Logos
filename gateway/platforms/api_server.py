@@ -2,11 +2,11 @@
 OpenAI-compatible API server platform adapter.
 
 Exposes an HTTP server with endpoints:
-- POST /v1/chat/completions        — OpenAI Chat Completions format (stateless; opt-in session continuity via X-Hermes-Session-Id header)
+- POST /v1/chat/completions        — OpenAI Chat Completions format (stateless; opt-in session continuity via X-Logos-Session-Id header; legacy X-Hermes-Session-Id still honored)
 - POST /v1/responses               — OpenAI Responses API format (stateful via previous_response_id)
 - GET  /v1/responses/{response_id} — Retrieve a stored response
 - DELETE /v1/responses/{response_id} — Delete a stored response
-- GET  /v1/models                  — lists hermes-agent as an available model
+- GET  /v1/models                  — lists the advertised model plus the legacy hermes-agent alias
 - POST /v1/runs                    — start a run, returns run_id immediately (202)
 - GET  /v1/runs/{run_id}/events    — SSE stream of structured lifecycle events
 - POST /v1/runs/{run_id}/stop    — interrupt a running agent
@@ -14,7 +14,7 @@ Exposes an HTTP server with endpoints:
 - GET  /health/detailed            — rich status for cross-container dashboard probing
 
 Any OpenAI-compatible frontend (Open WebUI, LobeChat, LibreChat,
-AnythingLLM, NextChat, ChatBox, etc.) can connect to hermes-agent
+AnythingLLM, NextChat, ChatBox, etc.) can connect to the Logos agent
 through this adapter by pointing at http://localhost:8642/v1.
 
 Requires:
@@ -567,7 +567,7 @@ class APIServerAdapter(BasePlatformAdapter):
     OpenAI-compatible HTTP API server adapter.
 
     Runs an aiohttp web server that accepts OpenAI-format requests
-    and routes them through hermes-agent's AIAgent.
+    and routes them through the Logos AIAgent.
     """
 
     def __init__(self, config: PlatformConfig):
@@ -617,7 +617,7 @@ class APIServerAdapter(BasePlatformAdapter):
         Priority:
         1. Explicit override (config extra or API_SERVER_MODEL_NAME env var)
         2. Active profile name (so each profile advertises a distinct model)
-        3. Fallback: "hermes-agent"
+        3. Fallback: "logos-agent"
         """
         if explicit and explicit.strip():
             return explicit.strip()
@@ -628,7 +628,7 @@ class APIServerAdapter(BasePlatformAdapter):
                 return profile
         except (ImportError, ModuleNotFoundError):
             pass
-        return "hermes-agent"
+        return "logos-agent"
 
     def _cors_headers_for_origin(self, origin: str) -> Optional[Dict[str, str]]:
         """Return CORS headers for an allowed browser origin."""
@@ -770,7 +770,7 @@ class APIServerAdapter(BasePlatformAdapter):
 
     async def _handle_health(self, request: "web.Request") -> "web.Response":
         """GET /health — simple health check."""
-        return web.json_response({"status": "ok", "platform": "hermes-agent"})
+        return web.json_response({"status": "ok", "platform": "logos-agent"})
 
     async def _handle_health_detailed(self, request: "web.Request") -> "web.Response":
         """GET /health/detailed — rich status for cross-container dashboard probing.
@@ -784,7 +784,7 @@ class APIServerAdapter(BasePlatformAdapter):
         runtime = read_runtime_status() or {}
         return web.json_response({
             "status": "ok",
-            "platform": "hermes-agent",
+            "platform": "logos-agent",
             "gateway_state": runtime.get("gateway_state"),
             "platforms": runtime.get("platforms", {}),
             "active_agents": runtime.get("active_agents", 0),
@@ -794,24 +794,30 @@ class APIServerAdapter(BasePlatformAdapter):
         })
 
     async def _handle_models(self, request: "web.Request") -> "web.Response":
-        """GET /v1/models — return hermes-agent as an available model."""
+        """GET /v1/models — return the advertised model plus the legacy
+        hermes-agent alias (external clients may be pinned to the old name;
+        routing accepts any model string and echoes it back)."""
         auth_err = self._check_auth(request)
         if auth_err:
             return auth_err
 
+        model_ids = [self._model_name]
+        if "hermes-agent" not in model_ids:
+            model_ids.append("hermes-agent")
+        data = []
+        for model_id in model_ids:
+            data.append({
+                "id": model_id,
+                "object": "model",
+                "created": int(time.time()),
+                "owned_by": "logos",
+                "permission": [],
+                "root": self._model_name,
+                "parent": None,
+            })
         return web.json_response({
             "object": "list",
-            "data": [
-                {
-                    "id": self._model_name,
-                    "object": "model",
-                    "created": int(time.time()),
-                    "owned_by": "hermes",
-                    "permission": [],
-                    "root": self._model_name,
-                    "parent": None,
-                }
-            ],
+            "data": data,
         })
 
     async def _handle_chat_completions(self, request: "web.Request") -> "web.Response":
@@ -870,18 +876,23 @@ class APIServerAdapter(BasePlatformAdapter):
                 status=400,
             )
 
-        # Allow caller to continue an existing session by passing X-Hermes-Session-Id.
-        # When provided, history is loaded from state.db instead of from the request body.
+        # Allow caller to continue an existing session by passing X-Logos-Session-Id
+        # (the legacy X-Hermes-Session-Id header is still honored for pre-rebrand
+        # clients).  When provided, history is loaded from state.db instead of
+        # from the request body.
         #
         # Security: session continuation exposes conversation history, so it is
         # only allowed when the API key is configured and the request is
         # authenticated.  Without this gate, any unauthenticated client could
         # read arbitrary session history by guessing/enumerating session IDs.
-        provided_session_id = request.headers.get("X-Hermes-Session-Id", "").strip()
+        provided_session_id = (
+            request.headers.get("X-Logos-Session-Id", "").strip()
+            or request.headers.get("X-Hermes-Session-Id", "").strip()
+        )
         if provided_session_id:
             if not self._api_key:
                 logger.warning(
-                    "Session continuation via X-Hermes-Session-Id rejected: "
+                    "Session continuation via X-Logos-Session-Id rejected: "
                     "no API key configured.  Set API_SERVER_KEY to enable "
                     "session continuity."
                 )
@@ -1046,7 +1057,12 @@ class APIServerAdapter(BasePlatformAdapter):
             },
         }
 
-        return web.json_response(response_data, headers={"X-Hermes-Session-Id": session_id})
+        # Advertise both header spellings: legacy X-Hermes-Session-Id for
+        # pre-rebrand clients, X-Logos-Session-Id for the new primary.
+        return web.json_response(response_data, headers={
+            "X-Logos-Session-Id": session_id,
+            "X-Hermes-Session-Id": session_id,
+        })
 
     async def _write_sse_chat_completion(
         self, request: "web.Request", completion_id: str, model: str,
@@ -1072,6 +1088,9 @@ class APIServerAdapter(BasePlatformAdapter):
         if cors:
             sse_headers.update(cors)
         if session_id:
+            # Advertise both header spellings (legacy X-Hermes-Session-Id kept
+            # for pre-rebrand clients).
+            sse_headers["X-Logos-Session-Id"] = session_id
             sse_headers["X-Hermes-Session-Id"] = session_id
         response = web.StreamResponse(status=200, headers=sse_headers)
         await response.prepare(request)
@@ -1236,6 +1255,9 @@ class APIServerAdapter(BasePlatformAdapter):
         if cors:
             sse_headers.update(cors)
         if session_id:
+            # Advertise both header spellings (legacy X-Hermes-Session-Id kept
+            # for pre-rebrand clients).
+            sse_headers["X-Logos-Session-Id"] = session_id
             sse_headers["X-Hermes-Session-Id"] = session_id
         response = web.StreamResponse(status=200, headers=sse_headers)
         await response.prepare(request)

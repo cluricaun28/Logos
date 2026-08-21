@@ -1175,7 +1175,7 @@ def _get_exa_client():
         if not api_key:
             raise ValueError("EXA_API_KEY environment variable not set. Get your API key at https://exa.ai")
         _exa_client = Exa(api_key=api_key)
-        _exa_client.headers["x-exa-integration"] = "hermes-agent"
+        _exa_client.headers["x-exa-integration"] = "logos-agent"
     return _exa_client
 
 

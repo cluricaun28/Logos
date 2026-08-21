@@ -523,7 +523,7 @@ class CopilotACPClient:
                         }
                     },
                     "clientInfo": {
-                        "name": "hermes-agent",
+                        "name": "logos-agent",
                         "title": "Logos",
                         "version": "0.0.0",
                     },

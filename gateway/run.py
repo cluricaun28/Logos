@@ -9582,7 +9582,8 @@ class GatewayRunner:
         # Build messages in OpenAI chat format --------------------------
         #
         # The remote api_server can maintain session continuity via
-        # X-Hermes-Session-Id, so it loads its own history.  We only
+        # X-Logos-Session-Id (legacy X-Hermes-Session-Id still honored), so it
+        # loads its own history.  We only
         # need to send the current user message.  If the remote has
         # no history for this session yet, include what we have locally
         # so the first exchange has context.
@@ -9608,10 +9609,12 @@ class GatewayRunner:
         if proxy_key:
             headers["Authorization"] = f"Bearer {proxy_key}"
         if session_id:
+            # Advertise both header spellings (legacy kept for pre-rebrand servers).
+            headers["X-Logos-Session-Id"] = session_id
             headers["X-Hermes-Session-Id"] = session_id
 
         body = {
-            "model": "hermes-agent",
+            "model": "logos-agent",
             "messages": api_messages,
             "stream": True,
         }
