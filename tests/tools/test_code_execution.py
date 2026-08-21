@@ -119,7 +119,7 @@ class TestHermesToolsGeneration(unittest.TestCase):
     def test_file_transport_uses_tempfile_fallback_for_rpc_dir(self):
         src = generate_hermes_tools_module(["terminal"], transport="file")
         self.assertIn("import json, os, shlex, tempfile, threading, time", src)
-        self.assertIn("os.path.join(tempfile.gettempdir(), \"hermes_rpc\")", src)
+        self.assertIn('os.path.join(tempfile.gettempdir(), "logos_rpc")', src)
         self.assertNotIn('os.environ.get("HERMES_RPC_DIR", "/tmp/hermes_rpc")', src)
 
     def test_uds_transport_serializes_concurrent_calls(self):

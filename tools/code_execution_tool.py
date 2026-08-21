@@ -222,7 +222,7 @@ def _connect():
     global _sock
     if _sock is None:
         _sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        _sock.connect(logos_env_raw("RPC_SOCKET"))
+        _sock.connect(os.environ.get("LOGOS_RPC_SOCKET") or os.environ.get("HERMES_RPC_SOCKET"))
         _sock.settimeout(300)
     return _sock
 
@@ -257,7 +257,7 @@ _FILE_TRANSPORT_HEADER = '''\
 """Auto-generated Logos tools RPC stubs (file-based transport)."""
 import json, os, shlex, tempfile, threading, time
 
-_RPC_DIR = logos_env("RPC_DIR") or os.path.join(tempfile.gettempdir(), "hermes_rpc")
+_RPC_DIR = os.environ.get("LOGOS_RPC_DIR") or os.environ.get("HERMES_RPC_DIR") or os.path.join(tempfile.gettempdir(), "logos_rpc")
 _seq = 0
 # `_seq += 1` is not atomic (read-modify-write), so concurrent _call()
 # invocations from multiple threads could allocate the same sequence number
@@ -791,6 +791,7 @@ def _execute_remote(
 
         # Build environment variable prefix for the script
         env_prefix = (
+            f"LOGOS_RPC_DIR={shlex.quote(f'{sandbox_dir}/rpc')} "
             f"HERMES_RPC_DIR={shlex.quote(f'{sandbox_dir}/rpc')} "
             f"PYTHONDONTWRITEBYTECODE=1"
         )
@@ -1009,7 +1010,7 @@ def execute_code(
         _SAFE_ENV_PREFIXES = ("PATH", "HOME", "USER", "LANG", "LC_", "TERM",
                               "TMPDIR", "TMP", "TEMP", "SHELL", "LOGNAME",
                               "XDG_", "PYTHONPATH", "VIRTUAL_ENV", "CONDA",
-                              "HERMES_")
+                              "LOGOS_", "HERMES_")
         _SECRET_SUBSTRINGS = ("KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL",
                               "PASSWD", "AUTH")
         try:
@@ -1028,6 +1029,7 @@ def execute_code(
             # Allow vars with known safe prefixes.
             if any(k.startswith(p) for p in _SAFE_ENV_PREFIXES):
                 child_env[k] = v
+        child_env["LOGOS_RPC_SOCKET"] = sock_path
         child_env["HERMES_RPC_SOCKET"] = sock_path
         child_env["PYTHONDONTWRITEBYTECODE"] = "1"
         # Ensure the hermes-agent root is importable in the sandbox so
