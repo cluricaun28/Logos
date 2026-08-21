@@ -62,8 +62,8 @@ except ImportError:
 def _get_sessions_dir() -> Path:
     """Return the sessions directory using HERMES_HOME."""
     try:
-        from logos_constants import get_hermes_home
-        return get_hermes_home() / "sessions"
+        from logos_constants import get_logos_home
+        return get_logos_home() / "sessions"
     except ImportError:
         return Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes")) / "sessions"
 
@@ -98,8 +98,8 @@ def _load_sessions_index() -> dict:
 def _load_channel_directory() -> dict:
     """Load the cached channel directory for available targets."""
     try:
-        from logos_constants import get_hermes_home
-        directory_file = get_hermes_home() / "channel_directory.json"
+        from logos_constants import get_logos_home
+        directory_file = get_logos_home() / "channel_directory.json"
     except ImportError:
         directory_file = Path(
             os.environ.get("HERMES_HOME", Path.home() / ".hermes")
@@ -343,8 +343,8 @@ class EventBridge:
 
         # Check if state.db has changed
         try:
-            from logos_constants import get_hermes_home
-            db_file = get_hermes_home() / "state.db"
+            from logos_constants import get_logos_home
+            db_file = get_logos_home() / "state.db"
         except ImportError:
             db_file = Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes")) / "state.db"
 

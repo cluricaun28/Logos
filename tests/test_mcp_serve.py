@@ -30,7 +30,7 @@ def _isolate_hermes_home(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     try:
         import logos_constants
-        monkeypatch.setattr(logos_constants, "get_hermes_home", lambda: tmp_path)
+        monkeypatch.setattr(logos_constants, "get_logos_home", lambda: tmp_path)
     except (ImportError, AttributeError):
         pass
     return tmp_path

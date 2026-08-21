@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 from typing import Dict
 
-from logos_constants import display_hermes_home
+from logos_constants import display_logos_home
 from utils import atomic_replace
 
 
@@ -26,8 +26,8 @@ _SUBSCRIPTIONS_FILENAME = "webhook_subscriptions.json"
 
 
 def _hermes_home() -> Path:
-    from logos_constants import get_hermes_home
-    return get_hermes_home()
+    from logos_constants import get_logos_home
+    return get_logos_home()
 
 
 def _subscriptions_path() -> Path:
@@ -79,7 +79,7 @@ def _get_webhook_base_url() -> str:
 
 
 def _setup_hint() -> str:
-    _dhh = display_hermes_home()
+    _dhh = display_logos_home()
     return f"""
   Webhook platform is not enabled. To set it up:
 

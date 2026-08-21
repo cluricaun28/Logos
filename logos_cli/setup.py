@@ -133,7 +133,7 @@ def _set_reasoning_effort(config: Dict[str, Any], effort: str) -> None:
 # Import config helpers
 from logos_cli.config import (
     DEFAULT_CONFIG,
-    get_hermes_home,
+    get_logos_home,
     get_config_path,
     get_env_path,
     load_config,
@@ -142,7 +142,7 @@ from logos_cli.config import (
     get_env_value,
     ensure_hermes_home,
 )
-# display_hermes_home imported lazily at call sites (stale-module safety during logos update)
+# display_logos_home imported lazily at call sites (stale-module safety during logos update)
 
 from logos_cli.colors import Colors, color
 
@@ -524,7 +524,7 @@ def _print_setup_summary(config: dict, hermes_home):
         print_warning(
             "Some tools are disabled. Run 'logos setup tools' to configure them,"
         )
-        from logos_constants import display_hermes_home as _dhh
+        from logos_constants import display_logos_home as _dhh
         print_warning(f"or edit {_dhh()}/.env directly to add the missing API keys.")
         print()
 
@@ -548,7 +548,7 @@ def _print_setup_summary(config: dict, hermes_home):
     print()
 
     # Show file locations prominently
-    from logos_constants import display_hermes_home as _dhh
+    from logos_constants import display_logos_home as _dhh
     print(color(f"📁 All your files are in {_dhh()}/:", Colors.CYAN, Colors.BOLD))
     print()
     print(f"   {color('Settings:', Colors.YELLOW)}  {get_config_path()}")
@@ -1062,7 +1062,7 @@ def _setup_tts_provider(config: dict):
                 save_env_value("XAI_API_KEY", api_key)
                 print_success("xAI TTS API key saved")
             else:
-                from logos_constants import display_hermes_home as _dhh
+                from logos_constants import display_logos_home as _dhh
                 print_warning(
                     "No xAI API key provided for TTS. Configure XAI_API_KEY via "
                     f"logos setup model or {_dhh()}/.env to use xAI TTS. "
@@ -2192,7 +2192,7 @@ def run_setup_wizard(args):
     quick_requested = bool(getattr(args, "quick", False))
 
     config = load_config()
-    hermes_home = get_hermes_home()
+    hermes_home = get_logos_home()
 
     # Detect non-interactive environments (headless SSH, Docker, CI/CD)
     non_interactive = getattr(args, 'non_interactive', False)

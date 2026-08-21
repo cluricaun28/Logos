@@ -97,9 +97,9 @@ def _read_comfyui_config() -> Dict[str, Any]:
     """Read ``image_gen.comfyui`` section from config.yaml (tolerant)."""
     try:
         import yaml
-        from logos_constants import get_hermes_home
+        from logos_constants import get_logos_home
 
-        cfg_file = get_hermes_home() / "config.yaml"
+        cfg_file = get_logos_home() / "config.yaml"
         if not cfg_file.exists():
             return {}
         with open(cfg_file) as f:

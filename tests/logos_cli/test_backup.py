@@ -154,7 +154,7 @@ class TestBackup:
         _make_hermes_tree(hermes_home)
 
         monkeypatch.setenv("HERMES_HOME", str(hermes_home))
-        # get_default_hermes_root needs this
+        # get_logos_root needs this
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         out_zip = tmp_path / "backup.zip"

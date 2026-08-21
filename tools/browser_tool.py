@@ -67,7 +67,7 @@ import requests
 from typing import Dict, Any, Optional, List, Tuple
 from pathlib import Path
 from agent.auxiliary_client import call_llm
-from logos_constants import get_hermes_home
+from logos_constants import get_logos_home
 from utils import is_truthy_value
 
 try:
@@ -138,7 +138,7 @@ def _discover_homebrew_node_dirs() -> tuple[str, ...]:
 
 def _browser_candidate_path_dirs() -> list[str]:
     """Return ordered browser CLI PATH candidates shared by discovery and execution."""
-    hermes_home = get_hermes_home()
+    hermes_home = get_logos_home()
     hermes_node_bin = str(hermes_home / "node" / "bin")
     return [hermes_node_bin, *list(_discover_homebrew_node_dirs()), *_SANE_PATH_DIRS]
 
@@ -2272,7 +2272,7 @@ def _maybe_start_recording(task_id: str):
             return
     try:
         from logos_cli.config import read_raw_config
-        hermes_home = get_hermes_home()
+        hermes_home = get_logos_home()
         cfg = read_raw_config()
         record_enabled = cfg.get("browser", {}).get("record_sessions", False)
         
@@ -2401,8 +2401,8 @@ def browser_vision(question: str, annotate: bool = False, task_id: Optional[str]
     effective_task_id = _last_session_key(task_id or "default")
     
     # Save screenshot to persistent location so it can be shared with users
-    from logos_constants import get_hermes_dir
-    screenshots_dir = get_hermes_dir("cache/screenshots", "browser_screenshots")
+    from logos_constants import get_logos_dir
+    screenshots_dir = get_logos_dir("cache/screenshots", "browser_screenshots")
     screenshot_path = screenshots_dir / f"browser_screenshot_{uuid_mod.uuid4().hex}.png"
     
     try:
@@ -2580,7 +2580,7 @@ def _cleanup_old_screenshots(screenshots_dir, max_age_hours=24):
 def _cleanup_old_recordings(max_age_hours=72):
     """Remove browser recordings older than max_age_hours to prevent disk bloat."""
     try:
-        hermes_home = get_hermes_home()
+        hermes_home = get_logos_home()
         recordings_dir = hermes_home / "browser_recordings"
         if not recordings_dir.exists():
             return

@@ -597,8 +597,8 @@ class TelegramAdapter(BasePlatformAdapter):
     def _persist_dm_topic_thread_id(self, chat_id: int, topic_name: str, thread_id: int) -> None:
         """Save a newly created thread_id back into config.yaml so it persists across restarts."""
         try:
-            from logos_constants import get_hermes_home
-            config_path = get_hermes_home() / "config.yaml"
+            from logos_constants import get_logos_home
+            config_path = get_logos_home() / "config.yaml"
             if not config_path.exists():
                 logger.warning("[%s] Config file not found at %s, cannot persist thread_id", self.name, config_path)
                 return
@@ -1804,8 +1804,8 @@ class TelegramAdapter(BasePlatformAdapter):
             pass  # non-fatal if edit fails
         # Write the response file
         try:
-            from logos_constants import get_hermes_home
-            home = get_hermes_home()
+            from logos_constants import get_logos_home
+            home = get_logos_home()
             response_path = home / ".update_response"
             tmp = response_path.with_suffix(".tmp")
             tmp.write_text(answer)
@@ -3146,8 +3146,8 @@ class TelegramAdapter(BasePlatformAdapter):
         recognized without a gateway restart.
         """
         try:
-            from logos_constants import get_hermes_home
-            config_path = get_hermes_home() / "config.yaml"
+            from logos_constants import get_logos_home
+            config_path = get_logos_home() / "config.yaml"
             if not config_path.exists():
                 return
 

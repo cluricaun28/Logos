@@ -15,11 +15,11 @@ import logging
 from datetime import datetime
 from typing import Optional
 
-from logos_cli.config import get_hermes_home
+from logos_cli.config import get_logos_home
 
 logger = logging.getLogger(__name__)
 
-_SESSIONS_DIR = get_hermes_home() / "sessions"
+_SESSIONS_DIR = get_logos_home() / "sessions"
 _SESSIONS_INDEX = _SESSIONS_DIR / "sessions.json"
 
 

@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from logos_constants import get_default_hermes_root, get_hermes_home, display_hermes_home
+from logos_constants import get_logos_root, get_logos_home, display_logos_home
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +128,7 @@ def _format_size(nbytes: int) -> str:
 
 def run_backup(args) -> None:
     """Create a zip backup of the Logos home directory."""
-    hermes_root = get_default_hermes_root()
+    hermes_root = get_logos_root()
 
     if not hermes_root.is_dir():
         print(f"Error: Logos home directory not found at {hermes_root}")
@@ -153,7 +153,7 @@ def run_backup(args) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Collect files
-    print(f"Scanning {display_hermes_home()} ...")
+    print(f"Scanning {display_logos_home()} ...")
     files_to_add: list[tuple[Path, Path]] = []  # (absolute, relative)
     skipped_dirs = set()
 
@@ -317,7 +317,7 @@ def run_import(args) -> None:
         print(f"Error: Not a valid zip file: {zip_path}")
         sys.exit(1)
 
-    hermes_root = get_default_hermes_root()
+    hermes_root = get_logos_root()
 
     with zipfile.ZipFile(zip_path, "r") as zf:
         # Validate
@@ -331,7 +331,7 @@ def run_import(args) -> None:
         file_count = len(members)
 
         print(f"Backup contains {file_count} files")
-        print(f"Target: {display_hermes_home()}")
+        print(f"Target: {display_logos_home()}")
 
         if prefix:
             print(f"Detected archive prefix: {prefix!r} (will be stripped)")
@@ -399,7 +399,7 @@ def run_import(args) -> None:
         # Summary
         print()
         print(f"Import complete: {restored} files restored in {elapsed:.1f}s")
-        print(f"  Target: {display_hermes_home()}")
+        print(f"  Target: {display_logos_home()}")
 
         if errors:
             print(f"\n  Warnings ({len(errors)} files skipped):")
@@ -497,7 +497,7 @@ _QUICK_DEFAULT_KEEP = 20
 
 
 def _quick_snapshot_root(hermes_home: Optional[Path] = None) -> Path:
-    home = hermes_home or get_hermes_home()
+    home = hermes_home or get_logos_home()
     return home / _QUICK_SNAPSHOTS_DIR
 
 
@@ -513,7 +513,7 @@ def create_quick_snapshot(
     Returns:
         Snapshot ID (timestamp-based), or None if no files found.
     """
-    home = hermes_home or get_hermes_home()
+    home = hermes_home or get_logos_home()
     root = _quick_snapshot_root(home)
 
     ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
@@ -617,7 +617,7 @@ def restore_quick_snapshot(
     Overwrites current state files with the snapshot's copies.
     Returns True if at least one file was restored.
     """
-    home = hermes_home or get_hermes_home()
+    home = hermes_home or get_logos_home()
     root = _quick_snapshot_root(home)
     snap_dir = root / snapshot_id
 
@@ -693,7 +693,7 @@ def run_quick_backup(args) -> None:
     if snap_id:
         print(f"State snapshot created: {snap_id}")
         snaps = list_quick_snapshots()
-        print(f"  {len(snaps)} snapshot(s) stored in {display_hermes_home()}/state-snapshots/")
+        print(f"  {len(snaps)} snapshot(s) stored in {display_logos_home()}/state-snapshots/")
         print(f"  Restore with: /snapshot restore {snap_id}")
     else:
         print("No state files found to snapshot.")
@@ -709,7 +709,7 @@ _PRE_UPDATE_DEFAULT_KEEP = 5
 
 
 def _pre_update_backup_dir(hermes_home: Optional[Path] = None) -> Path:
-    home = hermes_home or get_hermes_home()
+    home = hermes_home or get_logos_home()
     return home / _PRE_UPDATE_BACKUPS_DIR
 
 
@@ -765,7 +765,7 @@ def create_pre_update_backup(
     found or the backup could not be created.  Never raises — the caller
     (``logos update``) should continue even if the backup fails.
     """
-    hermes_root = hermes_home or get_default_hermes_root()
+    hermes_root = hermes_home or get_logos_root()
     if not hermes_root.is_dir():
         return None
 

@@ -11,7 +11,7 @@ import subprocess
 import threading
 import time
 from pathlib import Path
-from logos_constants import get_hermes_home
+from logos_constants import get_logos_home
 from typing import Dict, List, Optional
 
 from rich.console import Console
@@ -131,7 +131,7 @@ def check_for_updates() -> Optional[int]:
     ``~/.hermes/.update_check``).  Returns the number of commits behind,
     or ``None`` if the check fails or isn't applicable.
     """
-    hermes_home = get_hermes_home()
+    hermes_home = get_logos_home()
     repo_dir = hermes_home / "hermes-agent"
     cache_file = hermes_home / ".update_check"
 
@@ -186,7 +186,7 @@ def check_for_updates() -> Optional[int]:
 
 def _resolve_repo_dir() -> Optional[Path]:
     """Return the active Logos git checkout, or None if this isn't a git install."""
-    hermes_home = get_hermes_home()
+    hermes_home = get_logos_home()
     repo_dir = hermes_home / "hermes-agent"
     if not (repo_dir / ".git").exists():
         repo_dir = Path(__file__).parent.parent.resolve()

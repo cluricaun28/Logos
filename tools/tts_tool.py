@@ -42,7 +42,7 @@ from pathlib import Path
 from typing import Callable, Dict, Any, Optional
 from urllib.parse import urljoin
 
-from logos_constants import display_hermes_home
+from logos_constants import display_logos_home
 
 logger = logging.getLogger(__name__)
 from tools.managed_tool_gateway import resolve_managed_tool_gateway
@@ -161,8 +161,8 @@ GEMINI_TTS_CHANNELS = 1
 GEMINI_TTS_SAMPLE_WIDTH = 2  # 16-bit PCM (L16)
 
 def _get_default_output_dir() -> str:
-    from logos_constants import get_hermes_dir
-    return str(get_hermes_dir("cache/audio", "audio_cache"))
+    from logos_constants import get_logos_dir
+    return str(get_logos_dir("cache/audio", "audio_cache"))
 
 DEFAULT_OUTPUT_DIR = _get_default_output_dir()
 
@@ -921,8 +921,8 @@ def _get_piper_voices_dir() -> Path:
     Resolves to ``~/.hermes/cache/piper-voices/`` under the active
     HERMES_HOME so voice downloads follow profile boundaries.
     """
-    from logos_constants import get_hermes_dir
-    root = Path(get_hermes_dir("cache/piper-voices", "piper_voices_cache"))
+    from logos_constants import get_logos_dir
+    root = Path(get_logos_dir("cache/piper-voices", "piper_voices_cache"))
     root.mkdir(parents=True, exist_ok=True)
     return root
 
@@ -1720,7 +1720,7 @@ TTS_SCHEMA = {
             },
             "output_path": {
                 "type": "string",
-                "description": f"Optional custom file path to save the audio. Defaults to {display_hermes_home()}/audio_cache/<timestamp>.mp3"
+                "description": f"Optional custom file path to save the audio. Defaults to {display_logos_home()}/audio_cache/<timestamp>.mp3"
             }
         },
         "required": ["text"]

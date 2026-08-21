@@ -13,7 +13,7 @@ import threading
 from collections import OrderedDict
 from pathlib import Path
 
-from logos_constants import get_hermes_home, get_skills_dir, is_wsl
+from logos_constants import get_logos_home, get_skills_dir, is_wsl
 from typing import Optional
 
 from agent.skill_utils import (
@@ -516,7 +516,7 @@ _SKILLS_SNAPSHOT_VERSION = 1
 
 
 def _skills_prompt_snapshot_path() -> Path:
-    return get_hermes_home() / ".skills_prompt_snapshot.json"
+    return get_logos_home() / ".skills_prompt_snapshot.json"
 
 
 def clear_skills_system_prompt_cache(*, clear_snapshot: bool = False) -> None:
@@ -1107,7 +1107,7 @@ def load_soul_md() -> Optional[str]:
     except (ImportError, ModuleNotFoundError) as e:
         logger.debug("Could not ensure HERMES_HOME before loading SOUL.md: %s", e)
 
-    soul_path = get_hermes_home() / "SOUL.md"
+    soul_path = get_logos_home() / "SOUL.md"
     if not soul_path.exists():
         return None
     try:

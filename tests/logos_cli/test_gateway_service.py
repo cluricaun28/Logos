@@ -895,7 +895,7 @@ class TestSystemUnitHermesHome:
         # User-scope units should still use the calling user's HERMES_HOME
         unit = gateway_cli.generate_systemd_unit(system=False)
 
-        hermes_home = str(gateway_cli.get_hermes_home().resolve())
+        hermes_home = str(gateway_cli.get_logos_home().resolve())
         assert f'HERMES_HOME={hermes_home}' in unit
 
 
@@ -1255,7 +1255,7 @@ class TestProfileArg:
         profile_dir.mkdir(parents=True)
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
         monkeypatch.setenv("HERMES_HOME", str(profile_dir))
-        monkeypatch.setattr(gateway_cli, "get_hermes_home", lambda: profile_dir)
+        monkeypatch.setattr(gateway_cli, "get_logos_home", lambda: profile_dir)
         unit = gateway_cli.generate_systemd_unit(system=False)
         assert "--profile mybot" in unit
         assert "gateway run --replace" in unit
@@ -1266,7 +1266,7 @@ class TestProfileArg:
         profile_dir.mkdir(parents=True)
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
         monkeypatch.setenv("HERMES_HOME", str(profile_dir))
-        monkeypatch.setattr(gateway_cli, "get_hermes_home", lambda: profile_dir)
+        monkeypatch.setattr(gateway_cli, "get_logos_home", lambda: profile_dir)
         plist = gateway_cli.generate_launchd_plist()
         assert "<string>--profile</string>" in plist
         assert "<string>mybot</string>" in plist
@@ -1281,7 +1281,7 @@ class TestProfileArg:
 
         monkeypatch.setattr(Path, "home", lambda: profile_home)
         monkeypatch.setenv("HERMES_HOME", str(profile_dir))
-        monkeypatch.setattr(gateway_cli, "get_hermes_home", lambda: profile_dir)
+        monkeypatch.setattr(gateway_cli, "get_logos_home", lambda: profile_dir)
         monkeypatch.setattr(pwd, "getpwuid", lambda uid: SimpleNamespace(pw_dir=str(machine_home)))
 
         plist_path = gateway_cli.get_launchd_plist_path()
@@ -1331,7 +1331,7 @@ class TestSystemUnitPathRemapping:
 
         monkeypatch.setattr(Path, "home", lambda: root_home)
         monkeypatch.setenv("HERMES_HOME", str(root_home / ".hermes"))
-        monkeypatch.setattr(gateway_cli, "get_hermes_home", lambda: root_home / ".hermes")
+        monkeypatch.setattr(gateway_cli, "get_logos_home", lambda: root_home / ".hermes")
         monkeypatch.setattr(gateway_cli, "PROJECT_ROOT", project)
         monkeypatch.setattr(gateway_cli, "_detect_venv_dir", lambda: project / "venv")
         monkeypatch.setattr(gateway_cli, "get_python_path", lambda: str(venv_bin / "python"))

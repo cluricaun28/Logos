@@ -139,8 +139,8 @@ def _get_default_hermes_home() -> Path:
     In Docker/custom deployments where HERMES_HOME is outside ``~/.hermes``
     (e.g. ``/opt/data``), returns HERMES_HOME directly.
     """
-    from logos_constants import get_default_hermes_root
-    return get_default_hermes_root()
+    from logos_constants import get_logos_root
+    return get_logos_root()
 
 
 def _get_active_profile_path() -> Path:
@@ -413,8 +413,8 @@ def create_profile(
     if clone_from is not None or clone_all or clone_config:
         if clone_from is None:
             # Default: clone from active profile
-            from logos_constants import get_hermes_home
-            source_dir = get_hermes_home()
+            from logos_constants import get_logos_home
+            source_dir = get_logos_home()
         else:
             validate_profile_name(clone_from)
             source_dir = get_profile_dir(clone_from)
@@ -720,8 +720,8 @@ def get_active_profile_name() -> str:
     Returns the profile name if HERMES_HOME points into ``~/.hermes/profiles/<name>``.
     Returns ``"custom"`` if HERMES_HOME is set to an unrecognized path.
     """
-    from logos_constants import get_hermes_home
-    hermes_home = get_hermes_home()
+    from logos_constants import get_logos_home
+    hermes_home = get_logos_home()
     resolved = hermes_home.resolve()
 
     default_resolved = _get_default_hermes_home().resolve()

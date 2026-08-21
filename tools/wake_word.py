@@ -527,9 +527,9 @@ _SHERPA_KWS_MODEL_DIR = "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01"
 
 
 def _sherpa_model_root() -> Path:
-    from logos_constants import get_hermes_home
+    from logos_constants import get_logos_home
 
-    return get_hermes_home() / "cache" / "wakewords"
+    return get_logos_home() / "cache" / "wakewords"
 
 
 def _ensure_sherpa_model(root: Optional[Path] = None) -> Path:
@@ -1066,9 +1066,9 @@ _detector_lock = threading.Lock()
 
 
 def _lock_path() -> Path:
-    from logos_constants import get_default_hermes_root
+    from logos_constants import get_logos_root
 
-    return get_default_hermes_root() / "runtime" / "wake-word.lock"
+    return get_logos_root() / "runtime" / "wake-word.lock"
 
 
 def _acquire_machine_lock(path: Optional[Path] = None):

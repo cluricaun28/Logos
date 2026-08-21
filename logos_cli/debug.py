@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from logos_constants import get_hermes_home
+from logos_constants import get_logos_home
 from utils import atomic_replace
 
 
@@ -54,7 +54,7 @@ def _pending_file() -> Path:
     runs an opportunistic sweep on entry as a fallback for CLI-only users
     who never start the gateway.
     """
-    return get_hermes_home() / "pastes" / "pending.json"
+    return get_logos_home() / "pastes" / "pending.json"
 
 
 def _load_pending() -> list[dict]:
@@ -345,7 +345,7 @@ def _primary_log_path(log_name: str) -> Optional[Path]:
     from logos_cli.logs import LOG_FILES
 
     filename = LOG_FILES.get(log_name)
-    return (get_hermes_home() / "logs" / filename) if filename else None
+    return (get_logos_home() / "logs" / filename) if filename else None
 
 
 def _resolve_log_path(log_name: str) -> Optional[Path]:

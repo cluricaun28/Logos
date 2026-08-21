@@ -12,12 +12,12 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from logos_cli.config import get_hermes_home
+from logos_cli.config import get_logos_home
 from utils import atomic_json_write
 
 logger = logging.getLogger(__name__)
 
-DIRECTORY_PATH = get_hermes_home() / "channel_directory.json"
+DIRECTORY_PATH = get_logos_home() / "channel_directory.json"
 
 
 def _normalize_channel_query(value: str) -> str:
@@ -91,7 +91,7 @@ async def build_channel_directory(adapters: Dict[Any, Any]) -> Dict[str, Any]:
 
 def _build_from_sessions(platform_name: str) -> List[Dict[str, str]]:
     """Pull known channels/contacts from sessions.json origin data."""
-    sessions_path = get_hermes_home() / "sessions" / "sessions.json"
+    sessions_path = get_logos_home() / "sessions" / "sessions.json"
     if not sessions_path.exists():
         return []
 

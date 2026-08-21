@@ -122,8 +122,8 @@ def _get_mcp_stderr_log() -> Any:
         if _mcp_stderr_log_fh is not None:
             return _mcp_stderr_log_fh
         try:
-            from logos_constants import get_hermes_home
-            log_dir = get_hermes_home() / "logs"
+            from logos_constants import get_logos_home
+            log_dir = get_logos_home() / "logs"
             log_dir.mkdir(parents=True, exist_ok=True)
             log_path = log_dir / "mcp-stderr.log"
             # Line-buffered so server output lands on disk promptly; errors=

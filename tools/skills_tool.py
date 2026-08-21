@@ -70,7 +70,7 @@ from __future__ import annotations
 import json
 import logging
 
-from logos_constants import get_hermes_home, display_hermes_home
+from logos_constants import get_logos_home, display_logos_home
 import os
 import re
 from enum import Enum
@@ -85,7 +85,7 @@ logger = logging.getLogger(__name__)
 # All skills live in ~/.hermes/skills/ (seeded from bundled skills/ on install).
 # This is the single source of truth -- agent edits, hub installs, and bundled
 # skills all coexist here without polluting the git repo.
-HERMES_HOME = get_hermes_home()
+HERMES_HOME = get_logos_home()
 SKILLS_DIR = HERMES_HOME / "skills"
 
 # Anthropic-recommended limits for progressive disclosure efficiency
@@ -107,7 +107,7 @@ _secret_capture_callback = None
 
 def load_env() -> Dict[str, str]:
     """Load profile-scoped environment variables from HERMES_HOME/.env."""
-    env_path = get_hermes_home() / ".env"
+    env_path = get_logos_home() / ".env"
     env_vars: Dict[str, str] = {}
     if not env_path.exists():
         return env_vars
@@ -409,7 +409,7 @@ def _gateway_setup_hint() -> str:
 
         return GATEWAY_SECRET_CAPTURE_UNSUPPORTED_MESSAGE
     except (ImportError, ModuleNotFoundError):
-        return f"Secure secret entry is not available. Load this skill in the local CLI to be prompted, or add the key to {display_hermes_home()}/.env manually."
+        return f"Secure secret entry is not available. Load this skill in the local CLI to be prompted, or add the key to {display_logos_home()}/.env manually."
 
 
 def _build_setup_note(
@@ -691,7 +691,7 @@ def skills_list(category: str = None, task_id: str = None) -> str:
                     "success": True,
                     "skills": [],
                     "categories": [],
-                    "message": f"No skills found. Skills directory created at {display_hermes_home()}/skills/",
+                    "message": f"No skills found. Skills directory created at {display_logos_home()}/skills/",
                 },
                 ensure_ascii=False,
             )

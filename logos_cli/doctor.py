@@ -11,12 +11,12 @@ import subprocess
 import shutil
 from pathlib import Path
 
-from logos_cli.config import get_project_root, get_hermes_home, get_env_path
-from logos_constants import display_hermes_home
+from logos_cli.config import get_project_root, get_logos_home, get_env_path
+from logos_constants import display_logos_home
 
 PROJECT_ROOT = get_project_root()
-HERMES_HOME = get_hermes_home()
-_DHH = display_hermes_home()  # user-facing display path (e.g. ~/.hermes or ~/.hermes/profiles/coder)
+HERMES_HOME = get_logos_home()
+_DHH = display_logos_home()  # user-facing display path (e.g. ~/.hermes or ~/.hermes/profiles/coder)
 
 # Load environment variables from ~/.hermes/.env so API key checks work
 from dotenv import load_dotenv

@@ -2,7 +2,7 @@
 
 Provides a single ``setup_logging()`` entry point that both the CLI and
 gateway call early in their startup path.  All log files live under
-``~/.hermes/logs/`` (profile-aware via ``get_hermes_home()``).
+``~/.hermes/logs/`` (profile-aware via ``get_logos_home()``).
 
 Log files produced:
     agent.log   — INFO+, all agent/tool/session activity (the main log)
@@ -30,7 +30,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Optional, Sequence
 
-from logos_constants import get_config_path, get_hermes_home
+from logos_constants import get_config_path, get_logos_home
 
 # Sentinel to track whether setup_logging() has already run.  The function
 # is idempotent — calling it twice is safe but the second call is a no-op
@@ -171,7 +171,7 @@ def setup_logging(
     ----------
     hermes_home
         Override for the Logos home directory.  Falls back to
-        ``get_hermes_home()`` (profile-aware).
+        ``get_logos_home()`` (profile-aware).
     log_level
         Minimum level for the ``agent.log`` file handler.  Accepts any
         standard Python level name (``"DEBUG"``, ``"INFO"``, ``"WARNING"``).
@@ -195,7 +195,7 @@ def setup_logging(
         The ``logs/`` directory where files are written.
     """
     global _logging_initialized
-    home = hermes_home or get_hermes_home()
+    home = hermes_home or get_logos_home()
     log_dir = home / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
 

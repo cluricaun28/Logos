@@ -708,7 +708,7 @@ registry.register(
 
 Auto-discovery: any `tools/*.py` file with a top-level `registry.register()` call is imported automatically — no manual list needed.
 
-All handlers must return JSON strings. Use `get_hermes_home()` for paths, never hardcode `~/.hermes`.
+All handlers must return JSON strings. Use `get_logos_home()` for paths, never hardcode `~/.hermes`.
 
 ### Adding a Slash Command
 
@@ -755,6 +755,6 @@ Types: `fix:`, `feat:`, `refactor:`, `docs:`, `chore:`
 
 - **Never break prompt caching** — don't change context, tools, or system prompt mid-conversation
 - **Message role alternation** — never two assistant or two user messages in a row
-- Use `get_hermes_home()` from `logos_constants` for all paths (profile-safe)
+- Use `get_logos_home()` from `logos_constants` for all paths (profile-safe)
 - Config values go in `config.yaml`, secrets go in `.env`
 - New tools need a `check_fn` so they only appear when requirements are met

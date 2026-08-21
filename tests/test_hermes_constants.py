@@ -7,17 +7,35 @@ from unittest.mock import patch
 import pytest
 
 import logos_constants
-from logos_constants import get_default_hermes_root, is_container
+from logos_constants import (
+    get_default_hermes_root,
+    get_hermes_home,
+    get_logos_home,
+    get_logos_root,
+    is_container,
+)
 
 
 class TestGetDefaultHermesRoot:
-    """Tests for get_default_hermes_root() — Docker/custom deployment awareness."""
+    """Tests for get_logos_root() — Docker/custom deployment awareness."""
 
-    def test_no_hermes_home_returns_native(self, tmp_path, monkeypatch):
-        """When HERMES_HOME is not set, returns ~/.hermes."""
+    def test_no_home_env_returns_logos_default(self, tmp_path, monkeypatch):
+        """No home env vars + no ~/.hermes on disk → ~/.logos (new-install
+        default)."""
         monkeypatch.delenv("HERMES_HOME", raising=False)
+        monkeypatch.delenv("LOGOS_HOME", raising=False)
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
-        assert get_default_hermes_root() == tmp_path / ".hermes"
+        assert get_logos_root() == tmp_path / ".logos"
+
+    def test_no_home_env_legacy_hermes_dir_on_disk(self, tmp_path, monkeypatch):
+        """No home env vars but ~/.hermes exists (legacy install) → ~/.hermes
+        keeps working with zero migration."""
+        legacy = tmp_path / ".hermes"
+        legacy.mkdir()
+        monkeypatch.delenv("HERMES_HOME", raising=False)
+        monkeypatch.delenv("LOGOS_HOME", raising=False)
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        assert get_logos_root() == legacy
 
     def test_hermes_home_is_native(self, tmp_path, monkeypatch):
         """When HERMES_HOME = ~/.hermes, returns ~/.hermes."""
@@ -25,7 +43,7 @@ class TestGetDefaultHermesRoot:
         native.mkdir()
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
         monkeypatch.setenv("HERMES_HOME", str(native))
-        assert get_default_hermes_root() == native
+        assert get_logos_root() == native
 
     def test_hermes_home_is_profile(self, tmp_path, monkeypatch):
         """When HERMES_HOME is a profile under ~/.hermes, returns ~/.hermes."""
@@ -34,7 +52,7 @@ class TestGetDefaultHermesRoot:
         profile.mkdir(parents=True)
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
         monkeypatch.setenv("HERMES_HOME", str(profile))
-        assert get_default_hermes_root() == native
+        assert get_logos_root() == native
 
     def test_hermes_home_is_docker(self, tmp_path, monkeypatch):
         """When HERMES_HOME points outside ~/.hermes (Docker), returns HERMES_HOME."""
@@ -42,7 +60,7 @@ class TestGetDefaultHermesRoot:
         docker_home.mkdir(parents=True)
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
         monkeypatch.setenv("HERMES_HOME", str(docker_home))
-        assert get_default_hermes_root() == docker_home
+        assert get_logos_root() == docker_home
 
     def test_hermes_home_is_custom_path(self, tmp_path, monkeypatch):
         """Any HERMES_HOME outside ~/.hermes is treated as the root."""
@@ -50,7 +68,7 @@ class TestGetDefaultHermesRoot:
         custom.mkdir()
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
         monkeypatch.setenv("HERMES_HOME", str(custom))
-        assert get_default_hermes_root() == custom
+        assert get_logos_root() == custom
 
     def test_docker_profile_active(self, tmp_path, monkeypatch):
         """When a Docker profile is active (HERMES_HOME=<root>/profiles/<name>),
@@ -60,7 +78,48 @@ class TestGetDefaultHermesRoot:
         profile.mkdir(parents=True)
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
         monkeypatch.setenv("HERMES_HOME", str(profile))
-        assert get_default_hermes_root() == docker_root
+        assert get_logos_root() == docker_root
+
+
+class TestGetLogosHome:
+    """Tests for get_logos_home() — resolution order:
+    1. $LOGOS_HOME env var
+    2. $HERMES_HOME env var (legacy, still honored)
+    3. ~/.logos if it exists (new-install default)
+    4. ~/.hermes (legacy fallback)
+    """
+
+    def test_logos_home_env_wins_over_hermes_home(self, tmp_path, monkeypatch):
+        custom = tmp_path / "logos-custom"
+        monkeypatch.setenv("LOGOS_HOME", str(custom))
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
+        assert get_logos_home() == custom
+
+    def test_hermes_home_env_honored_as_legacy(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("LOGOS_HOME", raising=False)
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
+        assert get_logos_home() == tmp_path / ".hermes"
+
+    def test_no_env_logos_dir_on_disk(self, tmp_path, monkeypatch):
+        new_home = tmp_path / ".logos"
+        new_home.mkdir()
+        monkeypatch.delenv("HERMES_HOME", raising=False)
+        monkeypatch.delenv("LOGOS_HOME", raising=False)
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        assert get_logos_home() == new_home
+
+    def test_no_env_fresh_machine_defaults_to_logos(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("HERMES_HOME", raising=False)
+        monkeypatch.delenv("LOGOS_HOME", raising=False)
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        assert get_logos_home() == tmp_path / ".logos"
+
+    def test_legacy_alias_matches_new_name(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("HERMES_HOME", raising=False)
+        monkeypatch.delenv("LOGOS_HOME", raising=False)
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        assert get_hermes_home() == get_logos_home()
+        assert get_default_hermes_root() == get_logos_root()
 
 
 class TestIsContainer:

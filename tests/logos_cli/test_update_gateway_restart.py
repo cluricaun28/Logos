@@ -944,7 +944,7 @@ class TestFindGatewayPidsExclude:
         profile_dir = tmp_path / ".hermes" / "profiles" / "orcha"
         profile_dir.mkdir(parents=True)
         monkeypatch.setattr(gateway_cli, "is_windows", lambda: False)
-        monkeypatch.setattr(gateway_cli, "get_hermes_home", lambda: profile_dir)
+        monkeypatch.setattr(gateway_cli, "get_logos_home", lambda: profile_dir)
 
         def fake_run(cmd, **kwargs):
             return subprocess.CompletedProcess(
@@ -994,10 +994,10 @@ class TestGatewayModeWritesExitCodeEarly:
         hermes_home.mkdir()
         monkeypatch.setenv("HERMES_HOME", str(hermes_home))
         import logos_cli.config as _cfg
-        monkeypatch.setattr(_cfg, "get_hermes_home", lambda: hermes_home)
+        monkeypatch.setattr(_cfg, "get_logos_home", lambda: hermes_home)
         # Also patch the module-level ref used by cmd_update
         import logos_cli.main as _main_mod
-        monkeypatch.setattr(_main_mod, "get_hermes_home", lambda: hermes_home)
+        monkeypatch.setattr(_main_mod, "get_logos_home", lambda: hermes_home)
 
         mock_run.side_effect = _make_run_side_effect(commit_count="1")
 
@@ -1024,9 +1024,9 @@ class TestGatewayModeWritesExitCodeEarly:
         hermes_home.mkdir()
         monkeypatch.setenv("HERMES_HOME", str(hermes_home))
         import logos_cli.config as _cfg
-        monkeypatch.setattr(_cfg, "get_hermes_home", lambda: hermes_home)
+        monkeypatch.setattr(_cfg, "get_logos_home", lambda: hermes_home)
         import logos_cli.main as _main_mod
-        monkeypatch.setattr(_main_mod, "get_hermes_home", lambda: hermes_home)
+        monkeypatch.setattr(_main_mod, "get_logos_home", lambda: hermes_home)
 
         mock_run.side_effect = _make_run_side_effect(commit_count="1")
 
@@ -1052,9 +1052,9 @@ class TestGatewayModeWritesExitCodeEarly:
         hermes_home.mkdir()
         monkeypatch.setenv("HERMES_HOME", str(hermes_home))
         import logos_cli.config as _cfg
-        monkeypatch.setattr(_cfg, "get_hermes_home", lambda: hermes_home)
+        monkeypatch.setattr(_cfg, "get_logos_home", lambda: hermes_home)
         import logos_cli.main as _main_mod
-        monkeypatch.setattr(_main_mod, "get_hermes_home", lambda: hermes_home)
+        monkeypatch.setattr(_main_mod, "get_logos_home", lambda: hermes_home)
 
         exit_code_path = hermes_home / ".update_exit_code"
 

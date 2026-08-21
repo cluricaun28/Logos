@@ -53,7 +53,7 @@ if __name__ == "__main__":
 from datetime import datetime
 from pathlib import Path
 
-from logos_constants import get_hermes_home
+from logos_constants import get_logos_home
 
 
 _OPENAI_CLS_CACHE: Optional[type] = None
@@ -93,7 +93,7 @@ from logos_cli.timeouts import (
     get_provider_stale_timeout,
 )
 
-_hermes_home = get_hermes_home()
+_hermes_home = get_logos_home()
 _project_env = Path(__file__).parent / '.env'
 _loaded_env_paths = load_hermes_dotenv(hermes_home=_hermes_home, project_env=_project_env)
 if _loaded_env_paths:
@@ -1633,7 +1633,7 @@ class AIAgent:
             self.session_id = f"{timestamp_str}_{short_uuid}"
         
         # Session logs go into ~/.hermes/sessions/ alongside gateway sessions
-        hermes_home = get_hermes_home()
+        hermes_home = get_logos_home()
         self.logs_dir = hermes_home / "sessions"
         self.logs_dir.mkdir(parents=True, exist_ok=True)
         self.session_log_file = self.logs_dir / f"session_{self.session_id}.json"
@@ -1740,7 +1740,7 @@ class AIAgent:
                         _init_kwargs = {
                             "session_id": self.session_id,
                             "platform": platform or "cli",
-                            "hermes_home": str(get_hermes_home()),
+                            "hermes_home": str(get_logos_home()),
                             "agent_context": "primary",
                         }
                         # Thread session title for memory provider scoping
@@ -2076,7 +2076,7 @@ class AIAgent:
             try:
                 self.context_archiver.on_session_start(
                     self.session_id,
-                    hermes_home=str(get_hermes_home()),
+                    hermes_home=str(get_logos_home()),
                     platform=self.platform or "cli",
                     model=self.model,
                     context_length=getattr(self.context_archiver, "context_length", 0),
@@ -11970,7 +11970,7 @@ class AIAgent:
                         # Credential refresh didn't help — show diagnostic info.
                         # Most common causes: Portal OAuth expired/revoked,
                         # account out of credits, or agent key blocked.
-                        from logos_constants import display_hermes_home as _dhh_fn
+                        from logos_constants import display_logos_home as _dhh_fn
                         _dhh = _dhh_fn()
                         _body_text = ""
                         try:
@@ -12015,7 +12015,7 @@ class AIAgent:
                         print(f"{self.log_prefix}   Auth method: {auth_method}")
                         print(f"{self.log_prefix}   Token prefix: {key[:12]}..." if key and len(key) > 12 else f"{self.log_prefix}   Token: (empty or short)")
                         print(f"{self.log_prefix}   Troubleshooting:")
-                        from logos_constants import display_hermes_home as _dhh_fn
+                        from logos_constants import display_logos_home as _dhh_fn
                         _dhh = _dhh_fn()
                         print(f"{self.log_prefix}     • Check ANTHROPIC_TOKEN in {_dhh}/.env for Logos-managed OAuth/setup tokens")
                         print(f"{self.log_prefix}     • Check ANTHROPIC_API_KEY in {_dhh}/.env for API keys or legacy token values")

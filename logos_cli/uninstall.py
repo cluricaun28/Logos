@@ -12,7 +12,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from logos_constants import get_hermes_home
+from logos_constants import get_logos_home
 
 from logos_cli.colors import Colors, color
 
@@ -208,8 +208,8 @@ def uninstall_gateway_service():
 def _is_default_hermes_home(hermes_home: Path) -> bool:
     """Return True when ``hermes_home`` points at the default (non-profile) root."""
     try:
-        from logos_constants import get_default_hermes_root
-        return hermes_home.resolve() == get_default_hermes_root().resolve()
+        from logos_constants import get_logos_root
+        return hermes_home.resolve() == get_logos_root().resolve()
     except (ImportError, ModuleNotFoundError):
         return False
 
@@ -288,7 +288,7 @@ def run_uninstall(args):
     - Keep data: removes code but keeps ~/.hermes/ for future reinstall
     """
     project_root = get_project_root()
-    hermes_home = get_hermes_home()
+    hermes_home = get_logos_home()
 
     # Detect named profiles when uninstalling from the default root —
     # offer to clean them up too instead of leaving zombie HERMES_HOMEs

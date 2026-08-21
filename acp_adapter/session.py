@@ -8,7 +8,7 @@ history.
 """
 from __future__ import annotations
 
-from logos_constants import get_hermes_home
+from logos_constants import get_logos_home
 
 import copy
 import json
@@ -385,7 +385,7 @@ class SessionManager:
             return self._db_instance
         try:
             from logos_state import SessionDB
-            hermes_home = get_hermes_home()
+            hermes_home = get_logos_home()
             self._db_instance = SessionDB(db_path=hermes_home / "state.db")
             return self._db_instance
         except Exception:

@@ -8,7 +8,7 @@ import yaml
 
 from logos_cli.config import (
     DEFAULT_CONFIG,
-    get_hermes_home,
+    get_logos_home,
     ensure_hermes_home,
     get_compatible_custom_providers,
     load_config,
@@ -27,12 +27,12 @@ class TestGetHermesHome:
     def test_default_path(self):
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("HERMES_HOME", None)
-            home = get_hermes_home()
+            home = get_logos_home()
             assert home == Path.home() / ".hermes"
 
     def test_env_override(self):
         with patch.dict(os.environ, {"HERMES_HOME": "/custom/path"}):
-            home = get_hermes_home()
+            home = get_logos_home()
             assert home == Path("/custom/path")
 
 

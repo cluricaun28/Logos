@@ -401,7 +401,7 @@ class TestCacheDirectoryMounts:
         """Old-style dir names (e.g. document_cache) are resolved correctly."""
         hermes_home = tmp_path / ".hermes"
         hermes_home.mkdir()
-        # Use legacy dir name — get_hermes_dir prefers old if it exists
+        # Use legacy dir name — get_logos_dir prefers old if it exists
         (hermes_home / "document_cache").mkdir()
         (hermes_home / "image_cache").mkdir()
         monkeypatch.setenv("HERMES_HOME", str(hermes_home))

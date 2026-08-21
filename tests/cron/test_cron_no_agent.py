@@ -28,7 +28,7 @@ def hermes_env(tmp_path, monkeypatch):
 
     monkeypatch.setenv("HERMES_HOME", str(home))
 
-    # Reload modules that cache get_hermes_home() at import time.
+    # Reload modules that cache get_logos_home() at import time.
     import importlib
     import logos_constants
     importlib.reload(logos_constants)

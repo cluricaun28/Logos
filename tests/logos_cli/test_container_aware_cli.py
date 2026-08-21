@@ -105,7 +105,7 @@ def test_get_container_exec_info_defaults():
         )
 
         with patch("logos_constants.is_container", return_value=False), \
-             patch("logos_cli.config.get_hermes_home", return_value=hermes_home), \
+             patch("logos_cli.config.get_logos_home", return_value=hermes_home), \
              patch.dict(os.environ, {}, clear=False):
             os.environ.pop("HERMES_DEV", None)
             info = get_container_exec_info()

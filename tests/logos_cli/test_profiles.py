@@ -44,7 +44,7 @@ def profile_env(tmp_path, monkeypatch):
     """Set up an isolated environment for profile tests.
 
     * Path.home() -> tmp_path  (so _get_profiles_root() = tmp_path/.hermes/profiles)
-    * HERMES_HOME  -> tmp_path/.hermes  (so get_hermes_home() agrees)
+    * HERMES_HOME  -> tmp_path/.hermes  (so get_logos_home() agrees)
     * Creates the bare-minimum ~/.hermes directory.
     """
     monkeypatch.setattr(Path, "home", lambda: tmp_path)

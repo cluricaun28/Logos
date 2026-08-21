@@ -26,10 +26,10 @@ from typing import Any, Callable, Dict, List, Optional
 
 import yaml
 
-from logos_cli.config import get_hermes_home
+from logos_cli.config import get_logos_home
 
 
-HOOKS_DIR = get_hermes_home() / "hooks"
+HOOKS_DIR = get_logos_home() / "hooks"
 
 
 class HookRegistry:

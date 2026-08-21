@@ -35,7 +35,7 @@ import threading
 import time
 import urllib.request
 
-from logos_constants import get_hermes_home
+from logos_constants import get_logos_home
 
 logger = logging.getLogger(__name__)
 
@@ -106,14 +106,14 @@ _install_thread: threading.Thread | None = None
 _MARKER_TTL = 86400  # 24 hours
 
 
-def _get_hermes_home() -> str:
+def _get_logos_home() -> str:
     """Return the Logos home directory, respecting HERMES_HOME env var."""
-    return str(get_hermes_home())
+    return str(get_logos_home())
 
 
 def _failure_marker_path() -> str:
     """Return the path to the install-failure marker file."""
-    return os.path.join(_get_hermes_home(), ".tirith-install-failed")
+    return os.path.join(_get_logos_home(), ".tirith-install-failed")
 
 
 def _read_failure_reason() -> str | None:
@@ -177,7 +177,7 @@ def _clear_install_failed():
 
 def _hermes_bin_dir() -> str:
     """Return $HERMES_HOME/bin, creating it if needed."""
-    d = os.path.join(_get_hermes_home(), "bin")
+    d = os.path.join(_get_logos_home(), "bin")
     os.makedirs(d, exist_ok=True)
     return d
 

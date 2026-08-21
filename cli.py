@@ -79,11 +79,11 @@ _COMMAND_SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧
 
 # Load .env from ~/.hermes/.env first, then project root as dev fallback.
 # User-managed env files should override stale shell exports on restart.
-from logos_constants import get_hermes_home, display_hermes_home
+from logos_constants import get_logos_home, display_logos_home
 from logos_cli.env_loader import load_hermes_dotenv
 from utils import base_url_host_matches
 
-_hermes_home = get_hermes_home()
+_hermes_home = get_logos_home()
 _project_env = Path(__file__).parent / '.env'
 load_hermes_dotenv(hermes_home=_hermes_home, project_env=_project_env)
 
@@ -1028,7 +1028,7 @@ def _run_state_db_auto_maintenance(session_db) -> None:
         return
     try:
         from logos_cli.config import load_config as _load_full_config
-        from logos_constants import get_hermes_home as _get_hermes_home
+        from logos_constants import get_logos_home as _get_logos_home
         cfg = (_load_full_config().get("sessions") or {})
         if not cfg.get("auto_prune", False):
             return
@@ -1036,7 +1036,7 @@ def _run_state_db_auto_maintenance(session_db) -> None:
             retention_days=int(cfg.get("retention_days", 90)),
             min_interval_hours=int(cfg.get("min_interval_hours", 24)),
             vacuum=bool(cfg.get("vacuum_after_prune", True)),
-            sessions_dir=_get_hermes_home() / "sessions",
+            sessions_dir=_get_logos_home() / "sessions",
         )
     except (TypeError, ValueError) as exc:
         logger.debug("state.db auto-maintenance skipped: %s", exc)
@@ -3899,7 +3899,7 @@ class LogosCLI:
         """
         from logos_cli.clipboard import save_clipboard_image
 
-        img_dir = get_hermes_home() / "images"
+        img_dir = get_logos_home() / "images"
         self._image_counter += 1
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         img_path = img_dir / f"clip_{ts}_{self._image_counter}.png"
@@ -4030,7 +4030,7 @@ class LogosCLI:
             create_quick_snapshot, list_quick_snapshots,
             restore_quick_snapshot, prune_quick_snapshots,
         )
-        from logos_constants import display_hermes_home
+        from logos_constants import display_logos_home
 
         parts = command.split()
         subcmd = parts[1].lower() if len(parts) > 1 else "list"
@@ -4041,7 +4041,7 @@ class LogosCLI:
                 print("  No state snapshots yet.")
                 print("  Create one: /snapshot create [label]")
                 return
-            print(f"  State snapshots ({display_hermes_home()}/state-snapshots/):\n")
+            print(f"  State snapshots ({display_logos_home()}/state-snapshots/):\n")
             print(f"  {'#':>3}  {'ID':<35} {'Files':>5} {'Size':>10} {'Label'}")
             print(f"  {'─'*3}  {'─'*35} {'─'*5} {'─'*10} {'─'*20}")
             for i, s in enumerate(snaps, 1):
@@ -4415,7 +4415,7 @@ class LogosCLI:
             "Logos CLI Status",
             "",
             f"Session ID: {self.session_id}",
-            f"Path: {display_hermes_home()}",
+            f"Path: {display_logos_home()}",
         ]
         if title:
             lines.append(f"Title: {title}")
@@ -4635,10 +4635,10 @@ class LogosCLI:
     
     def _handle_profile_command(self):
         """Display active profile name and home directory."""
-        from logos_constants import display_hermes_home
+        from logos_constants import display_logos_home
         from logos_cli.profiles import get_active_profile_name
 
-        display = display_hermes_home()
+        display = display_logos_home()
         profile_name = get_active_profile_name()
 
         print()
@@ -5105,7 +5105,7 @@ class LogosCLI:
             return
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        saved_dir = get_hermes_home() / "sessions" / "saved"
+        saved_dir = get_logos_home() / "sessions" / "saved"
         try:
             saved_dir.mkdir(parents=True, exist_ok=True)
         except Exception as e:
@@ -6063,7 +6063,7 @@ class LogosCLI:
             print("  To start the gateway:")
             print("    python cli.py --gateway")
             print()
-            print(f"  Configuration file: {display_hermes_home()}/config.yaml")
+            print(f"  Configuration file: {display_logos_home()}/config.yaml")
             print()
             
         except (AttributeError, TypeError, ValueError) as e:
@@ -6072,7 +6072,7 @@ class LogosCLI:
             print("  To configure the gateway:")
             print("    1. Set environment variables:")
             print("       TELEGRAM_BOT_TOKEN=***")
-            print(f"    2. Or configure settings in {display_hermes_home()}/config.yaml")
+            print(f"    2. Or configure settings in {display_logos_home()}/config.yaml")
             print()
     
     def process_command(self, command: str) -> bool:
@@ -6303,7 +6303,7 @@ class LogosCLI:
                 plugins = mgr.list_plugins()
                 if not plugins:
                     print("No plugins installed.")
-                    print(f"Drop plugin directories into {display_hermes_home()}/plugins/ to get started.")
+                    print(f"Drop plugin directories into {display_logos_home()}/plugins/ to get started.")
                 else:
                     print(f"Plugins ({len(plugins)}):")
                     for p in plugins:
@@ -6873,7 +6873,7 @@ class LogosCLI:
                 source = f" ({s['source']})" if s["source"] == "user" else ""
                 print(f"   {marker} {s['name']}{source} — {s['description']}")
             print("\n  Usage: /skin <name>")
-            print(f"  Custom skins: drop a YAML file in {display_hermes_home()}/skins/\n")
+            print(f"  Custom skins: drop a YAML file in {display_logos_home()}/skins/\n")
             return
 
         new_skin = parts[1].strip().lower()

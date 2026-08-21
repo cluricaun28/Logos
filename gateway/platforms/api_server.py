@@ -294,8 +294,8 @@ class ResponseStore:
         self._max_size = max_size
         if db_path is None:
             try:
-                from logos_cli.config import get_hermes_home
-                db_path = str(get_hermes_home() / "response_store.db")
+                from logos_cli.config import get_logos_home
+                db_path = str(get_logos_home() / "response_store.db")
             except (ImportError, ModuleNotFoundError):
                 db_path = ":memory:"
         try:

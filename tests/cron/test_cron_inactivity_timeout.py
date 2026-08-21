@@ -285,5 +285,5 @@ class TestSysPathOrdering:
 
     def test_logos_constants_importable(self):
         """logos_constants should be importable from cron context."""
-        from logos_constants import get_hermes_home
-        assert callable(get_hermes_home)
+        from logos_constants import get_logos_home
+        assert callable(get_logos_home)

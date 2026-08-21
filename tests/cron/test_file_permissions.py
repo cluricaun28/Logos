@@ -107,7 +107,7 @@ class TestConfigFilePermissions(unittest.TestCase):
 
     def test_ensure_hermes_home_sets_0700(self):
         home = Path(self.tmpdir) / ".hermes"
-        with patch("logos_cli.config.get_hermes_home", return_value=home):
+        with patch("logos_cli.config.get_logos_home", return_value=home):
             from logos_cli.config import ensure_hermes_home
             ensure_hermes_home()
 

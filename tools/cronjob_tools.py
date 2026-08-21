@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from logos_constants import display_hermes_home
+from logos_constants import display_logos_home
 
 logger = logging.getLogger(__name__)
 
@@ -193,7 +193,7 @@ def _validate_cron_script_path(script: Optional[str]) -> Optional[str]:
     if not script or not script.strip():
         return None  # empty/None = clearing the field, always OK
 
-    from logos_constants import get_hermes_home
+    from logos_constants import get_logos_home
 
     raw = script.strip()
 
@@ -209,7 +209,7 @@ def _validate_cron_script_path(script: Optional[str]) -> Optional[str]:
     # Validate containment after resolution
     from tools.path_security import validate_within_dir
 
-    scripts_dir = get_hermes_home() / "scripts"
+    scripts_dir = get_logos_home() / "scripts"
     scripts_dir.mkdir(parents=True, exist_ok=True)
     containment_error = validate_within_dir(scripts_dir / raw, scripts_dir)
     if containment_error:
@@ -554,7 +554,7 @@ Jobs run in a fresh session with no chat context — prompts must be self-contai
             },
             "script": {
                 "type": "string",
-                "description": f"Optional script path run each tick. Default mode: stdout is injected into the agent's prompt as context (data-collection / change-detection). With no_agent=True, the script IS the job and its stdout is delivered verbatim (watchdog pattern). Relative paths resolve under {display_hermes_home()}/scripts/. ``.sh``/``.bash`` run via bash, else Python. Empty string on update clears.",
+                "description": f"Optional script path run each tick. Default mode: stdout is injected into the agent's prompt as context (data-collection / change-detection). With no_agent=True, the script IS the job and its stdout is delivered verbatim (watchdog pattern). Relative paths resolve under {display_logos_home()}/scripts/. ``.sh``/``.bash`` run via bash, else Python. Empty string on update clears.",
             },
             "no_agent": {
                 "type": "boolean",

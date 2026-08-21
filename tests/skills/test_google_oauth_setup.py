@@ -279,37 +279,61 @@ class TestHermesConstantsFallback:
         """When logos_constants is missing, HERMES_HOME comes from env var."""
         monkeypatch.setenv("HERMES_HOME", str(tmp_path / "custom-hermes"))
         module = self._load_helper(monkeypatch)
-        assert module.get_hermes_home() == tmp_path / "custom-hermes"
+        assert module.get_logos_home() == tmp_path / "custom-hermes"
 
-    def test_fallback_defaults_to_dot_hermes(self, monkeypatch):
-        """When logos_constants is missing and HERMES_HOME unset, default to ~/.hermes."""
+    def test_fallback_defaults_to_legacy_hermes_on_disk(self, monkeypatch, tmp_path):
+        """No home env vars but legacy ~/.hermes exists → ~/.hermes."""
         monkeypatch.delenv("HERMES_HOME", raising=False)
+        monkeypatch.delenv("LOGOS_HOME", raising=False)
+        (tmp_path / ".hermes").mkdir()
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
         module = self._load_helper(monkeypatch)
-        assert module.get_hermes_home() == Path.home() / ".hermes"
+        assert module.get_logos_home() == tmp_path / ".hermes"
 
-    def test_fallback_ignores_empty_hermes_home(self, monkeypatch):
-        """Empty/whitespace HERMES_HOME is treated as unset."""
+    def test_fallback_fresh_machine_defaults_to_dot_logos(self, monkeypatch, tmp_path):
+        """No home env vars, no legacy dir on disk → ~/.logos."""
+        monkeypatch.delenv("HERMES_HOME", raising=False)
+        monkeypatch.delenv("LOGOS_HOME", raising=False)
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        module = self._load_helper(monkeypatch)
+        assert module.get_logos_home() == tmp_path / ".logos"
+
+    def test_fallback_logos_home_env_wins_over_hermes_home(self, monkeypatch, tmp_path):
+        """LOGOS_HOME takes precedence over legacy HERMES_HOME."""
+        monkeypatch.setenv("LOGOS_HOME", str(tmp_path / "logos-env"))
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes-env"))
+        module = self._load_helper(monkeypatch)
+        assert module.get_logos_home() == tmp_path / "logos-env"
+
+    def test_fallback_ignores_empty_hermes_home(self, monkeypatch, tmp_path):
+        """Empty/whitespace HERMES_HOME is treated as unset (fresh home →
+        ~/.logos default)."""
+        monkeypatch.delenv("LOGOS_HOME", raising=False)
         monkeypatch.setenv("HERMES_HOME", "  ")
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
         module = self._load_helper(monkeypatch)
-        assert module.get_hermes_home() == Path.home() / ".hermes"
+        assert module.get_logos_home() == tmp_path / ".logos"
 
-    def test_fallback_display_hermes_home_shortens_path(self, monkeypatch):
-        """Fallback display_hermes_home() uses ~/ shorthand like the real one."""
+    def test_fallback_display_hermes_home_shortens_path(self, monkeypatch, tmp_path):
+        """Fallback display_logos_home() uses ~/ shorthand like the real one."""
         monkeypatch.delenv("HERMES_HOME", raising=False)
+        monkeypatch.delenv("LOGOS_HOME", raising=False)
+        (tmp_path / ".hermes").mkdir()
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
         module = self._load_helper(monkeypatch)
-        assert module.display_hermes_home() == "~/.hermes"
+        assert module.display_logos_home() == "~/.hermes"
 
     def test_fallback_display_hermes_home_profile_path(self, monkeypatch):
-        """Fallback display_hermes_home() handles profile paths under ~/."""
+        """Fallback display_logos_home() handles profile paths under ~/."""
         monkeypatch.setenv("HERMES_HOME", str(Path.home() / ".hermes/profiles/coder"))
         module = self._load_helper(monkeypatch)
-        assert module.display_hermes_home() == "~/.hermes/profiles/coder"
+        assert module.display_logos_home() == "~/.hermes/profiles/coder"
 
     def test_fallback_display_hermes_home_custom_path(self, monkeypatch):
-        """Fallback display_hermes_home() returns full path for non-home locations."""
+        """Fallback display_logos_home() returns full path for non-home locations."""
         monkeypatch.setenv("HERMES_HOME", "/opt/hermes-custom")
         module = self._load_helper(monkeypatch)
-        assert module.display_hermes_home() == "/opt/hermes-custom"
+        assert module.display_logos_home() == "/opt/hermes-custom"
 
     def test_delegates_to_logos_constants_when_available(self):
         """When logos_constants IS importable, _hermes_home delegates to it."""
@@ -320,5 +344,5 @@ class TestHermesConstantsFallback:
         assert spec.loader is not None
         spec.loader.exec_module(module)
         import logos_constants
-        assert module.get_hermes_home is logos_constants.get_hermes_home
-        assert module.display_hermes_home is logos_constants.display_hermes_home
+        assert module.get_logos_home is logos_constants.get_logos_home
+        assert module.display_logos_home is logos_constants.display_logos_home

@@ -222,9 +222,9 @@ _ensure_ssl_certs()
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Resolve Logos home directory (respects HERMES_HOME override)
-from logos_constants import get_hermes_home
+from logos_constants import get_logos_home
 from utils import atomic_yaml_write, base_url_host_matches, is_truthy_value
-_hermes_home = get_hermes_home()
+_hermes_home = get_logos_home()
 
 # Load environment variables from ~/.hermes/.env first.
 # User-managed env files should override stale shell exports on restart.
@@ -5621,10 +5621,10 @@ class GatewayRunner:
     
     async def _handle_profile_command(self, event: MessageEvent) -> str:
         """Handle /profile — show active profile name and home directory."""
-        from logos_constants import display_hermes_home
+        from logos_constants import display_logos_home
         from logos_cli.profiles import get_active_profile_name
 
-        display = display_hermes_home()
+        display = display_logos_home()
         profile_name = get_active_profile_name()
 
         lines = [
@@ -6461,7 +6461,7 @@ class GatewayRunner:
 
     async def _handle_personality_command(self, event: MessageEvent) -> str:
         """Handle /personality command - list or set a personality."""
-        from logos_constants import display_hermes_home
+        from logos_constants import display_logos_home
 
         args = event.get_command_args().strip().lower()
         config_path = _hermes_home / 'config.yaml'
@@ -6474,7 +6474,7 @@ class GatewayRunner:
             personalities = {}
 
         if not personalities:
-            return f"No personalities configured in `{display_hermes_home()}/config.yaml`"
+            return f"No personalities configured in `{display_logos_home()}/config.yaml`"
 
         if not args:
             lines = ["🎭 **Available Personalities**\n"]
@@ -11696,7 +11696,7 @@ async def start_gateway(config: Optional[GatewayConfig] = None, replace: bool = 
             # remove_pid_file() is a no-op when the PID doesn't match.
             # Force-unlink to cover the old-process-crashed case.
             try:
-                (get_hermes_home() / "gateway.pid").unlink(missing_ok=True)
+                (get_logos_home() / "gateway.pid").unlink(missing_ok=True)
             except (OSError, PermissionError):
                 pass
             # Clean up any takeover marker the old process didn't consume
@@ -11720,7 +11720,7 @@ async def start_gateway(config: Optional[GatewayConfig] = None, replace: bool = 
             except (ImportError, ModuleNotFoundError):
                 pass
         else:
-            hermes_home = str(get_hermes_home())
+            hermes_home = str(get_logos_home())
             logger.error(
                 "Another gateway instance is already running (PID %d, HERMES_HOME=%s). "
                 "Use 'logos gateway restart' to replace it, or 'logos gateway stop' first.",

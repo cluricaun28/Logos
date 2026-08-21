@@ -79,7 +79,7 @@ def get_managed_system() -> Optional[str]:
             return "NixOS"
         return _MANAGED_SYSTEM_NAMES.get(normalized, raw)
 
-    managed_marker = get_hermes_home() / ".managed"
+    managed_marker = get_logos_home() / ".managed"
     if managed_marker.exists():
         return "NixOS"
     return None
@@ -165,7 +165,7 @@ def get_container_exec_info() -> Optional[dict]:
     if is_container():
         return None
 
-    container_mode_file = get_hermes_home() / ".container-mode"
+    container_mode_file = get_logos_home() / ".container-mode"
 
     try:
         info = {}
@@ -197,16 +197,16 @@ def get_container_exec_info() -> Optional[dict]:
 # =============================================================================
 
 # Re-export from logos_constants — canonical definition lives there.
-from logos_constants import get_hermes_home  # noqa: F811,E402
+from logos_constants import get_logos_home  # noqa: F811,E402
 from utils import atomic_replace
 
 def get_config_path() -> Path:
     """Get the main config file path."""
-    return get_hermes_home() / "config.yaml"
+    return get_logos_home() / "config.yaml"
 
 def get_env_path() -> Path:
     """Get the .env file path (for API keys)."""
-    return get_hermes_home() / ".env"
+    return get_logos_home() / ".env"
 
 def get_project_root() -> Path:
     """Get the project installation directory."""
@@ -297,7 +297,7 @@ def ensure_hermes_home():
     setgid + group-writable (2770). We skip mkdir and set umask(0o007) so
     any files created (e.g. SOUL.md) are group-writable (0660).
     """
-    home = get_hermes_home()
+    home = get_logos_home()
     if is_managed():
         old_umask = os.umask(0o007)
         try:
@@ -2795,7 +2795,7 @@ def migrate_config(interactive: bool = True, quiet: bool = False) -> Dict[str, A
             # Scan ``$HERMES_HOME/plugins/`` for currently installed user plugins.
             grandfathered: List[str] = []
             try:
-                user_plugins_dir = get_hermes_home() / "plugins"
+                user_plugins_dir = get_logos_home() / "plugins"
                 if user_plugins_dir.is_dir():
                     for child in sorted(user_plugins_dir.iterdir()):
                         if not child.is_dir():

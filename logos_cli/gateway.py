@@ -24,13 +24,13 @@ from gateway.restart import (
 )
 from logos_cli.config import (
     get_env_value,
-    get_hermes_home,
+    get_logos_home,
     is_managed,
     managed_error,
     read_raw_config,
     save_env_value,
 )
-# display_hermes_home is imported lazily at call sites to avoid ImportError
+# display_logos_home is imported lazily at call sites to avoid ImportError
 # when logos_constants is cached from a pre-update version during `logos update`.
 from logos_cli.setup import (
     print_header, print_info, print_success, print_warning, print_error,
@@ -256,7 +256,7 @@ def _scan_gateway_pids(exclude_pids: set[int], all_profiles: bool = False) -> li
         "logos gateway",
         "gateway/run.py",
     ]
-    current_home = str(get_hermes_home().resolve())
+    current_home = str(get_logos_home().resolve())
     current_profile_arg = _profile_arg(current_home)
     current_profile_name = current_profile_arg.split()[-1] if current_profile_arg else ""
 
@@ -749,9 +749,9 @@ def _profile_suffix() -> str:
     """
     import hashlib
     import re
-    from logos_constants import get_default_hermes_root
-    home = get_hermes_home().resolve()
-    default = get_default_hermes_root().resolve()
+    from logos_constants import get_logos_root
+    home = get_logos_home().resolve()
+    default = get_logos_root().resolve()
     if home == default:
         return ""
     # Detect <root>/profiles/<name> pattern → use the profile name
@@ -775,13 +775,13 @@ def _profile_arg(hermes_home: str | None = None) -> str:
 
     Args:
         hermes_home: Optional explicit HERMES_HOME path. Defaults to the current
-            ``get_hermes_home()`` value. Should be passed when generating a
+            ``get_logos_home()`` value. Should be passed when generating a
             service definition for a different user (e.g. system service).
     """
     import re
-    from logos_constants import get_default_hermes_root
-    home = Path(hermes_home or str(get_hermes_home())).resolve()
-    default = get_default_hermes_root().resolve()
+    from logos_constants import get_logos_root
+    home = Path(hermes_home or str(get_logos_home())).resolve()
+    default = get_logos_root().resolve()
     if home == default:
         return ""
     profiles_root = (default / "profiles").resolve()
@@ -1484,13 +1484,13 @@ def _remap_path_for_user(path: str, target_home_dir: str) -> str:
 def _hermes_home_for_target_user(target_home_dir: str) -> str:
     """Remap the current HERMES_HOME to the equivalent under a target user's home.
 
-    When installing a system service via sudo, get_hermes_home() resolves to
+    When installing a system service via sudo, get_logos_home() resolves to
     root's home.  This translates it to the target user's equivalent path:
       /root/.hermes                    → /home/alice/.hermes
       /root/.hermes/profiles/coder     → /home/alice/.hermes/profiles/coder
       /opt/custom-hermes               → /opt/custom-hermes  (kept as-is)
     """
-    current_hermes = get_hermes_home().resolve()
+    current_hermes = get_logos_home().resolve()
     current_default = (Path.home() / ".hermes").resolve()
     target_default = Path(target_home_dir) / ".hermes"
 
@@ -1581,7 +1581,7 @@ StandardError=journal
 WantedBy=multi-user.target
 """
 
-    hermes_home = str(get_hermes_home().resolve())
+    hermes_home = str(get_logos_home().resolve())
     profile_arg = _profile_arg(hermes_home)
     path_entries.extend(_build_user_local_paths(Path.home(), path_entries))
     path_entries.extend(common_bin_paths)
@@ -2006,8 +2006,8 @@ def _launchd_domain() -> str:
 def generate_launchd_plist() -> str:
     python_path = get_python_path()
     working_dir = str(PROJECT_ROOT)
-    hermes_home = str(get_hermes_home().resolve())
-    log_dir = get_hermes_home() / "logs"
+    hermes_home = str(get_logos_home().resolve())
+    log_dir = get_logos_home() / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     label = get_launchd_label()
     profile_arg = _profile_arg(hermes_home)
@@ -2146,7 +2146,7 @@ def launchd_install(force: bool = False):
     print()
     print("Next steps:")
     print("  logos gateway status             # Check status")
-    from logos_constants import display_hermes_home as _dhh
+    from logos_constants import display_logos_home as _dhh
     print(f"  tail -f {_dhh()}/logs/gateway.log  # View logs")
 
 def launchd_uninstall():
@@ -2308,7 +2308,7 @@ def launchd_status(deep: bool = False):
         print("  Run: logos gateway start")
     
     if deep:
-        log_file = get_hermes_home() / "logs" / "gateway.log"
+        log_file = get_logos_home() / "logs" / "gateway.log"
         if log_file.exists():
             print()
             print("Recent logs:")
@@ -2731,7 +2731,7 @@ def gateway_setup():
                 print_info("  To enable systemd: add systemd=true to /etc/wsl.conf, then 'wsl --shutdown'")
             else:
                 if is_termux():
-                    from logos_constants import display_hermes_home as _dhh
+                    from logos_constants import display_logos_home as _dhh
                     print_info("  Termux does not use systemd/launchd services.")
                     print_info("  Run in foreground: logos gateway run")
                     print_info(f"  Or start it manually in the background (best effort): nohup logos gateway run >{_dhh()}/logs/gateway.log 2>&1 &")

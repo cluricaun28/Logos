@@ -998,9 +998,9 @@ class TestHermesHomeIsolation:
 
     def test_get_hermes_home_fallback(self):
         """Without HERMES_HOME set, falls back to ~/.hermes."""
-        from tools.tirith_security import _get_hermes_home
+        from tools.tirith_security import _get_logos_home
         with patch.dict(os.environ, {}, clear=True):
             # Remove HERMES_HOME entirely
             os.environ.pop("HERMES_HOME", None)
-            result = _get_hermes_home()
+            result = _get_logos_home()
         assert result == os.path.join(os.path.expanduser("~"), ".hermes")

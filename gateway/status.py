@@ -20,7 +20,7 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from logos_constants import get_hermes_home
+from logos_constants import get_logos_home
 from typing import Any, Optional
 
 if sys.platform == "win32":
@@ -39,7 +39,7 @@ _gateway_lock_handle = None
 
 def _get_pid_path() -> Path:
     """Return the path to the gateway PID file, respecting HERMES_HOME."""
-    home = get_hermes_home()
+    home = get_logos_home()
     return home / "gateway.pid"
 
 
@@ -47,7 +47,7 @@ def _get_gateway_lock_path(pid_path: Optional[Path] = None) -> Path:
     """Return the path to the runtime gateway lock file."""
     if pid_path is not None:
         return pid_path.with_name(_GATEWAY_LOCK_FILENAME)
-    home = get_hermes_home()
+    home = get_logos_home()
     return home / _GATEWAY_LOCK_FILENAME
 
 
@@ -638,7 +638,7 @@ _TAKEOVER_MARKER_TTL_S = 60  # Marker older than this is treated as stale
 
 def _get_takeover_marker_path() -> Path:
     """Return the path to the --replace takeover marker file."""
-    home = get_hermes_home()
+    home = get_logos_home()
     return home / _TAKEOVER_MARKER_FILENAME
 
 

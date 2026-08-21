@@ -40,7 +40,7 @@ import re
 import shutil
 import tempfile
 from pathlib import Path
-from logos_constants import get_hermes_home, display_hermes_home
+from logos_constants import get_logos_home, display_logos_home
 from typing import Dict, Any, Optional, Tuple
 
 from utils import atomic_replace
@@ -102,7 +102,7 @@ import yaml
 
 
 # All skills live in ~/.hermes/skills/ (single source of truth)
-HERMES_HOME = get_hermes_home()
+HERMES_HOME = get_logos_home()
 SKILLS_DIR = HERMES_HOME / "skills"
 
 MAX_NAME_LENGTH = 64
@@ -812,7 +812,7 @@ SKILL_MANAGE_SCHEMA = {
     "description": (
         "Manage skills (create, update, delete). Skills are your procedural "
         "memory — reusable approaches for recurring task types. "
-        f"New skills go to {display_hermes_home()}/skills/; existing skills can be modified wherever they live.\n\n"
+        f"New skills go to {display_logos_home()}/skills/; existing skills can be modified wherever they live.\n\n"
         "Actions: create (full SKILL.md + optional category), "
         "patch (old_string/new_string — preferred for fixes), "
         "edit (full SKILL.md rewrite — major overhauls only), "

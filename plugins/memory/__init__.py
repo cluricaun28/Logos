@@ -40,8 +40,8 @@ _MEMORY_PLUGINS_DIR = Path(__file__).parent
 def _get_user_plugins_dir() -> Optional[Path]:
     """Return ``$HERMES_HOME/plugins/`` or None if unavailable."""
     try:
-        from logos_constants import get_hermes_home
-        d = get_hermes_home() / "plugins"
+        from logos_constants import get_logos_home
+        d = get_logos_home() / "plugins"
         return d if d.is_dir() else None
     except Exception:
         return None

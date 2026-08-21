@@ -27,14 +27,14 @@ import logging
 import os
 import shutil
 from pathlib import Path
-from logos_constants import get_hermes_home
+from logos_constants import get_logos_home
 from typing import Dict, List, Tuple
 from utils import atomic_replace
 
 logger = logging.getLogger(__name__)
 
 
-HERMES_HOME = get_hermes_home()
+HERMES_HOME = get_logos_home()
 SKILLS_DIR = HERMES_HOME / "skills"
 MANIFEST_FILE = SKILLS_DIR / ".bundled_manifest"
 

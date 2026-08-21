@@ -14,7 +14,7 @@ PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 
 from logos_cli.auth import AuthError, resolve_provider
 from logos_cli.colors import Colors, color
-from logos_cli.config import get_env_path, get_env_value, get_hermes_home, load_config
+from logos_cli.config import get_env_path, get_env_value, get_logos_home, load_config
 from logos_cli.models import provider_label
 from logos_cli.nous_subscription import get_nous_subscription_features
 from logos_cli.runtime_provider import resolve_requested_provider
@@ -385,7 +385,7 @@ def show_status(args):
     print()
     print(color("◆ Scheduled Jobs", Colors.CYAN, Colors.BOLD))
     
-    jobs_file = get_hermes_home() / "cron" / "jobs.json"
+    jobs_file = get_logos_home() / "cron" / "jobs.json"
     if jobs_file.exists():
         import json
         try:
@@ -405,7 +405,7 @@ def show_status(args):
     print()
     print(color("◆ Sessions", Colors.CYAN, Colors.BOLD))
     
-    sessions_file = get_hermes_home() / "sessions" / "sessions.json"
+    sessions_file = get_logos_home() / "sessions" / "sessions.json"
     if sessions_file.exists():
         import json
         try:

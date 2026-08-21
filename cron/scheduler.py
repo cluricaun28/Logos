@@ -35,7 +35,7 @@ from typing import List, Optional
 # the module) fail with ModuleNotFoundError for logos_time et al.
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from logos_constants import get_hermes_home
+from logos_constants import get_logos_home
 from logos_cli.config import load_config, _expand_env_vars
 from logos_time import now as _hermes_now
 
@@ -92,7 +92,7 @@ from cron.jobs import get_due_jobs, mark_job_run, save_job_output, advance_next_
 SILENT_MARKER = "[SILENT]"
 
 # Resolve Logos home directory (respects HERMES_HOME override)
-_hermes_home = get_hermes_home()
+_hermes_home = get_logos_home()
 
 # File-based lock prevents concurrent ticks from gateway + daemon + systemd timer
 _LOCK_DIR = _hermes_home / "cron"
@@ -547,9 +547,9 @@ def _run_job_script(script_path: str) -> tuple[bool, str]:
         (success, output) — on failure *output* contains the error message so the
         LLM can report the problem to the user.
     """
-    from logos_constants import get_hermes_home
+    from logos_constants import get_logos_home
 
-    scripts_dir = get_hermes_home() / "scripts"
+    scripts_dir = get_logos_home() / "scripts"
     scripts_dir.mkdir(parents=True, exist_ok=True)
     scripts_dir_resolved = scripts_dir.resolve()
 

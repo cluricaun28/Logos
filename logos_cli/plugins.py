@@ -43,7 +43,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Union
 
-from logos_constants import get_hermes_home
+from logos_constants import get_logos_home
 from utils import env_var_enabled
 
 try:
@@ -576,7 +576,7 @@ class PluginManager:
         )
 
         # 2. User plugins (~/.hermes/plugins/)
-        user_dir = get_hermes_home() / "plugins"
+        user_dir = get_logos_home() / "plugins"
         manifests.extend(self._scan_directory(user_dir, source="user"))
 
         # 3. Project plugins (./.hermes/plugins/)

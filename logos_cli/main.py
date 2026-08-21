@@ -118,9 +118,9 @@ def _apply_profile_override() -> None:
     # 2. If no flag, check active_profile in the hermes root
     if profile_name is None:
         try:
-            from logos_constants import get_default_hermes_root
+            from logos_constants import get_logos_root
 
-            active_path = get_default_hermes_root() / "active_profile"
+            active_path = get_logos_root() / "active_profile"
             if active_path.exists():
                 name = active_path.read_text().strip()
                 if name and name != "default":
@@ -163,7 +163,7 @@ _apply_profile_override()
 
 # Load .env from ~/.hermes/.env first, then project root as dev fallback.
 # User-managed env files should override stale shell exports on restart.
-from logos_cli.config import get_hermes_home
+from logos_cli.config import get_logos_home
 from logos_cli.env_loader import load_hermes_dotenv
 
 load_hermes_dotenv(project_env=PROJECT_ROOT / ".env")
@@ -176,7 +176,7 @@ load_hermes_dotenv(project_env=PROJECT_ROOT / ".env")
 try:
     if "HERMES_REDACT_SECRETS" not in os.environ:
         import yaml as _yaml_early
-        _cfg_path = get_hermes_home() / "config.yaml"
+        _cfg_path = get_logos_home() / "config.yaml"
         if _cfg_path.exists():
             with open(_cfg_path, encoding="utf-8") as _f:
                 _early_sec_cfg = (_yaml_early.safe_load(_f) or {}).get("security", {})
@@ -241,7 +241,7 @@ def _relative_time(ts) -> str:
 
 def _has_any_provider_configured() -> bool:
     """Check if at least one inference provider is usable."""
-    from logos_cli.config import get_env_path, get_hermes_home, load_config
+    from logos_cli.config import get_env_path, get_logos_home, load_config
     from logos_cli.auth import get_auth_status
 
     # Determine whether Logos itself has been explicitly configured (model
@@ -307,7 +307,7 @@ def _has_any_provider_configured() -> bool:
         pass
 
     # Check for Nous Portal OAuth credentials
-    auth_file = get_hermes_home() / "auth.json"
+    auth_file = get_logos_home() / "auth.json"
     if auth_file.exists():
         try:
             import json
@@ -4061,7 +4061,7 @@ def _run_anthropic_oauth_flow(save_env_value):
         ):
             use_anthropic_claude_code_credentials(save_fn=save_env_value)
             print("  ✓ Claude Code credentials linked.")
-            from logos_constants import display_hermes_home as _dhh_fn
+            from logos_constants import display_logos_home as _dhh_fn
 
             print(
                 f"    Logos will use Claude's credential store directly instead of copying a setup-token into {_dhh_fn()}/.env."
@@ -4447,9 +4447,9 @@ def _gateway_prompt(prompt_text: str, default: str = "", timeout: float = 300.0)
     """
     import json as _json
     import uuid as _uuid
-    from logos_constants import get_hermes_home
+    from logos_constants import get_logos_home
 
-    home = get_hermes_home()
+    home = get_logos_home()
     prompt_path = home / ".update_prompt.json"
     response_path = home / ".update_response"
 
@@ -4898,17 +4898,17 @@ def _count_commits_between(git_cmd: list[str], cwd: Path, base: str, head: str) 
 
 def _should_skip_upstream_prompt() -> bool:
     """Check if user previously declined to add upstream."""
-    from logos_constants import get_hermes_home
+    from logos_constants import get_logos_home
 
-    return (get_hermes_home() / SKIP_UPSTREAM_PROMPT_FILE).exists()
+    return (get_logos_home() / SKIP_UPSTREAM_PROMPT_FILE).exists()
 
 
 def _mark_skip_upstream_prompt():
     """Create marker file to skip future upstream prompts."""
     try:
-        from logos_constants import get_hermes_home
+        from logos_constants import get_logos_home
 
-        (get_hermes_home() / SKIP_UPSTREAM_PROMPT_FILE).touch()
+        (get_logos_home() / SKIP_UPSTREAM_PROMPT_FILE).touch()
     except (ImportError, ModuleNotFoundError, OSError, PermissionError):
         pass
 
@@ -5053,9 +5053,9 @@ def _invalidate_update_cache():
     """
     homes = []
     # Default profile home (Docker-aware — uses /opt/data in Docker)
-    from logos_constants import get_default_hermes_root
+    from logos_constants import get_logos_root
 
-    default_home = get_default_hermes_root()
+    default_home = get_logos_root()
     homes.append(default_home)
     # Named profiles under <root>/profiles/
     profiles_root = default_home / "profiles"
@@ -5282,10 +5282,10 @@ def _install_hangup_protection(gateway_mode: bool = False):
     # tolerance.  Any failure here is non-fatal; we just skip the wrap.
     try:
         # Late-bound import so tests can monkeypatch
-        # logos_cli.config.get_hermes_home to simulate setup failure.
-        from logos_cli.config import get_hermes_home as _get_hermes_home
+        # logos_cli.config.get_logos_home to simulate setup failure.
+        from logos_cli.config import get_logos_home as _get_logos_home
 
-        logs_dir = _get_hermes_home() / "logs"
+        logs_dir = _get_logos_home() / "logs"
         logs_dir.mkdir(parents=True, exist_ok=True)
         log_path = logs_dir / "update.log"
         log_file = open(log_path, "a", buffering=1, encoding="utf-8")
@@ -5549,12 +5549,12 @@ def _run_pre_update_backup(args) -> None:
         size_bytes /= 1024
         size_str = f"{size_bytes:.1f} {unit}"
 
-    # Render path using display_hermes_home so the user sees ~/.hermes/...
+    # Render path using display_logos_home so the user sees ~/.hermes/...
     try:
-        from logos_constants import get_hermes_home, display_hermes_home
-        home = get_hermes_home()
+        from logos_constants import get_logos_home, display_logos_home
+        home = get_logos_home()
         try:
-            display_path = f"{display_hermes_home()}/{out_path.relative_to(home)}"
+            display_path = f"{display_logos_home()}/{out_path.relative_to(home)}"
         except ValueError:
             display_path = str(out_path)
     except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
@@ -5831,7 +5831,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
 
         # Clear stale .pyc bytecode cache — prevents ImportError on gateway
         # restart when updated source references names that didn't exist in
-        # the old bytecode (e.g. get_hermes_home added to logos_constants).
+        # the old bytecode (e.g. get_logos_home added to logos_constants).
         removed = _clear_bytecode_cache(PROJECT_ROOT)
         if removed:
             print(
@@ -5880,7 +5880,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
         # After git pull, source files on disk are newer than cached Python
         # modules in this process.  Reload logos_constants so that any lazy
         # import executed below (skills sync, gateway restart) sees new
-        # attributes like display_hermes_home() added since the last release.
+        # attributes like display_logos_home() added since the last release.
         try:
             import importlib
             import logos_constants as _hc
@@ -6052,7 +6052,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
         # before we attempt the restart — ensures the new gateway sees it
         # regardless of how we die.
         if gateway_mode:
-            _exit_code_path = get_hermes_home() / ".update_exit_code"
+            _exit_code_path = get_logos_home() / ".update_exit_code"
             try:
                 _exit_code_path.write_text("0")
             except OSError:
@@ -6519,14 +6519,14 @@ def cmd_profile(args):
         _is_wrapper_dir_in_path,
         _get_wrapper_dir,
     )
-    from logos_constants import display_hermes_home
+    from logos_constants import display_logos_home
 
     action = getattr(args, "profile_action", None)
 
     if action is None:
         # Bare `logos profile` — show current profile status
         profile_name = get_active_profile_name()
-        dhh = display_hermes_home()
+        dhh = display_logos_home()
         print(f"\nActive profile: {profile_name}")
         print(f"Path:           {dhh}")
 
@@ -8318,9 +8318,9 @@ Examples:
             print("\n  ✓ Memory provider: built-in only")
             print("  Saved to config.yaml\n")
         elif sub == "reset":
-            from logos_constants import get_hermes_home, display_hermes_home
+            from logos_constants import get_logos_home, display_logos_home
 
-            mem_dir = get_hermes_home() / "memories"
+            mem_dir = get_logos_home() / "memories"
             target = getattr(args, "target", "all")
             files_to_reset = []
             if target in ("all", "memory"):
@@ -8334,7 +8334,7 @@ Examples:
             ]
             if not existing:
                 print(
-                    f"\n  Nothing to reset — no memory files found in {display_hermes_home()}/memories/\n"
+                    f"\n  Nothing to reset — no memory files found in {display_logos_home()}/memories/\n"
                 )
                 return
 
@@ -8361,7 +8361,7 @@ Examples:
             print(
                 f"\n  Memory reset complete. New sessions will start with a blank slate."
             )
-            print(f"  Files were in: {display_hermes_home()}/memories/\n")
+            print(f"  Files were in: {display_logos_home()}/memories/\n")
         else:
             from logos_cli.memory_setup import memory_command
 
@@ -8680,7 +8680,7 @@ Examples:
                 ):
                     print("Cancelled.")
                     return
-            sessions_dir = get_hermes_home() / "sessions"
+            sessions_dir = get_logos_home() / "sessions"
             if db.delete_session(resolved_session_id, sessions_dir=sessions_dir):
                 print(f"Deleted session '{resolved_session_id}'.")
             else:
@@ -8695,7 +8695,7 @@ Examples:
                 ):
                     print("Cancelled.")
                     return
-            sessions_dir = get_hermes_home() / "sessions"
+            sessions_dir = get_logos_home() / "sessions"
             count = db.prune_sessions(older_than_days=days, source=args.source,
                                       sessions_dir=sessions_dir)
             print(f"Pruned {count} session(s).")

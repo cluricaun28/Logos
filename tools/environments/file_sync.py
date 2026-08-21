@@ -25,7 +25,7 @@ except ImportError:
 from pathlib import Path
 from typing import Callable
 
-from logos_constants import get_hermes_home
+from logos_constants import get_logos_home
 from tools.environments.base import _file_mtime_key
 
 logger = logging.getLogger(__name__)
@@ -228,7 +228,7 @@ class FileSyncManager:
             logger.debug("sync_back: no prior push state — skipping")
             return
 
-        lock_path = (hermes_home or get_hermes_home()) / ".sync.lock"
+        lock_path = (hermes_home or get_logos_home()) / ".sync.lock"
         lock_path.parent.mkdir(parents=True, exist_ok=True)
 
         last_exc: Exception | None = None

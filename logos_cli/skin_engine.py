@@ -117,7 +117,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from logos_constants import get_hermes_home
+from logos_constants import get_logos_home
 
 logger = logging.getLogger(__name__)
 
@@ -650,7 +650,7 @@ _active_skin_name: str = "default"
 
 def _skins_dir() -> Path:
     """User skins directory."""
-    return get_hermes_home() / "skins"
+    return get_logos_home() / "skins"
 
 
 def _load_skin_from_yaml(path: Path) -> Optional[Dict[str, Any]]:

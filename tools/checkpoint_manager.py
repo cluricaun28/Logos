@@ -26,7 +26,7 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
-from logos_constants import get_hermes_home
+from logos_constants import get_logos_home
 from typing import Dict, List, Optional, Set
 
 logger = logging.getLogger(__name__)
@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-CHECKPOINT_BASE = get_hermes_home() / "checkpoints"
+CHECKPOINT_BASE = get_logos_home() / "checkpoints"
 
 DEFAULT_EXCLUDES = [
     "node_modules/",

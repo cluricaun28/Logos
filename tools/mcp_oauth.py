@@ -99,8 +99,8 @@ def _get_token_dir() -> Path:
     Layout: ``HERMES_HOME/mcp-tokens/``
     """
     try:
-        from logos_constants import get_hermes_home
-        base = Path(get_hermes_home())
+        from logos_constants import get_logos_home
+        base = Path(get_logos_home())
     except ImportError:
         base = Path(os.environ.get("HERMES_HOME", str(Path.home() / ".hermes")))
     return base / "mcp-tokens"

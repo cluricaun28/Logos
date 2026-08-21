@@ -16,7 +16,7 @@ import re
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
-from logos_constants import get_hermes_home
+from logos_constants import get_logos_home
 from typing import Optional, Dict, List, Any, Union
 
 logger = logging.getLogger(__name__)
@@ -34,7 +34,7 @@ except ImportError:
 # Configuration
 # =============================================================================
 
-HERMES_DIR = get_hermes_home().resolve()
+HERMES_DIR = get_logos_home().resolve()
 CRON_DIR = HERMES_DIR / "cron"
 JOBS_FILE = CRON_DIR / "jobs.json"
 

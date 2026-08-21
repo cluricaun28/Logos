@@ -705,8 +705,8 @@ def fetch_endpoint_model_metadata(
 
 def _get_context_cache_path() -> Path:
     """Return path to the persistent context length cache file."""
-    from logos_constants import get_hermes_home
-    return get_hermes_home() / "context_length_cache.yaml"
+    from logos_constants import get_logos_home
+    return get_logos_home() / "context_length_cache.yaml"
 
 
 def _load_context_cache() -> Dict[str, int]:

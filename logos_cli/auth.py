@@ -41,7 +41,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 import httpx
 import yaml
 
-from logos_cli.config import get_hermes_home, get_config_path, read_raw_config
+from logos_cli.config import get_logos_home, get_config_path, read_raw_config
 from logos_constants import OPENROUTER_BASE_URL
 from utils import atomic_replace
 
@@ -669,7 +669,7 @@ def _oauth_trace(event: str, *, sequence_id: Optional[str] = None, **fields: Any
 # =============================================================================
 
 def _auth_file_path() -> Path:
-    path = get_hermes_home() / "auth.json"
+    path = get_logos_home() / "auth.json"
     # Seat belt: if pytest is running and HERMES_HOME resolves to the real
     # user's auth store, refuse rather than silently corrupt it. This catches
     # tests that forgot to monkeypatch HERMES_HOME, tests invoked without the
@@ -680,7 +680,7 @@ def _auth_file_path() -> Path:
         # fixture may monkeypatch Path.home() to return a temp dir, which
         # would defeat the guard's purpose.
         real_hermes_home = Path(os.path.expanduser("~")) / ".hermes"
-        resolved_hermes_home = get_hermes_home().resolve(strict=False)
+        resolved_hermes_home = get_logos_home().resolve(strict=False)
         if resolved_hermes_home == real_hermes_home.resolve(strict=False):
             raise RuntimeError(
                 f"Refusing to touch real user auth store during test run: {path}. "
@@ -3333,7 +3333,7 @@ def _login_openai_codex(
     config_path = _update_config_for_provider("openai-codex", creds.get("base_url", DEFAULT_CODEX_BASE_URL))
     print()
     print("Login successful!")
-    from logos_constants import display_hermes_home as _dhh
+    from logos_constants import display_logos_home as _dhh
     print(f"  Auth state: {_dhh()}/auth.json")
     print(f"  Config updated: {config_path} (model.provider=openai-codex)")
 

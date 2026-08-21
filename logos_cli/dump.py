@@ -14,8 +14,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-from logos_cli.config import get_hermes_home, get_env_path, get_project_root, load_config
-from logos_constants import display_hermes_home
+from logos_cli.config import get_logos_home, get_env_path, get_project_root, load_config
+from logos_constants import display_logos_home
 
 
 def _get_git_commit(project_root: Path) -> str:
@@ -190,7 +190,7 @@ def run_dump(args):
     load_dotenv(get_project_root() / ".env", override=False, encoding="utf-8")
 
     project_root = get_project_root()
-    hermes_home = get_hermes_home()
+    hermes_home = get_logos_home()
 
     try:
         from logos_cli import __version__, __release_date__
@@ -239,7 +239,7 @@ def run_dump(args):
     lines.append(f"python:           {sys.version.split()[0]}")
     lines.append(f"openai_sdk:       {openai_ver}")
     lines.append(f"profile:          {profile}")
-    lines.append(f"hermes_home:      {display_hermes_home()}")
+    lines.append(f"hermes_home:      {display_logos_home()}")
     lines.append(f"model:            {model}")
     lines.append(f"provider:         {provider}")
     lines.append(f"terminal:         {backend}")

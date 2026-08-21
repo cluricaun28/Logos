@@ -50,7 +50,7 @@ def test_save_conversation_writes_under_hermes_home(hermes_home, tmp_path, monke
     work.mkdir()
     monkeypatch.chdir(work)
 
-    # No sys.modules pop here: get_hermes_home() is lazy (reads HERMES_HOME
+    # No sys.modules pop here: get_logos_home() is lazy (reads HERMES_HOME
     # env on every call), so the hermes_home fixture's env + cache clearing is
     # sufficient. Popping cli* modules replaced sys.modules["cli"] with a new
     # module object and broke mock.patch("cli.…") targets in later tests.
