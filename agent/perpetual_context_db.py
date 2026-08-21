@@ -48,6 +48,15 @@ from agent.pcdb_search import _SearchEngine
 # Avoids ~400MB memory / ~10s delay on every import of this module.
 torch = None
 
+# Suppress tqdm "Batches" bars from SentenceTransformer.encode().
+# ST 5.x resolves show_progress_bar=None from its logger level and passes an
+# explicit disable= to trange(); that explicit arg OVERRIDES a class-level
+# tqdm.disable=True, so the load-bearing fix is show_progress_bar=False at the
+# call site (see EmbeddingEngine.embed below). This module-level disable is
+# belt-and-suspenders and matches rl_index.py / semantic_vector/__init__.py.
+import tqdm as _tqdm
+_tqdm.disable = True
+
 logger = logging.getLogger(__name__)
 
 __version__ = "0.11.0"
@@ -211,7 +220,12 @@ class EmbeddingEngine:
         try:
             # Truncate very long content to avoid excessive compute
             truncated = text[:EMBED_MAX_CONTENT_LEN]
-            vector = model.encode(truncated, convert_to_numpy=True)
+            # show_progress_bar=False is required: ST passes an explicit
+            # disable= to trange() which overrides the class-level
+            # tqdm.disable=True set above, so the bar reappears otherwise
+            # (this was the un-suppressed per-message save path — pcdb_messages
+            # embeds every stored user/assistant turn, so it fired in the TUI).
+            vector = model.encode(truncated, convert_to_numpy=True, show_progress_bar=False)
             # Convert numpy array to plain Python list for serialization
             return vector.tolist()
         except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
