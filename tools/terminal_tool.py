@@ -39,6 +39,7 @@ import time
 import threading
 import atexit
 import shutil
+import sqlite3
 import subprocess
 from pathlib import Path
 from typing import Optional, Dict, Any, List
