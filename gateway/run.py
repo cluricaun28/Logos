@@ -2274,7 +2274,7 @@ class GatewayRunner:
 
         hermes_cmd = _resolve_hermes_bin()
         if not hermes_cmd:
-            logger.error("Could not locate hermes binary for detached /restart")
+            logger.error("Could not locate logos binary for detached /restart")
             return
 
         current_pid = os.getpid()
@@ -8204,7 +8204,7 @@ class GatewayRunner:
         hermes_cmd = _resolve_hermes_bin()
         if not hermes_cmd:
             return (
-                "✗ Could not locate the `hermes` command. "
+                "✗ Could not locate the `logos` command. "
                 "Logos is running, but the update command could not find the "
                 "executable on PATH or via the current Python interpreter. "
                 "Try running `logos update` manually in your terminal."
