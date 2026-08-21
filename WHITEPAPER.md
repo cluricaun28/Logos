@@ -2,7 +2,7 @@
 type: topic
 topic: "Logos — System White Paper"
 created: 2026-05-07
-last_updated: 2026-08-17
+last_updated: 2026-08-20
 confidence: high
 related_entries:
   - "Hermes Agent Architecture(topics/hermes-agent/architecture)"
@@ -21,7 +21,7 @@ description: "Comprehensive white paper documenting the purpose, architecture, a
 
 *A white paper on sovereign knowledge management through persistent memory, curated truth, and epistemic sovereignty*
 
-**Version:** 3.2  |  **Date:** August 2026  |  **Repository:** cluricaun28/logos
+**Version:** 3.3  |  **Date:** August 2026  |  **Repository:** cluricaun28/logos
 
 ---
 
@@ -193,6 +193,8 @@ Every conversation turn across all sessions is stored verbatim in a local SQLite
 
 **Key classes:** `PerpetualContextDB` (~391 lines), `PerpetualContextProvider` (560 lines as thin orchestrator), `SmartRetriever` (250 lines), `ExtractionEngine` (450 lines)
 
+**Schema v3 (2026-08-20):** the `messages` table CHECK constraint was widened to persist `role='tool'` rows. Before v3, tool results were silently dropped (a swallowed IntegrityError) — recall of tool output was a silent gap. The migration is idempotent (rebuild preserving data) and pre-flights on a throwaway connection *before* the main connection caches the schema — the ordering bug this needed was caught in the 2026-08-20 restart, where a long-lived connection had cached the pre-migration schema.
+
 ### 4.2 Context Bridge — Tested Fallback for Session Continuity
 
 **Purpose:** A safety net for preserving context across archival — tested, proven functional, under active evaluation as the primary context engine.
@@ -211,6 +213,8 @@ The bridge remains available on every archive regardless of which context engine
 6. **Skill-RL Sync** — Automatic generation of [[system/reference-library-purpose|Reference Library]] pages when skills are created or modified
 
 **Key classes:** `ContextBridgeBuilder` (292 lines) constructs structured summaries from data extracted by `ExtractionEngine` (450 lines). The original `SemanticVectorEngine` in `agent/context_engine.py` was removed in May 2026, superseded by `SemanticVectorContextEngine` in the plugins system (`plugins/context_engine/semantic_vector/`), which is the current active engine.
+
+**User-facing hiding (2026-08-20):** The bridge and state-map blocks (`## Active Tasks`, `## Files Currently Being Edited`, `## Known Errors/Issues`, `[Conversation State]`, preserved-task-list notices) are agent-internal scaffolding. `context_scaffolding.py` strips them from human-facing delivery surfaces (CLI, gateway, cron), and `get_messages_as_conversation(include_context_bridge=False)` excludes them from agent-to-agent A2A session history. The stored session in the database keeps them — only the *delivered* and *agent-visible* copies are clean.
 
 **The hook chain (verified live 2026-08-17):**
 
@@ -436,6 +440,22 @@ See [[Skill Priority-Based Injection(topics/hermes-agent/skill-priority-injectio
 
 **Subagent ACP Transport:** Subagents can be dispatched via ACP subprocess transport (`claude --acp --stdio`) instead of the default agent loop, enabling spawning of Claude Code or other ACP-capable agents from any parent context.
 
+**Subagent hardening (2026-08-20):** The delegation harness (`tools/delegate_tool.py`) gained three mechanisms proven by the 2026-08-19/20 sandbox soak (wave-2 mass-timeout analysis): a per-task `timeout` override (single + batch call sites, non-numeric values fall back to default), stale-intro detection (`_looks_like_intermediate_summary()` flags a child whose final answer is actually a pre-tool intent line and attaches the real `output_tail`), and resume hints on timeout (`resume_hint` + best-effort `partial_output` so work done before the timeout isn't discarded). All additive; each independently revertable.
+
+### 4.10 Pinned Project Briefs — Mid-Context Project Focus (new)
+
+**Purpose:** Hold a long-running project's objective across context-window archiving and session resets — toggleable mid-session, no restart.
+
+An agent pins a project by writing a short brief to `~/.hermes/state/pinned/<project>.md`. The brief is injected into the system prompt every turn (an mtime fingerprint is re-checked each turn, so changes take effect next turn without any reset):
+
+- **ON:** write the file → injected from the next turn
+- **OFF:** delete the file → gone next turn — or set `active: false` in the frontmatter to keep the content on disk and re-enable later with a one-char flip
+- **Scope:** per-agent (per `HERMES_HOME`); one active pin per agent at a time
+- **Content rule:** objective + artifact pointers + status + checklist — never details; details live in a state file on disk that the brief references
+- **Fail-open:** a malformed brief can never break prompt construction
+
+Proven 2026-08-20: with a pin, a 205-product description rewrite + dimensions audit ran as a single 13-minute, 50-message session with **zero "continue" prompts**; the same task unpinned required multi-window stitching. Live on the owner instance, all 8 fleet agents, and the candidate (merged 2026-08-20).
+
 ---
 
 ## 5. Codebase Organization
@@ -502,6 +522,7 @@ Custom code lives in `plugins/memory/perpetual_context/` (40 modules, ~12,600 li
 
 | File | Lines Changed | Modification |
 |------|--------------|--------------|
+| `hermes_state.py` | ~30 | `include_context_bridge` filter — hides agent-injected scaffolding blocks from A2A session history (2026-08-20) |
 | `run_agent.py` | ~95 | Rolling window integration, compression timing |
 | `agent/prompt_builder.py` | ~15 custom lines in 1,127-line upstream file | System prompt mods for PM context injection |
 | `plugins/context_engine/__init__.py` | ~228 | Config passing for context engines |
@@ -578,12 +599,14 @@ This is not moral relativism disguised as "both sides." It is epistemic honesty 
 | Camofox | Native | 9377 | Anti-detection Firefox fork, Tier 3 |
 | Quartz v5 | Node.js | 8081 | Static site serving the curated RL (Britannica archive excluded); Python static server
 | Messaging | Telegram bot gateway | N/A | Primary communication channel |
+| Media generation | ComfyUI (3 instances) | 8188 (image, GPU 5) · 8189 (video, GPU 3) · 8190 (video, GPU 7) | Pinned stack: Qwen Image 2512 fp8 (image) · Wan 2.2 5B (fast video, ~90s/clip) · Kandinsky 5.0 Pro (hero video, frame 0 locked to product photo). Uncensored Wan 2.2 Remix 14B + Wan 14B I2V on disk, load-on-demand |
+| Agent-to-agent | A2A HTTP endpoint (per gateway) | per-agent port (owner 8811, fleet 8801–8808, candidate 8899) | `API_SERVER_ENABLED=true` + per-instance key; agents message each other directly; fleet registry is the address book |
 
 ---
 
 ## 8. Nightly Automation
 
-The system is designed to run several autonomous jobs that maintain and improve itself overnight. **Status (2026-08-17): these jobs are not yet recreated on the Crenshaw server — restoration is Phase 5 of the 2026-08 full-system review.** On the previous (home) server they ran as cron jobs in the agent's scheduler:
+The system is designed to run several autonomous jobs that maintain and improve itself overnight. **Status (2026-08-20, measured): core nightly jobs ARE running on the Crenshaw server** — PM→RL distillation 03:00 (last run ok), sleep consolidation 03:30 (ok), RL sync 04:00 (last run reported an error — investigating), GPU fleet watchdog every 10 min, vLLM autoscaler every 2 min, image-cache retention 05:00. The home-server-era jobs (PM Signal Scanner, Intelligence Scout, off-box backup) have not been ported yet:
 
 | Cron Job | Schedule | Purpose |
 |----------|----------|---------|
@@ -637,6 +660,8 @@ The system is designed to run several autonomous jobs that maintain and improve 
 | 2026-05-12 | **Semantic Vector plugin deployed:** `SemanticVectorContextEngine` reimplemented as proper plugin (`plugins/context_engine/semantic_vector/`). CPU-only embedding on all-MiniLM-L6-v2, topic-aware pruning of dormant/resolved turns, state map injection. Rolling window relegated to emergency fallback. |
 | 2026-08-15 | **Migrated to Crenshaw server:** Supermicro 8× RTX PRO 6000 Blackwell (96 GB, SM120). PM/RL/rolling-window/context-engine restored; local 3-tier web stack stood up (SearXNG :8080, Firecrawl :3003, Camofox :9377); `sqlite_vec` added to gateway venv; Quartz v5 RL site on :8081. |
 | 2026-08-16 | **Model swap to Qwen3.8-27B:** vLLM serves `Qwen3.8-27B-Uncensored-FP8` on GPU 0 (:8000) with hot standby on GPU 1 (:8011); validated recipe = 262K context, fp8 KV, 32 sequences, MTP 3-token speculative decoding (2.03× decode). LiteLLM team proxy on :8001 (per-user keys, failover). Multi-user: server-side per-user agent instances under `/data1/agents/`. |
+| 2026-08-19 | **Sandbox soak + pinned-project validation:** prod candidate (port 8899, `/data1/logos-sandbox/logos`) ran two long projects — 205-product description rewrite (144 flagged, all rewritten + re-verified against the live store) and a 46-flag dimensions audit across multiple context windows. With a pinned brief: single 13-min / 50-message session, zero "continue" prompts; unpinned: multi-window stitching. Google Workspace onboarding completed for the 9-agent fleet (full 11 scopes + `cloud-platform`). |
+| 2026-08-20 | **Queue 1 merged to main (8 commits, all test-green, each independently revertable):** pcdb v3 (tool-role rows persist — fixes silent data loss), subagent hardening (per-task timeout, stale-intro detection, resume hints), pinned project briefs + `active:` toggle, context-bridge/scaffolding hidden from user-facing and A2A surfaces, test-environment isolation. Media stack pinned and A/B-verified: ComfyUI 8188/8189/8190 (Qwen Image 2512 fp8 · Wan 2.2 5B · Kandinsky 5.0 Pro; uncensored Remix 14B staged). A2A endpoints live on owner + all fleet agents. Base-code strip (unused Hermes plugins) validated on the candidate; prod cutover queued. |
 | 2026-05-15 | **Context engine hardening:** Module-level model cache (one load per process), `on_session_reset()` preserves model, full structured logging on every archive (vector counts, pruned messages, fallback path). Fixed `compression_count` not resetting on session reset. Added 5 generic research skills to repo (`frame-stripping`, `web-source-bias-research`, `narrative-control-detection`, `sovereign-intelligence-mapping`, `epistemic-framework-design`) plus `worldview-profile-builder` for new-user onboarding. Updated GETTING-STARTED and README. |
 
 ---
@@ -666,4 +691,4 @@ The system is not perfect — it is a work in progress. But it is *honest* about
 
 ---
 
-*This white paper was compiled from the live codebase, Reference Library documentation, and Perpetual Memory records of Logos. Last updated 2026-08-17.*
+*This white paper was compiled from the live codebase, Reference Library documentation, and Perpetual Memory records of Logos. Last updated 2026-08-20.*

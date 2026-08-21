@@ -23,10 +23,13 @@ The distinguishing features:
 - **Discernment Workflow** — Skill-driven claim evaluation with explicit step-by-step reasoning chain (replaced sovereign sieve from Phase 1).
 - **Skill-Driven Personas** — Pre-configured subagent roles (discernment-researcher, behavioral-tester, institutional-analyst, etc.) that auto-load the right skills and constraints.
 - **sqlite-vec Single-DB Storage** — All 20k+ PM vectors and 33k+ RL vectors live inside their respective SQLite databases via vec0 virtual tables. Atomic storage, no index drift. FAISS removed July 2026.
-- **Schema Versioning** — Both databases use `PRAGMA user_version` for migration tracking (PM: v2, RL: v1)
+- **Schema Versioning** — Both databases use `PRAGMA user_version` for migration tracking (PM: v3 — tool-role rows persisted since 2026-08, RL: v1)
 - **Daily Maintenance** — Scheduled VACUUM + REINDEX + integrity checks run at 2:00 AM to prevent degradation
 - **Recency Weighting** — Recent messages (7 days) get 1.5x score boost, 30 days get 1.2x. No decay — old messages don't lose score, recent ones gain it.
 - **Nightly Learning Loop** — Scheduled jobs run deep research, apply frame-stripping, and distill findings into the Reference Library. The knowledge base grows through use.
+- **Pinned Project Briefs** — Ask your agent to "pin" a long-running project. Its objective, status, and next steps are held in the system prompt across context-window archiving and session resets — and toggle on/off mid-session without a restart. One active pin per agent; briefs stay short (details live in a state file on disk).
+- **Agent-to-Agent Messaging** — Each gateway exposes a keyed A2A HTTP endpoint, so a fleet of agents can message and coordinate with each other directly (no human relay).
+- **Hardened Subagent Delegation** — Per-task timeout overrides, detection of children that "answer" with a stale intent line, and resume hints with partial output on timeout, so delegated work is never silently lost.
 
 The system runs locally. No cloud APIs for memory or retrieval.
 
