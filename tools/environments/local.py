@@ -402,7 +402,9 @@ class LocalEnvironment(BaseEnvironment):
         """Read CWD from temp file (local-only, no round-trip needed)."""
         try:
             cwd_path = open(self._cwd_file).read().strip()
-            if cwd_path:
+            # Defense in depth: only accept real absolute directories so a
+            # stale/corrupt cwd file can't break every subsequent command.
+            if cwd_path and cwd_path.startswith("/") and os.path.isdir(cwd_path):
                 self.cwd = cwd_path
         except (OSError, FileNotFoundError):
             pass

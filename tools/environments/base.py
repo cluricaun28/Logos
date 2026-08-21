@@ -689,7 +689,11 @@ class BaseEnvironment(ABC):
             return
 
         cwd_path = output[first + len(marker) : last].strip()
-        if cwd_path:
+        # Only trust paths that look absolute. A command's own stdout can
+        # echo the marker text (e.g. printing wrapper/source code), and a
+        # stray pair like `__HERMES_CWD_x__%s__HERMES_CWD_x__` would
+        # otherwise corrupt self.cwd with a literal format token.
+        if cwd_path and (cwd_path.startswith("/") or (len(cwd_path) > 1 and cwd_path[1] == ":")):
             self.cwd = cwd_path
 
         # Strip the marker line AND the \n we injected before it.
