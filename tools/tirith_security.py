@@ -35,7 +35,7 @@ import threading
 import time
 import urllib.request
 
-from hermes_constants import get_hermes_home
+from logos_constants import get_hermes_home
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +75,7 @@ def _load_security_config() -> dict:
         "tirith_fail_open": True,
     }
     try:
-        from hermes_cli.config import load_config
+        from logos_cli.config import load_config
         cfg = load_config().get("security", {}) or {}
     except Exception:
         cfg = {}

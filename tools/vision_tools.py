@@ -57,7 +57,7 @@ def _resolve_download_timeout() -> float:
         except ValueError:
             pass
     try:
-        from hermes_cli.config import load_config
+        from logos_cli.config import load_config
         cfg = load_config()
         val = cfg.get("auxiliary", {}).get("vision", {}).get("download_timeout")
         if val is not None:
@@ -556,7 +556,7 @@ async def vision_analyze_tool(
         vision_timeout = 120.0
         vision_temperature = 0.1
         try:
-            from hermes_cli.config import load_config
+            from logos_cli.config import load_config
             _cfg = load_config()
             _vision_cfg = _cfg.get("auxiliary", {}).get("vision", {})
             _vt = _vision_cfg.get("timeout")

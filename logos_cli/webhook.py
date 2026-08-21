@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 from typing import Dict
 
-from hermes_constants import display_hermes_home
+from logos_constants import display_hermes_home
 from utils import atomic_replace
 
 
@@ -26,7 +26,7 @@ _SUBSCRIPTIONS_FILENAME = "webhook_subscriptions.json"
 
 
 def _hermes_home() -> Path:
-    from hermes_constants import get_hermes_home
+    from logos_constants import get_hermes_home
     return get_hermes_home()
 
 
@@ -59,7 +59,7 @@ def _save_subscriptions(subs: Dict[str, dict]) -> None:
 def _get_webhook_config() -> dict:
     """Load webhook platform config. Returns {} if not configured."""
     try:
-        from hermes_cli.config import load_config
+        from logos_cli.config import load_config
         cfg = load_config()
         return cfg.get("platforms", {}).get("webhook", {})
     except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):

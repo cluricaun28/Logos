@@ -128,7 +128,7 @@ class TestArchiveCommandEndToEnd:
 
     def test_archive_command_dispatches_correctly(self):
         """Verify /archive is recognized as an alias for compress and routed to _handle_compress_command."""
-        from hermes_cli.commands import resolve_command, COMMAND_REGISTRY
+        from logos_cli.commands import resolve_command, COMMAND_REGISTRY
 
         # Check that 'archive' resolves to the same handler as 'compress'
         archive_def = None

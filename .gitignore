@@ -55,7 +55,7 @@ temp_vision_images/
 hermes-agent/
 
 # Build artifacts / generated assets
-hermes_cli/web_dist/
+logos_cli/web_dist/
 web/public/ds-assets/
 
 # Web UI font files (binary, not relevant to CLI agent fork)

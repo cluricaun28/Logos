@@ -924,7 +924,7 @@ class TestAuxiliaryClientProviderPriority:
         # is a live HTTP call. Force the code's documented fallback to
         # _NOUS_MODEL so the assertion doesn't depend on Portal availability.
         with patch("agent.auxiliary_client._read_nous_auth", return_value={"access_token": "***"}), \
-             patch("hermes_cli.models.get_nous_recommended_aux_model", return_value=None), \
+             patch("logos_cli.models.get_nous_recommended_aux_model", return_value=None), \
              patch("agent.auxiliary_client.OpenAI") as mock:
             client, model = get_text_auxiliary_client()
         assert model == "google/gemini-3-flash-preview"

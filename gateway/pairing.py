@@ -28,7 +28,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from hermes_constants import get_hermes_dir
+from logos_constants import get_hermes_dir
 from utils import atomic_replace
 
 

@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 import yaml
 
-from hermes_constants import get_config_path, get_skills_dir
+from logos_constants import get_config_path, get_skills_dir
 
 logger = logging.getLogger(__name__)
 

@@ -35,7 +35,7 @@ def _load_worldview_profile() -> dict[str, int | None]:
     Gracefully handles missing config, missing key, or malformed data.
     """
     try:
-        from hermes_cli.config import load_config
+        from logos_cli.config import load_config
 
         cfg = load_config()
         profile = cfg.get("worldview_profile")
@@ -124,7 +124,7 @@ def _load_worldview_profile() -> dict[str, int | None] | None:
     Gracefully handles missing config, missing key, or malformed data.
     """
     try:
-        from hermes_cli.config import load_config
+        from logos_cli.config import load_config
 
         cfg = load_config()
         profile = cfg.get("worldview_profile")

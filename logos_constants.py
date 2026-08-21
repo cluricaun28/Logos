@@ -228,7 +228,7 @@ def get_config_path() -> Path:
     """Return the path to ``config.yaml`` under HERMES_HOME.
 
     Replaces the ``get_hermes_home() / "config.yaml"`` pattern repeated
-    in 7+ files (skill_utils.py, hermes_logging.py, hermes_time.py, etc.).
+    in 7+ files (skill_utils.py, logos_logging.py, logos_time.py, etc.).
     """
     return get_hermes_home() / "config.yaml"
 

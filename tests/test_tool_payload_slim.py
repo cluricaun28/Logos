@@ -122,7 +122,7 @@ def test_memory_manager_extended_schemas_exclude_core():
 def _selective_defs(**kwargs):
     from model_tools import get_selective_tool_definitions
 
-    with patch("hermes_cli.config.load_config", return_value={}):
+    with patch("logos_cli.config.load_config", return_value={}):
         return get_selective_tool_definitions(quiet_mode=True, **kwargs)
 
 
@@ -157,7 +157,7 @@ def test_force_toolsets_config_opt_in():
     from run_agent import AIAgent
 
     with patch("run_agent.OpenAI"), \
-         patch("hermes_cli.config.load_config",
+         patch("logos_cli.config.load_config",
                return_value={"agent": {"selective_force_toolsets": ["clarify"]}}):
         agent = AIAgent(
             api_key="test-key",
@@ -178,7 +178,7 @@ def test_default_config_has_no_forced_toolsets():
     from run_agent import AIAgent
 
     with patch("run_agent.OpenAI"), \
-         patch("hermes_cli.config.load_config", return_value={}):
+         patch("logos_cli.config.load_config", return_value={}):
         agent = AIAgent(
             api_key="test-key",
             base_url="https://openrouter.ai/api/v1",

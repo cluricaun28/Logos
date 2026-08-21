@@ -16,15 +16,15 @@ import re
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
-from hermes_cli.config import (
+from logos_cli.config import (
     load_config,
     save_config,
     get_env_value,
     save_env_value,
     get_hermes_home,  # noqa: F401 — used by test mocks
 )
-from hermes_cli.colors import Colors, color
-from hermes_constants import display_hermes_home
+from logos_cli.colors import Colors, color
+from logos_constants import display_hermes_home
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +62,7 @@ def _confirm(question: str, default: bool = True) -> bool:
 
 
 def _prompt(question: str, *, password: bool = False, default: str = "") -> str:
-    from hermes_cli.cli_output import prompt as _shared_prompt
+    from logos_cli.cli_output import prompt as _shared_prompt
     return _shared_prompt(question, default=default, password=password)
 
 
@@ -373,7 +373,7 @@ def cmd_mcp_add(args):
 
     if choice in ("s", "select"):
         # Interactive tool selection
-        from hermes_cli.curses_ui import curses_checklist
+        from logos_cli.curses_ui import curses_checklist
 
         labels = [f"{t[0]}  —  {t[1]}" for t in tools]
         pre_selected = set(range(len(tools)))
@@ -701,7 +701,7 @@ def cmd_mcp_configure(args):
     print()
 
     # Interactive checklist
-    from hermes_cli.curses_ui import curses_checklist
+    from logos_cli.curses_ui import curses_checklist
 
     labels = [f"{t[0]}  —  {t[1]}" for t in all_tools]
 

@@ -40,7 +40,7 @@ import re
 import shutil
 import tempfile
 from pathlib import Path
-from hermes_constants import get_hermes_home, display_hermes_home
+from logos_constants import get_hermes_home, display_hermes_home
 from typing import Dict, Any, Optional, Tuple
 
 from utils import atomic_replace
@@ -65,7 +65,7 @@ def _guard_agent_created_enabled() -> bool:
     on via `hermes config set skills.guard_agent_created true`.
     """
     try:
-        from hermes_cli.config import load_config
+        from logos_cli.config import load_config
         cfg = load_config()
         return bool(cfg.get("skills", {}).get("guard_agent_created", False))
     except Exception:

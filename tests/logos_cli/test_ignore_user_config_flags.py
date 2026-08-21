@@ -151,7 +151,7 @@ class TestIgnoreRulesEnvGate:
 
 
 class TestCmdChatWiring:
-    """The wiring inside ``cmd_chat()`` in ``hermes_cli/main.py`` must set
+    """The wiring inside ``cmd_chat()`` in ``logos_cli/main.py`` must set
     both env vars before importing ``cli`` (which evaluates
     ``load_cli_config()`` at module import).
     """
@@ -224,11 +224,11 @@ class TestArgparseFlagsRegistered:
         assert args.ignore_rules is True
 
     def test_main_py_registers_both_flags(self):
-        """E2E: the real hermes_cli/main.py parser accepts both flags.
+        """E2E: the real logos_cli/main.py parser accepts both flags.
 
-        We invoke the real argparse tree builder from hermes_cli.main.
+        We invoke the real argparse tree builder from logos_cli.main.
         """
-        import hermes_cli.main as hm
+        import logos_cli.main as hm
 
         # hm has a helper that builds the argparse tree inside main().
         # We can extract it by catching the SystemExit on --help.

@@ -42,7 +42,7 @@ from pathlib import Path
 from typing import Callable, Dict, Any, Optional
 from urllib.parse import urljoin
 
-from hermes_constants import display_hermes_home
+from logos_constants import display_hermes_home
 
 logger = logging.getLogger(__name__)
 from tools.managed_tool_gateway import resolve_managed_tool_gateway
@@ -161,7 +161,7 @@ GEMINI_TTS_CHANNELS = 1
 GEMINI_TTS_SAMPLE_WIDTH = 2  # 16-bit PCM (L16)
 
 def _get_default_output_dir() -> str:
-    from hermes_constants import get_hermes_dir
+    from logos_constants import get_hermes_dir
     return str(get_hermes_dir("cache/audio", "audio_cache"))
 
 DEFAULT_OUTPUT_DIR = _get_default_output_dir()
@@ -256,11 +256,11 @@ def _load_tts_config() -> Dict[str, Any]:
     for any missing fields.
     """
     try:
-        from hermes_cli.config import load_config
+        from logos_cli.config import load_config
         config = load_config()
         return config.get("tts", {})
     except ImportError:
-        logger.debug("hermes_cli.config not available, using default TTS config")
+        logger.debug("logos_cli.config not available, using default TTS config")
         return {}
     except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError) as e:
         logger.warning("Failed to load TTS config: %s", e, exc_info=True)
@@ -921,7 +921,7 @@ def _get_piper_voices_dir() -> Path:
     Resolves to ``~/.hermes/cache/piper-voices/`` under the active
     HERMES_HOME so voice downloads follow profile boundaries.
     """
-    from hermes_constants import get_hermes_dir
+    from logos_constants import get_hermes_dir
     root = Path(get_hermes_dir("cache/piper-voices", "piper_voices_cache"))
     root.mkdir(parents=True, exist_ok=True)
     return root

@@ -196,7 +196,7 @@ class TestLoadTranscriptPreferLongerSource:
     @pytest.fixture()
     def store_with_db(self, tmp_path):
         """SessionStore with both SQLite and JSONL active."""
-        from hermes_state import SessionDB
+        from logos_state import SessionDB
 
         config = GatewayConfig()
         with patch("gateway.session.SessionStore._ensure_loaded"):
@@ -466,7 +466,7 @@ class TestRewriteTranscriptPreservesReasoning:
     """rewrite_transcript must not drop reasoning fields from SQLite."""
 
     def test_reasoning_survives_rewrite(self, tmp_path):
-        from hermes_state import SessionDB
+        from logos_state import SessionDB
 
         db = SessionDB(db_path=tmp_path / "test.db")
         session_id = "reasoning-test"

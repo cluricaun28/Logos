@@ -102,14 +102,14 @@ def _sanitize_env_file_if_needed(path: Path) -> None:
     This produces mangled values — e.g. a bot token duplicated 8×
     (see #8908).
 
-    We delegate to ``hermes_cli.config._sanitize_env_lines`` which
+    We delegate to ``logos_cli.config._sanitize_env_lines`` which
     already knows all valid Hermes env-var names and can split
     concatenated lines correctly.
     """
     if not path.exists():
         return
     try:
-        from hermes_cli.config import _sanitize_env_lines
+        from logos_cli.config import _sanitize_env_lines
     except ImportError:
         return  # early bootstrap — config module not available yet
 

@@ -11,7 +11,7 @@ import subprocess
 import threading
 import time
 from pathlib import Path
-from hermes_constants import get_hermes_home
+from logos_constants import get_hermes_home
 from typing import Dict, List, Optional
 
 from rich.console import Console
@@ -46,7 +46,7 @@ def cprint(text: str):
 def _skin_color(key: str, fallback: str) -> str:
     """Get a color from the active skin, or return fallback."""
     try:
-        from hermes_cli.skin_engine import get_active_skin
+        from logos_cli.skin_engine import get_active_skin
         return get_active_skin().get_color(key, fallback)
     except (ImportError, ModuleNotFoundError):
         return fallback
@@ -55,7 +55,7 @@ def _skin_color(key: str, fallback: str) -> str:
 def _skin_branding(key: str, fallback: str) -> str:
     """Get a branding string from the active skin, or return fallback."""
     try:
-        from hermes_cli.skin_engine import get_active_skin
+        from logos_cli.skin_engine import get_active_skin
         return get_active_skin().get_branding(key, fallback)
     except (ImportError, ModuleNotFoundError):
         return fallback
@@ -65,7 +65,7 @@ def _skin_branding(key: str, fallback: str) -> str:
 # ASCII Art & Branding
 # =========================================================================
 
-from hermes_cli import __version__ as VERSION, __release_date__ as RELEASE_DATE
+from logos_cli import __version__ as VERSION, __release_date__ as RELEASE_DATE
 
 HERMES_AGENT_LOGO = """[bold #FFD700]██╗  ██╗███████╗██████╗ ███╗   ███╗███████╗███████╗       █████╗  ██████╗ ███████╗███╗   ██╗████████╗[/]
 [bold #FFD700]██║  ██║██╔════╝██╔══██╗████╗ ████║██╔════╝██╔════╝      ██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝[/]
@@ -411,7 +411,7 @@ def build_welcome_banner(console: Console, model: str, cwd: str,
 
     # Use skin's custom caduceus art if provided
     try:
-        from hermes_cli.skin_engine import get_active_skin
+        from logos_cli.skin_engine import get_active_skin
         _bskin = get_active_skin()
         _hero = _bskin.banner_hero if hasattr(_bskin, 'banner_hero') and _bskin.banner_hero else HERMES_CADUCEUS
     except (ImportError, ModuleNotFoundError):
@@ -538,7 +538,7 @@ def build_welcome_banner(console: Console, model: str, cwd: str,
     summary_parts.append("/help for commands")
     # Show active profile name when not 'default'
     try:
-        from hermes_cli.profiles import get_active_profile_name
+        from logos_cli.profiles import get_active_profile_name
         _profile_name = get_active_profile_name()
         if _profile_name and _profile_name != "default":
             right_lines.append(f"[bold {accent}]Profile:[/] [{text}]{_profile_name}[/]")
@@ -551,7 +551,7 @@ def build_welcome_banner(console: Console, model: str, cwd: str,
     try:
         behind = get_update_result(timeout=0.5)
         if behind and behind > 0:
-            from hermes_cli.config import recommended_update_command
+            from logos_cli.config import recommended_update_command
             commits_word = "commit" if behind == 1 else "commits"
             right_lines.append(
                 f"[bold yellow]⚠ {behind} {commits_word} behind[/]"

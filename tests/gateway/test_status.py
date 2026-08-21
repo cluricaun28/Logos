@@ -57,7 +57,7 @@ class TestGatewayPidState:
         pid_path.write_text(json.dumps({
             "pid": os.getpid(),
             "kind": "hermes-gateway",
-            "argv": ["python", "-m", "hermes_cli.main", "gateway"],
+            "argv": ["python", "-m", "logos_cli.main", "gateway"],
             "start_time": 123,
         }))
 
@@ -77,7 +77,7 @@ class TestGatewayPidState:
         pid_path.write_text(json.dumps({
             "pid": os.getpid(),
             "kind": "hermes-gateway",
-            "argv": ["/venv/bin/python", "/repo/hermes_cli/main.py", "gateway", "run", "--replace"],
+            "argv": ["/venv/bin/python", "/repo/logos_cli/main.py", "gateway", "run", "--replace"],
             "start_time": 123,
         }))
 
@@ -86,7 +86,7 @@ class TestGatewayPidState:
         monkeypatch.setattr(
             status,
             "_read_process_cmdline",
-            lambda pid: "/venv/bin/python /repo/hermes_cli/main.py gateway run --replace",
+            lambda pid: "/venv/bin/python /repo/logos_cli/main.py gateway run --replace",
         )
 
         assert status.acquire_gateway_runtime_lock() is True
@@ -102,7 +102,7 @@ class TestGatewayPidState:
         pid_path.write_text(json.dumps({
             "pid": os.getpid(),
             "kind": "hermes-gateway",
-            "argv": ["python", "-m", "hermes_cli.main", "gateway"],
+            "argv": ["python", "-m", "logos_cli.main", "gateway"],
             "start_time": 123,
         }))
 
@@ -114,7 +114,7 @@ class TestGatewayPidState:
         lock_path.write_text(json.dumps({
             "pid": os.getpid(),
             "kind": "hermes-gateway",
-            "argv": ["python", "-m", "hermes_cli.main", "gateway"],
+            "argv": ["python", "-m", "logos_cli.main", "gateway"],
             "start_time": 123,
         }))
         monkeypatch.setattr(status, "is_gateway_runtime_lock_active", lambda lock_path=None: True)
@@ -139,7 +139,7 @@ class TestGatewayPidState:
         pid_path.write_text(json.dumps({
             "pid": os.getpid(),
             "kind": "hermes-gateway",
-            "argv": ["python", "-m", "hermes_cli.main", "gateway"],
+            "argv": ["python", "-m", "logos_cli.main", "gateway"],
             "start_time": 123,
         }))
 
@@ -169,13 +169,13 @@ class TestGatewayPidState:
         pid_path.write_text(json.dumps({
             "pid": dead_foreign_pid,
             "kind": "hermes-gateway",
-            "argv": ["python", "-m", "hermes_cli.main", "gateway"],
+            "argv": ["python", "-m", "logos_cli.main", "gateway"],
             "start_time": 123,
         }))
         lock_path.write_text(json.dumps({
             "pid": dead_foreign_pid,
             "kind": "hermes-gateway",
-            "argv": ["python", "-m", "hermes_cli.main", "gateway"],
+            "argv": ["python", "-m", "logos_cli.main", "gateway"],
             "start_time": 123,
         }))
 
@@ -190,7 +190,7 @@ class TestGatewayPidState:
         pid_path.write_text(json.dumps({
             "pid": 99999,
             "kind": "hermes-gateway",
-            "argv": ["python", "-m", "hermes_cli.main", "gateway"],
+            "argv": ["python", "-m", "logos_cli.main", "gateway"],
             "start_time": 123,
         }))
 
@@ -202,7 +202,7 @@ class TestGatewayPidState:
             lambda: {
                 "pid": os.getpid(),
                 "kind": "hermes-gateway",
-                "argv": ["python", "-m", "hermes_cli.main", "gateway"],
+                "argv": ["python", "-m", "logos_cli.main", "gateway"],
                 "start_time": 123,
             },
         )

@@ -5,9 +5,9 @@ shared slash-command pipeline (`/model` in CLI/gateway/Telegram) historically
 only looked at `providers:`.
 """
 
-import hermes_cli.providers as providers_mod
-from hermes_cli.model_switch import list_authenticated_providers, switch_model
-from hermes_cli.providers import resolve_provider_full
+import logos_cli.providers as providers_mod
+from logos_cli.model_switch import list_authenticated_providers, switch_model
+from logos_cli.providers import resolve_provider_full
 
 
 _MOCK_VALIDATION = {
@@ -68,16 +68,16 @@ def test_resolve_provider_full_finds_named_custom_provider():
 def test_switch_model_accepts_explicit_named_custom_provider(monkeypatch):
     """Shared /model switch pipeline should accept --provider for custom_providers."""
     monkeypatch.setattr(
-        "hermes_cli.runtime_provider.resolve_runtime_provider",
+        "logos_cli.runtime_provider.resolve_runtime_provider",
         lambda **kwargs: {
             "api_key": "no-key-required",
             "base_url": "http://127.0.0.1:4141/v1",
             "api_mode": "chat_completions",
         },
     )
-    monkeypatch.setattr("hermes_cli.models.validate_requested_model", lambda *a, **k: _MOCK_VALIDATION)
-    monkeypatch.setattr("hermes_cli.model_switch.get_model_info", lambda *a, **k: None)
-    monkeypatch.setattr("hermes_cli.model_switch.get_model_capabilities", lambda *a, **k: None)
+    monkeypatch.setattr("logos_cli.models.validate_requested_model", lambda *a, **k: _MOCK_VALIDATION)
+    monkeypatch.setattr("logos_cli.model_switch.get_model_info", lambda *a, **k: None)
+    monkeypatch.setattr("logos_cli.model_switch.get_model_capabilities", lambda *a, **k: None)
 
     result = switch_model(
         raw_input="rotator-openrouter-coding",
@@ -422,7 +422,7 @@ def test_lmstudio_picker_probes_active_config_base_url(monkeypatch):
         captured["api_key"] = api_key
         return ["qwen/qwen3-coder-30b"]
 
-    monkeypatch.setattr("hermes_cli.models.fetch_lmstudio_models", _fake_fetch)
+    monkeypatch.setattr("logos_cli.models.fetch_lmstudio_models", _fake_fetch)
 
     list_authenticated_providers(
         current_provider="lmstudio",
@@ -449,7 +449,7 @@ def test_lmstudio_picker_lm_base_url_env_wins_over_active_config(monkeypatch):
         captured["base_url"] = base_url
         return []
 
-    monkeypatch.setattr("hermes_cli.models.fetch_lmstudio_models", _fake_fetch)
+    monkeypatch.setattr("logos_cli.models.fetch_lmstudio_models", _fake_fetch)
 
     list_authenticated_providers(
         current_provider="lmstudio",
@@ -475,7 +475,7 @@ def test_lmstudio_picker_skips_probe_when_not_configured(monkeypatch):
         captured["base_url"] = base_url
         return []
 
-    monkeypatch.setattr("hermes_cli.models.fetch_lmstudio_models", _fake_fetch)
+    monkeypatch.setattr("logos_cli.models.fetch_lmstudio_models", _fake_fetch)
 
     list_authenticated_providers(
         current_provider="openrouter",

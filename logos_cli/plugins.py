@@ -43,7 +43,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Union
 
-from hermes_constants import get_hermes_home
+from logos_constants import get_hermes_home
 from utils import env_var_enabled
 
 try:
@@ -113,7 +113,7 @@ def _get_disabled_plugins() -> set:
     ``plugins.enabled``.
     """
     try:
-        from hermes_cli.config import load_config
+        from logos_cli.config import load_config
         config = load_config()
         disabled = config.get("plugins", {}).get("disabled", [])
         return set(disabled) if isinstance(disabled, list) else set()
@@ -136,7 +136,7 @@ def _get_enabled_plugins() -> Optional[set]:
     * ``set(...)`` — the concrete allow-list.
     """
     try:
-        from hermes_cli.config import load_config
+        from logos_cli.config import load_config
         config = load_config()
         plugins_cfg = config.get("plugins")
         if not isinstance(plugins_cfg, dict):
@@ -335,7 +335,7 @@ class PluginContext:
 
         # Reject if it conflicts with a built-in command
         try:
-            from hermes_cli.commands import resolve_command
+            from logos_cli.commands import resolve_command
             if resolve_command(clean) is not None:
                 logger.warning(
                     "Plugin '%s' tried to register command '/%s' which conflicts "
@@ -557,7 +557,7 @@ class PluginManager:
 
         # 1. Bundled plugins (<repo>/plugins/<name>/)
         #
-        # Repo-shipped plugins live next to hermes_cli/. Two layouts are
+        # Repo-shipped plugins live next to logos_cli/. Two layouts are
         # supported (see ``_scan_directory`` for details):
         #
         #   - flat: ``plugins/disk-cleanup/plugin.yaml`` (standalone)

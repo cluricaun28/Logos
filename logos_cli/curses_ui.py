@@ -8,7 +8,7 @@ from __future__ import annotations
 import sys
 from typing import Callable, List, Optional, Set
 
-from hermes_cli.colors import Colors, color
+from logos_cli.colors import Colors, color
 
 
 def flush_stdin() -> None:

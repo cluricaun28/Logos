@@ -101,10 +101,10 @@ def _run_agent(
     run a single conversation.  Returns the final response string."""
     # Imports are local so they don't run when hermes is invoked for
     # other commands (keeps top-level CLI startup cheap).
-    from hermes_cli.config import load_config
-    from hermes_cli.models import detect_provider_for_model
-    from hermes_cli.runtime_provider import resolve_runtime_provider
-    from hermes_cli.tools_config import _get_platform_tools
+    from logos_cli.config import load_config
+    from logos_cli.models import detect_provider_for_model
+    from logos_cli.runtime_provider import resolve_runtime_provider
+    from logos_cli.tools_config import _get_platform_tools
     from run_agent import AIAgent
 
     cfg = load_config()

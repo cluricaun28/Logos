@@ -11,8 +11,8 @@ import subprocess
 import shutil
 from pathlib import Path
 
-from hermes_cli.config import get_project_root, get_hermes_home, get_env_path
-from hermes_constants import display_hermes_home
+from logos_cli.config import get_project_root, get_hermes_home, get_env_path
+from logos_constants import display_hermes_home
 
 PROJECT_ROOT = get_project_root()
 HERMES_HOME = get_hermes_home()
@@ -29,9 +29,9 @@ if _env_path.exists():
 # Also try project .env as dev fallback
 load_dotenv(PROJECT_ROOT / ".env", override=False, encoding="utf-8")
 
-from hermes_cli.colors import Colors, color
-from hermes_cli.models import _HERMES_USER_AGENT
-from hermes_constants import OPENROUTER_MODELS_URL
+from logos_cli.colors import Colors, color
+from logos_cli.models import _HERMES_USER_AGENT
+from logos_constants import OPENROUTER_MODELS_URL
 from utils import base_url_host_matches
 
 
@@ -60,7 +60,7 @@ _PROVIDER_ENV_HINTS = (
 )
 
 
-from hermes_constants import is_termux as _is_termux
+from logos_constants import is_termux as _is_termux
 
 
 def _python_install_cmd() -> str:
@@ -134,7 +134,7 @@ def check_info(text: str):
 def _check_gateway_service_linger(issues: list[str]) -> None:
     """Warn when a systemd user gateway service will stop after logout."""
     try:
-        from hermes_cli.gateway import (
+        from logos_cli.gateway import (
             get_systemd_linger_status,
             get_systemd_unit_path,
             is_linux,
@@ -292,13 +292,13 @@ def run_doctor(args):
 
             known_providers: set = set()
             try:
-                from hermes_cli.auth import PROVIDER_REGISTRY
+                from logos_cli.auth import PROVIDER_REGISTRY
                 known_providers = set(PROVIDER_REGISTRY.keys()) | {"openrouter", "custom", "auto"}
             except (ImportError, ModuleNotFoundError):
                 pass
             try:
-                from hermes_cli.config import get_compatible_custom_providers as _compatible_custom_providers
-                from hermes_cli.providers import resolve_provider_full as _resolve_provider_full
+                from logos_cli.config import get_compatible_custom_providers as _compatible_custom_providers
+                from logos_cli.providers import resolve_provider_full as _resolve_provider_full
             except (ImportError, ModuleNotFoundError):
                 _compatible_custom_providers = None
                 _resolve_provider_full = None
@@ -361,7 +361,7 @@ def run_doctor(args):
             # explicitly dispatch, which would produce false positives.
             if canonical_provider and canonical_provider not in ("auto", "custom", "openrouter"):
                 try:
-                    from hermes_cli.auth import PROVIDER_REGISTRY, get_auth_status
+                    from logos_cli.auth import PROVIDER_REGISTRY, get_auth_status
                     pconfig = PROVIDER_REGISTRY.get(canonical_provider)
                     if pconfig and getattr(pconfig, "auth_type", "") == "api_key":
                         status = get_auth_status(canonical_provider) or {}
@@ -402,7 +402,7 @@ def run_doctor(args):
     config_path = HERMES_HOME / 'config.yaml'
     if config_path.exists():
         try:
-            from hermes_cli.config import check_config_version, migrate_config
+            from logos_cli.config import check_config_version, migrate_config
             current_ver, latest_ver = check_config_version()
             if current_ver < latest_ver:
                 check_warn(
@@ -452,7 +452,7 @@ def run_doctor(args):
 
         # Validate config structure (catches malformed custom_providers, etc.)
         try:
-            from hermes_cli.config import validate_config_structure
+            from logos_cli.config import validate_config_structure
             config_issues = validate_config_structure()
             if config_issues:
                 print()
@@ -476,7 +476,7 @@ def run_doctor(args):
     print(color("◆ Auth Providers", Colors.CYAN, Colors.BOLD))
 
     try:
-        from hermes_cli.auth import (
+        from logos_cli.auth import (
             get_nous_auth_status,
             get_codex_auth_status,
             get_gemini_oauth_auth_status,
@@ -891,7 +891,7 @@ def run_doctor(args):
     else:
         check_warn("OpenRouter API", "(not configured)")
     
-    from hermes_cli.auth import get_anthropic_key
+    from logos_cli.auth import get_anthropic_key
     anthropic_key = get_anthropic_key()
     if anthropic_key:
         print("  Checking Anthropic API...", end="", flush=True)
@@ -1097,7 +1097,7 @@ def run_doctor(args):
     else:
         check_warn("Skills Hub directory not initialized", "(run: hermes skills list)")
 
-    from hermes_cli.config import get_env_value
+    from logos_cli.config import get_env_value
     github_token = get_env_value("GITHUB_TOKEN") or get_env_value("GH_TOKEN")
     if github_token:
         check_ok("GitHub token configured (authenticated API access)")
@@ -1186,7 +1186,7 @@ def run_doctor(args):
     # Profiles
     # =========================================================================
     try:
-        from hermes_cli.profiles import list_profiles, _get_wrapper_dir, profile_exists
+        from logos_cli.profiles import list_profiles, _get_wrapper_dir, profile_exists
         import re as _re
 
         named_profiles = [p for p in list_profiles() if not p.is_default]

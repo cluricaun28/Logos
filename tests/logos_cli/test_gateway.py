@@ -1,4 +1,4 @@
-"""Tests for hermes_cli.gateway."""
+"""Tests for logos_cli.gateway."""
 
 import sys
 from types import ModuleType, SimpleNamespace
@@ -6,7 +6,7 @@ from unittest.mock import patch, call
 
 import pytest
 
-import hermes_cli.gateway as gateway
+import logos_cli.gateway as gateway
 
 
 def _install_fake_gateway_run(monkeypatch, start_gateway):

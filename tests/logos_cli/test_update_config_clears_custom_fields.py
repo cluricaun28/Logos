@@ -1,4 +1,4 @@
-"""Tests for hermes_cli.auth._update_config_for_provider clearing stale fields.
+"""Tests for logos_cli.auth._update_config_for_provider clearing stale fields.
 
 When the user switches from a custom provider (e.g. MiniMax with
 ``api_mode: anthropic_messages``, ``api_key: mxp-...``) to a built-in
@@ -15,8 +15,8 @@ from __future__ import annotations
 
 import yaml
 
-from hermes_cli.auth import _update_config_for_provider
-from hermes_cli.config import get_config_path
+from logos_cli.auth import _update_config_for_provider
+from logos_cli.config import get_config_path
 
 
 def _read_model_cfg() -> dict:

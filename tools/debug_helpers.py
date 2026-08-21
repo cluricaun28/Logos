@@ -29,7 +29,7 @@ import os
 import uuid
 from typing import Any, Dict
 
-from hermes_constants import get_hermes_home
+from logos_constants import get_hermes_home
 
 logger = logging.getLogger(__name__)
 

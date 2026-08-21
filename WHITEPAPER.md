@@ -522,7 +522,7 @@ Custom code lives in `plugins/memory/perpetual_context/` (40 modules, ~12,600 li
 
 | File | Lines Changed | Modification |
 |------|--------------|--------------|
-| `hermes_state.py` | ~30 | `include_context_bridge` filter — hides agent-injected scaffolding blocks from A2A session history (2026-08-20) |
+| `logos_state.py` | ~30 | `include_context_bridge` filter — hides agent-injected scaffolding blocks from A2A session history (2026-08-20) |
 | `run_agent.py` | ~95 | Rolling window integration, compression timing |
 | `agent/prompt_builder.py` | ~15 custom lines in 1,127-line upstream file | System prompt mods for PM context injection |
 | `plugins/context_engine/__init__.py` | ~228 | Config passing for context engines |

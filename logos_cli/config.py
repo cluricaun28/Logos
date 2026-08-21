@@ -53,8 +53,8 @@ _EXTRA_ENV_KEYS = frozenset({
 })
 import yaml
 
-from hermes_cli.colors import Colors, color
-from hermes_cli.default_soul import DEFAULT_SOUL_MD
+from logos_cli.colors import Colors, color
+from logos_cli.default_soul import DEFAULT_SOUL_MD
 
 
 # =============================================================================
@@ -161,7 +161,7 @@ def get_container_exec_info() -> Optional[dict]:
     if os.environ.get("HERMES_DEV") == "1":
         return None
 
-    from hermes_constants import is_container
+    from logos_constants import is_container
     if is_container():
         return None
 
@@ -196,8 +196,8 @@ def get_container_exec_info() -> Optional[dict]:
 # Config paths
 # =============================================================================
 
-# Re-export from hermes_constants — canonical definition lives there.
-from hermes_constants import get_hermes_home  # noqa: F811,E402
+# Re-export from logos_constants — canonical definition lives there.
+from logos_constants import get_hermes_home  # noqa: F811,E402
 from utils import atomic_replace
 
 def get_config_path() -> Path:
@@ -2182,7 +2182,7 @@ def get_custom_provider_context_length(
     used by:
       * ``AIAgent.__init__`` (startup resolution)
       * ``AIAgent.switch_model`` (mid-session ``/model`` switch)
-      * ``hermes_cli.model_switch.resolve_display_context_length`` (``/model`` confirmation display)
+      * ``logos_cli.model_switch.resolve_display_context_length`` (``/model`` confirmation display)
       * ``gateway.run._format_session_info`` (``/info`` display)
       * ``agent.model_metadata.get_model_context_length`` (when custom_providers is threaded through)
 
@@ -2843,7 +2843,7 @@ def migrate_config(interactive: bool = True, quiet: bool = False) -> Dict[str, A
     # manual edit, profile move).
     if current_ver < 23:
         try:
-            from hermes_cli.auth import LMSTUDIO_NOAUTH_PLACEHOLDER
+            from logos_cli.auth import LMSTUDIO_NOAUTH_PLACEHOLDER
             config = load_config()
             model_cfg = config.get("model")
             if isinstance(model_cfg, dict) and str(model_cfg.get("provider") or "").strip().lower() == "lmstudio":
@@ -3814,7 +3814,7 @@ def show_config():
     for env_key, name in keys:
         value = get_env_value(env_key)
         print(f"  {name:<14} {redact_key(value)}")
-    from hermes_cli.auth import get_anthropic_key
+    from logos_cli.auth import get_anthropic_key
     anthropic_value = get_anthropic_key()
     print(f"  {'Anthropic':<14} {redact_key(anthropic_value)}")
     

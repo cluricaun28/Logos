@@ -30,7 +30,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Optional, Sequence
 
-from hermes_constants import get_config_path, get_hermes_home
+from logos_constants import get_config_path, get_hermes_home
 
 # Sentinel to track whether setup_logging() has already run.  The function
 # is idempotent — calling it twice is safe but the second call is a no-op
@@ -144,7 +144,7 @@ COMPONENT_PREFIXES = {
     "gateway": ("gateway",),
     "agent": ("agent", "run_agent", "model_tools", "batch_runner"),
     "tools": ("tools",),
-    "cli": ("hermes_cli", "cli"),
+    "cli": ("logos_cli", "cli"),
     "cron": ("cron",),
 }
 
@@ -306,7 +306,7 @@ class _ManagedRotatingFileHandler(RotatingFileHandler):
     """
 
     def __init__(self, *args, **kwargs):
-        from hermes_cli.config import is_managed
+        from logos_cli.config import is_managed
         self._managed = is_managed()
         super().__init__(*args, **kwargs)
 

@@ -1,7 +1,7 @@
 """Windows subprocess compatibility helpers — shim for Logos fork.
 
 On WSL/Linux these are no-ops. The real implementation lives in upstream
-hermes_cli/_subprocess_compat.py with full Win32 creationflags support.
+logos_cli/_subprocess_compat.py with full Win32 creationflags support.
 
 We only need windows_hide_flags() for computer_use — it returns 0 on non-Windows.
 """

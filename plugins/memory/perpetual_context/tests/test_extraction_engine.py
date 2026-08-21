@@ -89,7 +89,7 @@ def messages_with_errors():
             "role": "assistant",
             "content": (
                 "Found the issue. AttributeError: 'SessionDB' has no attribute 'save'\n"
-                "Fixed in /home/user/hermes_state.py line 120"
+                "Fixed in /home/user/logos_state.py line 120"
             ),
         },
     ]

@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from hermes_cli.codex_models import DEFAULT_CODEX_MODELS, get_codex_model_ids
+from logos_cli.codex_models import DEFAULT_CODEX_MODELS, get_codex_model_ids
 
 
 def test_get_codex_model_ids_prioritizes_default_and_cache(tmp_path, monkeypatch):
@@ -39,9 +39,9 @@ def test_get_codex_model_ids_prioritizes_default_and_cache(tmp_path, monkeypatch
 
 def test_setup_wizard_codex_import_resolves():
     """Regression test for #712: setup.py must import the correct function name."""
-    # This mirrors the exact import used in hermes_cli/setup.py line 873.
+    # This mirrors the exact import used in logos_cli/setup.py line 873.
     # A prior bug had 'get_codex_models' (wrong) instead of 'get_codex_model_ids'.
-    from hermes_cli.codex_models import get_codex_model_ids as setup_import
+    from logos_cli.codex_models import get_codex_model_ids as setup_import
     assert callable(setup_import)
 
 
@@ -59,7 +59,7 @@ def test_get_codex_model_ids_falls_back_to_curated_defaults(tmp_path, monkeypatc
 
 def test_get_codex_model_ids_adds_forward_compat_models_from_templates(monkeypatch):
     monkeypatch.setattr(
-        "hermes_cli.codex_models._fetch_models_from_api",
+        "logos_cli.codex_models._fetch_models_from_api",
         lambda access_token: ["gpt-5.2-codex"],
     )
 
@@ -69,18 +69,18 @@ def test_get_codex_model_ids_adds_forward_compat_models_from_templates(monkeypat
 
 
 def test_model_command_uses_runtime_access_token_for_codex_list(monkeypatch):
-    from hermes_cli.main import _model_flow_openai_codex
+    from logos_cli.main import _model_flow_openai_codex
 
     captured = {}
     choices = iter(["1"])
 
     monkeypatch.setattr("builtins.input", lambda prompt="": next(choices))
     monkeypatch.setattr(
-        "hermes_cli.auth.get_codex_auth_status",
+        "logos_cli.auth.get_codex_auth_status",
         lambda: {"logged_in": True},
     )
     monkeypatch.setattr(
-        "hermes_cli.auth.resolve_codex_runtime_credentials",
+        "logos_cli.auth.resolve_codex_runtime_credentials",
         lambda *args, **kwargs: {"api_key": "codex-access-token"},
     )
 
@@ -94,11 +94,11 @@ def test_model_command_uses_runtime_access_token_for_codex_list(monkeypatch):
         return None
 
     monkeypatch.setattr(
-        "hermes_cli.codex_models.get_codex_model_ids",
+        "logos_cli.codex_models.get_codex_model_ids",
         _fake_get_codex_model_ids,
     )
     monkeypatch.setattr(
-        "hermes_cli.auth._prompt_model_selection",
+        "logos_cli.auth._prompt_model_selection",
         _fake_prompt_model_selection,
     )
 
@@ -110,18 +110,18 @@ def test_model_command_uses_runtime_access_token_for_codex_list(monkeypatch):
 
 
 def test_model_command_prompts_to_reuse_or_reauthenticate_codex_session(monkeypatch, capsys):
-    from hermes_cli.main import _model_flow_openai_codex
+    from logos_cli.main import _model_flow_openai_codex
 
     captured = {"login_calls": 0}
     choices = iter(["2"])
 
     monkeypatch.setattr("builtins.input", lambda prompt="": next(choices))
     monkeypatch.setattr(
-        "hermes_cli.auth.get_codex_auth_status",
+        "logos_cli.auth.get_codex_auth_status",
         lambda: {"logged_in": True, "source": "hermes-auth-store"},
     )
     monkeypatch.setattr(
-        "hermes_cli.auth.resolve_codex_runtime_credentials",
+        "logos_cli.auth.resolve_codex_runtime_credentials",
         lambda *args, **kwargs: {"api_key": "fresh-codex-token"},
     )
 
@@ -129,13 +129,13 @@ def test_model_command_prompts_to_reuse_or_reauthenticate_codex_session(monkeypa
         captured["login_calls"] += 1
         captured["force_new_login"] = force_new_login
 
-    monkeypatch.setattr("hermes_cli.auth._login_openai_codex", _fake_login)
+    monkeypatch.setattr("logos_cli.auth._login_openai_codex", _fake_login)
     monkeypatch.setattr(
-        "hermes_cli.codex_models.get_codex_model_ids",
+        "logos_cli.codex_models.get_codex_model_ids",
         lambda access_token=None: ["gpt-5.4", "gpt-5.3-codex"],
     )
     monkeypatch.setattr(
-        "hermes_cli.auth._prompt_model_selection",
+        "logos_cli.auth._prompt_model_selection",
         lambda model_ids, current_model="": None,
     )
 
@@ -149,18 +149,18 @@ def test_model_command_prompts_to_reuse_or_reauthenticate_codex_session(monkeypa
 
 
 def test_model_command_uses_existing_codex_session_without_relogin(monkeypatch):
-    from hermes_cli.main import _model_flow_openai_codex
+    from logos_cli.main import _model_flow_openai_codex
 
     choices = iter(["1"])
     captured = {}
 
     monkeypatch.setattr("builtins.input", lambda prompt="": next(choices))
     monkeypatch.setattr(
-        "hermes_cli.auth.get_codex_auth_status",
+        "logos_cli.auth.get_codex_auth_status",
         lambda: {"logged_in": True, "source": "hermes-auth-store"},
     )
     monkeypatch.setattr(
-        "hermes_cli.auth.resolve_codex_runtime_credentials",
+        "logos_cli.auth.resolve_codex_runtime_credentials",
         lambda *args, **kwargs: {"api_key": "existing-codex-token"},
     )
 
@@ -169,15 +169,15 @@ def test_model_command_uses_existing_codex_session_without_relogin(monkeypatch):
         return ["gpt-5.4"]
 
     monkeypatch.setattr(
-        "hermes_cli.codex_models.get_codex_model_ids",
+        "logos_cli.codex_models.get_codex_model_ids",
         _fake_get_codex_model_ids,
     )
     monkeypatch.setattr(
-        "hermes_cli.auth._prompt_model_selection",
+        "logos_cli.auth._prompt_model_selection",
         lambda model_ids, current_model="": None,
     )
     monkeypatch.setattr(
-        "hermes_cli.auth._login_openai_codex",
+        "logos_cli.auth._login_openai_codex",
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not reauthenticate")),
     )
 
@@ -311,7 +311,7 @@ class TestNormalizeModelForProvider:
 
         assert cli._model_is_default is True
         with patch(
-            "hermes_cli.codex_models.get_codex_model_ids",
+            "logos_cli.codex_models.get_codex_model_ids",
             return_value=["gpt-5.3-codex", "gpt-5.4"],
         ):
             changed = cli._normalize_model_for_provider("openai-codex")
@@ -341,7 +341,7 @@ class TestNormalizeModelForProvider:
             cli = HermesCLI()
 
         with patch(
-            "hermes_cli.codex_models.get_codex_model_ids",
+            "logos_cli.codex_models.get_codex_model_ids",
             side_effect=Exception("offline"),
         ):
             changed = cli._normalize_model_for_provider("openai-codex")

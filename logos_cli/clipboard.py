@@ -20,7 +20,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from hermes_constants import is_wsl as _is_wsl
+from logos_constants import is_wsl as _is_wsl
 
 logger = logging.getLogger(__name__)
 

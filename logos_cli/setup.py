@@ -21,10 +21,10 @@ import copy
 from pathlib import Path
 from typing import Optional, Dict, Any
 
-from hermes_cli.nous_subscription import get_nous_subscription_features
+from logos_cli.nous_subscription import get_nous_subscription_features
 from tools.tool_backend_helpers import managed_nous_tools_enabled
 from utils import base_url_hostname
-from hermes_constants import get_optional_skills_dir
+from logos_constants import get_optional_skills_dir
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +60,7 @@ def _supports_same_provider_pool_setup(provider: str) -> bool:
         return False
     if provider == "openrouter":
         return True
-    from hermes_cli.auth import PROVIDER_REGISTRY
+    from logos_cli.auth import PROVIDER_REGISTRY
 
     pconfig = PROVIDER_REGISTRY.get(provider)
     if not pconfig:
@@ -131,7 +131,7 @@ def _set_reasoning_effort(config: Dict[str, Any], effort: str) -> None:
 
 
 # Import config helpers
-from hermes_cli.config import (
+from logos_cli.config import (
     DEFAULT_CONFIG,
     get_hermes_home,
     get_config_path,
@@ -144,7 +144,7 @@ from hermes_cli.config import (
 )
 # display_hermes_home imported lazily at call sites (stale-module safety during hermes update)
 
-from hermes_cli.colors import Colors, color
+from logos_cli.colors import Colors, color
 
 
 def print_header(title: str):
@@ -153,7 +153,7 @@ def print_header(title: str):
     print(color(f"◆ {title}", Colors.CYAN, Colors.BOLD))
 
 
-from hermes_cli.cli_output import (  # noqa: E402
+from logos_cli.cli_output import (  # noqa: E402
     print_error,
     print_info,
     print_success,
@@ -214,7 +214,7 @@ def prompt(question: str, default: str = None, password: bool = False) -> str:
 
 def _curses_prompt_choice(question: str, choices: list, default: int = 0, description: str | None = None) -> int:
     """Single-select menu using curses. Delegates to curses_radiolist."""
-    from hermes_cli.curses_ui import curses_radiolist
+    from logos_cli.curses_ui import curses_radiolist
     return curses_radiolist(question, choices, selected=default, cancel_returns=-1, description=description)
 
 
@@ -304,7 +304,7 @@ def prompt_checklist(title: str, items: list, pre_selected: list = None) -> list
     if pre_selected is None:
         pre_selected = []
 
-    from hermes_cli.curses_ui import curses_checklist
+    from logos_cli.curses_ui import curses_checklist
 
     chosen = curses_checklist(
         title,
@@ -422,7 +422,7 @@ def _print_setup_summary(config: dict, hermes_home):
         _img_backend = None
         try:
             from agent.image_gen_registry import list_providers
-            from hermes_cli.plugins import _ensure_plugins_discovered
+            from logos_cli.plugins import _ensure_plugins_discovered
 
             _ensure_plugins_discovered()
             for _p in list_providers():
@@ -524,7 +524,7 @@ def _print_setup_summary(config: dict, hermes_home):
         print_warning(
             "Some tools are disabled. Run 'hermes setup tools' to configure them,"
         )
-        from hermes_constants import display_hermes_home as _dhh
+        from logos_constants import display_hermes_home as _dhh
         print_warning(f"or edit {_dhh()}/.env directly to add the missing API keys.")
         print()
 
@@ -548,7 +548,7 @@ def _print_setup_summary(config: dict, hermes_home):
     print()
 
     # Show file locations prominently
-    from hermes_constants import display_hermes_home as _dhh
+    from logos_constants import display_hermes_home as _dhh
     print(color(f"📁 All your files are in {_dhh()}/:", Colors.CYAN, Colors.BOLD))
     print()
     print(f"   {color('Settings:', Colors.YELLOW)}  {get_config_path()}")
@@ -653,7 +653,7 @@ def setup_model_provider(config: dict, *, quick: bool = False):
     When *quick* is True, skips credential rotation, vision, and TTS
     configuration — used by the streamlined first-time quick setup.
     """
-    from hermes_cli.config import load_config, save_config
+    from logos_cli.config import load_config, save_config
 
     print_header("Inference Provider")
     print_info("Choose how to connect to your main chat model.")
@@ -662,7 +662,7 @@ def setup_model_provider(config: dict, *, quick: bool = False):
 
     # Delegate to the shared hermes model flow — handles provider picker,
     # credential prompting, model selection, and config persistence.
-    from hermes_cli.main import select_provider_and_model
+    from logos_cli.main import select_provider_and_model
     try:
         select_provider_and_model()
     except (SystemExit, KeyboardInterrupt):
@@ -695,7 +695,7 @@ def setup_model_provider(config: dict, *, quick: bool = False):
         try:
             from types import SimpleNamespace
             from agent.credential_pool import load_pool
-            from hermes_cli.auth_commands import auth_add_command
+            from logos_cli.auth_commands import auth_add_command
 
             pool = load_pool(selected_provider)
             entries = pool.entries()
@@ -1062,7 +1062,7 @@ def _setup_tts_provider(config: dict):
                 save_env_value("XAI_API_KEY", api_key)
                 print_success("xAI TTS API key saved")
             else:
-                from hermes_constants import display_hermes_home as _dhh
+                from logos_constants import display_hermes_home as _dhh
                 print_warning(
                     "No xAI API key provided for TTS. Configure XAI_API_KEY via "
                     f"hermes setup model or {_dhh()}/.env to use xAI TTS. "
@@ -1630,7 +1630,7 @@ def setup_gateway(config: dict):
         _is_linux = _platform.system() == "Linux"
         _is_macos = _platform.system() == "Darwin"
 
-        from hermes_cli.gateway import (
+        from logos_cli.gateway import (
             _is_service_installed,
             _is_service_running,
             supports_systemd_services,
@@ -1723,7 +1723,7 @@ def setup_gateway(config: dict):
                     print_info("  Or as a boot-time service: sudo hermes gateway install --system")
                 print_info("  Or run in foreground:  hermes gateway")
         else:
-            from hermes_constants import is_container
+            from logos_constants import is_container
             if is_container():
                 print_info("Start the gateway to bring your bots online:")
                 print_info("   hermes gateway run          # Run as container main process")
@@ -1753,7 +1753,7 @@ def setup_tools(config: dict, first_install: bool = False):
         first_install: When True, uses the simplified first-install flow
             (no platform menu, prompts for all unconfigured API keys).
     """
-    from hermes_cli.tools_config import tools_command
+    from logos_cli.tools_config import tools_command
 
     tools_command(first_install=first_install, config=config)
 
@@ -1767,7 +1767,7 @@ def _model_section_has_credentials(config: dict) -> bool:
     """Return True when any known inference provider has usable credentials.
 
     Sources of truth:
-      * ``PROVIDER_REGISTRY`` in ``hermes_cli.auth`` — lists every supported
+      * ``PROVIDER_REGISTRY`` in ``logos_cli.auth`` — lists every supported
         provider along with its ``api_key_env_vars``.
       * ``active_provider`` in the auth store — covers OAuth device-code /
         external-OAuth providers (Nous, Codex, Qwen, Gemini CLI, ...).
@@ -1775,14 +1775,14 @@ def _model_section_has_credentials(config: dict) -> bool:
         ``OPENAI_API_KEY`` / ``OPENROUTER_API_KEY`` values through OpenRouter.
     """
     try:
-        from hermes_cli.auth import get_active_provider
+        from logos_cli.auth import get_active_provider
         if get_active_provider():
             return True
     except (ImportError, ModuleNotFoundError):
         pass
 
     try:
-        from hermes_cli.auth import PROVIDER_REGISTRY
+        from logos_cli.auth import PROVIDER_REGISTRY
     except (ImportError, ModuleNotFoundError):
         PROVIDER_REGISTRY = {}  # type: ignore[assignment]
 
@@ -1835,7 +1835,7 @@ def _get_section_config_summary(config: dict, section_key: str) -> Optional[str]
     """Return a short summary if a setup section is already configured, else None.
 
     Used after OpenClaw migration to detect which sections can be skipped.
-    ``get_env_value`` is the module-level import from hermes_cli.config
+    ``get_env_value`` is the module-level import from logos_cli.config
     so that test patches on ``setup_mod.get_env_value`` take effect.
     """
     if section_key == "model":
@@ -2177,7 +2177,7 @@ def run_setup_wizard(args):
       hermes setup tools     — just tool configuration
       hermes setup agent     — just agent settings
     """
-    from hermes_cli.config import is_managed, managed_error
+    from logos_cli.config import is_managed, managed_error
     if is_managed():
         managed_error("run setup wizard")
         return
@@ -2235,7 +2235,7 @@ def run_setup_wizard(args):
         return
 
     # Check if this is an existing installation with a provider configured
-    from hermes_cli.auth import get_active_provider
+    from logos_cli.auth import get_active_provider
 
     active_provider = get_active_provider()
     is_existing = (
@@ -2375,8 +2375,8 @@ def _resolve_hermes_chat_argv() -> Optional[list[str]]:
         return [hermes_bin, "chat"]
 
     try:
-        if importlib.util.find_spec("hermes_cli") is not None:
-            return [sys.executable, "-m", "hermes_cli.main", "chat"]
+        if importlib.util.find_spec("logos_cli") is not None:
+            return [sys.executable, "-m", "logos_cli.main", "chat"]
     except (AttributeError, KeyError, OSError, RuntimeError, TypeError):
         pass
 
@@ -2443,7 +2443,7 @@ def _run_first_time_quick_setup(config: dict, hermes_home, is_existing: bool):
 
 def _run_quick_setup(config: dict, hermes_home):
     """Quick setup — only configure items that are missing."""
-    from hermes_cli.config import (
+    from logos_cli.config import (
         get_missing_env_vars,
         get_missing_config_fields,
         check_config_version,

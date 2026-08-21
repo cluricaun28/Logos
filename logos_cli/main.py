@@ -118,7 +118,7 @@ def _apply_profile_override() -> None:
     # 2. If no flag, check active_profile in the hermes root
     if profile_name is None:
         try:
-            from hermes_constants import get_default_hermes_root
+            from logos_constants import get_default_hermes_root
 
             active_path = get_default_hermes_root() / "active_profile"
             if active_path.exists():
@@ -132,7 +132,7 @@ def _apply_profile_override() -> None:
     # 3. If we found a profile, resolve and set HERMES_HOME
     if profile_name is not None:
         try:
-            from hermes_cli.profiles import resolve_profile_env
+            from logos_cli.profiles import resolve_profile_env
 
             hermes_home = resolve_profile_env(profile_name)
         except (ValueError, FileNotFoundError) as exc:
@@ -163,13 +163,13 @@ _apply_profile_override()
 
 # Load .env from ~/.hermes/.env first, then project root as dev fallback.
 # User-managed env files should override stale shell exports on restart.
-from hermes_cli.config import get_hermes_home
-from hermes_cli.env_loader import load_hermes_dotenv
+from logos_cli.config import get_hermes_home
+from logos_cli.env_loader import load_hermes_dotenv
 
 load_hermes_dotenv(project_env=PROJECT_ROOT / ".env")
 
 # Bridge security.redact_secrets from config.yaml → HERMES_REDACT_SECRETS env
-# var BEFORE hermes_logging imports agent.redact (which snapshots the flag at
+# var BEFORE logos_logging imports agent.redact (which snapshots the flag at
 # module-import time). Without this, config.yaml's toggle is ignored because
 # the setup_logging() call below imports agent.redact, which reads the env var
 # exactly once. Env var in .env still wins — this is config.yaml fallback only.
@@ -192,7 +192,7 @@ except Exception:
 # Initialize centralized file logging early — all `hermes` subcommands
 # (chat, setup, gateway, config, etc.) write to agent.log + errors.log.
 try:
-    from hermes_logging import setup_logging as _setup_logging
+    from logos_logging import setup_logging as _setup_logging
 
     _setup_logging(mode="cli")
 except Exception:
@@ -200,8 +200,8 @@ except Exception:
 
 # Apply IPv4 preference early, before any HTTP clients are created.
 try:
-    from hermes_cli.config import load_config as _load_config_early
-    from hermes_constants import apply_ipv4_preference as _apply_ipv4
+    from logos_cli.config import load_config as _load_config_early
+    from logos_constants import apply_ipv4_preference as _apply_ipv4
 
     _early_cfg = _load_config_early()
     _net = _early_cfg.get("network", {})
@@ -215,8 +215,8 @@ import logging
 import time as _time
 from datetime import datetime
 
-from hermes_cli import __version__, __release_date__
-from hermes_constants import AI_GATEWAY_BASE_URL, OPENROUTER_BASE_URL
+from logos_cli import __version__, __release_date__
+from logos_constants import AI_GATEWAY_BASE_URL, OPENROUTER_BASE_URL
 
 logger = logging.getLogger(__name__)
 
@@ -241,14 +241,14 @@ def _relative_time(ts) -> str:
 
 def _has_any_provider_configured() -> bool:
     """Check if at least one inference provider is usable."""
-    from hermes_cli.config import get_env_path, get_hermes_home, load_config
-    from hermes_cli.auth import get_auth_status
+    from logos_cli.config import get_env_path, get_hermes_home, load_config
+    from logos_cli.auth import get_auth_status
 
     # Determine whether Hermes itself has been explicitly configured (model
     # in config that isn't the hardcoded default). Used below to gate external
     # tool credentials (Claude Code, Codex CLI) that shouldn't silently skip
     # the setup wizard on a fresh install.
-    from hermes_cli.config import DEFAULT_CONFIG
+    from logos_cli.config import DEFAULT_CONFIG
 
     _DEFAULT_MODEL = DEFAULT_CONFIG.get("model", "")
     cfg = load_config()
@@ -264,7 +264,7 @@ def _has_any_provider_configured() -> bool:
     # Check env vars (may be set by .env or shell).
     # OPENAI_BASE_URL alone counts — local models (vLLM, llama.cpp, etc.)
     # often don't require an API key.
-    from hermes_cli.auth import PROVIDER_REGISTRY
+    from logos_cli.auth import PROVIDER_REGISTRY
 
     # Collect all provider env vars
     provider_env_vars = {
@@ -599,7 +599,7 @@ def _session_browse_picker(sessions: list) -> Optional[str]:
 def _resolve_last_session(source: str = "cli") -> Optional[str]:
     """Look up the most recent session ID for a source."""
     try:
-        from hermes_state import SessionDB
+        from logos_state import SessionDB
 
         db = SessionDB()
         sessions = db.search_sessions(source=source, limit=1)
@@ -734,7 +734,7 @@ def _resolve_session_by_name_or_id(name_or_id: str) -> Optional[str]:
       resumed at the live tip instead of a stale parent with no messages.
     """
     try:
-        from hermes_state import SessionDB
+        from logos_state import SessionDB
 
         db = SessionDB()
 
@@ -805,7 +805,7 @@ def cmd_chat(args):
         print("  Run:  hermes setup")
         print()
 
-        from hermes_cli.setup import (
+        from logos_cli.setup import (
             is_interactive_stdin,
             print_noninteractive_setup_guidance,
         )
@@ -829,7 +829,7 @@ def cmd_chat(args):
 
     # Start update check in background (runs while other init happens)
     try:
-        from hermes_cli.banner import prefetch_update_check
+        from logos_cli.banner import prefetch_update_check
 
         prefetch_update_check()
     except (ImportError, ModuleNotFoundError):
@@ -898,14 +898,14 @@ def cmd_chat(args):
 
 def cmd_gateway(args):
     """Gateway management commands."""
-    from hermes_cli.gateway import gateway_command
+    from logos_cli.gateway import gateway_command
 
     gateway_command(args)
 
 
 def cmd_setup(args):
     """Interactive setup wizard."""
-    from hermes_cli.setup import run_setup_wizard
+    from logos_cli.setup import run_setup_wizard
 
     run_setup_wizard(args)
 
@@ -924,17 +924,17 @@ def select_provider_and_model(args=None):
     provider picker, credential prompting, model selection, and config
     persistence.
     """
-    from hermes_cli.auth import (
+    from logos_cli.auth import (
         resolve_provider,
         AuthError,
         format_auth_error,
     )
-    from hermes_cli.config import (
+    from logos_cli.config import (
         get_compatible_custom_providers,
         load_config,
         get_env_value,
     )
-    from hermes_cli.providers import resolve_provider_full
+    from logos_cli.providers import resolve_provider_full
 
     config = load_config()
     current_model = config.get("model")
@@ -982,7 +982,7 @@ def select_provider_and_model(args=None):
     if active == "openrouter" and get_env_value("OPENAI_BASE_URL"):
         active = "custom"
 
-    from hermes_cli.models import CANONICAL_PROVIDERS, _PROVIDER_LABELS
+    from logos_cli.models import CANONICAL_PROVIDERS, _PROVIDER_LABELS
 
     provider_labels = dict(_PROVIDER_LABELS)  # derive from canonical list
     active_label = provider_labels.get(active, active) if active else "none"
@@ -996,7 +996,7 @@ def select_provider_and_model(args=None):
     all_providers = [(p.slug, p.tui_desc) for p in CANONICAL_PROVIDERS]
 
     def _named_custom_provider_map(cfg) -> dict[str, dict[str, str]]:
-        from hermes_cli.config import read_raw_config
+        from logos_cli.config import read_raw_config
 
         # Build a lookup of raw (un-expanded) api_key templates keyed by a
         # stable identity. We intentionally bypass
@@ -1232,7 +1232,7 @@ def _clear_stale_openai_base_url():
     requests to the old custom endpoint instead of the newly selected
     provider.  See issue #5161.
     """
-    from hermes_cli.config import get_env_value, save_env_value, load_config
+    from logos_cli.config import get_env_value, save_env_value, load_config
 
     cfg = load_config()
     model_cfg = cfg.get("model", {})
@@ -1311,7 +1311,7 @@ def _save_aux_choice(
     other task-specific settings are preserved untouched. The main model
     config (``model.default``/``model.provider``) is never modified.
     """
-    from hermes_cli.config import load_config, save_config
+    from logos_cli.config import load_config, save_config
 
     cfg = load_config()
     aux = cfg.setdefault("auxiliary", {})
@@ -1331,7 +1331,7 @@ def _save_aux_choice(
 
 def _reset_aux_to_auto() -> int:
     """Reset every known aux task back to auto/empty. Returns number reset."""
-    from hermes_cli.config import load_config, save_config
+    from logos_cli.config import load_config, save_config
 
     cfg = load_config()
     aux = cfg.setdefault("auxiliary", {})
@@ -1365,7 +1365,7 @@ def _aux_config_menu() -> None:
     Loops until the user picks "Back" so multiple tasks can be configured
     without returning to the main provider menu.
     """
-    from hermes_cli.config import load_config
+    from logos_cli.config import load_config
 
     while True:
         cfg = load_config()
@@ -1421,8 +1421,8 @@ def _aux_select_for_task(task: str) -> None:
     inside the aux picker — users set up new providers through the normal
     ``hermes model`` flow, then route aux tasks to them here.
     """
-    from hermes_cli.config import load_config
-    from hermes_cli.model_switch import list_authenticated_providers
+    from logos_cli.config import load_config
+    from logos_cli.model_switch import list_authenticated_providers
 
     cfg = load_config()
     aux = cfg.get("auxiliary", {}) if isinstance(cfg.get("auxiliary"), dict) else {}
@@ -1495,8 +1495,8 @@ def _aux_flow_provider_model(
     current_model: str = "",
 ) -> None:
     """Prompt for a model under an already-authenticated provider, save to aux."""
-    from hermes_cli.auth import _prompt_model_selection
-    from hermes_cli.models import get_pricing_for_provider
+    from logos_cli.auth import _prompt_model_selection
+    from logos_cli.models import get_pricing_for_provider
 
     display_name = next((name for key, name, _ in _AUX_TASKS if key == task), task)
 
@@ -1587,7 +1587,7 @@ def _prompt_provider_choice(choices, *, default=0):
     if the user cancels.
     """
     try:
-        from hermes_cli.setup import _curses_prompt_choice
+        from logos_cli.setup import _curses_prompt_choice
 
         idx = _curses_prompt_choice("Select provider:", choices, default)
         if idx >= 0:
@@ -1620,12 +1620,12 @@ def _prompt_provider_choice(choices, *, default=0):
 
 def _model_flow_openrouter(config, current_model=""):
     """OpenRouter provider: ensure API key, then pick model."""
-    from hermes_cli.auth import (
+    from logos_cli.auth import (
         _prompt_model_selection,
         _save_model_choice,
         deactivate_provider,
     )
-    from hermes_cli.config import get_env_value, save_env_value
+    from logos_cli.config import get_env_value, save_env_value
 
     api_key = get_env_value("OPENROUTER_API_KEY")
     if not api_key:
@@ -1646,7 +1646,7 @@ def _model_flow_openrouter(config, current_model=""):
         print("API key saved.")
         print()
 
-    from hermes_cli.models import model_ids, get_pricing_for_provider
+    from logos_cli.models import model_ids, get_pricing_for_provider
 
     openrouter_models = model_ids(force_refresh=True)
 
@@ -1660,7 +1660,7 @@ def _model_flow_openrouter(config, current_model=""):
         _save_model_choice(selected)
 
         # Update config provider and deactivate any OAuth provider
-        from hermes_cli.config import load_config, save_config
+        from logos_cli.config import load_config, save_config
 
         cfg = load_config()
         model = cfg.get("model")
@@ -1679,12 +1679,12 @@ def _model_flow_openrouter(config, current_model=""):
 
 def _model_flow_ai_gateway(config, current_model=""):
     """Vercel AI Gateway provider: ensure API key, then pick model with pricing."""
-    from hermes_cli.auth import (
+    from logos_cli.auth import (
         _prompt_model_selection,
         _save_model_choice,
         deactivate_provider,
     )
-    from hermes_cli.config import get_env_value, save_env_value
+    from logos_cli.config import get_env_value, save_env_value
 
     api_key = get_env_value("AI_GATEWAY_API_KEY")
     if not api_key:
@@ -1706,7 +1706,7 @@ def _model_flow_ai_gateway(config, current_model=""):
         print("API key saved.")
         print()
 
-    from hermes_cli.models import ai_gateway_model_ids, get_pricing_for_provider
+    from logos_cli.models import ai_gateway_model_ids, get_pricing_for_provider
 
     models_list = ai_gateway_model_ids(force_refresh=True)
     pricing = get_pricing_for_provider("ai-gateway", force_refresh=True)
@@ -1717,7 +1717,7 @@ def _model_flow_ai_gateway(config, current_model=""):
     if selected:
         _save_model_choice(selected)
 
-        from hermes_cli.config import load_config, save_config
+        from logos_cli.config import load_config, save_config
 
         cfg = load_config()
         model = cfg.get("model")
@@ -1736,7 +1736,7 @@ def _model_flow_ai_gateway(config, current_model=""):
 
 def _model_flow_nous(config, current_model="", args=None):
     """Nous Portal provider: ensure logged in, then pick model."""
-    from hermes_cli.auth import (
+    from logos_cli.auth import (
         get_provider_auth_state,
         _prompt_model_selection,
         _save_model_choice,
@@ -1747,13 +1747,13 @@ def _model_flow_nous(config, current_model="", args=None):
         _login_nous,
         PROVIDER_REGISTRY,
     )
-    from hermes_cli.config import (
+    from logos_cli.config import (
         get_env_value,
         load_config,
         save_config,
         save_env_value,
     )
-    from hermes_cli.nous_subscription import prompt_enable_tool_gateway
+    from logos_cli.nous_subscription import prompt_enable_tool_gateway
 
     state = get_provider_auth_state("nous")
     if not state or not state.get("access_token"):
@@ -1789,7 +1789,7 @@ def _model_flow_nous(config, current_model="", args=None):
     # Already logged in — use curated model list (same as OpenRouter defaults).
     # The live /models endpoint returns hundreds of models; the curated list
     # shows only agentic models users recognize from OpenRouter.
-    from hermes_cli.models import (
+    from logos_cli.models import (
         get_curated_nous_model_ids,
         get_pricing_for_provider,
         check_nous_free_tier,
@@ -1858,7 +1858,7 @@ def _model_flow_nous(config, current_model="", args=None):
     if free_tier and not model_ids:
         print("No free models currently available.")
         if unavailable_models:
-            from hermes_cli.auth import DEFAULT_NOUS_PORTAL_URL
+            from logos_cli.auth import DEFAULT_NOUS_PORTAL_URL
 
             _url = (_nous_portal_url or DEFAULT_NOUS_PORTAL_URL).rstrip("/")
             print(f"Upgrade at {_url} to access paid models.")
@@ -1908,7 +1908,7 @@ def _model_flow_nous(config, current_model="", args=None):
 
 def _model_flow_openai_codex(config, current_model=""):
     """OpenAI Codex provider: ensure logged in, then pick model."""
-    from hermes_cli.auth import (
+    from logos_cli.auth import (
         get_codex_auth_status,
         _prompt_model_selection,
         _save_model_choice,
@@ -1917,7 +1917,7 @@ def _model_flow_openai_codex(config, current_model=""):
         PROVIDER_REGISTRY,
         DEFAULT_CODEX_BASE_URL,
     )
-    from hermes_cli.codex_models import get_codex_model_ids
+    from logos_cli.codex_models import get_codex_model_ids
 
     status = get_codex_auth_status()
     if status.get("logged_in"):
@@ -1978,7 +1978,7 @@ def _model_flow_openai_codex(config, current_model=""):
         pass
     if not _codex_token:
         try:
-            from hermes_cli.auth import resolve_codex_runtime_credentials
+            from logos_cli.auth import resolve_codex_runtime_credentials
 
             _codex_creds = resolve_codex_runtime_credentials()
             _codex_token = _codex_creds.get("api_key")
@@ -2004,7 +2004,7 @@ _DEFAULT_QWEN_PORTAL_MODELS = [
 
 def _model_flow_qwen_oauth(_config, current_model=""):
     """Qwen OAuth provider: reuse local Qwen CLI login, then pick model."""
-    from hermes_cli.auth import (
+    from logos_cli.auth import (
         get_qwen_auth_status,
         resolve_qwen_runtime_credentials,
         _prompt_model_selection,
@@ -2012,7 +2012,7 @@ def _model_flow_qwen_oauth(_config, current_model=""):
         _update_config_for_provider,
         DEFAULT_QWEN_BASE_URL,
     )
-    from hermes_cli.models import fetch_api_models
+    from logos_cli.models import fetch_api_models
 
     status = get_qwen_auth_status()
     if not status.get("logged_in"):
@@ -2055,7 +2055,7 @@ def _model_flow_google_gemini_cli(_config, current_model=""):
       4. Prompt user to pick a model.
       5. Save to ~/.hermes/config.yaml.
     """
-    from hermes_cli.auth import (
+    from logos_cli.auth import (
         DEFAULT_GEMINI_CLOUDCODE_BASE_URL,
         get_gemini_oauth_auth_status,
         resolve_gemini_oauth_runtime_credentials,
@@ -2063,7 +2063,7 @@ def _model_flow_google_gemini_cli(_config, current_model=""):
         _save_model_choice,
         _update_config_for_provider,
     )
-    from hermes_cli.models import _PROVIDER_MODELS
+    from logos_cli.models import _PROVIDER_MODELS
 
     print()
     print("⚠  Google considers using the Gemini CLI OAuth client with third-party")
@@ -2126,8 +2126,8 @@ def _model_flow_custom(config):
     Automatically saves the endpoint to ``custom_providers`` in config.yaml
     so it appears in the provider menu on subsequent runs.
     """
-    from hermes_cli.auth import _save_model_choice, deactivate_provider
-    from hermes_cli.config import get_env_value, load_config, save_config
+    from logos_cli.auth import _save_model_choice, deactivate_provider
+    from logos_cli.config import get_env_value, load_config, save_config
 
     current_url = get_env_value("OPENAI_BASE_URL") or ""
     current_key = get_env_value("OPENAI_API_KEY") or ""
@@ -2188,7 +2188,7 @@ def _model_flow_custom(config):
             print(f"  Updated URL: {effective_url}")
         print()
 
-    from hermes_cli.models import probe_api_models
+    from logos_cli.models import probe_api_models
 
     probe = probe_api_models(effective_key, effective_url)
     if probe.get("used_fallback") and probe.get("resolved_base_url"):
@@ -2361,7 +2361,7 @@ def _save_custom_provider(
     model name and context_length but doesn't add a duplicate entry.
     Uses *name* when provided, otherwise auto-generates from the URL.
     """
-    from hermes_cli.config import load_config, save_config
+    from logos_cli.config import load_config, save_config
 
     cfg = load_config()
     providers = cfg.get("custom_providers") or []
@@ -2424,9 +2424,9 @@ def _model_flow_azure_foundry(config, current_model=""):
     :func:`agent.model_metadata.get_model_context_length` chain
     (models.dev, provider metadata, hardcoded family fallbacks).
     """
-    from hermes_cli.auth import _save_model_choice, deactivate_provider  # noqa: F401
-    from hermes_cli.config import get_env_value, save_env_value, load_config, save_config
-    from hermes_cli import azure_detect
+    from logos_cli.auth import _save_model_choice, deactivate_provider  # noqa: F401
+    from logos_cli.config import get_env_value, save_env_value, load_config, save_config
+    from logos_cli import azure_detect
     import getpass
 
     # ── Load current Azure Foundry configuration ─────────────────────
@@ -2606,7 +2606,7 @@ def _model_flow_azure_foundry(config, current_model=""):
 
 def _remove_custom_provider(config):
     """Let the user remove a saved custom provider from config.yaml."""
-    from hermes_cli.config import load_config, save_config
+    from logos_cli.config import load_config, save_config
 
     cfg = load_config()
     providers = cfg.get("custom_providers") or []
@@ -2641,7 +2641,7 @@ def _remove_custom_provider(config):
             title="Select provider to remove:",
         )
         idx = menu.show()
-        from hermes_cli.curses_ui import flush_stdin
+        from logos_cli.curses_ui import flush_stdin
 
         flush_stdin()
         print()
@@ -2675,9 +2675,9 @@ def _model_flow_named_custom(config, provider_info):
     If a model was previously saved, it is pre-selected in the menu.
     Falls back to the saved model if probing fails.
     """
-    from hermes_cli.auth import _save_model_choice, deactivate_provider
-    from hermes_cli.config import load_config, save_config
-    from hermes_cli.models import fetch_api_models
+    from logos_cli.auth import _save_model_choice, deactivate_provider
+    from logos_cli.config import load_config, save_config
+    from logos_cli.models import fetch_api_models
 
     name = provider_info["name"]
     base_url = provider_info["base_url"]
@@ -2727,7 +2727,7 @@ def _model_flow_named_custom(config, provider_info):
                 title=f"Select model from {name}:",
             )
             idx = menu.show()
-            from hermes_cli.curses_ui import flush_stdin
+            from logos_cli.curses_ui import flush_stdin
 
             flush_stdin()
             print()
@@ -2840,7 +2840,7 @@ def _model_flow_named_custom(config, provider_info):
 
 
 # Curated model lists for direct API-key providers — single source in models.py
-from hermes_cli.models import _PROVIDER_MODELS
+from logos_cli.models import _PROVIDER_MODELS
 
 
 def _current_reasoning_effort(config) -> str:
@@ -2905,7 +2905,7 @@ def _prompt_reasoning_effort_selection(efforts, current_effort=""):
             title="Select reasoning effort:",
         )
         idx = menu.show()
-        from hermes_cli.curses_ui import flush_stdin
+        from logos_cli.curses_ui import flush_stdin
 
         flush_stdin()
         if idx is None:
@@ -2948,15 +2948,15 @@ def _prompt_reasoning_effort_selection(efforts, current_effort=""):
 
 def _model_flow_copilot(config, current_model=""):
     """GitHub Copilot flow using env vars, gh CLI, or OAuth device code."""
-    from hermes_cli.auth import (
+    from logos_cli.auth import (
         PROVIDER_REGISTRY,
         _prompt_model_selection,
         _save_model_choice,
         deactivate_provider,
         resolve_api_key_provider_credentials,
     )
-    from hermes_cli.config import save_env_value, load_config, save_config
-    from hermes_cli.models import (
+    from logos_cli.config import save_env_value, load_config, save_config
+    from logos_cli.models import (
         fetch_api_models,
         fetch_github_model_catalog,
         github_model_reasoning_efforts,
@@ -2995,7 +2995,7 @@ def _model_flow_copilot(config, current_model=""):
 
         if choice == "1":
             try:
-                from hermes_cli.copilot_auth import copilot_device_code_login
+                from logos_cli.copilot_auth import copilot_device_code_login
 
                 token = copilot_device_code_login()
                 if token:
@@ -3021,7 +3021,7 @@ def _model_flow_copilot(config, current_model=""):
                 return
             # Validate token type
             try:
-                from hermes_cli.copilot_auth import validate_copilot_token
+                from logos_cli.copilot_auth import validate_copilot_token
 
                 valid, msg = validate_copilot_token(new_key)
                 if not valid:
@@ -3139,7 +3139,7 @@ def _model_flow_copilot(config, current_model=""):
 
 def _model_flow_copilot_acp(config, current_model=""):
     """GitHub Copilot ACP flow using the local Copilot CLI."""
-    from hermes_cli.auth import (
+    from logos_cli.auth import (
         PROVIDER_REGISTRY,
         _prompt_model_selection,
         _save_model_choice,
@@ -3148,11 +3148,11 @@ def _model_flow_copilot_acp(config, current_model=""):
         resolve_api_key_provider_credentials,
         resolve_external_process_provider_credentials,
     )
-    from hermes_cli.models import (
+    from logos_cli.models import (
         fetch_github_model_catalog,
         normalize_copilot_model_id,
     )
-    from hermes_cli.config import load_config, save_config
+    from logos_cli.config import load_config, save_config
 
     del config
 
@@ -3258,14 +3258,14 @@ def _model_flow_kimi(config, current_model=""):
 
     No manual base URL prompt — endpoint is determined by key prefix.
     """
-    from hermes_cli.auth import (
+    from logos_cli.auth import (
         PROVIDER_REGISTRY,
         KIMI_CODE_BASE_URL,
         _prompt_model_selection,
         _save_model_choice,
         deactivate_provider,
     )
-    from hermes_cli.config import (
+    from logos_cli.config import (
         get_env_value,
         save_env_value,
         load_config,
@@ -3370,7 +3370,7 @@ def _infer_stepfun_region(base_url: str) -> str:
 
 
 def _stepfun_base_url_for_region(region: str) -> str:
-    from hermes_cli.auth import (
+    from logos_cli.auth import (
         STEPFUN_STEP_PLAN_CN_BASE_URL,
         STEPFUN_STEP_PLAN_INTL_BASE_URL,
     )
@@ -3384,14 +3384,14 @@ def _stepfun_base_url_for_region(region: str) -> str:
 
 def _model_flow_stepfun(config, current_model=""):
     """StepFun Step Plan flow with region-specific endpoints."""
-    from hermes_cli.auth import (
+    from logos_cli.auth import (
         PROVIDER_REGISTRY,
         _prompt_model_selection,
         _save_model_choice,
         deactivate_provider,
     )
-    from hermes_cli.config import get_env_value, save_env_value, load_config, save_config
-    from hermes_cli.models import fetch_api_models
+    from logos_cli.config import get_env_value, save_env_value, load_config, save_config
+    from logos_cli.models import fetch_api_models
 
     provider_id = "stepfun"
     pconfig = PROVIDER_REGISTRY[provider_id]
@@ -3501,18 +3501,18 @@ def _model_flow_bedrock_api_key(config, region, current_model=""):
     For developers who don't have an AWS account but received a Bedrock API Key
     from their AWS admin. Works like any OpenAI-compatible endpoint.
     """
-    from hermes_cli.auth import (
+    from logos_cli.auth import (
         _prompt_model_selection,
         _save_model_choice,
         deactivate_provider,
     )
-    from hermes_cli.config import (
+    from logos_cli.config import (
         load_config,
         save_config,
         get_env_value,
         save_env_value,
     )
-    from hermes_cli.models import _PROVIDER_MODELS
+    from logos_cli.models import _PROVIDER_MODELS
 
     mantle_base_url = f"https://bedrock-mantle.{region}.api.aws/v1"
 
@@ -3590,13 +3590,13 @@ def _model_flow_bedrock(config, current_model=""):
     Auth is handled by the AWS SDK default credential chain (env vars, profile,
     instance role), so no API key prompt is needed.
     """
-    from hermes_cli.auth import (
+    from logos_cli.auth import (
         _prompt_model_selection,
         _save_model_choice,
         deactivate_provider,
     )
-    from hermes_cli.config import load_config, save_config
-    from hermes_cli.models import _PROVIDER_MODELS
+    from logos_cli.config import load_config, save_config
+    from logos_cli.models import _PROVIDER_MODELS
 
     # 1. Check for AWS credentials
     try:
@@ -3768,20 +3768,20 @@ def _model_flow_bedrock(config, current_model=""):
 
 def _model_flow_api_key_provider(config, provider_id, current_model=""):
     """Generic flow for API-key providers (z.ai, MiniMax, OpenCode, etc.)."""
-    from hermes_cli.auth import (
+    from logos_cli.auth import (
         LMSTUDIO_NOAUTH_PLACEHOLDER,
         PROVIDER_REGISTRY,
         _prompt_model_selection,
         _save_model_choice,
         deactivate_provider,
     )
-    from hermes_cli.config import (
+    from logos_cli.config import (
         get_env_value,
         save_env_value,
         load_config,
         save_config,
     )
-    from hermes_cli.models import (
+    from logos_cli.models import (
         fetch_api_models,
         opencode_model_api_mode,
         normalize_opencode_model_id,
@@ -3923,8 +3923,8 @@ def _model_flow_api_key_provider(config, provider_id, current_model=""):
     # LM Studio: live /api/v1/models probe (no models.dev catalog).
     # Ollama Cloud: merged discovery (live API + models.dev + disk cache).
     if provider_id == "lmstudio":
-        from hermes_cli.auth import AuthError
-        from hermes_cli.models import fetch_lmstudio_models
+        from logos_cli.auth import AuthError
+        from logos_cli.models import fetch_lmstudio_models
 
         api_key_for_probe = existing_key or (get_env_value(key_env) if key_env else "")
         try:
@@ -3936,7 +3936,7 @@ def _model_flow_api_key_provider(config, provider_id, current_model=""):
         if model_list:
             print(f"  Found {len(model_list)} model(s) from LM Studio")
     elif provider_id == "ollama-cloud":
-        from hermes_cli.models import fetch_ollama_cloud_models
+        from logos_cli.models import fetch_ollama_cloud_models
 
         api_key_for_probe = existing_key or (get_env_value(key_env) if key_env else "")
         # During setup, force a live refresh so the picker reflects newly
@@ -4046,7 +4046,7 @@ def _run_anthropic_oauth_flow(save_env_value):
         read_claude_code_credentials,
         is_claude_code_token_valid,
     )
-    from hermes_cli.config import (
+    from logos_cli.config import (
         save_anthropic_oauth_token,
         use_anthropic_claude_code_credentials,
     )
@@ -4061,7 +4061,7 @@ def _run_anthropic_oauth_flow(save_env_value):
         ):
             use_anthropic_claude_code_credentials(save_fn=save_env_value)
             print("  ✓ Claude Code credentials linked.")
-            from hermes_constants import display_hermes_home as _dhh_fn
+            from logos_constants import display_hermes_home as _dhh_fn
 
             print(
                 f"    Hermes will use Claude's credential store directly instead of copying a setup-token into {_dhh_fn()}/.env."
@@ -4134,21 +4134,21 @@ def _run_anthropic_oauth_flow(save_env_value):
 
 def _model_flow_anthropic(config, current_model=""):
     """Flow for Anthropic provider — OAuth subscription, API key, or Claude Code creds."""
-    from hermes_cli.auth import (
+    from logos_cli.auth import (
         _prompt_model_selection,
         _save_model_choice,
         deactivate_provider,
     )
-    from hermes_cli.config import (
+    from logos_cli.config import (
         save_env_value,
         load_config,
         save_config,
         save_anthropic_api_key,
     )
-    from hermes_cli.models import _PROVIDER_MODELS
+    from logos_cli.models import _PROVIDER_MODELS
 
     # Check ALL credential sources
-    from hermes_cli.auth import get_anthropic_key
+    from logos_cli.auth import get_anthropic_key
 
     existing_key = get_anthropic_key()
     cc_available = False
@@ -4272,76 +4272,76 @@ def _model_flow_anthropic(config, current_model=""):
 
 def cmd_login(args):
     """Authenticate Hermes CLI with a provider."""
-    from hermes_cli.auth import login_command
+    from logos_cli.auth import login_command
 
     login_command(args)
 
 
 def cmd_logout(args):
     """Clear provider authentication."""
-    from hermes_cli.auth import logout_command
+    from logos_cli.auth import logout_command
 
     logout_command(args)
 
 
 def cmd_auth(args):
     """Manage pooled credentials."""
-    from hermes_cli.auth_commands import auth_command
+    from logos_cli.auth_commands import auth_command
 
     auth_command(args)
 
 
 def cmd_status(args):
     """Show status of all components."""
-    from hermes_cli.status import show_status
+    from logos_cli.status import show_status
 
     show_status(args)
 
 
 def cmd_cron(args):
     """Cron job management."""
-    from hermes_cli.cron import cron_command
+    from logos_cli.cron import cron_command
 
     cron_command(args)
 
 
 def cmd_webhook(args):
     """Webhook subscription management."""
-    from hermes_cli.webhook import webhook_command
+    from logos_cli.webhook import webhook_command
 
     webhook_command(args)
 
 
 def cmd_hooks(args):
     """Shell-hook inspection and management."""
-    from hermes_cli.hooks import hooks_command
+    from logos_cli.hooks import hooks_command
     hooks_command(args)
 
 
 def cmd_doctor(args):
     """Check configuration and dependencies."""
-    from hermes_cli.doctor import run_doctor
+    from logos_cli.doctor import run_doctor
 
     run_doctor(args)
 
 
 def cmd_dump(args):
     """Dump setup summary for support/debugging."""
-    from hermes_cli.dump import run_dump
+    from logos_cli.dump import run_dump
 
     run_dump(args)
 
 
 def cmd_debug(args):
     """Debug tools (share report, etc.)."""
-    from hermes_cli.debug import run_debug
+    from logos_cli.debug import run_debug
 
     run_debug(args)
 
 
 def cmd_config(args):
     """Configuration management."""
-    from hermes_cli.config import config_command
+    from logos_cli.config import config_command
 
     config_command(args)
 
@@ -4349,18 +4349,18 @@ def cmd_config(args):
 def cmd_backup(args):
     """Back up Hermes home directory to a zip file."""
     if getattr(args, "quick", False):
-        from hermes_cli.backup import run_quick_backup
+        from logos_cli.backup import run_quick_backup
 
         run_quick_backup(args)
     else:
-        from hermes_cli.backup import run_backup
+        from logos_cli.backup import run_backup
 
         run_backup(args)
 
 
 def cmd_import(args):
     """Restore a Hermes backup from a zip file."""
-    from hermes_cli.backup import run_import
+    from logos_cli.backup import run_import
 
     run_import(args)
 
@@ -4383,8 +4383,8 @@ def cmd_version(args):
 
     # Show update status (synchronous — acceptable since user asked for version info)
     try:
-        from hermes_cli.banner import check_for_updates
-        from hermes_cli.config import recommended_update_command
+        from logos_cli.banner import check_for_updates
+        from logos_cli.config import recommended_update_command
 
         behind = check_for_updates()
         if behind and behind > 0:
@@ -4402,7 +4402,7 @@ def cmd_version(args):
 def cmd_uninstall(args):
     """Uninstall Hermes Agent."""
     _require_tty("uninstall")
-    from hermes_cli.uninstall import run_uninstall
+    from logos_cli.uninstall import run_uninstall
 
     run_uninstall(args)
 
@@ -4447,7 +4447,7 @@ def _gateway_prompt(prompt_text: str, default: str = "", timeout: float = 300.0)
     """
     import json as _json
     import uuid as _uuid
-    from hermes_constants import get_hermes_home
+    from logos_constants import get_hermes_home
 
     home = get_hermes_home()
     prompt_path = home / ".update_prompt.json"
@@ -4898,7 +4898,7 @@ def _count_commits_between(git_cmd: list[str], cwd: Path, base: str, head: str) 
 
 def _should_skip_upstream_prompt() -> bool:
     """Check if user previously declined to add upstream."""
-    from hermes_constants import get_hermes_home
+    from logos_constants import get_hermes_home
 
     return (get_hermes_home() / SKIP_UPSTREAM_PROMPT_FILE).exists()
 
@@ -4906,7 +4906,7 @@ def _should_skip_upstream_prompt() -> bool:
 def _mark_skip_upstream_prompt():
     """Create marker file to skip future upstream prompts."""
     try:
-        from hermes_constants import get_hermes_home
+        from logos_constants import get_hermes_home
 
         (get_hermes_home() / SKIP_UPSTREAM_PROMPT_FILE).touch()
     except (ImportError, ModuleNotFoundError, OSError, PermissionError):
@@ -5053,7 +5053,7 @@ def _invalidate_update_cache():
     """
     homes = []
     # Default profile home (Docker-aware — uses /opt/data in Docker)
-    from hermes_constants import get_default_hermes_root
+    from logos_constants import get_default_hermes_root
 
     default_home = get_default_hermes_root()
     homes.append(default_home)
@@ -5282,8 +5282,8 @@ def _install_hangup_protection(gateway_mode: bool = False):
     # tolerance.  Any failure here is non-fatal; we just skip the wrap.
     try:
         # Late-bound import so tests can monkeypatch
-        # hermes_cli.config.get_hermes_home to simulate setup failure.
-        from hermes_cli.config import get_hermes_home as _get_hermes_home
+        # logos_cli.config.get_hermes_home to simulate setup failure.
+        from logos_cli.config import get_hermes_home as _get_hermes_home
 
         logs_dir = _get_hermes_home() / "logs"
         logs_dir.mkdir(parents=True, exist_ok=True)
@@ -5391,7 +5391,7 @@ def _cmd_update_check():
     else:
         commits_word = "commit" if behind == 1 else "commits"
         print(f"⚕ Update available: {behind} {commits_word} behind {compare_branch}.")
-        from hermes_cli.config import recommended_update_command
+        from logos_cli.config import recommended_update_command
         print(f"  Run '{recommended_update_command()}' to install.")
 
 
@@ -5496,7 +5496,7 @@ def _run_pre_update_backup(args) -> None:
     force_backup = bool(getattr(args, "backup", False))
 
     try:
-        from hermes_cli.config import load_config
+        from logos_cli.config import load_config
         cfg = load_config()
     except (ImportError, ModuleNotFoundError) as exc:
         logging.getLogger(__name__).debug("Could not load config for pre-update backup: %s", exc)
@@ -5513,7 +5513,7 @@ def _run_pre_update_backup(args) -> None:
         return
 
     try:
-        from hermes_cli.backup import create_pre_update_backup
+        from logos_cli.backup import create_pre_update_backup
     except (ImportError, ModuleNotFoundError) as exc:
         print(f"⚠ Pre-update backup: could not load backup module ({exc}); continuing update.")
         print()
@@ -5551,7 +5551,7 @@ def _run_pre_update_backup(args) -> None:
 
     # Render path using display_hermes_home so the user sees ~/.hermes/...
     try:
-        from hermes_constants import get_hermes_home, display_hermes_home
+        from logos_constants import get_hermes_home, display_hermes_home
         home = get_hermes_home()
         try:
             display_path = f"{display_hermes_home()}/{out_path.relative_to(home)}"
@@ -5574,7 +5574,7 @@ def cmd_update(args):
     runs the update, then restores stdio on the way out (even on
     ``sys.exit`` or unhandled exceptions).
     """
-    from hermes_cli.config import is_managed, managed_error
+    from logos_cli.config import is_managed, managed_error
 
     if is_managed():
         managed_error("update Hermes Agent")
@@ -5769,7 +5769,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
         # belt-and-suspenders insurance and gives the user something to
         # restore from via `/snapshot list` / `/snapshot restore <id>`.
         try:
-            from hermes_cli.backup import create_quick_snapshot
+            from logos_cli.backup import create_quick_snapshot
 
             snap_id = create_quick_snapshot(label="pre-update")
             if snap_id:
@@ -5831,7 +5831,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
 
         # Clear stale .pyc bytecode cache — prevents ImportError on gateway
         # restart when updated source references names that didn't exist in
-        # the old bytecode (e.g. get_hermes_home added to hermes_constants).
+        # the old bytecode (e.g. get_hermes_home added to logos_constants).
         removed = _clear_bytecode_cache(PROJECT_ROOT)
         if removed:
             print(
@@ -5878,12 +5878,12 @@ def _cmd_update_impl(args, gateway_mode: bool):
         print("✓ Code updated!")
 
         # After git pull, source files on disk are newer than cached Python
-        # modules in this process.  Reload hermes_constants so that any lazy
+        # modules in this process.  Reload logos_constants so that any lazy
         # import executed below (skills sync, gateway restart) sees new
         # attributes like display_hermes_home() added since the last release.
         try:
             import importlib
-            import hermes_constants as _hc
+            import logos_constants as _hc
 
             importlib.reload(_hc)
         except (ImportError, ModuleNotFoundError):
@@ -5913,7 +5913,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
 
         # Sync bundled skills to all other profiles
         try:
-            from hermes_cli.profiles import (
+            from logos_cli.profiles import (
                 list_profiles,
                 get_active_profile_name,
                 seed_profile_skills,
@@ -5961,7 +5961,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
         print()
         print("→ Checking configuration for new options...")
 
-        from hermes_cli.config import (
+        from logos_cli.config import (
             get_missing_env_vars,
             get_missing_config_fields,
             check_config_version,
@@ -6062,7 +6062,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
         # The code update (git pull) is shared across all profiles, so every
         # running gateway needs restarting to pick up the new code.
         try:
-            from hermes_cli.gateway import (
+            from logos_cli.gateway import (
                 is_macos,
                 supports_systemd_services,
                 _ensure_user_systemd_env,
@@ -6148,14 +6148,14 @@ def _cmd_update_impl(args, gateway_mode: bool):
             # systemd units without SIGUSR1 wiring this wait just times out
             # and we fall back to ``systemctl restart`` (the old behaviour).
             try:
-                from hermes_constants import (
+                from logos_constants import (
                     DEFAULT_GATEWAY_RESTART_DRAIN_TIMEOUT as _DEFAULT_DRAIN,
                 )
             except (ImportError, ModuleNotFoundError):
                 _DEFAULT_DRAIN = 60.0
             _cfg_drain = None
             try:
-                from hermes_cli.config import load_config
+                from logos_cli.config import load_config
                 _cfg_agent = (load_config().get("agent") or {})
                 _cfg_drain = _cfg_agent.get("restart_drain_timeout")
             except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
@@ -6327,7 +6327,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
             # --- Launchd services (macOS) ---
             if is_macos():
                 try:
-                    from hermes_cli.gateway import (
+                    from logos_cli.gateway import (
                         launchd_restart,
                         get_launchd_label,
                         get_launchd_plist_path,
@@ -6392,7 +6392,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
         # for the same bot token (see PR #11909). Flagging here means
         # every `hermes update` surfaces the issue until the user migrates.
         try:
-            from hermes_cli.gateway import (
+            from logos_cli.gateway import (
                 has_legacy_hermes_units,
                 _find_legacy_hermes_units,
                 supports_systemd_services,
@@ -6506,7 +6506,7 @@ def _coalesce_session_name_args(argv: list) -> list:
 
 def cmd_profile(args):
     """Profile management — create, delete, list, switch, alias."""
-    from hermes_cli.profiles import (
+    from logos_cli.profiles import (
         list_profiles,
         create_profile,
         delete_profile,
@@ -6519,7 +6519,7 @@ def cmd_profile(args):
         _is_wrapper_dir_in_path,
         _get_wrapper_dir,
     )
-    from hermes_constants import display_hermes_home
+    from logos_constants import display_hermes_home
 
     action = getattr(args, "profile_action", None)
 
@@ -6694,7 +6694,7 @@ def cmd_profile(args):
 
     elif action == "show":
         name = args.profile_name
-        from hermes_cli.profiles import (
+        from logos_cli.profiles import (
             get_profile_dir,
             profile_exists,
             _read_config_model,
@@ -6732,7 +6732,7 @@ def cmd_profile(args):
         remove = getattr(args, "remove", False)
         custom_name = getattr(args, "alias_name", None)
 
-        from hermes_cli.profiles import profile_exists
+        from logos_cli.profiles import profile_exists
 
         if not profile_exists(name):
             print(f"Error: Profile '{name}' does not exist.")
@@ -6760,7 +6760,7 @@ def cmd_profile(args):
                     print(f"⚠ {_get_wrapper_dir()} is not in your PATH.")
 
     elif action == "rename":
-        from hermes_cli.profiles import rename_profile
+        from logos_cli.profiles import rename_profile
 
         try:
             new_dir = rename_profile(args.old_name, args.new_name)
@@ -6771,7 +6771,7 @@ def cmd_profile(args):
             sys.exit(1)
 
     elif action == "export":
-        from hermes_cli.profiles import export_profile
+        from logos_cli.profiles import export_profile
 
         name = args.profile_name
         output = args.output or f"{name}.tar.gz"
@@ -6783,7 +6783,7 @@ def cmd_profile(args):
             sys.exit(1)
 
     elif action == "import":
-        from hermes_cli.profiles import import_profile
+        from logos_cli.profiles import import_profile
 
         try:
             profile_dir = import_profile(
@@ -6807,7 +6807,7 @@ def cmd_profile(args):
 
 def cmd_completion(args, parser=None):
     """Print shell completion script."""
-    from hermes_cli.completion import generate_bash, generate_zsh, generate_fish
+    from logos_cli.completion import generate_bash, generate_zsh, generate_fish
 
     shell = getattr(args, "shell", "bash")
     if shell == "zsh":
@@ -6820,7 +6820,7 @@ def cmd_completion(args, parser=None):
 
 def cmd_logs(args):
     """View and filter Hermes log files."""
-    from hermes_cli.logs import tail_log, list_logs
+    from logos_cli.logs import tail_log, list_logs
 
     log_name = getattr(args, "log_name", "agent") or "agent"
 
@@ -7160,7 +7160,7 @@ For more help on a command:
     # =========================================================================
     # fallback command — manage the fallback provider chain
     # =========================================================================
-    from hermes_cli.fallback_cmd import cmd_fallback
+    from logos_cli.fallback_cmd import cmd_fallback
 
     fallback_parser = subparsers.add_parser(
         "fallback",
@@ -7980,7 +7980,7 @@ Examples:
     pairing_sub.add_parser("clear-pending", help="Clear all pending codes")
 
     def cmd_pairing(args):
-        from hermes_cli.pairing import pairing_command
+        from logos_cli.pairing import pairing_command
 
         pairing_command(args)
 
@@ -8175,11 +8175,11 @@ Examples:
         # Route 'config' action to skills_config module
         if getattr(args, "skills_action", None) == "config":
             _require_tty("skills config")
-            from hermes_cli.skills_config import skills_command as skills_config_command
+            from logos_cli.skills_config import skills_command as skills_config_command
 
             skills_config_command(args)
         else:
-            from hermes_cli.skills_hub import skills_command
+            from logos_cli.skills_hub import skills_command
 
             skills_command(args)
 
@@ -8243,7 +8243,7 @@ Examples:
     plugins_disable.add_argument("name", help="Plugin name to disable")
 
     def cmd_plugins(args):
-        from hermes_cli.plugins_cmd import plugins_command
+        from logos_cli.plugins_cmd import plugins_command
 
         plugins_command(args)
 
@@ -8308,7 +8308,7 @@ Examples:
     def cmd_memory(args):
         sub = getattr(args, "memory_command", None)
         if sub == "off":
-            from hermes_cli.config import load_config, save_config
+            from logos_cli.config import load_config, save_config
 
             config = load_config()
             if not isinstance(config.get("memory"), dict):
@@ -8318,7 +8318,7 @@ Examples:
             print("\n  ✓ Memory provider: built-in only")
             print("  Saved to config.yaml\n")
         elif sub == "reset":
-            from hermes_constants import get_hermes_home, display_hermes_home
+            from logos_constants import get_hermes_home, display_hermes_home
 
             mem_dir = get_hermes_home() / "memories"
             target = getattr(args, "target", "all")
@@ -8363,7 +8363,7 @@ Examples:
             )
             print(f"  Files were in: {display_hermes_home()}/memories/\n")
         else:
-            from hermes_cli.memory_setup import memory_command
+            from logos_cli.memory_setup import memory_command
 
             memory_command(args)
 
@@ -8437,12 +8437,12 @@ Examples:
     def cmd_tools(args):
         action = getattr(args, "tools_action", None)
         if action in ("list", "disable", "enable"):
-            from hermes_cli.tools_config import tools_disable_enable_command
+            from logos_cli.tools_config import tools_disable_enable_command
 
             tools_disable_enable_command(args)
         else:
             _require_tty("tools")
-            from hermes_cli.tools_config import tools_command
+            from logos_cli.tools_config import tools_command
 
             tools_command(args)
 
@@ -8514,7 +8514,7 @@ Examples:
     _add_accept_hooks_flag(mcp_parser)
 
     def cmd_mcp(args):
-        from hermes_cli.mcp_config import mcp_command
+        from logos_cli.mcp_config import mcp_command
 
         mcp_command(args)
 
@@ -8597,7 +8597,7 @@ Examples:
         import json as _json
 
         try:
-            from hermes_state import SessionDB
+            from logos_state import SessionDB
 
             db = SessionDB()
         except (ImportError, ModuleNotFoundError) as e:
@@ -8740,7 +8740,7 @@ Examples:
                 # Fallback: re-invoke via python -m
                 os.execvp(
                     sys.executable,
-                    [sys.executable, "-m", "hermes_cli.main", "--resume", selected_id],
+                    [sys.executable, "-m", "logos_cli.main", "--resume", selected_id],
                 )
             return  # won't reach here after execvp
 
@@ -8782,7 +8782,7 @@ Examples:
 
     def cmd_insights(args):
         try:
-            from hermes_state import SessionDB
+            from logos_state import SessionDB
             from agent.insights import InsightsEngine
 
             db = SessionDB()
@@ -8869,7 +8869,7 @@ Examples:
     )
 
     def cmd_claw(args):
-        from hermes_cli.claw import claw_command
+        from logos_cli.claw import claw_command
 
         claw_command(args)
 
@@ -9134,7 +9134,7 @@ Examples:
     # the managed container.  This MUST run before parse_args() so that
     # --help, unrecognised flags, and every subcommand are forwarded
     # transparently instead of being intercepted by argparse on the host.
-    from hermes_cli.config import get_container_exec_info
+    from logos_cli.config import get_container_exec_info
 
     container_info = get_container_exec_info()
     if container_info:
@@ -9211,7 +9211,7 @@ Examples:
     ):
         _accept_hooks = bool(getattr(args, "accept_hooks", False))
         try:
-            from hermes_cli.plugins import discover_plugins
+            from logos_cli.plugins import discover_plugins
             discover_plugins()
         except (ImportError, ModuleNotFoundError):
             logger.debug(
@@ -9229,7 +9229,7 @@ Examples:
                 "MCP tool discovery failed at CLI startup", exc_info=True,
             )
         try:
-            from hermes_cli.config import load_config
+            from logos_cli.config import load_config
             from agent.shell_hooks import register_from_config
             register_from_config(load_config(), accept_hooks=_accept_hooks)
         except (ImportError, ModuleNotFoundError):
@@ -9241,7 +9241,7 @@ Examples:
     # Handle top-level --oneshot / -z: single-shot mode, stdout = final
     # response only, nothing else. Bypasses cli.py entirely.
     if getattr(args, "oneshot", None):
-        from hermes_cli.oneshot import run_oneshot
+        from logos_cli.oneshot import run_oneshot
 
         sys.exit(run_oneshot(
             args.oneshot,

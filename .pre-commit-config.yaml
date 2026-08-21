@@ -7,11 +7,11 @@ repos:
         language: system
         types: [python]
         pass_filenames: false
-        files: ^(agent|tools|gateway|hermes_cli|cron|plugins|acp_adapter)/
+        files: ^(agent|tools|gateway|logos_cli|cron|plugins|acp_adapter)/
       - id: ruff-format
         name: ruff (format)
         entry: ruff format . --exclude venv --exclude node_modules --exclude __pycache__
         language: system
         types: [python]
         pass_filenames: false
-        files: ^(agent|tools|gateway|hermes_cli|cron|plugins|acp_adapter)/
+        files: ^(agent|tools|gateway|logos_cli|cron|plugins|acp_adapter)/

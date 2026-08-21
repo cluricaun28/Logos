@@ -60,7 +60,7 @@ _SENSITIVE_BODY_KEYS = frozenset({
 # `export HERMES_REDACT_SECRETS=***`) cannot enable/disable redaction
 # mid-session.  OFF by default in upstream Hermes — user must opt in via
 # `security.redact_secrets: true` in config.yaml (bridged to this env var
-# in hermes_cli/main.py and gateway/run.py) or `HERMES_REDACT_SECRETS=***`
+# in logos_cli/main.py and gateway/run.py) or `HERMES_REDACT_SECRETS=***`
 # in ~/.hermes/.env. This fork enables it by default.
 _REDACT_ENABLED = os.getenv("HERMES_REDACT_SECRETS", "").lower() in ("1", "true", "yes", "on")
 

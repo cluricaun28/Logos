@@ -2,7 +2,7 @@
 
 import pytest
 
-from hermes_cli.config import validate_config_structure, ConfigIssue
+from logos_cli.config import validate_config_structure, ConfigIssue
 
 
 class TestCustomProvidersValidation:

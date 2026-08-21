@@ -1,4 +1,4 @@
-"""Tests for ``hermes_cli.voice`` — process-wide voice recording + TTS.
+"""Tests for ``logos_cli.voice`` — process-wide voice recording + TTS.
 
 The module is imported *lazily* by callers (gateway, wake-word tool)
 so that a box with missing audio deps fails at call time rather than
@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 class TestPublicAPI:
     def test_gateway_symbols_importable(self):
         """The three public symbols import and are callable."""
-        from hermes_cli.voice import (
+        from logos_cli.voice import (
             speak_text,
             start_recording,
             stop_and_transcribe,
@@ -33,7 +33,7 @@ class TestPublicAPI:
 class TestStopWithoutStart:
     def test_returns_none_when_no_recording_active(self, monkeypatch):
         """Idempotent no-op: stop before start must not raise or touch state."""
-        import hermes_cli.voice as voice
+        import logos_cli.voice as voice
 
         monkeypatch.setattr(voice, "_recorder", None)
 
@@ -46,7 +46,7 @@ class TestSpeakTextGuards:
         """Empty / whitespace-only text must return without importing tts_tool
         (the gateway spawns a thread per call, so a no-op on empty input
         keeps the thread pool from churning on trivial inputs)."""
-        from hermes_cli.voice import speak_text
+        from logos_cli.voice import speak_text
 
         # Should simply return None without raising.
         assert speak_text(text) is None
@@ -56,7 +56,7 @@ class TestContinuousAPI:
     """Continuous (VAD) mode API — CLI-parity loop entry points."""
 
     def test_continuous_exports(self):
-        from hermes_cli.voice import (
+        from logos_cli.voice import (
             is_continuous_active,
             start_continuous,
             stop_continuous,
@@ -67,7 +67,7 @@ class TestContinuousAPI:
         assert callable(is_continuous_active)
 
     def test_not_active_by_default(self, monkeypatch):
-        import hermes_cli.voice as voice
+        import logos_cli.voice as voice
 
         # Isolate from any state left behind by other tests in the session.
         monkeypatch.setattr(voice, "_continuous_active", False)
@@ -78,7 +78,7 @@ class TestContinuousAPI:
     def test_stop_continuous_idempotent_when_inactive(self, monkeypatch):
         """stop_continuous must not raise when no loop is active — the
         gateway's voice.toggle off path calls it unconditionally."""
-        import hermes_cli.voice as voice
+        import logos_cli.voice as voice
 
         monkeypatch.setattr(voice, "_continuous_active", False)
         monkeypatch.setattr(voice, "_continuous_recorder", None)
@@ -91,7 +91,7 @@ class TestContinuousAPI:
         """A second start_continuous while already active is a no-op — prevents
         two overlapping capture threads fighting over the microphone when the
         UI double-fires (e.g. both /voice on and Ctrl+B within the same tick)."""
-        import hermes_cli.voice as voice
+        import logos_cli.voice as voice
 
         monkeypatch.setattr(voice, "_continuous_active", True)
         called = {"n": 0}
@@ -121,7 +121,7 @@ class TestContinuousLoopSimulation:
 
     @pytest.fixture
     def fake_recorder(self, monkeypatch):
-        import hermes_cli.voice as voice
+        import logos_cli.voice as voice
 
         # Reset module state between tests.
         monkeypatch.setattr(voice, "_continuous_active", False)
@@ -165,7 +165,7 @@ class TestContinuousLoopSimulation:
         return rec
 
     def test_loop_auto_restarts_after_transcript(self, fake_recorder, monkeypatch):
-        import hermes_cli.voice as voice
+        import logos_cli.voice as voice
 
         monkeypatch.setattr(
             voice,
@@ -196,7 +196,7 @@ class TestContinuousLoopSimulation:
         voice.stop_continuous()
 
     def test_silent_limit_halts_loop_after_three_strikes(self, fake_recorder, monkeypatch):
-        import hermes_cli.voice as voice
+        import logos_cli.voice as voice
 
         # Transcription returns no speech — fake_recorder.stop() returns the
         # path, but transcribe returns empty text, counting as silence.
@@ -227,7 +227,7 @@ class TestContinuousLoopSimulation:
     def test_stop_during_transcription_discards_restart(self, fake_recorder, monkeypatch):
         """User hits Ctrl+B mid-transcription: the in-flight transcript must
         still fire (it's a real utterance), but the loop must NOT restart."""
-        import hermes_cli.voice as voice
+        import logos_cli.voice as voice
 
         stop_triggered = {"flag": False}
 

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import getpass
 
-from hermes_cli.colors import Colors, color
+from logos_cli.colors import Colors, color
 
 
 # ─── Print Helpers ────────────────────────────────────────────────────────────

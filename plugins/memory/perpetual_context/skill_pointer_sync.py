@@ -201,7 +201,7 @@ def sync_skill_pointers(skills_dirs: list[Path], rl_root: Path) -> dict[str, int
 def default_skills_dirs() -> list[Path]:
     """The same skill directories production prompt injection scans."""
     from agent.skill_utils import get_all_skills_dirs  # noqa: PLC0415
-    from hermes_constants import get_skills_dir  # noqa: PLC0415
+    from logos_constants import get_skills_dir  # noqa: PLC0415
 
     local = get_skills_dir()
     external = get_all_skills_dirs()[1:]

@@ -12,13 +12,13 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 
-from hermes_cli.auth import AuthError, resolve_provider
-from hermes_cli.colors import Colors, color
-from hermes_cli.config import get_env_path, get_env_value, get_hermes_home, load_config
-from hermes_cli.models import provider_label
-from hermes_cli.nous_subscription import get_nous_subscription_features
-from hermes_cli.runtime_provider import resolve_requested_provider
-from hermes_constants import OPENROUTER_MODELS_URL
+from logos_cli.auth import AuthError, resolve_provider
+from logos_cli.colors import Colors, color
+from logos_cli.config import get_env_path, get_env_value, get_hermes_home, load_config
+from logos_cli.models import provider_label
+from logos_cli.nous_subscription import get_nous_subscription_features
+from logos_cli.runtime_provider import resolve_requested_provider
+from logos_constants import OPENROUTER_MODELS_URL
 from tools.tool_backend_helpers import managed_nous_tools_enabled
 
 def check_mark(ok: bool) -> str:
@@ -80,7 +80,7 @@ def _effective_provider_label() -> str:
     return provider_label(effective)
 
 
-from hermes_constants import is_termux as _is_termux
+from logos_constants import is_termux as _is_termux
 
 
 def show_status(args):
@@ -143,7 +143,7 @@ def show_status(args):
         display = redact_key(value) if not show_all else value
         print(f"  {name:<12}  {check_mark(has_key)} {display}")
 
-    from hermes_cli.auth import get_anthropic_key
+    from logos_cli.auth import get_anthropic_key
     anthropic_value = get_anthropic_key()
     anthropic_display = redact_key(anthropic_value) if not show_all else anthropic_value
     print(f"  {'Anthropic':<12}  {check_mark(bool(anthropic_value))} {anthropic_display}")
@@ -155,7 +155,7 @@ def show_status(args):
     print(color("◆ Auth Providers", Colors.CYAN, Colors.BOLD))
 
     try:
-        from hermes_cli.auth import get_nous_auth_status, get_codex_auth_status, get_qwen_auth_status
+        from logos_cli.auth import get_nous_auth_status, get_codex_auth_status, get_qwen_auth_status
         nous_status = get_nous_auth_status()
         codex_status = get_codex_auth_status()
         qwen_status = get_qwen_auth_status()
@@ -277,7 +277,7 @@ def show_status(args):
     # users with foreign configs don't see noise. Auth rejection vs. silent
     # empty list is the most common LM Studio support case.
     if _effective_provider_label() == "LM Studio":
-        from hermes_cli.models import probe_lmstudio_models
+        from logos_cli.models import probe_lmstudio_models
         model_cfg = config.get("model")
         base = (model_cfg.get("base_url") if isinstance(model_cfg, dict) else None) or get_env_value("LM_BASE_URL") or "http://127.0.0.1:1234/v1"
         try:
@@ -350,7 +350,7 @@ def show_status(args):
     print(color("◆ Gateway Service", Colors.CYAN, Colors.BOLD))
 
     try:
-        from hermes_cli.gateway import get_gateway_runtime_snapshot, _format_gateway_pids
+        from logos_cli.gateway import get_gateway_runtime_snapshot, _format_gateway_pids
 
         snapshot = get_gateway_runtime_snapshot()
         is_running = snapshot.running

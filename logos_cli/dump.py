@@ -14,8 +14,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-from hermes_cli.config import get_hermes_home, get_env_path, get_project_root, load_config
-from hermes_constants import display_hermes_home
+from logos_cli.config import get_hermes_home, get_env_path, get_project_root, load_config
+from logos_constants import display_hermes_home
 
 
 def _get_git_commit(project_root: Path) -> str:
@@ -45,7 +45,7 @@ def _redact(value: str) -> str:
 def _gateway_status() -> str:
     """Return a short gateway status string."""
     try:
-        from hermes_cli.gateway import get_gateway_runtime_snapshot
+        from logos_cli.gateway import get_gateway_runtime_snapshot
 
         snapshot = get_gateway_runtime_snapshot()
         if snapshot.running:
@@ -128,7 +128,7 @@ def _config_overrides(config: dict) -> dict[str, str]:
     
     Returns a flat dict of dotpath -> value for interesting overrides.
     """
-    from hermes_cli.config import DEFAULT_CONFIG
+    from logos_cli.config import DEFAULT_CONFIG
 
     overrides = {}
 
@@ -193,7 +193,7 @@ def run_dump(args):
     hermes_home = get_hermes_home()
 
     try:
-        from hermes_cli import __version__, __release_date__
+        from logos_cli import __version__, __release_date__
     except ImportError:
         __version__ = "(unknown)"
         __release_date__ = ""
@@ -209,7 +209,7 @@ def run_dump(args):
 
     # Profile
     try:
-        from hermes_cli.profiles import get_active_profile_name
+        from logos_cli.profiles import get_active_profile_name
         profile = get_active_profile_name() or "(default)"
     except (ImportError, ModuleNotFoundError):
         profile = "(default)"
