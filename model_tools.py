@@ -121,6 +121,7 @@ def get_tool_router():
 
 def get_deferred_tools_index(
     injected_names: set[str] | frozenset[str] | None = None,
+    extra_deferred: set[str] | frozenset[str] | None = None,
 ) -> Optional[str]:
     """Get the deferred tools index for system prompt injection.
 
@@ -131,12 +132,17 @@ def get_deferred_tools_index(
     ``injected_names``: tools that already have full schemas injected
     (e.g. via force_toolsets) — excluded from the index so no tool is
     listed twice.
+
+    ``extra_deferred``: tools demoted this session (index-only again) —
+    listed under a separate "Recently Demoted" heading.
     """
     router = _get_tool_router()
     if router is None:
         return ""
     try:
-        return router.get_deferred_index(injected_names=injected_names) or ""
+        return router.get_deferred_index(
+            injected_names=injected_names, extra_deferred=extra_deferred
+        ) or ""
     except Exception as e:
         logger.warning("Failed to get deferred tools index: %s", e)
         return ""

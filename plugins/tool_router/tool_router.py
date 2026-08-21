@@ -222,12 +222,17 @@ class ToolRouter:
     def get_deferred_index(
         self,
         injected_names: set[str] | frozenset[str] | None = None,
+        extra_deferred: set[str] | frozenset[str] | None = None,
     ) -> str:
         """Build compact markdown index of deferred tools for system prompt.
 
         Only lists tools that are genuinely in the deferred tier AND not
         already fully injected (e.g. via a force_toolsets override) — no
         double listing.
+
+        ``extra_deferred``: tools that were demoted this session (formerly
+        full-schema, now index-only). Listed under a separate heading so the
+        model knows they exist and self-re-list on next call.
 
         Example output:
         ## Deferred Tools (RL Lookup Required)
@@ -239,11 +244,13 @@ class ToolRouter:
         - '''browser_navigate''' — Navigate to URL, initialize browser session
         """
         excluded = frozenset(injected_names or ())
-        if self._cached_index is not None and self._cached_index[0] == excluded:
+        demoted_key = frozenset(extra_deferred or ())
+        cache_key = (excluded, demoted_key)
+        if self._cached_index is not None and self._cached_index[0] == cache_key:
             return self._cached_index[1]
 
         with self._lock:
-            if self._cached_index is not None and self._cached_index[0] == excluded:
+            if self._cached_index is not None and self._cached_index[0] == cache_key:
                 return self._cached_index[1]
 
             lines = []
@@ -335,10 +342,27 @@ class ToolRouter:
                 lines.append("")
                 listed_any = True
 
-            if not listed_any:
+            if not listed_any and not extra_deferred:
                 # Nothing deferred (all tools force-injected) — emit nothing.
-                self._cached_index = (excluded, "")
+                self._cached_index = (cache_key, "")
                 return ""
+
+            # Recently demoted tools — self-re-list on next call. Skip any
+            # already listed in the static deferred categories (no dupes);
+            # this section is for tools that aren't in the static index.
+            _static_deferred = set(self._config.deferred_tools)
+            demoted = [
+                t for t in (extra_deferred or ())
+                if t not in excluded
+                and t not in self._config.essential_tools
+                and t not in _static_deferred
+            ]
+            if demoted:
+                lines.append("### Recently Demoted (self-re-list on next call)")
+                for tool_name in demoted:
+                    desc = descriptions.get(tool_name, "Previously available tool — read the RL page before calling")
+                    lines.append(f"- '''{tool_name}''' — {desc}")
+                lines.append("")
 
             lines.append(
                 "**CRITICAL:** Never guess deferred tool parameters. "
@@ -350,7 +374,7 @@ class ToolRouter:
             )
 
             index = "\n".join(lines)
-            self._cached_index = (excluded, index)
+            self._cached_index = (cache_key, index)
             return index
 
     def clear_cache(self):

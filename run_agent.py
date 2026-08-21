@@ -1555,6 +1555,23 @@ class AIAgent:
                 quiet_mode=self.quiet_mode,
                 force_essential=self._selective_force_toolsets,
             )
+
+            # ---- Selective injection: demotion of idle promoted tools ----
+            # Tools promoted from the deferred tier drop back to index-only
+            # after N unused API-call rounds, keeping the payload lean in
+            # long sessions. Default 5; set 0 in config to disable.
+            self._selective_demote_after_turns: int = 5
+            self._promoted_tools: dict[str, int] = {}  # tool -> last used api_call_count
+            self._demoted_tools: set[str] = set()
+            try:
+                from hermes_cli.config import load_config as _load_si_cfg
+                _si_cfg = _load_si_cfg() or {}
+                _si_sec = _si_cfg.get("agent", {})
+                if isinstance(_si_sec, dict) and "demote_after_turns" in _si_sec:
+                    _d = _si_sec.get("demote_after_turns")
+                    self._selective_demote_after_turns = int(_d) if _d is not None else 5
+            except Exception:
+                pass
         else:
             self.tools = get_tool_definitions(
                 enabled_toolsets=enabled_toolsets,
@@ -4838,6 +4855,7 @@ class AIAgent:
             try:
                 deferred_index = get_deferred_tools_index(
                     injected_names=self.valid_tool_names,
+                    extra_deferred=getattr(self, "_demoted_tools", None),
                 )
                 if deferred_index:
                     prompt_parts.append(deferred_index)
@@ -5191,7 +5209,7 @@ class AIAgent:
                 logger.warning("Removed duplicate tool call: %s", tc.function.name)
         return unique if len(unique) < len(tool_calls) else tool_calls
 
-    def _promote_deferred_tool(self, tool_name: str) -> bool:
+    def _promote_deferred_tool(self, tool_name: str, api_call_count: int = 0) -> bool:
         """Promote a deferred (un-injected) tool into the active tool set.
 
         Selective injection only puts essential tool schemas in the API
@@ -5201,6 +5219,10 @@ class AIAgent:
         and currently available (its check_fn passes), its schema is
         appended to self.tools and the name added to valid_tool_names so
         the in-flight call proceeds and later calls need no promotion.
+
+        Promotion is tracked (``_promoted_tools``) so idle tools can be
+        demoted back to index-only after N unused API-call rounds
+        (``_maybe_demote_tools``).
 
         Returns True if the tool was promoted (or was already present).
         Returns False for unregistered/unavailable tools so the caller
@@ -5229,6 +5251,7 @@ class AIAgent:
                                         {"type": "function", "function": schema}
                                     )
                                 self.valid_tool_names.add(tool_name)
+                                self._record_promotion(tool_name, api_call_count)
                                 return True
                     except Exception:
                         pass
@@ -5242,10 +5265,55 @@ class AIAgent:
             if tool_name not in existing:
                 self.tools.append(schema)
             self.valid_tool_names.add(tool_name)
+            self._record_promotion(tool_name, api_call_count)
             return True
         except Exception as e:
             logger.debug("Deferred promotion failed for '%s': %s", tool_name, e)
             return False
+
+    def _record_promotion(self, tool_name: str, api_call_count: int) -> None:
+        """Track a promoted tool's last use for idle demotion.
+
+        No-op when demotion is disabled or the agent isn't using selective
+        injection (attributes may be absent on non-selective agents).
+        """
+        try:
+            if not getattr(self, "_selective_demote_after_turns", 0):
+                return
+            self._promoted_tools[tool_name] = api_call_count
+            self._demoted_tools.discard(tool_name)
+        except AttributeError:
+            pass
+
+    def _maybe_demote_tools(self, api_call_count: int) -> None:
+        """Demote promoted tools unused for N consecutive API-call rounds.
+
+        Called at the top of each iteration of the run_conversation loop.
+        Only tools that entered via promotion (deferred tier) are eligible —
+        the curated essential set never auto-demotes. Demoted tools return
+        to the deferred index (listed under "Recently Demoted") and are
+        re-promoted automatically on their next call.
+        """
+        n = self._selective_demote_after_turns
+        if not n or n <= 0 or not self._promoted_tools:
+            return
+        demote_now = [
+            (name, last) for name, last in self._promoted_tools.items()
+            if api_call_count - last >= n
+        ]
+        for name, last in demote_now:
+            self._promoted_tools.pop(name, None)
+            self._demoted_tools.add(name)
+            self.valid_tool_names.discard(name)
+            self.tools = [
+                t for t in self.tools
+                if t.get("function", {}).get("name") != name
+            ]
+            logger.info(
+                "Selective injection: demoted idle tool '%s' "
+                "(%d unused rounds, threshold %d)",
+                name, api_call_count - last, n,
+            )
 
     def _repair_tool_call(self, tool_name: str) -> str | None:
         """Attempt to repair a mismatched tool name before aborting.
@@ -10633,6 +10701,8 @@ class AIAgent:
             
             api_call_count += 1
             self._api_call_count = api_call_count
+            if self.selective_injection:
+                self._maybe_demote_tools(api_call_count)
             self._touch_activity(f"starting API call #{api_call_count}")
 
             # Grace call: the budget is exhausted but we gave the model one
@@ -12880,12 +12950,16 @@ class AIAgent:
                     if self.selective_injection:
                         for tc in assistant_message.tool_calls:
                             if tc.function.name not in self.valid_tool_names:
-                                if self._promote_deferred_tool(tc.function.name):
+                                if self._promote_deferred_tool(tc.function.name, api_call_count):
                                     self._vprint(
                                         f"{self.log_prefix}📥 Promoted deferred tool "
                                         f"'{tc.function.name}' into active tool set",
                                         force=True,
                                     )
+                            elif tc.function.name in self._promoted_tools:
+                                # Refresh last-use so idle demotion only hits
+                                # tools that have actually gone quiet.
+                                self._record_promotion(tc.function.name, api_call_count)
                     invalid_tool_calls = [
                         tc.function.name for tc in assistant_message.tool_calls
                         if tc.function.name not in self.valid_tool_names
