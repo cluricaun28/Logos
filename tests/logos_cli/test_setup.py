@@ -174,7 +174,7 @@ def test_setup_gateway_skips_service_install_when_systemctl_missing(monkeypatch,
     out = capsys.readouterr().out
     assert "Messaging platforms configured!" in out
     assert "Start the gateway to bring your bots online:" in out
-    assert "hermes gateway" in out
+    assert "logos gateway" in out
 
 
 def test_setup_gateway_in_container_shows_docker_guidance(monkeypatch, capsys):
@@ -435,4 +435,4 @@ def test_offer_launch_chat_manual_fallback_when_unresolvable(monkeypatch, capsys
     setup_mod._offer_launch_chat()
 
     captured = capsys.readouterr()
-    assert "Run 'hermes chat' manually" in captured.out
+    assert "Run 'logos chat' manually" in captured.out

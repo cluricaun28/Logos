@@ -224,7 +224,7 @@ class TestInstallHangupProtection:
             assert log_path.exists()
             contents = log_path.read_text(encoding="utf-8")
             assert "checking mirror" in contents
-            assert "hermes update started" in contents
+            assert "logos update started" in contents
         finally:
             _finalize_update_output(state)
             # Sanity-check restoration

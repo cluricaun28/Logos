@@ -11,13 +11,29 @@ from pathlib import Path
 def _default_home() -> Path:
     """Return the default Logos home directory (no env vars).
 
-    New installs: ``~/.logos``. Legacy installs: ``~/.hermes`` if it already
-    exists on disk (keeps pre-rebrand homes working with zero migration).
+    New installs: ``~/.logos`` (preferred when it exists). Legacy
+    installs: ``~/.hermes`` if it already exists on disk and ``~/.logos``
+    does not (keeps pre-rebrand homes working with zero migration).
+
+    Existence checks are OSError-guarded: under a monkeypatched or
+    permission-restricted ``Path.home()`` (e.g. tests simulating sudo as
+    root), a stat failure is treated as "does not exist" instead of
+    propagating.
     """
-    legacy = Path.home() / ".hermes"
-    if legacy.exists():
-        return legacy
-    return Path.home() / ".logos"
+    home = Path.home()
+    new_home = home / ".logos"
+    legacy = home / ".hermes"
+    try:
+        if new_home.exists():
+            return new_home
+    except OSError:
+        pass
+    try:
+        if legacy.exists():
+            return legacy
+    except OSError:
+        pass
+    return new_home
 
 
 def get_logos_home() -> Path:
@@ -26,9 +42,10 @@ def get_logos_home() -> Path:
     Resolution order:
     1. ``$LOGOS_HOME`` env var
     2. ``$HERMES_HOME`` env var (legacy, still honored)
-    3. ``~/.hermes`` if it already exists on disk (legacy home — kept
+    3. ``~/.logos`` if it already exists on disk
+    4. ``~/.hermes`` if it already exists on disk (legacy home — kept
        working with zero migration)
-    4. ``~/.logos`` (new-install default)
+    5. ``~/.logos`` (new-install default)
 
     This is the single source of truth — all other copies should import this.
     """

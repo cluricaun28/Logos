@@ -181,7 +181,7 @@ class TestGatewayCommandWSLMessages:
         out = capsys.readouterr().out
         assert "WSL detected" in out
         assert "systemd is not running" in out
-        assert "hermes gateway run" in out
+        assert "logos gateway run" in out
         assert "tmux" in out
 
     def test_start_wsl_no_systemd(self, monkeypatch, capsys):
@@ -199,7 +199,7 @@ class TestGatewayCommandWSLMessages:
 
         out = capsys.readouterr().out
         assert "WSL detected" in out
-        assert "hermes gateway run" in out
+        assert "logos gateway run" in out
         assert "wsl.conf" in out
 
     def test_install_wsl_with_systemd_warns(self, monkeypatch, capsys):
@@ -275,5 +275,5 @@ class TestGatewayCommandWSLMessages:
         gateway.gateway_command(args)
 
         out = capsys.readouterr().out
-        assert "hermes gateway run" in out
+        assert "logos gateway run" in out
         assert "tmux" in out

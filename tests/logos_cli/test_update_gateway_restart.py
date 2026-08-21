@@ -390,7 +390,7 @@ class TestCmdUpdateLaunchdRestart:
             cmd_update(mock_args)
 
         captured = capsys.readouterr().out
-        assert "Restart manually: hermes gateway run" in captured
+        assert "Restart manually: logos gateway run" in captured
 
     @patch("shutil.which", return_value=None)
     @patch("subprocess.run")
@@ -1128,7 +1128,7 @@ class TestCmdUpdateLegacyGatewayWarning:
         captured = capsys.readouterr().out
         assert "Legacy Logos gateway unit(s) detected" in captured
         assert "hermes.service" in captured
-        assert "hermes gateway migrate-legacy" in captured
+        assert "logos gateway migrate-legacy" in captured
         assert "(user scope)" in captured
 
     @patch("shutil.which", return_value=None)

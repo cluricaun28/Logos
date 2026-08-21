@@ -25,11 +25,23 @@ try:
 except (ModuleNotFoundError, ImportError):
 
     def _default_home() -> Path:
-        """Default home: ~/.hermes if it exists (legacy), else ~/.logos."""
-        legacy = Path.home() / ".hermes"
-        if legacy.exists():
-            return legacy
-        return Path.home() / ".logos"
+        """Default home: ~/.logos if it exists, else ~/.hermes (legacy),
+        else ~/.logos. Existence checks are OSError-guarded (tests may
+        monkeypatch Path.home() to an untraversable directory like /root)."""
+        home = Path.home()
+        new_home = home / ".logos"
+        legacy = home / ".hermes"
+        try:
+            if new_home.exists():
+                return new_home
+        except OSError:
+            pass
+        try:
+            if legacy.exists():
+                return legacy
+        except OSError:
+            pass
+        return new_home
 
     def get_logos_home() -> Path:
         """Return the Logos home directory.

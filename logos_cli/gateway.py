@@ -1026,12 +1026,19 @@ _LEGACY_SERVICE_NAMES: tuple[str, ...] = ("hermes.service",)
 
 # ExecStart content markers that identify a unit as running our gateway.
 # A legacy unit is only flagged when its file contains one of these.
+# Pre-rebrand units invoked the `hermes` binary / `hermes_cli` package;
+# post-rebrand ones use `logos` / `logos_cli`. Keep BOTH so the detector
+# still finds pre-rebrand installs (that is the point of legacy detection).
 _LEGACY_UNIT_EXECSTART_MARKERS: tuple[str, ...] = (
     "logos_cli.main gateway",
     "logos_cli/main.py gateway",
+    "hermes_cli.main gateway",
+    "hermes_cli/main.py gateway",
     "gateway/run.py",
     " logos gateway ",
     "/logos gateway ",
+    " hermes gateway ",
+    "/hermes gateway ",
 )
 
 
@@ -1486,25 +1493,30 @@ def _hermes_home_for_target_user(target_home_dir: str) -> str:
 
     When installing a system service via sudo, get_logos_home() resolves to
     root's home.  This translates it to the target user's equivalent path:
-      /root/.hermes                    → /home/alice/.hermes
-      /root/.hermes/profiles/coder     → /home/alice/.hermes/profiles/coder
-      /opt/custom-hermes               → /opt/custom-hermes  (kept as-is)
+      /root/.logos                    → /home/alice/.logos
+      /root/.hermes                   → /home/alice/.hermes  (legacy home)
+      /root/.hermes/profiles/coder    → /home/alice/.hermes/profiles/coder
+      /opt/custom-hermes              → /opt/custom-hermes  (kept as-is)
+
+    Both the new (``.logos``) and legacy (``.hermes``) default directory
+    names are handled so pre-rebrand profile homes remap correctly too.
     """
     current_hermes = get_logos_home().resolve()
-    current_default = (Path.home() / ".hermes").resolve()
-    target_default = Path(target_home_dir) / ".hermes"
-
-    # Default ~/.hermes → remap to target user's default
-    if current_hermes == current_default:
-        return str(target_default)
-
-    # Profile or subdir of ~/.hermes → preserve the relative structure
-    try:
-        relative = current_hermes.relative_to(current_default)
-        return str(target_default / relative)
-    except ValueError:
-        # Completely custom path (not under ~/.hermes) — keep as-is
-        return str(current_hermes)
+    current_home = Path.home()
+    target_home = Path(target_home_dir)
+    for default_name in (".logos", ".hermes"):
+        current_default = (current_home / default_name).resolve()
+        # Default home → remap to target user's equivalent default
+        if current_hermes == current_default:
+            return str(target_home / default_name)
+        # Profile or subdir of the default home → preserve relative structure
+        try:
+            relative = current_hermes.relative_to(current_default)
+            return str(target_home / default_name / relative)
+        except ValueError:
+            continue
+    # Completely custom path (not under a default home) — keep as-is
+    return str(current_hermes)
 
 
 def generate_systemd_unit(system: bool = False, run_as_user: str | None = None) -> str:

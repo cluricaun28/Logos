@@ -26,10 +26,10 @@ def test_format_managed_message_homebrew(monkeypatch):
     assert "brew upgrade hermes-agent" in message
 
 
-def test_recommended_update_command_defaults_to_hermes_update(monkeypatch):
+def test_recommended_update_command_defaults_to_logos_update(monkeypatch):
     monkeypatch.delenv("HERMES_MANAGED", raising=False)
 
-    assert recommended_update_command() == "hermes update"
+    assert recommended_update_command() == "logos update"
 
 
 def test_cmd_update_blocks_managed_homebrew(monkeypatch, capsys):
