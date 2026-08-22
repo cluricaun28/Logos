@@ -13,7 +13,7 @@ Most AI agents are stateless — they forget who you are and what you've decided
 
 ### What Makes Logos Different
 
-This isn't a chatbot. It's a research tool with memory.
+This isn't a chatbot. It's a research tool with memory — and it does the work: research, writing, files, email, the store, schedules, browsers, even your computer.
 
 The distinguishing features:
 
@@ -22,9 +22,9 @@ The distinguishing features:
 - **SourceAnalyzer** (`agent/source_analysis.py`) — Phase 3.5 in the research pipeline. Builds and updates source dossiers automatically, flagging ideological markers and consistent omission patterns.
 - **Discernment Workflow** — Skill-driven claim evaluation with explicit step-by-step reasoning chain (replaced sovereign sieve from Phase 1).
 - **Skill-Driven Personas** — Pre-configured subagent roles (discernment-researcher, behavioral-tester, institutional-analyst, etc.) that auto-load the right skills and constraints.
-- **sqlite-vec Single-DB Storage** — All 20k+ PM vectors and 33k+ RL vectors live inside their respective SQLite databases via vec0 virtual tables. Atomic storage, no index drift. FAISS removed July 2026.
-- **Schema Versioning** — Both databases use `PRAGMA user_version` for migration tracking (PM: v3 — tool-role rows persisted since 2026-08, RL: v1)
-- **Daily Maintenance** — Scheduled VACUUM + REINDEX + integrity checks run at 2:00 AM to prevent degradation
+- **sqlite-vec Single-DB Storage** — All 21k+ PM vectors and 33k+ RL vectors live inside their respective SQLite databases (PM via vec0 virtual tables, RL via BLOB embeddings + FTS5). Atomic storage, no index drift. FAISS removed July 2026.
+- **Schema Versioning** — Both databases use `PRAGMA user_version` for migration tracking (PM: v3 migration = tool-role rows persisted since 2026-08; RL index: v1)
+- **Nightly Maintenance** — Incremental RL re-index + VACUUM run nightly (04:00 sync); the session DB is auto-pruned and vacuumed by the gateway on a daily interval
 - **Recency Weighting** — Recent messages (7 days) get 1.5x score boost, 30 days get 1.2x. No decay — old messages don't lose score, recent ones gain it.
 - **Nightly Learning Loop** — Scheduled jobs run deep research, apply frame-stripping, and distill findings into the Reference Library. The knowledge base grows through use.
 - **Pinned Project Briefs** — Ask your agent to "pin" a long-running project. Its objective, status, and next steps are held in the system prompt across context-window archiving and session resets — and toggle on/off mid-session without a restart. One active pin per agent; briefs stay short (details live in a state file on disk).
@@ -32,6 +32,15 @@ The distinguishing features:
 - **Hardened Subagent Delegation** — Per-task timeout overrides, detection of children that "answer" with a stale intent line, and resume hints with partial output on timeout, so delegated work is never silently lost.
 
 The system runs locally. No cloud APIs for memory or retrieval.
+
+### Proven at Scale — Measured, Not Marketed
+
+One user's heaviest build day on this system (2026-08-20, from session logs):
+
+- **943M prompt tokens** — 19,832 API calls, ~3,600 context windows (262K) consumed
+- **0 load-bearing state lost** — every turn stored verbatim; recall returns the original
+
+Why the number matters: in a compression architecture, retention ≈ r^N — r is per-round summarizer fidelity, N the number of compaction rounds a thread passes through. Even a generous r = 0.99 gives 0.99³⁶⁰⁰ ≈ 0 for a single build day. At that scale, failure is deterministic, not probabilistic. Logos' answer is **archive, not compression** — compaction applies to the *view*, never the store, so retention stops compounding and becomes a property of each query instead.
 
 ---
 
@@ -86,7 +95,7 @@ Scheduled jobs maintain and grow the system. See WHITEPAPER.md Section 4.6 for d
 
 ### Prerequisites: Hardware & Local Services
 
-Logos is designed for local inference — no cloud APIs for memory or retrieval. The reference setup runs a 27B-parameter int4 model on an RTX 5090 (32GB VRAM) with 64GB RAM.
+Logos is designed for local inference — no cloud APIs for memory or retrieval. The reference setup runs a 27B-parameter 4-bit (NVFP4) model on an RTX 5090 (32GB VRAM) with 64GB RAM.
 
 - **GPU:** single GPU with 24GB+ VRAM (RTX 4090 / 5090 class). Less VRAM → smaller model, lower `--max-model-len`.
 - **RAM:** 64GB recommended (agent + Docker services + embedding model need headroom).
@@ -110,7 +119,7 @@ Follow the steps below to set up Logos with perpetual memory, reference library,
 
 ```bash
 # Clone
-git clone https://github.com/cluricaun28/logos.git
+git clone https://github.com/cluricaun28/Logos.git
 cd logos
 
 # Install in development mode
@@ -234,7 +243,7 @@ The context engine keeps the window lean by archiving completed turns. In `~/.lo
 
 - **`context.engine`** — the context management strategy
 - **`context.archiving.threshold_percent`** — when to archive (default 0.75)
-- **`context.archiving.archive_target`** — prune down to this level (default 0.65)
+- **`context.archiving.archive_target`** — fraction of context length to prune down to (default 0 = prune back to the archive threshold)
 - **`context.archiving.hard_ceiling_percent`** — safety net (default 0.85)
 - **Custom provider `context_length`** — must match your vLLM `--max-model-len`
 

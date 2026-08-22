@@ -170,17 +170,17 @@ The system comprises four major subsystems that work together:
 
 **Purpose:** Never lose anything that was ever said.
 
-Every conversation turn across all sessions is stored verbatim in a local SQLite database (`~/.hermes/perpetual_context.db`) with FTS5 full-text indexing. Current scale: 20,000+ messages across 3,000+ sessions, 47 database tables.
+Every conversation turn across all sessions is stored verbatim in a local SQLite database (`~/.logos/perpetual_context.db`; pre-rebrand `~/.hermes` homes still work) with FTS5 full-text indexing. Current scale: 26,000+ messages across 3,900+ sessions, 47 database tables.
 
 **Architecture:**
 
 - **Messages table:** Each turn stored with `session_id`, `role` (user/assistant/system/tool), `content`, `metadata` (JSON), `created_at`, `token_count`, and an optional 384-dimensional embedding vector (all-MiniLM-L6-v2 via ONNX, sqlite-vec)
 - **FTS5 virtual tables:** Auto-synced via triggers on INSERT/UPDATE/DELETE. BM25 ranking for relevance scoring. Hybrid search fuses BM25 (60% weight) + semantic cosine similarity (40% weight) via sqlite-vec vec0 virtual table
-- **Topics table:** 58,000+ conversation topics with confidence scores and drift detection
+- **Topics table:** 65,000+ conversation topics with confidence scores and drift detection
 - **Relationships table:** 18,500+ entity-relationship mappings discovered during conversation analysis
 - **Signal clusters table:** High-signal conversation clusters identified for potential [[system/reference-library-purpose|Reference Library]] distillation
 - **Knowledge gaps table:** Unresolved questions flagged for automated reference building
-- **Session metadata table:** 3,300+ sessions with platform, duration, and message count tracking
+- **Session metadata table:** 3,900+ sessions with platform, duration, and message count tracking
 
 **Retrieval strategies (6 modes):**
 
@@ -272,7 +272,7 @@ The [[system/reference-library-purpose|Reference Library]] (`~/.hermes/reference
 - **`system/`** — Internal system documentation and white papers
 - **`sources/`** — Source intelligence dossiers auto-created by `source_analyze`
 
-**Current scale:** 700+ non-Britannica entries (150+ entities, 300+ topics, 90+ tools, 20 system pages, 17 sources, 14 categories) + 32,000+ Britannica 1911 entries in archive (not served in Quartz build). Total indexed: 30,000+ entries.
+**Current scale:** ~675 curated pages (102 people, 181 organizations, 98 ideas, 128 technology, 30 events, 6 places, 39 system, 63 legacy topics) + 32,000+ Britannica 1911 entries in archive (not served in Quartz build). Total indexed: 33,800+ entries.
 
 **Hybrid search index (`rl_index.db`):**
 
@@ -460,27 +460,27 @@ Proven 2026-08-20: with a pin, a 205-product description rewrite + dimensions au
 
 ## 5. Codebase Organization
 
-### 5.1 Custom Plugin Modules (~41 modules, ~16,500 lines)
+### 5.1 Custom Plugin Modules (~44 modules, ~15,600 lines)
 
-Custom code lives in `plugins/memory/perpetual_context/` (40 modules, ~12,600 lines as of 2026-08-17) and `agent/perpetual_context_db.py`. Module counts and line counts shift with each iteration — see the live codebase for exact numbers. The breakdown is:
+Custom code lives in `plugins/memory/perpetual_context/` (38 modules, ~11,300 lines as of 2026-08-22), the `agent/pcdb_*` engine, and `agent/source_analysis.py` (~4,200 lines combined). Module counts and line counts shift with each iteration — see the live codebase for exact numbers. The breakdown is:
 
 **Core modules:**
 
 | Module | Lines | Purpose |
 |--------|-------|---------|
-| `__init__.py` | 557 | Thin orchestrator (reduced 68% from original 1,735) |
+| `__init__.py` | 637 | Thin orchestrator (reduced 63% from original 1,735) |
 | `component_factory.py` | 212 | Lazy-init factory for all sub-components |
 | `extraction_engine.py` | 450 | Extracts structured data from conversation turns |
 | `retrieval_engine.py` | 250 | SmartRetriever with auto-routing |
-| `schemas.py` | 544 | 12 tool schemas (added `SOURCE_ANALYZE_SCHEMA` May 2026) |
+| `schemas.py` | 559 | 12 tool schemas (added `SOURCE_ANALYZE_SCHEMA` May 2026) |
 | `topic_classifier.py` | 126 | Keyword sets + stability function |
-| `tool_handler.py` | 707 | Tool dispatch to DB operations + `source_analyze` handler with deep mode (delegates to `agent/source_analysis.py:SourceAnalyzer`) |
+| `tool_handler.py` | 773 | Tool dispatch to DB operations + `source_analyze` handler with deep mode (delegates to `agent/source_analysis.py:SourceAnalyzer`) |
 | `quality_scorer.py` | 189 | Message relevance scoring |
 | `feedback_state.py` | 210 | Compression feedback tracking |
-| `prefetch_pipeline.py` | 313 | 4-phase Deep Research pipeline |
+| `prefetch_pipeline.py` | 453 | 4-phase Deep Research pipeline |
 | `decision_trace.py` | 117 | Decision trace retrieval |
 | `file_history.py` | 70 | File edit history |
-| `session_end_extractor.py` | 60 | Topic extraction from messages |
+| `session_end_extractor.py` | 122 | Topic extraction from messages |
 | `utils.py` | 35 | Shared utilities |
 | `retrieval_quality.py` | 456 | Retrieval quality tracking |
 
@@ -516,9 +516,9 @@ Custom code lives in `plugins/memory/perpetual_context/` (40 modules, ~12,600 li
 
 `agent/source_analysis.py` (~1,135 lines) — SourceAnalyzer facade with dossier lookup, bias detection, narrative analysis, and RL writer. Shared by prefetch pipeline and direct `source_analyze` tool.
 
-`agent/perpetual_context_db.py` (~377 lines) — the SQLite database with FTS5, sqlite-vec embeddings, topic flow, and hybrid search. This is a new file not in upstream.
+`agent/perpetual_context_db.py` (458 lines) — the SQLite database with FTS5, sqlite-vec embeddings, topic flow, and hybrid search (facade over the `pcdb_*` engine modules). This is a new file not in upstream.
 
-### 5.3 Modified Upstream Files (8 files)
+### 5.3 Modified Upstream Files (9 files)
 
 | File | Lines Changed | Modification |
 |------|--------------|--------------|
@@ -662,6 +662,7 @@ The system is designed to run several autonomous jobs that maintain and improve 
 | 2026-08-16 | **Model swap to Qwen3.8-27B:** vLLM serves `Qwen3.8-27B-Uncensored-FP8` on GPU 0 (:8000) with hot standby on GPU 1 (:8011); validated recipe = 262K context, fp8 KV, 32 sequences, MTP 3-token speculative decoding (2.03× decode). LiteLLM team proxy on :8001 (per-user keys, failover). Multi-user: server-side per-user agent instances under `/data1/agents/`. |
 | 2026-08-19 | **Sandbox soak + pinned-project validation:** prod candidate (port 8899, `/data1/logos-sandbox/logos`) ran two long projects — 205-product description rewrite (144 flagged, all rewritten + re-verified against the live store) and a 46-flag dimensions audit across multiple context windows. With a pinned brief: single 13-min / 50-message session, zero "continue" prompts; unpinned: multi-window stitching. Google Workspace onboarding completed for the 9-agent fleet (full 11 scopes + `cloud-platform`). |
 | 2026-08-20 | **Queue 1 merged to main (8 commits, all test-green, each independently revertable):** pcdb v3 (tool-role rows persist — fixes silent data loss), subagent hardening (per-task timeout, stale-intro detection, resume hints), pinned project briefs + `active:` toggle, context-bridge/scaffolding hidden from user-facing and A2A surfaces, test-environment isolation. Media stack pinned and A/B-verified: ComfyUI 8188/8189/8190 (Qwen Image 2512 fp8 · Wan 2.2 5B · Kandinsky 5.0 Pro; uncensored Remix 14B staged). A2A endpoints live on owner + all fleet agents. Base-code strip (unused Hermes plugins) validated on the candidate; prod cutover queued. |
+| 2026-08-22 | **Docs sync (measured, not remembered):** all scale and line-count claims refreshed against the live codebase and databases — 26,601 PM messages / 3,904 sessions, 65,233 topics, 33,815 indexed RL entries, plugin 38 modules / ~11.3k lines + agent-side ~4.2k; rebrand leftovers fixed (hermes_state→logos_state, modified-files count 8→9); README gained the measured scale-proof block (943M build-day tokens, 0.99^N ≈ 0) sourced from the infographic data. |
 | 2026-05-15 | **Context engine hardening:** Module-level model cache (one load per process), `on_session_reset()` preserves model, full structured logging on every archive (vector counts, pruned messages, fallback path). Fixed `compression_count` not resetting on session reset. Added 5 generic research skills to repo (`frame-stripping`, `web-source-bias-research`, `narrative-control-detection`, `sovereign-intelligence-mapping`, `epistemic-framework-design`) plus `worldview-profile-builder` for new-user onboarding. Updated GETTING-STARTED and README. |
 
 ---
@@ -691,4 +692,4 @@ The system is not perfect — it is a work in progress. But it is *honest* about
 
 ---
 
-*This white paper was compiled from the live codebase, Reference Library documentation, and Perpetual Memory records of Logos. Last updated 2026-08-20.*
+*This white paper was compiled from the live codebase, Reference Library documentation, and Perpetual Memory records of Logos. Last updated 2026-08-22.*

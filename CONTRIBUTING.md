@@ -1,6 +1,6 @@
-# Contributing to Hermes Agent
+# Contributing to Logos
 
-Thank you for contributing to Hermes Agent! This guide covers everything you need: setting up your dev environment, understanding the architecture, deciding what to build, and getting your PR merged.
+Thank you for contributing to Logos! This guide covers everything you need: setting up your dev environment, understanding the architecture, deciding what to build, and getting your PR merged.
 
 ---
 
@@ -9,7 +9,7 @@ Thank you for contributing to Hermes Agent! This guide covers everything you nee
 We value contributions in this order:
 
 1. **Bug fixes** — crashes, incorrect behavior, data loss. Always top priority.
-2. **Cross-platform compatibility** — macOS, different Linux distros, and WSL2 on Windows. We want Hermes to work everywhere.
+2. **Cross-platform compatibility** — macOS, different Linux distros, and WSL2 on Windows. We want Logos to work everywhere.
 3. **Security hardening** — shell injection, prompt injection, path traversal, privilege escalation. See [Security](#security-considerations).
 4. **Performance and robustness** — retry logic, error handling, graceful degradation.
 5. **New skills** — but only broadly useful ones. See [Should it be a Skill or a Tool?](#should-it-be-a-skill-or-a-tool)
@@ -38,7 +38,7 @@ This is the most common question for new contributors. The answer is almost alwa
 
 ### Should the Skill be bundled?
 
-Bundled skills (in `skills/`) ship with every Hermes install. They should be **broadly useful to most users**:
+Bundled skills (in `skills/`) ship with every Logos install. They should be **broadly useful to most users**:
 
 - Document handling, web research, common dev workflows, system administration
 - Used regularly by a wide range of people
@@ -116,7 +116,7 @@ pytest tests/ -v
 ```
 hermes-agent/
 ├── run_agent.py              # AIAgent class — core conversation loop, tool dispatch, session persistence
-├── cli.py                    # HermesCLI class — interactive TUI, prompt_toolkit integration
+├── cli.py                    # LogosCLI class — interactive TUI, prompt_toolkit integration
 ├── model_tools.py            # Tool orchestration (thin layer over tools/registry.py)
 ├── toolsets.py               # Tool groupings and presets (hermes-cli, hermes-telegram, etc.)
 ├── logos_state.py           # SQLite session database with FTS5 full-text search, session titles
@@ -432,7 +432,7 @@ required_environment_variables:
     required_for: full functionality
 ```
 
-The user may skip setup and keep loading the skill. Hermes only exposes metadata (`stored_as`, `skipped`, `validated`) to the model — never the secret value.
+The user may skip setup and keep loading the skill. Logos only exposes metadata (`stored_as`, `skipped`, `validated`) to the model — never the secret value.
 
 Legacy `prerequisites.env_vars` remains supported and is normalized into the new representation.
 
@@ -456,7 +456,7 @@ See `skills/gifs/gif-search/` and `skills/email/himalaya/` for examples.
 
 ### Skill guidelines
 
-- **No external dependencies unless absolutely necessary.** Prefer stdlib Python, curl, and existing Hermes tools (`web_extract`, `terminal`, `read_file`).
+- **No external dependencies unless absolutely necessary.** Prefer stdlib Python, curl, and existing Logos tools (`web_extract`, `terminal`, `read_file`).
 - **Progressive disclosure.** Put the most common workflow first. Edge cases and advanced usage go at the bottom.
 - **Include helper scripts** for XML/JSON parsing or complex logic — don't expect the LLM to write parsers inline every time.
 - **Test it.** Run `hermes --toolsets skills -q "Use the X skill to do Y"` and verify the agent follows the instructions correctly.
@@ -465,7 +465,7 @@ See `skills/gifs/gif-search/` and `skills/email/himalaya/` for examples.
 
 ## Adding a Skin / Theme
 
-Hermes uses a data-driven skin system — no code changes needed to add a new skin.
+Logos uses a data-driven skin system — no code changes needed to add a new skin.
 
 **Option A: User skin (YAML file)**
 
@@ -515,7 +515,7 @@ See `logos_cli/skin_engine.py` for the full schema and existing skins as example
 
 ## Cross-Platform Compatibility
 
-Hermes runs on Linux, macOS, and WSL2 on Windows. When writing code that touches the OS:
+Logos runs on Linux, macOS, and WSL2 on Windows. When writing code that touches the OS:
 
 ### Critical rules
 
@@ -555,7 +555,7 @@ Hermes runs on Linux, macOS, and WSL2 on Windows. When writing code that touches
 
 ## Security Considerations
 
-Hermes has terminal access. Security matters.
+Logos has terminal access. Security matters.
 
 ### Existing protections
 
@@ -640,7 +640,7 @@ test(tools): add unit tests for file_operations
 ## Reporting Issues
 
 - Use [GitHub Issues](https://github.com/NousResearch/hermes-agent/issues)
-- Include: OS, Python version, Hermes version (`hermes version`), full error traceback
+- Include: OS, Python version, Logos version (`logos version`), full error traceback
 - Include steps to reproduce
 - Check existing issues before creating duplicates
 - For security vulnerabilities, please report privately

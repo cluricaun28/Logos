@@ -21,7 +21,7 @@ entry points you'll actually edit.
 
 ```
 logos/
-├── run_agent.py          # AIAgent class — core conversation loop (~12k LOC)
+├── run_agent.py          # AIAgent class — core conversation loop (~14k LOC)
 ├── model_tools.py        # Tool orchestration, discover_builtin_tools(), handle_function_call()
 ├── toolsets.py           # Toolset definitions, _HERMES_CORE_TOOLS list
 ├── cli.py                # LogosCLI class — interactive CLI orchestrator (~11k LOC)
@@ -53,7 +53,7 @@ logos/
 ├── environments/         # RL training environments (Atropos)
 ├── scripts/              # run_tests.sh, release.py, auxiliary scripts
 ├── website/              # Docusaurus docs site
-└── tests/                # Pytest suite (~15k tests across ~700 files as of Apr 2026)
+└── tests/                # Pytest suite (~14k tests incl. parametrization across 700 files, as of Aug 2026)
 ```
 
 **User config:** `~/.logos/config.yaml` (settings), `~/.logos/.env` (API keys only).

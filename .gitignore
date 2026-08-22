@@ -60,3 +60,6 @@ web/public/ds-assets/
 
 # Web UI font files (binary, not relevant to CLI agent fork)
 web/public/fonts/*.woff2
+
+# Pinned project briefs (per-operator state, not shipped)
+HERMES.md
