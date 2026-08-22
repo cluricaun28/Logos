@@ -148,6 +148,17 @@ class SemanticVectorContextEngine(ContextEngine):
     archive_target: float = 0.0
     hard_ceiling_percent: float = 0.85
     danger_zone_percent: float = 0.90
+    # Phase C (2026-08-22): task-aware smart pre-prune. Wired from
+    # context.rolling_window.task_aware (the fleet already sets it true;
+    # the kwargs loop in __init__ picks it up because it's a class attr).
+    # False when unset so homes without the key see unchanged behavior.
+    # Under this engine the knob runs TaskAwarePruner as a SELECTION pass
+    # before the deterministic emergency brake: it chooses which semantic
+    # survivors fit the token budget by importance (active-task turns,
+    # task markers, user queries, recency), then the deterministic
+    # strip/truncate/drop-oldest path only engages if the smart selection
+    # still exceeds the target/ceiling. See _task_aware_preprune().
+    task_aware: bool = False
 
     # F13 fix: class attr so the config kwarg 'model_path' lands here
     # (the kwargs loop only sets existing attributes; the class attr was
@@ -194,6 +205,15 @@ class SemanticVectorContextEngine(ContextEngine):
             self._model_path = os.path.expanduser(
                 "~/.hermes/models/embeddings/all-MiniLM-L6-v2"
             )
+        # Phase C (2026-08-22): lazily constructed TaskAwarePruner (see
+        # _get_pruner) and the drop count from the last
+        # _rolling_window_fallback run (ceiling_override calibration stat).
+        self._pruner = None
+        self._last_fallback_dropped = 0
+        # Set on every archive pass ("semantic" / "semantic_below_threshold"
+        # / "rw_fallback" / "tailoff"). Initialized here so readers (e.g.
+        # _log_task_aware) are safe on the very first archive call.
+        self._last_archive_path = "unknown"
 
     # -- Abstract methods -----------------------------------------------------
 
@@ -393,6 +413,23 @@ class SemanticVectorContextEngine(ContextEngine):
         result = [
             messages[i] for i in sorted(keep_indices) if i < len(messages)
         ]
+        # Mark this path BEFORE the smart pass so _log_task_aware records
+        # the right provenance (not the "unknown" init value).
+        self._last_archive_path = "semantic"
+
+        # Phase C (2026-08-22): task-aware smart pre-prune. When
+        # context.rolling_window.task_aware is set and the pruner finds an
+        # active (unclosed) task, TaskAwarePruner selects which semantic
+        # survivors fit the prune target by importance — BEFORE the
+        # deterministic emergency brake. Selection only: it can drop
+        # survivors but never re-keeps a turn the semantic pass archived.
+        # No-op (stats None) when there is no task signal, in which case
+        # the deterministic path below is exactly the pre-Phase C behavior.
+        ta_stats = None
+        if self.task_aware:
+            result, ta_stats = self._task_aware_preprune(
+                result, self._prune_target_tokens()
+            )
 
         # Safety check: if result is still too large after semantic pruning,
         # fall back to rolling window for aggressive pruning.
@@ -429,8 +466,19 @@ class SemanticVectorContextEngine(ContextEngine):
                 danger_zone,
             )
             needs_fallback = True
+        fallback_input = None
         if needs_fallback:
-            return self._rolling_window_fallback(result)
+            # Last resort: deterministic strip/truncate + drop-oldest on
+            # what the smart pass (or plain semantic pass) left.
+            fallback_input = result
+            result = self._rolling_window_fallback(result)
+        # Phase C (2026-08-22): record the smart pass whenever it did work —
+        # whether or not the last-resort brake had to follow. This data
+        # tunes the feature (protected-vs-deterministic, ceiling overrides).
+        if ta_stats is not None:
+            self._log_task_aware(ta_stats, fallback_input, result)
+        if needs_fallback:
+            return result
 
         # Inject state map
         state_map = self._build_state_map()
@@ -493,6 +541,280 @@ class SemanticVectorContextEngine(ContextEngine):
         self._last_archive_post_est = estimate_content_tokens(keep)
         self._last_archive_path = "tailoff"
         return keep
+
+    # -- Phase C: task-aware smart pre-prune ----------------------------------
+
+    def _prune_target_tokens(self) -> int:
+        """Full-context token target for the prune path (Phase C / C9-A).
+
+        The same target the rolling-window fallback drops toward:
+        context.rolling_window.archive_target fraction of context_length
+        when set, else threshold_tokens, clamped to the hard ceiling.
+        Full-context values are compared against content + calibrated
+        static overhead (C-E), so the smart pass and the deterministic
+        brake aim at the same number.
+        """
+        if self.context_length and self.archive_target > 0:
+            target = int(self.context_length * self.archive_target)
+        else:
+            target = (
+                self.threshold_tokens
+                if self.threshold_tokens > 0
+                else int(self.context_length * 0.75)
+            )
+        hard_ceiling = (
+            int(self.context_length * self.hard_ceiling_percent)
+            if self.context_length
+            else 0
+        )
+        if hard_ceiling > 0 and target > hard_ceiling:
+            target = hard_ceiling
+        return target
+
+    def _get_pruner(self):
+        """Lazily construct the TaskAwarePruner (import pattern mirrors
+        plugins/context_engine/rolling_window/__init__.py). Returns None
+        if unavailable — the smart pass degrades to the deterministic
+        path (task-aware is an enhancement, not a dependency)."""
+        if self._pruner is not None:
+            return self._pruner
+        TaskAwarePruner = None
+        try:
+            from ..rolling_window.task_aware_pruner import TaskAwarePruner
+        except ImportError:
+            try:
+                from plugins.context_engine.rolling_window.task_aware_pruner import (
+                    TaskAwarePruner,
+                )
+            except ImportError:
+                try:
+                    import importlib.util
+                    import sys
+
+                    rw_dir = os.path.join(
+                        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "rolling_window",
+                    )
+                    # The pruner's own sibling import needs the dir on path.
+                    if rw_dir not in sys.path:
+                        sys.path.insert(0, rw_dir)
+                    spec = importlib.util.spec_from_file_location(
+                        "logos_task_aware_pruner",
+                        os.path.join(rw_dir, "task_aware_pruner.py"),
+                    )
+                    mod = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(mod)
+                    TaskAwarePruner = mod.TaskAwarePruner
+                except Exception as e:
+                    logger.debug("TaskAwarePruner unavailable: %s", e)
+        if TaskAwarePruner is None:
+            return None
+        try:
+            self._pruner = TaskAwarePruner(
+                window_size=self.window_size or 20,
+                protect_first_n=self.protect_first_n,
+                protect_last_n=self.protect_last_n,
+            )
+        except Exception as e:
+            logger.debug("TaskAwarePruner init failed: %s", e)
+            return None
+        return self._pruner
+
+    def _deterministic_shrink(
+        self, messages: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """Phase C extraction of the fallback's size-reduction steps
+        (1-2): strip assistant tool_calls, truncate >6-line tool results.
+        Position-preserving (1:1 with the input) and non-mutating —
+        selection is NOT done here; that is either the smart pass or the
+        drop-oldest last resort."""
+        out = []
+        for msg in messages:
+            if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                msg = {**msg, "tool_calls": None}
+            if msg.get("role") == "tool":
+                content = msg.get("content", "")
+                if isinstance(content, str) and len(content.split("\n")) > 6:
+                    lines = content.split("\n")
+                    msg = {
+                        **msg,
+                        "content": (
+                            "\n".join(lines[:3])
+                            + "\n...[truncated]...\n"
+                            + "\n".join(lines[-3:])
+                        ),
+                    }
+            out.append(msg)
+        return out
+
+    def _deterministic_keep_set(
+        self, messages: List[Dict[str, Any]], target_tokens: int
+    ) -> set:
+        """Counterfactual (Phase C calibration): the input indices the
+        pre-Phase-C deterministic path — strip + truncate + drop-oldest
+        to the same target — would have kept. Mirrors the fallback's
+        accounting exactly (drops only ever come from the oldest
+        non-system prefix, so positions stay aligned)."""
+        shrunken = self._deterministic_shrink(messages)
+        hard_ceiling = (
+            int(self.context_length * self.hard_ceiling_percent)
+            if self.context_length
+            else 0
+        )
+        window_floor = max(self.protect_last_n * 2, self.window_size)
+        current = (
+            sum(len(m.get("content", "") or "") for m in shrunken) // 4
+            + self._overhead_est
+        )
+        non_system_pos = [
+            i for i, m in enumerate(shrunken) if m.get("role") != "system"
+        ]
+        dropped = 0
+        while current > target_tokens:
+            if dropped >= len(non_system_pos):
+                break
+            if (
+                len(non_system_pos) - dropped <= window_floor
+                and (hard_ceiling == 0 or current <= hard_ceiling)
+            ):
+                break
+            pos = non_system_pos[dropped]
+            current -= len(shrunken[pos].get("content", "") or "") // 4
+            dropped += 1
+        kept = set(range(len(messages)))
+        for j in range(dropped):
+            kept.discard(non_system_pos[j])
+        return kept
+
+    def _task_aware_preprune(
+        self,
+        messages: List[Dict[str, Any]],
+        target_tokens: int,
+    ) -> tuple[List[Dict[str, Any]], Dict[str, Any] | None]:
+        """Phase C smart pre-prune: TaskAwarePruner picks which of the
+        semantic survivors fit under target_tokens, ranked by importance
+        (its existing heuristics: active-task turns, task markers, user
+        queries, status updates, recency).
+
+        Selection only — it runs on the semantic pass's OUTPUT, so it can
+        drop survivors but never re-keeps a turn _semantic_archive
+        already archived (the archive's summary wins). Returns
+        (selected, stats); stats is None when the pass is a no-op (no
+        pruner, no active/unclosed task, or already under target), in
+        which case the deterministic path below runs exactly as it did
+        pre-Phase C (regression guard).
+        """
+        if not self.task_aware or not messages:
+            return messages, None
+        if self._estimate_total(messages) <= target_tokens:
+            return messages, None
+        pruner = self._get_pruner()
+        if pruner is None:
+            return messages, None
+        try:
+            scores = pruner.score_turns(messages)
+        except Exception as e:
+            logger.warning(
+                "Task-aware scoring failed, deterministic path: %s", e
+            )
+            return messages, None
+        if not any(s.task_bonus > 0 for s in scores):
+            # No active (unclosed) task in this context — the pruner has
+            # no task signal, so skip the smart pass entirely.
+            return messages, None
+
+        est_tokens = [len(m.get("content", "") or "") // 4 for m in messages]
+        total = len(messages)
+
+        # Protected set (mirrors the pruner's own convention): system
+        # messages + the newest protect_last_n messages.
+        protected = set()
+        for i, m in enumerate(messages):
+            if m.get("role") == "system":
+                protected.add(i)
+        for i in range(max(0, total - self.protect_last_n), total):
+            protected.add(i)
+
+        # Token budget for score-ranked fills: target is a full-context
+        # value, so subtract the calibrated static overhead and the
+        # protected set's cost first.
+        budget = (
+            target_tokens
+            - self._overhead_est
+            - sum(est_tokens[i] for i in protected)
+        )
+
+        keep = set(protected)
+        rest = sorted(
+            (s for s in scores if s.turn_index not in protected),
+            key=lambda s: s.total_score,
+            reverse=True,
+        )
+        for s in rest:
+            if est_tokens[s.turn_index] <= budget:
+                keep.add(s.turn_index)
+                budget -= est_tokens[s.turn_index]
+
+        sorted_keep = sorted(keep)
+        selected = [messages[i] for i in sorted_keep]
+
+        # Calibration counterfactual: what the pre-Phase-C deterministic
+        # path would have kept from the SAME input at the SAME target.
+        det_kept = self._deterministic_keep_set(messages, target_tokens)
+        task_idx = {s.turn_index for s in scores if s.task_bonus > 0}
+        pos_of_idx = {idx: pos for pos, idx in enumerate(sorted_keep)}
+        stats = {
+            "messages_in": total,
+            "kept": len(selected),
+            "protected_turns": len(keep - det_kept),
+            "deterministic_would_keep": len(det_kept),
+            "task_protected_kept": len(task_idx & keep),
+            # Internal: positions of task-protected turns inside the
+            # selected list (the fallback input) — used to compute
+            # ceiling_override after the last-resort drop pass.
+            "_protected_positions": {
+                pos_of_idx[i] for i in (task_idx & keep)
+            },
+        }
+        return selected, stats
+
+    def _log_task_aware(
+        self,
+        ta_stats: Dict[str, Any],
+        fallback_input: List[Dict[str, Any]],
+        final_result: List[Dict[str, Any]],
+    ) -> None:
+        """Phase C calibration event: record when the smart pass ran,
+        how many turns it protected vs the deterministic path, and
+        whether the last-resort pass overrode the pruner. This data
+        tunes the feature (c2 JSONL sibling: task_aware_prune)."""
+        protected_positions = ta_stats.pop("_protected_positions", set())
+        if fallback_input is None or fallback_input is final_result:
+            # No last-resort drop pass ran — nothing was overridden.
+            ceiling_override = False
+        else:
+            # The fallback drops only from the oldest non-system prefix
+            # (positions 1:1 with fallback_input), so a protected turn
+            # was overridden iff one sits in that dropped prefix.
+            ns_pos = [
+                i
+                for i, m in enumerate(fallback_input)
+                if m.get("role") != "system"
+            ]
+            dropped = set(ns_pos[: self._last_fallback_dropped])
+            ceiling_override = bool(protected_positions & dropped)
+        ta_stats["ceiling_override"] = ceiling_override
+        context_engine_log({
+            "type": "task_aware_prune",
+            "engine": self.name,
+            "path": self._last_archive_path,
+            "messages_in": ta_stats["messages_in"],
+            "kept": ta_stats["kept"],
+            "protected_turns": ta_stats["protected_turns"],
+            "deterministic_would_keep": ta_stats["deterministic_would_keep"],
+            "task_protected_kept": ta_stats["task_protected_kept"],
+            "ceiling_override": ceiling_override,
+        })
 
     # -- Rolling window fallback (hard prune when nearing OOM) -----------------
 
@@ -588,6 +910,11 @@ class SemanticVectorContextEngine(ContextEngine):
 
         result = system_msgs + non_system_msgs
         pruned_count = len(messages) - len(result)
+
+        # Phase C (2026-08-22): record how many non-system messages the
+        # last-resort drop pass removed, so _log_task_aware can compute
+        # ceiling_override (did the drop pass eat a task-protected turn?).
+        self._last_fallback_dropped = pruned_count
 
         logger.info(
             "Rolling window fallback: %d -> %d messages, "
@@ -986,6 +1313,8 @@ class SemanticVectorContextEngine(ContextEngine):
         # C-E: overhead is a per-session measurement (tool schemas /
         # injections differ per session); don't leak it across resets.
         self._overhead_est = 0
+        # Phase C: last-resort drop count is per-run state.
+        self._last_fallback_dropped = 0
         # Note: we deliberately do NOT set self.model = None here.
         # If the model was loaded (from cache or fresh load), it stays.
         # The module-level cache is the ultimate safety net.

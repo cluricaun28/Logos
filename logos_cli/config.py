@@ -777,6 +777,21 @@ DEFAULT_CONFIG = {
     # Set to a plugin name to activate an alternative engine (e.g. "rolling_window"
     # for task-aware archival).  The engine must be installed as
     # a plugin in plugins/context_engine/<name>/ or ~/.hermes/plugins/.
+    #
+    # Optional "rolling_window" section under "context" tunes pruning for
+    # whichever engine is active (C9-A):
+    #   threshold_percent      -- when to prune (fraction of context_length)
+    #   archive_target         -- prune down to this fraction
+    #   hard_ceiling_percent   -- safety net the hard brake never exceeds
+    #   window_size            -- min non-system messages the brake keeps
+    #   task_aware             -- true: run TaskAwarePruner as a smart
+    #                             SELECTION pass before the deterministic
+    #                             emergency brake (protects active-task
+    #                             context); last-resort drop-oldest only
+    #                             if the smart selection still exceeds the
+    #                             target/ceiling. Under the semantic_vector
+    #                             engine this knob controls that smart
+    #                             pre-prune; unset = false (unchanged).
     "context": {
         "engine": "compressor",
     },

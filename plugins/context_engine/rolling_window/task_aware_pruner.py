@@ -69,7 +69,13 @@ class ClosureDetector:
         r'\bsuccessfully\s+(completed|finished|implemented|deployed)',
         r'\bready\s+for\s+(training|testing|deployment|review)\b',
         r'\bfinal\s+(statistics|summary|report|status)\b',
-        r'\[?✅?\]?\s*\w+\s*(Complete|Done|Finished)',
+        # Phase C perf fix (2026-08-22): the label was an unbounded \w+ —
+        # on long single-word runs (e.g. a 40KB hex/hash blob in a tool
+        # result) the engine backtracks O(n²) (~27s at 40KB, minutes at
+        # 100KB), and detect_closure is called on EVERY subsequent
+        # assistant turn. Real labels ("Auth", "Task 1") are short, so
+        # bound the word to 40 chars; semantics unchanged for labels ≤40.
+        r'\[?✅?\]?\s*\w{1,40}\s*(Complete|Done|Finished)',
         r'\b(exported|saved|written|created)\s+successfully\b',
         r'\b(test|verification)\s+(passed|successful|complete)',
     ]
