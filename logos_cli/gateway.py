@@ -1491,7 +1491,7 @@ def _remap_path_for_user(path: str, target_home_dir: str) -> str:
         return str(p)
 
 
-def _hermes_home_for_target_user(target_home_dir: str) -> str:
+def _logos_home_for_target_user(target_home_dir: str) -> str:
     """Remap the current HERMES_HOME to the equivalent under a target user's home.
 
     When installing a system service via sudo, get_logos_home() resolves to
@@ -1551,7 +1551,7 @@ def generate_systemd_unit(system: bool = False, run_as_user: str | None = None) 
 
     if system:
         username, group_name, home_dir = _system_service_identity(run_as_user)
-        hermes_home = _hermes_home_for_target_user(home_dir)
+        hermes_home = _logos_home_for_target_user(home_dir)
         profile_arg = _profile_arg(hermes_home)
         # Remap all paths that may resolve under the calling user's home
         # (e.g. /root/) to the target user's home so the service can

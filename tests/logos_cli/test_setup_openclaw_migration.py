@@ -240,7 +240,7 @@ class TestSetupWizardOpenclawIntegration:
         args = _first_time_args()
 
         with (
-            patch.object(setup_mod, "ensure_hermes_home"),
+            patch.object(setup_mod, "ensure_logos_home"),
             patch.object(setup_mod, "load_config", return_value={}),
             patch.object(setup_mod, "get_logos_home", return_value=tmp_path),
             patch.object(setup_mod, "get_env_value", return_value=""),
@@ -278,7 +278,7 @@ class TestSetupWizardOpenclawIntegration:
             return {}
 
         with (
-            patch.object(setup_mod, "ensure_hermes_home"),
+            patch.object(setup_mod, "ensure_logos_home"),
             patch.object(setup_mod, "load_config", side_effect=tracking_load_config),
             patch.object(setup_mod, "get_logos_home", return_value=tmp_path),
             patch.object(setup_mod, "get_env_value", return_value=""),
@@ -307,7 +307,7 @@ class TestSetupWizardOpenclawIntegration:
         reloaded_config = {"model": {"provider": "openrouter"}}
 
         with (
-            patch.object(setup_mod, "ensure_hermes_home"),
+            patch.object(setup_mod, "ensure_logos_home"),
             patch.object(
                 setup_mod,
                 "load_config",
@@ -338,7 +338,7 @@ class TestSetupWizardOpenclawIntegration:
         args = _first_time_args()
 
         with (
-            patch.object(setup_mod, "ensure_hermes_home"),
+            patch.object(setup_mod, "ensure_logos_home"),
             patch.object(setup_mod, "load_config", return_value={}),
             patch.object(setup_mod, "get_logos_home", return_value=tmp_path),
             patch.object(
@@ -611,7 +611,7 @@ class TestSetupWizardSkipsConfiguredSections:
         reloaded_config = {"model": "openai/gpt-4"}
 
         with (
-            patch.object(setup_mod, "ensure_hermes_home"),
+            patch.object(setup_mod, "ensure_logos_home"),
             patch.object(
                 setup_mod, "load_config",
                 side_effect=[{}, reloaded_config],

@@ -80,12 +80,12 @@ _COMMAND_SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧
 # Load .env from ~/.hermes/.env first, then project root as dev fallback.
 # User-managed env files should override stale shell exports on restart.
 from logos_constants import get_logos_home, display_logos_home
-from logos_cli.env_loader import load_hermes_dotenv
+from logos_cli.env_loader import load_logos_dotenv
 from utils import base_url_host_matches
 
-_hermes_home = get_logos_home()
+_logos_home = get_logos_home()
 _project_env = Path(__file__).parent / '.env'
-load_hermes_dotenv(hermes_home=_hermes_home, project_env=_project_env)
+load_logos_dotenv(logos_home=_logos_home, project_env=_project_env)
 
 
 _REASONING_TAGS = (
@@ -205,7 +205,7 @@ def _load_prefill_messages(file_path: str) -> List[Dict[str, Any]]:
         return []
     path = Path(file_path).expanduser()
     if not path.is_absolute():
-        path = _hermes_home / path
+        path = _logos_home / path
     if not path.exists():
         logger.warning("Prefill messages file not found: %s", path)
         return []
@@ -304,21 +304,21 @@ def load_cli_config() -> Dict[str, Any]:
     Load CLI configuration from config files.
     
     Config lookup order:
-    1. ~/.hermes/config.yaml (user config - preferred)
+    1. ~/.logos/config.yaml (user config - preferred)
     2. ./cli-config.yaml (project config - fallback)
     
     Environment variables take precedence over config file values.
     Returns default values if no config file exists.
 
-    If HERMES_IGNORE_USER_CONFIG=1 is set (via ``logos chat --ignore-user-config``),
-    the user config at ``~/.hermes/config.yaml`` is skipped entirely and only the
+    If LOGOS_IGNORE_USER_CONFIG=1 is set (via ``logos chat --ignore-user-config``),
+    the user config at ``~/.logos/config.yaml`` is skipped entirely and only the
     built-in defaults plus the project-level ``cli-config.yaml`` (if any) are used.
     Credentials in ``.env`` are still loaded — this flag only suppresses
     behavioral/config settings.
     """
     from logos_constants import logos_env
     # Check user config first ({HERMES_HOME}/config.yaml)
-    user_config_path = _hermes_home / 'config.yaml'
+    user_config_path = _logos_home / 'config.yaml'
     project_config_path = Path(__file__).parent / 'cli-config.yaml'
 
     # --ignore-user-config: force-skip the user config.yaml (still honor project
@@ -1889,7 +1889,7 @@ def save_config_value(key_path: str, value: any) -> bool:
         True if successful, False otherwise
     """
     # Use the same precedence as load_cli_config: user config first, then project config
-    user_config_path = _hermes_home / 'config.yaml'
+    user_config_path = _logos_home / 'config.yaml'
     project_config_path = Path(__file__).parent / 'cli-config.yaml'
     config_path = user_config_path if user_config_path.exists() else project_config_path
     
@@ -2211,7 +2211,7 @@ class LogosCLI:
             self.session_id = f"{timestamp_str}_{short_uuid}"
         
         # History file for persistent input recall across sessions
-        self._history_file = _hermes_home / ".hermes_history"
+        self._history_file = _logos_home / ".hermes_history"
         self._last_invalidate: float = 0.0  # throttle UI repaints
         self._app = None
 
@@ -4655,7 +4655,7 @@ class LogosCLI:
         terminal_cwd = os.getenv("TERMINAL_CWD", os.getcwd())
         terminal_timeout = os.getenv("TERMINAL_TIMEOUT", "60")
         
-        user_config_path = _hermes_home / 'config.yaml'
+        user_config_path = _logos_home / 'config.yaml'
         project_config_path = Path(__file__).parent / 'cli-config.yaml'
         if user_config_path.exists():
             config_path = user_config_path
@@ -6647,7 +6647,7 @@ class LogosCLI:
             return False
 
         # Dedicated profile dir so debug Chrome won't collide with normal Chrome
-        data_dir = str(_hermes_home / "chrome-debug")
+        data_dir = str(_logos_home / "chrome-debug")
         os.makedirs(data_dir, exist_ok=True)
 
         chrome = candidates[0]
@@ -6737,7 +6737,7 @@ class LogosCLI:
                 else:
                     print("   ⚠ Could not auto-launch Chrome")
                     # Show manual instructions as fallback
-                    _data_dir = str(_hermes_home / "chrome-debug")
+                    _data_dir = str(_logos_home / "chrome-debug")
                     sys_name = _plat.system()
                     if sys_name == "Darwin":
                         chrome_cmd = (
@@ -7611,7 +7611,7 @@ class LogosCLI:
                         if not is_seen(CLI_CONFIG, TOOL_PROGRESS_FLAG):
                             self._long_tool_hint_fired = True
                             _cprint(f"  {_DIM}{tool_progress_hint_cli()}{_RST}")
-                            mark_seen(_hermes_home / "config.yaml", TOOL_PROGRESS_FLAG)
+                            mark_seen(_logos_home / "config.yaml", TOOL_PROGRESS_FLAG)
                             CLI_CONFIG.setdefault("onboarding", {}).setdefault("seen", {})[TOOL_PROGRESS_FLAG] = True
                 except Exception:
                     pass
@@ -8799,7 +8799,7 @@ class LogosCLI:
                             self.agent.interrupt(interrupt_msg)
                             # Debug: log to file (stdout may be devnull from redirect_stdout)
                             try:
-                                _dbg = _hermes_home / "interrupt_debug.log"
+                                _dbg = _logos_home / "interrupt_debug.log"
                                 with open(_dbg, "a") as _f:
                                     _f.write(f"{time.strftime('%H:%M:%S')} interrupt fired: msg={str(interrupt_msg)[:60]!r}, "
                                              f"children={len(self.agent._active_children)}, "
@@ -9604,7 +9604,7 @@ class LogosCLI:
                         self._interrupt_queue.put(payload)
                         # Debug: log to file when message enters interrupt queue
                         try:
-                            _dbg = _hermes_home / "interrupt_debug.log"
+                            _dbg = _logos_home / "interrupt_debug.log"
                             with open(_dbg, "a") as _f:
                                 _f.write(f"{time.strftime('%H:%M:%S')} ENTER: queued interrupt msg={str(payload)[:60]!r}, "
                                          f"agent_running={self._agent_running}\n")
@@ -9624,7 +9624,7 @@ class LogosCLI:
                         )
                         if not is_seen(CLI_CONFIG, BUSY_INPUT_FLAG):
                             _cprint(f"  {_DIM}{busy_input_hint_cli(self.busy_input_mode)}{_RST}")
-                            mark_seen(_hermes_home / "config.yaml", BUSY_INPUT_FLAG)
+                            mark_seen(_logos_home / "config.yaml", BUSY_INPUT_FLAG)
                             CLI_CONFIG.setdefault("onboarding", {}).setdefault("seen", {})[BUSY_INPUT_FLAG] = True
                     except Exception:
                         pass
@@ -10051,7 +10051,7 @@ class LogosCLI:
                 buf = event.current_buffer
                 if line_count >= 5 and not buf.text.strip().startswith('/'):
                     _paste_counter[0] += 1
-                    paste_dir = _hermes_home / "pastes"
+                    paste_dir = _logos_home / "pastes"
                     paste_dir.mkdir(parents=True, exist_ok=True)
                     paste_file = paste_dir / f"paste_{_paste_counter[0]}_{datetime.now().strftime('%H%M%S')}.txt"
                     paste_file.write_text(pasted_text, encoding="utf-8")
@@ -10215,7 +10215,7 @@ class LogosCLI:
             is_paste = chars_added > 1 or newlines_added >= 4
             if line_count >= 5 and is_paste and not text.startswith('/'):
                 _paste_counter[0] += 1
-                paste_dir = _hermes_home / "pastes"
+                paste_dir = _logos_home / "pastes"
                 paste_dir.mkdir(parents=True, exist_ok=True)
                 paste_file = paste_dir / f"paste_{_paste_counter[0]}_{datetime.now().strftime('%H%M%S')}.txt"
                 paste_file.write_text(text, encoding="utf-8")

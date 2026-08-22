@@ -205,7 +205,7 @@ def uninstall_gateway_service():
     return stopped_something
 
 
-def _is_default_hermes_home(hermes_home: Path) -> bool:
+def _is_default_logos_home(hermes_home: Path) -> bool:
     """Return True when ``hermes_home`` points at the default (non-profile) root."""
     try:
         from logos_constants import get_logos_root
@@ -293,7 +293,7 @@ def run_uninstall(args):
     # Detect named profiles when uninstalling from the default root —
     # offer to clean them up too instead of leaving zombie HERMES_HOMEs
     # and systemd units behind.
-    is_default_profile = _is_default_hermes_home(hermes_home)
+    is_default_profile = _is_default_logos_home(hermes_home)
     named_profiles = _discover_named_profiles() if is_default_profile else []
 
     print()

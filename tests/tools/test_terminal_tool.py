@@ -93,14 +93,20 @@ def test_cached_sudo_password_is_used_when_env_is_unset(monkeypatch):
 def test_cached_sudo_password_isolated_by_session_key(monkeypatch):
     monkeypatch.delenv("SUDO_PASSWORD", raising=False)
     monkeypatch.delenv("HERMES_INTERACTIVE", raising=False)
+    monkeypatch.delenv("LOGOS_INTERACTIVE", raising=False)
 
+    # Set BOTH names: logos_env() prefers LOGOS_*, so the legacy-only set
+    # would be shadowed by ambient LOGOS_SESSION_KEY on LOGOS-named hosts.
     monkeypatch.setenv("HERMES_SESSION_KEY", "session-a")
+    monkeypatch.setenv("LOGOS_SESSION_KEY", "session-a")
     terminal_tool._set_cached_sudo_password("alpha-pass")
 
     monkeypatch.setenv("HERMES_SESSION_KEY", "session-b")
+    monkeypatch.setenv("LOGOS_SESSION_KEY", "session-b")
     assert terminal_tool._get_cached_sudo_password() == ""
 
     monkeypatch.setenv("HERMES_SESSION_KEY", "session-a")
+    monkeypatch.setenv("LOGOS_SESSION_KEY", "session-a")
     assert terminal_tool._get_cached_sudo_password() == "alpha-pass"
 
 

@@ -155,12 +155,13 @@ COMPONENT_PREFIXES = {
 
 def setup_logging(
     *,
-    hermes_home: Optional[Path] = None,
+    logos_home: Optional[Path] = None,
     log_level: Optional[str] = None,
     max_size_mb: Optional[int] = None,
     backup_count: Optional[int] = None,
     mode: Optional[str] = None,
     force: bool = False,
+    hermes_home: Optional[Path] = None,  # legacy alias (pre-rename)
 ) -> Path:
     """Configure the Logos logging subsystem.
 
@@ -169,9 +170,10 @@ def setup_logging(
 
     Parameters
     ----------
-    hermes_home
+    logos_home
         Override for the Logos home directory.  Falls back to
-        ``get_logos_home()`` (profile-aware).
+        ``get_logos_home()`` (profile-aware).  ``hermes_home`` is a
+        pre-rename alias, still accepted.
     log_level
         Minimum level for the ``agent.log`` file handler.  Accepts any
         standard Python level name (``"DEBUG"``, ``"INFO"``, ``"WARNING"``).
@@ -195,7 +197,7 @@ def setup_logging(
         The ``logs/`` directory where files are written.
     """
     global _logging_initialized
-    home = hermes_home or get_logos_home()
+    home = logos_home or hermes_home or get_logos_home()
     log_dir = home / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
 

@@ -346,7 +346,7 @@ class TestCronTimezone:
         monkeypatch.setattr(jobs_module, "OUTPUT_DIR", tmp_path / "cron" / "output")
 
         # Use a Logos timezone far behind UTC so that the numeric wall time
-        # of the naive timestamp exceeds _hermes_now's wall time — this would
+        # of the naive timestamp exceeds _logos_now's wall time — this would
         # have caused a false "not due" with the old replace(tzinfo=...) approach.
         os.environ["HERMES_TIMEZONE"] = "Pacific/Midway"  # UTC-11
         _reset_logos_time_cache()

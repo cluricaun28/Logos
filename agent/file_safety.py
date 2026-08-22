@@ -8,7 +8,7 @@ from typing import Optional
 from logos_constants import logos_env
 
 
-def _hermes_home_path() -> Path:
+def _logos_home_path() -> Path:
     """Resolve the active HERMES_HOME (profile-aware) without circular imports."""
     try:
         from logos_constants import get_logos_home  # local import to avoid cycles
@@ -19,7 +19,7 @@ def _hermes_home_path() -> Path:
 
 def build_write_denied_paths(home: str) -> set[str]:
     """Return exact sensitive paths that must never be written."""
-    hermes_home = _hermes_home_path()
+    hermes_home = _logos_home_path()
     return {
         os.path.realpath(p)
         for p in [
@@ -94,7 +94,7 @@ def is_write_denied(path: str) -> bool:
 def get_read_block_error(path: str) -> Optional[str]:
     """Return an error message when a read targets internal Logos cache files."""
     resolved = Path(path).expanduser().resolve()
-    hermes_home = _hermes_home_path().resolve()
+    hermes_home = _logos_home_path().resolve()
     blocked_dirs = [
         hermes_home / "skills" / ".hub" / "index-cache",
         hermes_home / "skills" / ".hub",

@@ -60,9 +60,9 @@ class TestIgnoreUserConfigEnvGate:
         (tmp_path / "config.yaml").write_text(config_yaml)
 
     def _reload_cli(self, monkeypatch, tmp_path):
-        """Point cli._hermes_home at tmp_path and return a fresh load_cli_config."""
+        """Point cli._logos_home at tmp_path and return a fresh load_cli_config."""
         import cli
-        monkeypatch.setattr(cli, "_hermes_home", tmp_path)
+        monkeypatch.setattr(cli, "_logos_home", tmp_path)
         return cli.load_cli_config
 
     def test_user_config_loaded_when_flag_unset(self, tmp_path, monkeypatch):
@@ -240,6 +240,7 @@ class TestArgparseFlagsRegistered:
             "chat subparser must register --ignore-user-config"
         assert '"--ignore-rules"' in src, \
             "chat subparser must register --ignore-rules"
-        # And the cmd_chat env-var wiring must be present
-        assert "HERMES_IGNORE_USER_CONFIG" in src
-        assert "HERMES_IGNORE_RULES" in src
+        # And the cmd_chat env-var wiring must be present (LOGOS_* primary names
+        # post-rename; HERMES_* fallbacks live in the logos_env dual-read shims)
+        assert "LOGOS_IGNORE_USER_CONFIG" in src
+        assert "LOGOS_IGNORE_RULES" in src

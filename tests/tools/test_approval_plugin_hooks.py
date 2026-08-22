@@ -26,9 +26,13 @@ def isolated_session(monkeypatch):
     """Give each test a fresh session_key and clean approval-state."""
     session_key = "test:session:approval_hooks"
     token = set_current_session_key(session_key)
+    # Set both the primary LOGOS_* and legacy HERMES_* names so ambient
+    # values of either can't shadow this test's intent (dual-read policy).
     monkeypatch.setenv("HERMES_SESSION_KEY", session_key)
+    monkeypatch.setenv("LOGOS_SESSION_KEY", session_key)
     # Make sure we don't skip guards via yolo / approvals.mode=off
     monkeypatch.delenv("HERMES_YOLO_MODE", raising=False)
+    monkeypatch.delenv("LOGOS_YOLO_MODE", raising=False)
     try:
         yield session_key
     finally:
@@ -47,8 +51,10 @@ class TestCliPathFiresHooks:
         self, isolated_session, monkeypatch
     ):
         monkeypatch.setenv("HERMES_INTERACTIVE", "1")
+        monkeypatch.setenv("LOGOS_INTERACTIVE", "1")
         monkeypatch.delenv("HERMES_GATEWAY_SESSION", raising=False)
         monkeypatch.delenv("HERMES_EXEC_ASK", raising=False)
+        monkeypatch.delenv("LOGOS_EXEC_ASK", raising=False)
         # approvals.mode=manual so we actually reach the prompt site
         monkeypatch.setattr(approval_module, "_get_approval_mode", lambda: "manual")
 
@@ -88,8 +94,10 @@ class TestCliPathFiresHooks:
 
     def test_deny_reported_to_post_hook(self, isolated_session, monkeypatch):
         monkeypatch.setenv("HERMES_INTERACTIVE", "1")
+        monkeypatch.setenv("LOGOS_INTERACTIVE", "1")
         monkeypatch.delenv("HERMES_GATEWAY_SESSION", raising=False)
         monkeypatch.delenv("HERMES_EXEC_ASK", raising=False)
+        monkeypatch.delenv("LOGOS_EXEC_ASK", raising=False)
         monkeypatch.setattr(approval_module, "_get_approval_mode", lambda: "manual")
 
         captured = []
@@ -117,8 +125,10 @@ class TestCliPathFiresHooks:
         reaching the user. Hooks are observer-only and safety-critical
         behavior must be preserved."""
         monkeypatch.setenv("HERMES_INTERACTIVE", "1")
+        monkeypatch.setenv("LOGOS_INTERACTIVE", "1")
         monkeypatch.delenv("HERMES_GATEWAY_SESSION", raising=False)
         monkeypatch.delenv("HERMES_EXEC_ASK", raising=False)
+        monkeypatch.delenv("LOGOS_EXEC_ASK", raising=False)
         monkeypatch.setattr(approval_module, "_get_approval_mode", lambda: "manual")
 
         def boom(hook_name, **kwargs):
@@ -148,8 +158,11 @@ class TestGatewayPathFiresHooks:
         import threading
 
         monkeypatch.delenv("HERMES_INTERACTIVE", raising=False)
+        monkeypatch.delenv("LOGOS_INTERACTIVE", raising=False)
         monkeypatch.setenv("HERMES_GATEWAY_SESSION", "1")
+        monkeypatch.setenv("LOGOS_GATEWAY_SESSION", "1")
         monkeypatch.delenv("HERMES_EXEC_ASK", raising=False)
+        monkeypatch.delenv("LOGOS_EXEC_ASK", raising=False)
         monkeypatch.setattr(approval_module, "_get_approval_mode", lambda: "manual")
         # Short gateway_timeout so a buggy test fails fast instead of hanging
         monkeypatch.setattr(
@@ -207,8 +220,11 @@ class TestGatewayPathFiresHooks:
         import threading
 
         monkeypatch.delenv("HERMES_INTERACTIVE", raising=False)
+        monkeypatch.delenv("LOGOS_INTERACTIVE", raising=False)
         monkeypatch.setenv("HERMES_GATEWAY_SESSION", "1")
+        monkeypatch.setenv("LOGOS_GATEWAY_SESSION", "1")
         monkeypatch.delenv("HERMES_EXEC_ASK", raising=False)
+        monkeypatch.delenv("LOGOS_EXEC_ASK", raising=False)
         monkeypatch.setattr(approval_module, "_get_approval_mode", lambda: "manual")
         monkeypatch.setattr(
             approval_module, "_get_approval_config", lambda: {"gateway_timeout": 1}

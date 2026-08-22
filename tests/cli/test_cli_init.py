@@ -24,7 +24,8 @@ def _make_cli(env_overrides=None, config_overrides=None, **kwargs):
     }
     if config_overrides:
         _clean_config.update(config_overrides)
-    clean_env = {"LLM_MODEL": "", "HERMES_MAX_ITERATIONS": ""}
+    clean_env = {"LLM_MODEL": "", "HERMES_MAX_ITERATIONS": "",
+                 "LOGOS_MAX_ITERATIONS": ""}
     if env_overrides:
         clean_env.update(env_overrides)
     prompt_toolkit_stubs = {
@@ -267,7 +268,7 @@ class TestRootLevelProviderOverride:
         }))
 
         import cli
-        monkeypatch.setattr(cli, "_hermes_home", hermes_home)
+        monkeypatch.setattr(cli, "_logos_home", hermes_home)
         cfg = cli.load_cli_config()
 
         assert cfg["model"]["provider"] == "openrouter"
@@ -290,7 +291,7 @@ class TestRootLevelProviderOverride:
         }))
 
         import cli
-        monkeypatch.setattr(cli, "_hermes_home", hermes_home)
+        monkeypatch.setattr(cli, "_logos_home", hermes_home)
         cfg = cli.load_cli_config()
 
         # Root-level "opencode-go" must NOT leak through

@@ -25,13 +25,13 @@ from utils import atomic_replace
 _SUBSCRIPTIONS_FILENAME = "webhook_subscriptions.json"
 
 
-def _hermes_home() -> Path:
+def _logos_home() -> Path:
     from logos_constants import get_logos_home
     return get_logos_home()
 
 
 def _subscriptions_path() -> Path:
-    return _hermes_home() / _SUBSCRIPTIONS_FILENAME
+    return _logos_home() / _SUBSCRIPTIONS_FILENAME
 
 
 def _load_subscriptions() -> Dict[str, dict]:

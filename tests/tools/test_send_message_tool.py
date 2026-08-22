@@ -153,6 +153,8 @@ class TestSendMessageTool:
             get_session_env_mock.side_effect = lambda name, default="": {
                 "HERMES_SESSION_PLATFORM": "telegram",
                 "HERMES_SESSION_USER_ID": "user-123",
+                "LOGOS_SESSION_PLATFORM": "telegram",
+                "LOGOS_SESSION_USER_ID": "user-123",
             }.get(name, default)
             result = json.loads(
                 send_message_tool(

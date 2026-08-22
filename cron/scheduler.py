@@ -37,7 +37,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from logos_constants import get_logos_home
 from logos_cli.config import load_config, _expand_env_vars
-from logos_time import now as _hermes_now
+from logos_time import now as _logos_now
 
 logger = logging.getLogger(__name__)
 
@@ -92,10 +92,10 @@ from cron.jobs import get_due_jobs, mark_job_run, save_job_output, advance_next_
 SILENT_MARKER = "[SILENT]"
 
 # Resolve Logos home directory (respects HERMES_HOME override)
-_hermes_home = get_logos_home()
+_logos_home = get_logos_home()
 
 # File-based lock prevents concurrent ticks from gateway + daemon + systemd timer
-_LOCK_DIR = _hermes_home / "cron"
+_LOCK_DIR = _logos_home / "cron"
 _LOCK_FILE = _LOCK_DIR / ".tick.lock"
 
 
@@ -848,7 +848,7 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
                 except OSError:
                     pass
 
-        now_iso = _hermes_now().strftime("%Y-%m-%d %H:%M:%S")
+        now_iso = _logos_now().strftime("%Y-%m-%d %H:%M:%S")
 
         if not ok:
             # Script crashed / timed out / exited non-zero.  Deliver the
@@ -939,14 +939,14 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
             silent_doc = (
                 f"# Cron Job: {job_name}\n\n"
                 f"**Job ID:** {job_id}\n"
-                f"**Run Time:** {_hermes_now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                f"**Run Time:** {_logos_now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
                 "Script gate returned `wakeAgent=false` — agent skipped.\n"
             )
             return True, silent_doc, SILENT_MARKER, None
 
     prompt = _build_job_prompt(job, prerun_script=prerun_script)
     origin = _resolve_origin(job)
-    _cron_session_id = f"cron_{job_id}_{_hermes_now().strftime('%Y%m%d_%H%M%S')}"
+    _cron_session_id = f"cron_{job_id}_{_logos_now().strftime('%Y%m%d_%H%M%S')}"
 
     logger.info("Running job '%s' (ID: %s)", job_name, job_id)
     logger.info("Prompt: %s", prompt[:100])
@@ -1002,9 +1002,9 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
         # changes take effect without a gateway restart.
         from dotenv import load_dotenv
         try:
-            load_dotenv(str(_hermes_home / ".env"), override=True, encoding="utf-8")
+            load_dotenv(str(_logos_home / ".env"), override=True, encoding="utf-8")
         except UnicodeDecodeError:
-            load_dotenv(str(_hermes_home / ".env"), override=True, encoding="latin-1")
+            load_dotenv(str(_logos_home / ".env"), override=True, encoding="latin-1")
 
         delivery_target = _resolve_delivery_target(job)
         if delivery_target:
@@ -1022,7 +1022,7 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
         _cfg = {}
         try:
             import yaml
-            _cfg_path = str(_hermes_home / "config.yaml")
+            _cfg_path = str(_logos_home / "config.yaml")
             if os.path.exists(_cfg_path):
                 with open(_cfg_path, encoding='utf-8') as _f:                    _cfg = yaml.safe_load(_f) or {}
                 _cfg = _expand_env_vars(_cfg)
@@ -1055,7 +1055,7 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
         if prefill_file:
             pfpath = Path(prefill_file).expanduser()
             if not pfpath.is_absolute():
-                pfpath = _hermes_home / pfpath
+                pfpath = _logos_home / pfpath
             if pfpath.exists():
                 try:
                     with open(pfpath, "r", encoding="utf-8") as _pf:
@@ -1267,7 +1267,7 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
         output = f"""# Cron Job: {job_name}
 
 **Job ID:** {job_id}
-**Run Time:** {_hermes_now().strftime('%Y-%m-%d %H:%M:%S')}
+**Run Time:** {_logos_now().strftime('%Y-%m-%d %H:%M:%S')}
 **Schedule:** {job.get('schedule_display', 'N/A')}
 
 ## Prompt
@@ -1289,7 +1289,7 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
         output = f"""# Cron Job: {job_name} (FAILED)
 
 **Job ID:** {job_id}
-**Run Time:** {_hermes_now().strftime('%Y-%m-%d %H:%M:%S')}
+**Run Time:** {_logos_now().strftime('%Y-%m-%d %H:%M:%S')}
 **Schedule:** {job.get('schedule_display', 'N/A')}
 
 ## Prompt
@@ -1369,11 +1369,11 @@ def tick(verbose: bool = True, adapters=None, loop=None) -> int:
         due_jobs = get_due_jobs()
 
         if verbose and not due_jobs:
-            logger.info("%s - No jobs due", _hermes_now().strftime('%H:%M:%S'))
+            logger.info("%s - No jobs due", _logos_now().strftime('%H:%M:%S'))
             return 0
 
         if verbose:
-            logger.info("%s - %s job(s) due", _hermes_now().strftime('%H:%M:%S'), len(due_jobs))
+            logger.info("%s - %s job(s) due", _logos_now().strftime('%H:%M:%S'), len(due_jobs))
 
         # Advance next_run_at for all recurring jobs FIRST, under the file lock,
         # before any execution begins.  This preserves at-most-once semantics.

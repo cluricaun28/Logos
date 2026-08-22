@@ -59,41 +59,55 @@ class TestScanCronPrompt:
 
 
 class TestCronjobRequirements:
+    # Dual-read policy: LOGOS_* and legacy HERMES_* are both honored by
+    # logos_env(), so tests must set/delenv BOTH names to be deterministic
+    # regardless of ambient values.
+
     def test_requires_no_crontab_binary(self, monkeypatch):
         """Cron is internal (JSON-based scheduler), no system crontab needed."""
         monkeypatch.setenv("HERMES_INTERACTIVE", "1")
-        monkeypatch.delenv("HERMES_GATEWAY_SESSION", raising=False)
-        monkeypatch.delenv("HERMES_EXEC_ASK", raising=False)
+        monkeypatch.setenv("LOGOS_INTERACTIVE", "1")
+        for k in ("HERMES_GATEWAY_SESSION", "LOGOS_GATEWAY_SESSION",
+                  "HERMES_EXEC_ASK", "LOGOS_EXEC_ASK"):
+            monkeypatch.delenv(k, raising=False)
         # Even with no crontab in PATH, the cronjob tool should be available
         # because hermes uses an internal scheduler, not system crontab.
         assert check_cronjob_requirements() is True
 
     def test_accepts_interactive_mode(self, monkeypatch):
         monkeypatch.setenv("HERMES_INTERACTIVE", "1")
-        monkeypatch.delenv("HERMES_GATEWAY_SESSION", raising=False)
-        monkeypatch.delenv("HERMES_EXEC_ASK", raising=False)
+        monkeypatch.setenv("LOGOS_INTERACTIVE", "1")
+        for k in ("HERMES_GATEWAY_SESSION", "LOGOS_GATEWAY_SESSION",
+                  "HERMES_EXEC_ASK", "LOGOS_EXEC_ASK"):
+            monkeypatch.delenv(k, raising=False)
 
         assert check_cronjob_requirements() is True
 
     def test_accepts_gateway_session(self, monkeypatch):
-        monkeypatch.delenv("HERMES_INTERACTIVE", raising=False)
+        for k in ("HERMES_INTERACTIVE", "LOGOS_INTERACTIVE"):
+            monkeypatch.delenv(k, raising=False)
         monkeypatch.setenv("HERMES_GATEWAY_SESSION", "1")
-        monkeypatch.delenv("HERMES_EXEC_ASK", raising=False)
+        monkeypatch.setenv("LOGOS_GATEWAY_SESSION", "1")
+        for k in ("HERMES_EXEC_ASK", "LOGOS_EXEC_ASK"):
+            monkeypatch.delenv(k, raising=False)
 
         assert check_cronjob_requirements() is True
 
     def test_accepts_exec_ask(self, monkeypatch):
-        monkeypatch.delenv("HERMES_INTERACTIVE", raising=False)
-        monkeypatch.delenv("HERMES_GATEWAY_SESSION", raising=False)
+        for k in ("HERMES_INTERACTIVE", "LOGOS_INTERACTIVE",
+                  "HERMES_GATEWAY_SESSION", "LOGOS_GATEWAY_SESSION"):
+            monkeypatch.delenv(k, raising=False)
         monkeypatch.setenv("HERMES_EXEC_ASK", "1")
+        monkeypatch.setenv("LOGOS_EXEC_ASK", "1")
 
         assert check_cronjob_requirements() is True
 
     def test_rejects_when_no_session_env(self, monkeypatch):
         """Without any session env vars, cronjob tool should not be available."""
-        monkeypatch.delenv("HERMES_INTERACTIVE", raising=False)
-        monkeypatch.delenv("HERMES_GATEWAY_SESSION", raising=False)
-        monkeypatch.delenv("HERMES_EXEC_ASK", raising=False)
+        for k in ("HERMES_INTERACTIVE", "LOGOS_INTERACTIVE",
+                  "HERMES_GATEWAY_SESSION", "LOGOS_GATEWAY_SESSION",
+                  "HERMES_EXEC_ASK", "LOGOS_EXEC_ASK"):
+            monkeypatch.delenv(k, raising=False)
 
         assert check_cronjob_requirements() is False
 

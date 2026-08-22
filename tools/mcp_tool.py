@@ -1927,8 +1927,8 @@ def _load_mcp_config() -> Dict[str, dict]:
             return {}
         # Ensure .env vars are available for interpolation
         try:
-            from logos_cli.env_loader import load_hermes_dotenv
-            load_hermes_dotenv()
+            from logos_cli.env_loader import load_logos_dotenv
+            load_logos_dotenv()
         except Exception:
             pass
         return {name: _interpolate_env_vars(cfg) for name, cfg in servers.items()}

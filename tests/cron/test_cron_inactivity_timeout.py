@@ -280,8 +280,8 @@ class TestSysPathOrdering:
     def test_logos_time_importable(self):
         """logos_time should be importable when cron.scheduler loads."""
         # This import would fail if sys.path.insert comes after the import
-        from cron.scheduler import _hermes_now
-        assert callable(_hermes_now)
+        from cron.scheduler import _logos_now
+        assert callable(_logos_now)
 
     def test_logos_constants_importable(self):
         """logos_constants should be importable from cron context."""

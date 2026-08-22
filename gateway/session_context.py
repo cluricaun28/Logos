@@ -173,7 +173,7 @@ def get_session_env(name: str, default: str = "") -> str:
     if name.startswith(("HERMES_", "LOGOS_")):
         base = name.split("_", 1)[1]
         val = os.getenv("LOGOS_" + base)
-        if val is None:
+        if val in (None, ""):
             val = os.getenv("HERMES_" + base)
     else:
         val = os.getenv(name)

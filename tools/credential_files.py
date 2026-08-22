@@ -47,7 +47,7 @@ def _get_registered() -> Dict[str, str]:
 _config_files: List[Dict[str, str]] | None = None
 
 
-def _resolve_hermes_home() -> Path:
+def _resolve_logos_home() -> Path:
     from logos_constants import get_logos_home
     return get_logos_home()
 
@@ -66,7 +66,7 @@ def register_credential_file(
     skill cannot declare ``required_credential_files: ['../../.ssh/id_rsa']``
     and exfiltrate sensitive host files into a container sandbox.
     """
-    hermes_home = _resolve_hermes_home()
+    hermes_home = _resolve_logos_home()
 
     # Reject absolute paths — they bypass the HERMES_HOME sandbox entirely.
     if os.path.isabs(relative_path):
@@ -136,7 +136,7 @@ def _load_config_files() -> List[Dict[str, str]]:
     result: List[Dict[str, str]] = []
     try:
         from logos_cli.config import read_raw_config
-        hermes_home = _resolve_hermes_home()
+        hermes_home = _resolve_logos_home()
         cfg = read_raw_config()
         cred_files = cfg.get("terminal", {}).get("credential_files")
         if isinstance(cred_files, list):
@@ -218,7 +218,7 @@ def get_skills_directory_mount(
     at ``<container_base>/external_skills/<index>``.
     """
     mounts = []
-    hermes_home = _resolve_hermes_home()
+    hermes_home = _resolve_logos_home()
     skills_dir = hermes_home / "skills"
     if skills_dir.is_dir():
         host_path = _safe_skills_path(skills_dir)
@@ -301,7 +301,7 @@ def iter_skills_files(
     """
     result: List[Dict[str, str]] = []
 
-    hermes_home = _resolve_hermes_home()
+    hermes_home = _resolve_logos_home()
     skills_dir = hermes_home / "skills"
     if skills_dir.is_dir():
         container_root = f"{container_base.rstrip('/')}/skills"

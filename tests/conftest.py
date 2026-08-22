@@ -180,7 +180,7 @@ _HERMES_BEHAVIORAL_VARS = frozenset({
     "HERMES_YOLO_MODE",
     "HERMES_INTERACTIVE",
     # API server config — if a runtime ~/.hermes/.env or a prior in-process
-    # load_hermes_dotenv sets these (e.g. API_SERVER_PORT=8811), they leak
+    # load_logos_dotenv sets these (e.g. API_SERVER_PORT=8811), they leak
     # into the config-default + config-yaml tests and flip the expected
     # port/enabled defaults. Blank per test; tests that need a specific
     # value set it via monkeypatch after the fixture runs.

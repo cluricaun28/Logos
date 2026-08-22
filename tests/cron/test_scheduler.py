@@ -667,7 +667,7 @@ class TestRunJobSessionPersistence:
         }
         fake_db = MagicMock()
 
-        with patch("cron.scheduler._hermes_home", tmp_path), \
+        with patch("cron.scheduler._logos_home", tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("dotenv.load_dotenv"), \
              patch("logos_state.SessionDB", return_value=fake_db), \
@@ -706,7 +706,7 @@ class TestRunJobSessionPersistence:
         """Common patches for run_job tests."""
         fake_db = MagicMock()
         return fake_db, [
-            patch("cron.scheduler._hermes_home", tmp_path),
+            patch("cron.scheduler._logos_home", tmp_path),
             patch("cron.scheduler._resolve_origin", return_value=None),
             patch("dotenv.load_dotenv"),
             patch("logos_state.SessionDB", return_value=fake_db),
@@ -809,7 +809,7 @@ class TestRunJobSessionPersistence:
         }
         fake_db = MagicMock()
 
-        with patch("cron.scheduler._hermes_home", tmp_path), \
+        with patch("cron.scheduler._logos_home", tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("dotenv.load_dotenv"), \
              patch("logos_state.SessionDB", return_value=fake_db), \
@@ -885,7 +885,7 @@ class TestRunJobSessionPersistence:
         }
         fake_db = MagicMock()
 
-        with patch("cron.scheduler._hermes_home", tmp_path), \
+        with patch("cron.scheduler._logos_home", tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("dotenv.load_dotenv"), \
              patch("logos_state.SessionDB", return_value=fake_db), \
@@ -924,7 +924,7 @@ class TestRunJobSessionPersistence:
         }
         fake_db = MagicMock()
 
-        with patch("cron.scheduler._hermes_home", tmp_path), \
+        with patch("cron.scheduler._logos_home", tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("dotenv.load_dotenv"), \
              patch("logos_state.SessionDB", return_value=fake_db), \
@@ -972,7 +972,7 @@ class TestRunJobSessionPersistence:
 
         fake_db = MagicMock()
 
-        with patch("cron.scheduler._hermes_home", tmp_path), \
+        with patch("cron.scheduler._logos_home", tmp_path), \
              patch("cron.scheduler.get_due_jobs", return_value=[job]), \
              patch("cron.scheduler.advance_next_run"), \
              patch("cron.scheduler.mark_job_run") as mock_mark, \
@@ -1015,7 +1015,7 @@ class TestRunJobSessionPersistence:
                 seen["thread_id"] = get_session_env("LOGOS_CRON_AUTO_DELIVER_THREAD_ID") or None
                 return {"final_response": "ok"}
 
-        with patch("cron.scheduler._hermes_home", tmp_path), \
+        with patch("cron.scheduler._logos_home", tmp_path), \
              patch("logos_state.SessionDB", return_value=fake_db), \
              patch(
                  "logos_cli.runtime_provider.resolve_runtime_provider",
@@ -1081,7 +1081,7 @@ class TestRunJobSessionPersistence:
                 )
                 return {"final_response": "ok"}
 
-        with patch("cron.scheduler._hermes_home", tmp_path), \
+        with patch("cron.scheduler._logos_home", tmp_path), \
              patch("logos_state.SessionDB", return_value=fake_db), \
              patch(
                  "logos_cli.runtime_provider.resolve_runtime_provider",
@@ -1132,7 +1132,7 @@ class TestRunJobConfigLogging:
             "prompt": "hello",
         }
 
-        with patch("cron.scheduler._hermes_home", tmp_path), \
+        with patch("cron.scheduler._logos_home", tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("dotenv.load_dotenv"), \
              patch("run_agent.AIAgent") as mock_agent_cls:
@@ -1161,7 +1161,7 @@ class TestRunJobConfigLogging:
             "prompt": "hello",
         }
 
-        with patch("cron.scheduler._hermes_home", tmp_path), \
+        with patch("cron.scheduler._logos_home", tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("dotenv.load_dotenv"), \
              patch("run_agent.AIAgent") as mock_agent_cls:
@@ -1194,7 +1194,7 @@ class TestRunJobConfigEnvVarExpansion:
         job = {"id": "env-job", "name": "env test", "prompt": "hi"}
         fake_db = MagicMock()
 
-        with patch("cron.scheduler._hermes_home", tmp_path), \
+        with patch("cron.scheduler._logos_home", tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("dotenv.load_dotenv"), \
              patch("logos_state.SessionDB", return_value=fake_db), \
@@ -1226,7 +1226,7 @@ class TestRunJobConfigEnvVarExpansion:
         job = {"id": "fb-job", "name": "fallback test", "prompt": "hi"}
         fake_db = MagicMock()
 
-        with patch("cron.scheduler._hermes_home", tmp_path), \
+        with patch("cron.scheduler._logos_home", tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("dotenv.load_dotenv"), \
              patch("logos_state.SessionDB", return_value=fake_db), \
@@ -1255,7 +1255,7 @@ class TestRunJobConfigEnvVarExpansion:
         job = {"id": "unset-job", "name": "unset var test", "prompt": "hi"}
         fake_db = MagicMock()
 
-        with patch("cron.scheduler._hermes_home", tmp_path), \
+        with patch("cron.scheduler._logos_home", tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("dotenv.load_dotenv"), \
              patch("logos_state.SessionDB", return_value=fake_db), \
@@ -1297,7 +1297,7 @@ class TestRunJobSkillBacked:
             assert "NOTION_API_KEY" in get_all_passthrough()
             return {"final_response": "ok"}
 
-        with patch("cron.scheduler._hermes_home", tmp_path), \
+        with patch("cron.scheduler._logos_home", tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("dotenv.load_dotenv"), \
              patch("logos_state.SessionDB", return_value=fake_db), \
@@ -1356,9 +1356,9 @@ class TestRunJobSkillBacked:
             assert any("google_token.json" in v for v in registered.values())
             return {"final_response": "ok"}
 
-        with patch("cron.scheduler._hermes_home", tmp_path), \
+        with patch("cron.scheduler._logos_home", tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
-             patch("tools.credential_files._resolve_hermes_home", return_value=tmp_path), \
+             patch("tools.credential_files._resolve_logos_home", return_value=tmp_path), \
              patch("dotenv.load_dotenv"), \
              patch("logos_state.SessionDB", return_value=fake_db), \
              patch(
@@ -1395,7 +1395,7 @@ class TestRunJobSkillBacked:
 
         fake_db = MagicMock()
 
-        with patch("cron.scheduler._hermes_home", tmp_path), \
+        with patch("cron.scheduler._logos_home", tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("dotenv.load_dotenv"), \
              patch("logos_state.SessionDB", return_value=fake_db), \
@@ -1441,7 +1441,7 @@ class TestRunJobSkillBacked:
         def _skill_view(name):
             return json.dumps({"success": True, "content": f"# {name}\nInstructions for {name}."})
 
-        with patch("cron.scheduler._hermes_home", tmp_path), \
+        with patch("cron.scheduler._logos_home", tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("dotenv.load_dotenv"), \
              patch("logos_state.SessionDB", return_value=fake_db), \

@@ -168,10 +168,10 @@ _apply_profile_override()
 # Load .env from ~/.hermes/.env first, then project root as dev fallback.
 # User-managed env files should override stale shell exports on restart.
 from logos_cli.config import get_logos_home
-from logos_cli.env_loader import load_hermes_dotenv
+from logos_cli.env_loader import load_logos_dotenv
 from logos_constants import logos_env, logos_env_set
 
-load_hermes_dotenv(project_env=PROJECT_ROOT / ".env")
+load_logos_dotenv(project_env=PROJECT_ROOT / ".env")
 
 # Bridge security.redact_secrets from config.yaml → LOGOS_REDACT_SECRETS env
 # var BEFORE logos_logging imports agent.redact (which snapshots the flag at
@@ -188,7 +188,9 @@ try:
             if isinstance(_early_sec_cfg, dict):
                 _early_redact = _early_sec_cfg.get("redact_secrets")
                 if _early_redact is not None:
-                    os.environ["LOGOS_REDACT_SECRETS"] = str(_early_redact).lower()
+                    _redact_val = str(_early_redact).lower()
+                    os.environ["LOGOS_REDACT_SECRETS"] = _redact_val
+                    os.environ["HERMES_REDACT_SECRETS"] = _redact_val  # legacy alias
             del _early_sec_cfg
         del _cfg_path
 except Exception:

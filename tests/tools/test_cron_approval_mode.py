@@ -13,10 +13,18 @@ from tools.approval import (
 
 
 @pytest.fixture(autouse=True)
-def _clear_approval_state():
+def _clear_approval_state(monkeypatch):
     approval_module._permanent_approved.clear()
     approval_module.clear_session("default")
     approval_module.clear_session("test-session")
+    # Dual-read policy: strip ambient session-mode vars under BOTH names so
+    # tests are deterministic regardless of host env (LOGOS_* wins when set).
+    for k in ("HERMES_INTERACTIVE", "LOGOS_INTERACTIVE",
+              "HERMES_GATEWAY_SESSION", "LOGOS_GATEWAY_SESSION",
+              "HERMES_EXEC_ASK", "LOGOS_EXEC_ASK",
+              "HERMES_YOLO_MODE", "LOGOS_YOLO_MODE",
+              "HERMES_CRON_SESSION", "LOGOS_CRON_SESSION"):
+        monkeypatch.delenv(k, raising=False)
     yield
     approval_module._permanent_approved.clear()
     approval_module.clear_session("default")

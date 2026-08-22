@@ -129,10 +129,10 @@ def _get_profiles_root() -> Path:
     ``~/.hermes``, profiles live under ``HERMES_HOME/profiles/`` so
     they persist on the mounted volume.
     """
-    return _get_default_hermes_home() / "profiles"
+    return _get_default_logos_home() / "profiles"
 
 
-def _get_default_hermes_home() -> Path:
+def _get_default_logos_home() -> Path:
     """Return the default (pre-profile) HERMES_HOME path.
 
     In standard deployments this is ``~/.hermes``.
@@ -145,7 +145,7 @@ def _get_default_hermes_home() -> Path:
 
 def _get_active_profile_path() -> Path:
     """Return the path to the sticky active_profile file."""
-    return _get_default_hermes_home() / "active_profile"
+    return _get_default_logos_home() / "active_profile"
 
 
 def _get_wrapper_dir() -> Path:
@@ -171,7 +171,7 @@ def validate_profile_name(name: str) -> None:
 def get_profile_dir(name: str) -> Path:
     """Resolve a profile name to its HERMES_HOME directory."""
     if name == "default":
-        return _get_default_hermes_home()
+        return _get_default_logos_home()
     return _get_profiles_root() / name
 
 
@@ -329,7 +329,7 @@ def list_profiles() -> List[ProfileInfo]:
     wrapper_dir = _get_wrapper_dir()
 
     # Default profile
-    default_home = _get_default_hermes_home()
+    default_home = _get_default_logos_home()
     if default_home.is_dir():
         model, provider = _read_config_model(default_home)
         profiles.append(ProfileInfo(
@@ -731,7 +731,7 @@ def get_active_profile_name() -> str:
     hermes_home = get_logos_home()
     resolved = hermes_home.resolve()
 
-    default_resolved = _get_default_hermes_home().resolve()
+    default_resolved = _get_default_logos_home().resolve()
     if resolved == default_resolved:
         return "default"
 
@@ -968,7 +968,7 @@ def _migrate_honcho_profile_host(old_name: str, new_name: str, new_dir: Path) ->
 
     candidates = [
         new_dir / "honcho.json",
-        _get_default_hermes_home() / "honcho.json",
+        _get_default_logos_home() / "honcho.json",
         Path.home() / ".honcho" / "config.json",
     ]
 

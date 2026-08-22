@@ -42,9 +42,14 @@ class TestApprovalHeartbeat:
         self._saved_env = {
             k: os.environ.get(k)
             for k in ("HERMES_GATEWAY_SESSION", "HERMES_YOLO_MODE",
-                      "HERMES_SESSION_KEY")
+                      "HERMES_SESSION_KEY",
+                      "LOGOS_GATEWAY_SESSION", "LOGOS_SESSION_KEY")
         }
         os.environ.pop("HERMES_YOLO_MODE", None)
+        # LOGOS_* must be cleared too — the dual-read gives LOGOS_* priority
+        # over the legacy HERMES_* names this test drives.
+        os.environ.pop("LOGOS_SESSION_KEY", None)
+        os.environ.pop("LOGOS_GATEWAY_SESSION", None)
         os.environ["HERMES_GATEWAY_SESSION"] = "1"
         # The blocking wait path reads the session key via contextvar OR
         # os.environ fallback.  Contextvars don't propagate across threads

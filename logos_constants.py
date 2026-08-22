@@ -179,9 +179,11 @@ def logos_env(name: str, default: str | None = None) -> str | None:
     If both are set, ``LOGOS_<name>`` wins.  Returns *default* when neither is
     set.  Drop-in replacement for the pre-rebrand ``os.getenv("HERMES_<name>")``
     reads — behavior is a strict superset (the legacy value is still honored).
+    An *empty* ``LOGOS_<name>`` is treated as unset (it falls through to the
+    legacy value), matching pre-rebrand ``os.getenv`` + truthiness semantics.
     """
     val = os.environ.get("LOGOS_" + name)
-    if val is None:
+    if val in (None, ""):
         val = os.environ.get("HERMES_" + name)
     if val is None:
         return default

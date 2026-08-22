@@ -59,8 +59,9 @@ except (ModuleNotFoundError, ImportError):
     def display_logos_home() -> str:
         """Return a user-friendly ``~/``-shortened display string.
 
-        Mirrors ``logos_constants.display_logos_home()``."""
-        from logos_constants import get_logos_home
+        Mirrors ``logos_constants.display_logos_home()``. Uses the local
+        fallback ``get_logos_home`` — ``logos_constants`` is unavailable
+        on this code path by definition."""
         home = get_logos_home()
         try:
             return "~/" + str(home.relative_to(Path.home()))

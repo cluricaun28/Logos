@@ -22,10 +22,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger("nightly_distill")
 
-HERMES_DIR = Path.home() / ".hermes"
-QUEUE_PATH = HERMES_DIR / "staging" / "distillation_queue.json"
-SCANNER_SCRIPT = HERMES_DIR / "scripts" / "phase3_signal_scanner.py"
-PROJECT_DIR = HERMES_DIR / "hermes-agent"
+LOGOS_DIR = Path.home() / ".hermes"
+QUEUE_PATH = LOGOS_DIR / "staging" / "distillation_queue.json"
+SCANNER_SCRIPT = LOGOS_DIR / "scripts" / "phase3_signal_scanner.py"
+PROJECT_DIR = LOGOS_DIR / "hermes-agent"
 
 
 def run_signal_scan():

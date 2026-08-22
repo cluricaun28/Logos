@@ -72,7 +72,7 @@ class TestNonInteractiveSetup:
         args = _make_setup_args(non_interactive=True)
 
         with (
-            patch("logos_cli.setup.ensure_hermes_home"),
+            patch("logos_cli.setup.ensure_logos_home"),
             patch("logos_cli.setup.load_config", return_value={}),
             patch("logos_cli.setup.get_logos_home", return_value="/tmp/.hermes"),
             patch("logos_cli.auth.get_active_provider", side_effect=AssertionError("wizard continued")),
@@ -90,7 +90,7 @@ class TestNonInteractiveSetup:
         args = _make_setup_args(non_interactive=False)
 
         with (
-            patch("logos_cli.setup.ensure_hermes_home"),
+            patch("logos_cli.setup.ensure_logos_home"),
             patch("logos_cli.setup.load_config", return_value={}),
             patch("logos_cli.setup.get_logos_home", return_value="/tmp/.hermes"),
             patch("logos_cli.auth.get_active_provider", side_effect=AssertionError("wizard continued")),

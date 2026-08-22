@@ -290,7 +290,7 @@ def _ensure_default_soul_md(home: Path) -> None:
     _secure_file(soul_path)
 
 
-def ensure_hermes_home():
+def ensure_logos_home():
     """Ensure ~/.hermes directory structure exists with secure permissions.
 
     In managed mode (NixOS), dirs are created by the activation script with
@@ -301,7 +301,7 @@ def ensure_hermes_home():
     if is_managed():
         old_umask = os.umask(0o007)
         try:
-            _ensure_hermes_home_managed(home)
+            _ensure_logos_home_managed(home)
         finally:
             os.umask(old_umask)
     else:
@@ -314,7 +314,7 @@ def ensure_hermes_home():
         _ensure_default_soul_md(home)
 
 
-def _ensure_hermes_home_managed(home: Path):
+def _ensure_logos_home_managed(home: Path):
     """Managed-mode variant: verify dirs exist (activation creates them), seed SOUL.md."""
     if not home.is_dir():
         raise RuntimeError(
@@ -3253,7 +3253,7 @@ def load_config_readonly() -> Dict[str, Any]:
 
 def _load_config_impl(*, want_deepcopy: bool) -> Dict[str, Any]:
     """Internal implementation shared by load_config() and load_config_readonly()."""
-    ensure_hermes_home()
+    ensure_logos_home()
     config_path = get_config_path()
     path_key = str(config_path)
 
@@ -3375,7 +3375,7 @@ def save_config(config: Dict[str, Any]):
         return
     from utils import atomic_yaml_write
 
-    ensure_hermes_home()
+    ensure_logos_home()
     config_path = get_config_path()
     current_normalized = _normalize_root_model_keys(_normalize_max_turns_config(config))
     normalized = current_normalized
@@ -3586,7 +3586,7 @@ def save_env_value(key: str, value: str):
     value = value.replace("\n", "").replace("\r", "")
     # API keys / tokens must be ASCII — strip non-ASCII with a warning.
     value = _check_non_ascii_credential(key, value)
-    ensure_hermes_home()
+    ensure_logos_home()
     env_path = get_env_path()
 
     # On Windows, open() defaults to the system locale (cp1252) which can
@@ -4019,7 +4019,7 @@ def set_config_value(key: str, value: str):
     _set_nested(user_config, key, value)
     
     # Write only user config back (not the full merged defaults)
-    ensure_hermes_home()
+    ensure_logos_home()
     from utils import atomic_yaml_write
     atomic_yaml_write(config_path, user_config, sort_keys=False)
     

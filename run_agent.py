@@ -87,15 +87,15 @@ OpenAI = _OpenAIProxy()
 
 # Load .env from ~/.hermes/.env first, then project root as dev fallback.
 # User-managed env files should override stale shell exports on restart.
-from logos_cli.env_loader import load_hermes_dotenv
+from logos_cli.env_loader import load_logos_dotenv
 from logos_cli.timeouts import (
     get_provider_request_timeout,
     get_provider_stale_timeout,
 )
 
-_hermes_home = get_logos_home()
+_logos_home = get_logos_home()
 _project_env = Path(__file__).parent / '.env'
-_loaded_env_paths = load_hermes_dotenv(hermes_home=_hermes_home, project_env=_project_env)
+_loaded_env_paths = load_logos_dotenv(logos_home=_logos_home, project_env=_project_env)
 if _loaded_env_paths:
     for _env_path in _loaded_env_paths:
         logger.info("Loaded environment variables from %s", _env_path)
@@ -1232,7 +1232,7 @@ class AIAgent:
         # both live under ~/.hermes/logs/.  Idempotent, so gateway mode
         # (which creates a new AIAgent per message) won't duplicate handlers.
         from logos_logging import setup_logging, setup_verbose_logging
-        setup_logging(hermes_home=_hermes_home)
+        setup_logging(logos_home=_logos_home)
 
         if self.verbose_logging:
             setup_verbose_logging()
@@ -4873,8 +4873,8 @@ class AIAgent:
             if context_files_prompt:
                 prompt_parts.append(context_files_prompt)
 
-        from logos_time import now as _hermes_now
-        now = _hermes_now()
+        from logos_time import now as _logos_now
+        now = _logos_now()
         timestamp_line = f"Conversation started: {now.strftime('%A, %B %d, %Y %I:%M %p')}"
         if self.pass_session_id and self.session_id:
             timestamp_line += f"\nSession ID: {self.session_id}"

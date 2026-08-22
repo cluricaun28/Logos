@@ -140,7 +140,7 @@ from logos_cli.config import (
     save_config,
     save_env_value,
     get_env_value,
-    ensure_hermes_home,
+    ensure_logos_home,
 )
 # display_logos_home imported lazily at call sites (stale-module safety during logos update)
 
@@ -2177,12 +2177,11 @@ def run_setup_wizard(args):
       logos setup tools     — just tool configuration
       logos setup agent     — just agent settings
     """
-    from logos_constants import get_logos_home
     from logos_cli.config import is_managed, managed_error
     if is_managed():
         managed_error("run setup wizard")
         return
-    ensure_hermes_home()
+    ensure_logos_home()
 
     reset_requested = bool(getattr(args, "reset", False))
     if reset_requested:

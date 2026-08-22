@@ -118,8 +118,12 @@ class TestThreadLocalApprovalCallback:
         assert worker_saw == [None]
         assert _get_sudo_password_callback() is cb_main
 
-    def test_sudo_password_cache_does_not_leak_across_threads(self):
+    def test_sudo_password_cache_does_not_leak_across_threads(self, monkeypatch):
         """Interactive sudo cache must not bleed into another executor thread."""
+        # Clear ambient session-key env so the cache scope falls back to
+        # thread ident (dual-read: LOGOS_* would shadow the per-thread scope).
+        monkeypatch.delenv("LOGOS_SESSION_KEY", raising=False)
+        monkeypatch.delenv("HERMES_SESSION_KEY", raising=False)
         from tools.terminal_tool import (
             _get_cached_sudo_password,
             _reset_cached_sudo_passwords,
@@ -213,6 +217,15 @@ class TestAcpExecAskGate:
         monkeypatch.delenv("HERMES_GATEWAY_SESSION", raising=False)
         monkeypatch.delenv("HERMES_EXEC_ASK", raising=False)
         monkeypatch.delenv("HERMES_YOLO_MODE", raising=False)
+        # Clear the primary LOGOS_* names too — dual-read prefers them, so an
+        # ambient LOGOS_EXEC_ASK/LOGOS_SESSION_KEY would shadow this test's
+        # legacy-name setup and route down the gateway-queue path.
+        monkeypatch.delenv("LOGOS_INTERACTIVE", raising=False)
+        monkeypatch.delenv("LOGOS_GATEWAY_SESSION", raising=False)
+        monkeypatch.delenv("LOGOS_EXEC_ASK", raising=False)
+        monkeypatch.delenv("LOGOS_YOLO_MODE", raising=False)
+        monkeypatch.delenv("LOGOS_SESSION_KEY", raising=False)
+        monkeypatch.delenv("HERMES_SESSION_KEY", raising=False)
 
         from tools.approval import check_all_command_guards
 

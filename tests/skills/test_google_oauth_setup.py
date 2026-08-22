@@ -267,7 +267,7 @@ class TestHermesConstantsFallback:
     )
 
     def _load_helper(self, monkeypatch):
-        """Load _hermes_home.py with logos_constants blocked."""
+        """Load _logos_home.py with logos_constants blocked."""
         monkeypatch.setitem(sys.modules, "logos_constants", None)
         spec = importlib.util.spec_from_file_location("_hermes_home_test", self.HELPER_PATH)
         module = importlib.util.module_from_spec(spec)
@@ -336,7 +336,7 @@ class TestHermesConstantsFallback:
         assert module.display_logos_home() == "/opt/hermes-custom"
 
     def test_delegates_to_logos_constants_when_available(self):
-        """When logos_constants IS importable, _hermes_home delegates to it."""
+        """When logos_constants IS importable, _logos_home delegates to it."""
         spec = importlib.util.spec_from_file_location(
             "_hermes_home_happy", self.HELPER_PATH
         )

@@ -31,7 +31,7 @@ from logos_cli.profiles import (
     generate_bash_completion,
     generate_zsh_completion,
     _get_profiles_root,
-    _get_default_hermes_home,
+    _get_default_logos_home,
 )
 
 
@@ -803,7 +803,7 @@ class TestCompletion:
 # ===================================================================
 
 class TestInternalHelpers:
-    """Tests for _get_profiles_root() and _get_default_hermes_home()."""
+    """Tests for _get_profiles_root() and _get_default_logos_home()."""
 
     def test_profiles_root_under_home(self, profile_env):
         tmp_path = profile_env
@@ -812,7 +812,7 @@ class TestInternalHelpers:
 
     def test_default_hermes_home(self, profile_env):
         tmp_path = profile_env
-        home = _get_default_hermes_home()
+        home = _get_default_logos_home()
         assert home == tmp_path / ".hermes"
 
     def test_profiles_root_docker_deployment(self, tmp_path, monkeypatch):
@@ -825,12 +825,12 @@ class TestInternalHelpers:
         assert root == docker_home / "profiles"
 
     def test_default_hermes_home_docker(self, tmp_path, monkeypatch):
-        """In Docker, _get_default_hermes_home() returns HERMES_HOME itself."""
+        """In Docker, _get_default_logos_home() returns HERMES_HOME itself."""
         docker_home = tmp_path / "opt" / "data"
         docker_home.mkdir(parents=True)
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
         monkeypatch.setenv("HERMES_HOME", str(docker_home))
-        home = _get_default_hermes_home()
+        home = _get_default_logos_home()
         assert home == docker_home
 
     def test_profiles_root_profile_mode(self, tmp_path, monkeypatch):

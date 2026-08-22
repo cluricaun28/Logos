@@ -55,7 +55,7 @@ def _enter_existing_install_patches(stack, **extra):
     """
     # Unconditional mocks (no return values to assert against).
     for target, kwargs in [
-        ("logos_cli.setup.ensure_hermes_home", {}),
+        ("logos_cli.setup.ensure_logos_home", {}),
         ("logos_cli.setup.is_interactive_stdin", {"return_value": True}),
         ("logos_cli.config.is_managed", {"return_value": False}),
         ("logos_cli.setup.load_config", {"return_value": {}}),
@@ -77,7 +77,7 @@ def _enter_existing_install_patches(stack, **extra):
 
 def _enter_fresh_install_patches(stack, **extra):
     for target, kwargs in [
-        ("logos_cli.setup.ensure_hermes_home", {}),
+        ("logos_cli.setup.ensure_logos_home", {}),
         ("logos_cli.setup.is_interactive_stdin", {"return_value": True}),
         ("logos_cli.config.is_managed", {"return_value": False}),
         ("logos_cli.setup.load_config", {"return_value": {}}),

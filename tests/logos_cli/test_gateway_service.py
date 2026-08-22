@@ -178,6 +178,7 @@ class TestGatewayStopCleanup:
 class TestLaunchdServiceRecovery:
     def test_get_restart_drain_timeout_prefers_env_then_config_then_default(self, monkeypatch):
         monkeypatch.delenv("HERMES_RESTART_DRAIN_TIMEOUT", raising=False)
+        monkeypatch.delenv("LOGOS_RESTART_DRAIN_TIMEOUT", raising=False)
         monkeypatch.setattr(gateway_cli, "read_raw_config", lambda: {})
 
         assert (
@@ -900,34 +901,34 @@ class TestSystemUnitHermesHome:
 
 
 class TestHermesHomeForTargetUser:
-    """Unit tests for _hermes_home_for_target_user()."""
+    """Unit tests for _logos_home_for_target_user()."""
 
     def test_remaps_default_home(self, monkeypatch):
         monkeypatch.setattr(Path, "home", staticmethod(lambda: Path("/root")))
         monkeypatch.delenv("HERMES_HOME", raising=False)
 
-        result = gateway_cli._hermes_home_for_target_user("/home/alice")
+        result = gateway_cli._logos_home_for_target_user("/home/alice")
         assert result == "/home/alice/.logos"
 
     def test_remaps_profile_path(self, monkeypatch):
         monkeypatch.setattr(Path, "home", staticmethod(lambda: Path("/root")))
         monkeypatch.setenv("HERMES_HOME", "/root/.hermes/profiles/coder")
 
-        result = gateway_cli._hermes_home_for_target_user("/home/alice")
+        result = gateway_cli._logos_home_for_target_user("/home/alice")
         assert result == "/home/alice/.hermes/profiles/coder"
 
     def test_keeps_custom_path(self, monkeypatch):
         monkeypatch.setattr(Path, "home", staticmethod(lambda: Path("/root")))
         monkeypatch.setenv("HERMES_HOME", "/opt/hermes")
 
-        result = gateway_cli._hermes_home_for_target_user("/home/alice")
+        result = gateway_cli._logos_home_for_target_user("/home/alice")
         assert result == "/opt/hermes"
 
     def test_noop_when_same_user(self, monkeypatch):
         monkeypatch.setattr(Path, "home", staticmethod(lambda: Path("/home/alice")))
         monkeypatch.delenv("HERMES_HOME", raising=False)
 
-        result = gateway_cli._hermes_home_for_target_user("/home/alice")
+        result = gateway_cli._logos_home_for_target_user("/home/alice")
         assert result == "/home/alice/.logos"
 
 
