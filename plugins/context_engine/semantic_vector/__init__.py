@@ -167,6 +167,15 @@ class SemanticVectorContextEngine(ContextEngine):
     _next_vector_id: int = 0
     _current_turn: int = 0
 
+    # C-E (2026-08-22): estimate of the static prompt payload (system
+    # prompt + tool schemas + injections, ~50-55K tokens) that the chars//4
+    # message-content estimate omits. Calibrated in update_from_response
+    # from the c2 pair (actual prompt_tokens - message-only estimate);
+    # reset in on_session_reset. Added back ONLY at full-context threshold
+    # comparisons — _last_archive_post_est and the calibration JSONL keep
+    # the message-only number so the c2 delta stays the overhead signal.
+    _overhead_est: int = 0
+
     # Local model path
     _model_path: str = ""
 
@@ -196,6 +205,12 @@ class SemanticVectorContextEngine(ContextEngine):
         est = getattr(self, "_last_archive_post_est", 0)
         actual = int(usage.get("prompt_tokens", 0) or 0)
         if est > 0 and actual > 0:
+            # C-E (2026-08-22): actual - est isolates the static payload
+            # the content estimate omits. Clamp at 0 so an actual that
+            # comes in under the estimate (mid-session drift) can't drive
+            # the overhead negative.
+            overhead = max(0, actual - est)
+            self._overhead_est = overhead
             context_engine_log({
                 "type": "calibration",
                 "engine": self.name,
@@ -203,11 +218,25 @@ class SemanticVectorContextEngine(ContextEngine):
                 "estimated": est,
                 "actual": actual,
                 "ratio": round(actual / est, 3),
+                "overhead": overhead,
             })
         self._last_archive_post_est = 0
         self.last_prompt_tokens = usage.get("prompt_tokens", self.last_prompt_tokens)
         self.last_completion_tokens = usage.get("completion_tokens", self.last_completion_tokens)
         self.last_total_tokens = usage.get("total_tokens", self.last_total_tokens)
+
+    def _estimate_total(self, messages: List[Dict[str, Any]]) -> int:
+        """Message-content estimate + calibrated static overhead.
+
+        C-E (2026-08-22): estimate_content_tokens() deliberately counts
+        message content only — it is the c2 calibration left-hand side,
+        where the delta vs actual prompt_tokens IS the overhead signal.
+        Every comparison of the engine's estimate against a FULL-context
+        threshold (threshold_tokens, danger zone, archive target) must
+        use this instead, or the ~50-55K static payload goes uncounted
+        and the estimate undercounts the real prompt 2.7-3.1x.
+        """
+        return estimate_content_tokens(messages) + self._overhead_est
 
     def should_archive(self, prompt_tokens: int = None) -> bool:
         """Return True if archiving should fire this turn."""
@@ -331,8 +360,13 @@ class SemanticVectorContextEngine(ContextEngine):
                     if msg_idx is not None:
                         keep_indices.add(msg_idx)
 
-        # Estimate tokens from actual message content if not provided
-        estimated_tokens = sum(len(m.get("content", "")) for m in messages) // 4
+        # Estimate tokens from actual message content if not provided.
+        # C-E (2026-08-22): use _estimate_total so the calibrated static
+        # overhead is counted against the full-context threshold. Without
+        # it, a below-threshold short-circuit fires on the message-only
+        # number and returns the ORIGINAL list — the c5 per-topic tail
+        # (keep_indices computed above) is never applied.
+        estimated_tokens = self._estimate_total(messages)
         effective_tokens = (
             current_tokens if current_tokens is not None else estimated_tokens
         )
@@ -369,16 +403,21 @@ class SemanticVectorContextEngine(ContextEngine):
         #      prevent OOM/crash.
         result_chars = sum(len(m.get("content", "")) for m in result)
         result_tokens = result_chars // 4
+        # C-E (2026-08-22): these thresholds are full-context values, so
+        # compare the calibrated total (content + static overhead), not
+        # the message-only estimate — otherwise the emergency brake
+        # engages up to ~3x too late.
+        total_result_tokens = result_tokens + self._overhead_est
         effective_tokens = (
-            current_tokens if current_tokens is not None else result_tokens
+            current_tokens if current_tokens is not None else total_result_tokens
         )
         danger_zone = int(self.context_length * self.danger_zone_percent) if self.context_length else 0
         needs_fallback = False
-        if self.threshold_tokens > 0 and result_tokens > self.threshold_tokens:
+        if self.threshold_tokens > 0 and total_result_tokens > self.threshold_tokens:
             logger.info(
                 "SemanticVector pruning insufficient (%d > %d tokens), "
                 "engaging rolling_window fallback",
-                result_tokens,
+                total_result_tokens,
                 self.threshold_tokens,
             )
             needs_fallback = True
@@ -506,9 +545,14 @@ class SemanticVectorContextEngine(ContextEngine):
         # (or the legacy protect_last_n*2 floor when window_size is unset).
         window_floor = max(self.protect_last_n * 2, self.window_size)
 
-        # Estimate current tokens
+        # Estimate current tokens.
+        # C-E (2026-08-22): bake the calibrated static overhead into the
+        # counter — target_tokens and hard_ceiling_tokens are full-context
+        # values, so the drop-oldest loop and the floor/ceiling stop
+        # conditions compare apples to apples. Message drops subtract the
+        # same per-message amount as before; the overhead is constant.
         current_chars = sum(len(m.get("content", "")) for m in truncated)
-        current_tokens = current_chars // 4
+        current_tokens = current_chars // 4 + self._overhead_est
 
         # Protect system messages and last N messages
         system_msgs = [m for m in truncated if m.get("role") == "system"]
@@ -939,6 +983,9 @@ class SemanticVectorContextEngine(ContextEngine):
         self._next_vector_id = 0
         self._current_turn = 0
         self._embedding_engine = None
+        # C-E: overhead is a per-session measurement (tool schemas /
+        # injections differ per session); don't leak it across resets.
+        self._overhead_est = 0
         # Note: we deliberately do NOT set self.model = None here.
         # If the model was loaded (from cache or fresh load), it stays.
         # The module-level cache is the ultimate safety net.
