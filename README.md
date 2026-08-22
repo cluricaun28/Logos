@@ -35,8 +35,14 @@ The system runs locally. No cloud APIs for memory or retrieval.
 
 ---
 
-### 📄 White Paper
-For a comprehensive architectural deep-dive covering all subsystems, the epistemic framework, and the design philosophy in detail, see [WHITEPAPER.md](WHITEPAPER.md).
+### 📚 Documentation Map
+
+The docs are tiered like a course sequence — start at 101, go deeper only as needed:
+
+- **Logos 101 — this README** — What the system is, what makes it different, hardware/services, full setup, daily use, maintenance. If you're just operating an instance, this file is the whole job.
+- **Logos 202 — [WHITEPAPER.md](WHITEPAPER.md)** — The architectural deep-dive: every subsystem, the epistemic framework (how the system judges truth), design philosophy, and the change log. Read it to understand *why* Logos is built this way.
+- **Logos 300 — [AGENTS.md](AGENTS.md)** — Developer guide for modifying the codebase: project structure, dependency chain, the AIAgent loop, CLI architecture, plugins. Only needed if you're changing code, not running it.
+- Supporting: [DIVERGENCE.md](DIVERGENCE.md) (relationship to upstream Hermes), [docs/upstream_tracking.md](docs/upstream_tracking.md) (cherry-pick record), `extras/` (SOUL.md template + system-prompt guide, RL and skills templates, deep-research setup).
 
 ---
 
@@ -78,7 +84,27 @@ Scheduled jobs maintain and grow the system. See WHITEPAPER.md Section 4.6 for d
 
 ## Quick Start — Full Setup Guide
 
-Follow these steps to set up Logos with perpetual memory, reference library, and skills. Each step builds on the previous one.
+### Prerequisites: Hardware & Local Services
+
+Logos is designed for local inference — no cloud APIs for memory or retrieval. The reference setup runs a 27B-parameter int4 model on an RTX 5090 (32GB VRAM) with 64GB RAM.
+
+- **GPU:** single GPU with 24GB+ VRAM (RTX 4090 / 5090 class). Less VRAM → smaller model, lower `--max-model-len`.
+- **RAM:** 64GB recommended (agent + Docker services + embedding model need headroom).
+- **OS:** WSL2 on Windows 11, or native Linux.
+
+Optional local services (only for the deep-research tier — Step 6) and their default ports:
+
+| Service | Port | Purpose |
+|---------|------|---------|
+| vLLM | 8000 | Local model inference |
+| SearXNG | 8080 | Metasearch engine |
+| Firecrawl | 3002 | Web content extraction |
+| Camofox | 9377 | Anti-detection browser |
+| Quartz v4 | 8081 | Reference Library static site |
+
+These are referenced throughout the codebase and config files.
+
+Follow the steps below to set up Logos with perpetual memory, reference library, and skills. Each step builds on the previous one.
 
 ### Step 1: Install
 
@@ -201,6 +227,18 @@ The agent will:
 - **Customize SOUL.md** with your values, preferences, and communication style
 - **Review saved memories/skills periodically** — the agent will ask if anything should be saved
 - **Keep config.yaml updated** as you add tools or services (SearXNG, Firecrawl, etc.)
+
+### Key Config Values (context management)
+
+The context engine keeps the window lean by archiving completed turns. In `~/.logos/config.yaml`:
+
+- **`context.engine`** — the context management strategy
+- **`context.archiving.threshold_percent`** — when to archive (default 0.75)
+- **`context.archiving.archive_target`** — prune down to this level (default 0.65)
+- **`context.archiving.hard_ceiling_percent`** — safety net (default 0.85)
+- **Custom provider `context_length`** — must match your vLLM `--max-model-len`
+
+All file paths in config are relative to `~/.logos/`. If you install elsewhere, update them accordingly.
 
 ---
 
