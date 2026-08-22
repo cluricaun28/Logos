@@ -23,6 +23,146 @@ EMBED_BATCH_SIZE = 64
 PROGRESS_LOG_INTERVAL = 512
 RL_BASE_DIR = os.path.expanduser("~/.hermes/reference-library")
 
+# ── Schema v2 chunking ─────────────────────────────────────────────────
+# Chunk size is tuned for the embedding model, not just FTS:
+# all-MiniLM-L6-v2 truncates at 256 tokens (~1100-1200 chars of English),
+# so a 1000-char chunk is the largest unit that a single chunk embedding
+# can represent in full. Overlap keeps phrases straddling a boundary
+# searchable and lets word-boundary back-off lose little coverage.
+RL_CHUNK_SIZE = 1000
+RL_CHUNK_OVERLAP = 150
+
+
+def _chunk_text(
+    text: str,
+    size: int = RL_CHUNK_SIZE,
+    overlap: int = RL_CHUNK_OVERLAP,
+) -> list[str]:
+    """Split text into overlapping chunks on whitespace boundaries.
+
+    Guarantees:
+      - every character of the input appears in at least one chunk
+        (consecutive chunks overlap by `overlap` chars);
+      - at most one chunk for text of length <= size;
+      - no empty chunks; never raises on odd input.
+
+    Breaks prefer the last whitespace inside the final `overlap` window of
+    a chunk, so words are not split mid-token. A break window with no
+    whitespace (very long unbroken run) falls back to a hard cut — forward
+    progress is guaranteed either way (stride = size - overlap > 0).
+    """
+    text = text.strip()
+    if not text:
+        return []
+    if len(text) <= size:
+        return [text]
+
+    chunks: list[str] = []
+    start = 0
+    n = len(text)
+    while True:
+        end = min(start + size, n)
+        if end < n:
+            ws = text.rfind(" ", end - overlap, end)
+            if ws <= start:
+                ws = text.rfind("\n", end - overlap, end)
+            if ws > start:
+                end = ws
+        chunk = text[start:end].strip()
+        if chunk:
+            chunks.append(chunk)
+        if end >= n:
+            break
+        start = end - overlap
+        if start <= (end - size):  # defensive: guarantee forward progress
+            start = end - overlap + 1
+    return chunks
+
+
+def _insert_chunk_rows(conn: Any, file_infos: list[dict]) -> None:
+    """Bulk-insert rl_chunks rows for a set of file infos and rebuild the
+    chunk FTS5 table from them.
+
+    Called under the caller's lock (build_index / reindex_stale). The FTS
+    table is dropped and recreated — mirroring the legacy rl_index_fts
+    pattern — because after a bulk content rewrite the cheapest correct
+    state is a fresh index. Drift from a crash mid-build is repaired by
+    RLIndex._self_heal_fts().
+    """
+    chunk_rows: list[tuple] = []
+    for fi in file_infos:
+        for idx, chunk in enumerate(_chunk_text(fi["body"])):
+            chunk_rows.append((fi["file_path"], idx, chunk))
+
+    conn.execute("DELETE FROM rl_chunks")
+    conn.executemany(
+        "INSERT INTO rl_chunks(file_path, chunk_idx, body) VALUES (?,?,?)",
+        chunk_rows,
+    )
+
+    conn.execute("DROP TABLE IF EXISTS rl_chunks_fts")
+    conn.execute(
+        "CREATE VIRTUAL TABLE rl_chunks_fts USING fts5("
+        "  file_path, chunk_idx, body,"
+        "  content='rl_chunks',"
+        "  content_rowid='rowid',"
+        "  tokenize='unicode61'"
+        ")"
+    )
+    conn.execute(
+        "INSERT INTO rl_chunks_fts(rowid, file_path, chunk_idx, body) "
+        "SELECT rowid, file_path, chunk_idx, body FROM rl_chunks"
+    )
+
+
+def _replace_file_chunks(conn: Any, file_path: str, body: str) -> list[int]:
+    """Replace the rl_chunks rows (and their FTS rows) for one file.
+
+    Returns the new chunk rowids in chunk_idx order. Caller must hold the
+    lock and be inside an open transaction.
+    """
+    old_rowids = [
+        r[0]
+        for r in conn.execute(
+            "SELECT rowid FROM rl_chunks WHERE file_path = ?", (file_path,)
+        )
+    ]
+    if old_rowids:
+        conn.executemany(
+            "DELETE FROM rl_chunks_fts WHERE rowid = ?",
+            [(rid,) for rid in old_rowids],
+        )
+        conn.execute(
+            "DELETE FROM rl_chunks WHERE file_path = ?", (file_path,)
+        )
+        conn.execute(
+            "DELETE FROM rl_chunk_embeddings WHERE file_path = ?",
+            (file_path,),
+        )
+
+    chunks = _chunk_text(body)
+    for idx, chunk in enumerate(chunks):
+        conn.execute(
+            "INSERT INTO rl_chunks(file_path, chunk_idx, body) VALUES (?,?,?)",
+            (file_path, idx, chunk),
+        )
+    new_rowids = [
+        r[0]
+        for r in conn.execute(
+            "SELECT rowid FROM rl_chunks WHERE file_path = ?"
+            " ORDER BY chunk_idx",
+            (file_path,),
+        )
+    ]
+    conn.executemany(
+        "INSERT INTO rl_chunks_fts(rowid, file_path, chunk_idx, body)"
+        " VALUES (?,?,?,?)",
+        [(rid, file_path, i, chunk) for i, (rid, chunk) in enumerate(
+            zip(new_rowids, chunks)
+        )],
+    )
+    return new_rowids
+
 
 def build_index(
     *,
@@ -44,6 +184,12 @@ def build_index(
     with lock:
         conn.execute("DELETE FROM rl_embeddings")
         conn.execute("DELETE FROM rl_files")
+        # Schema v2: clear chunk tables too. Deleting rows (rather than
+        # dropping tables) keeps AUTOINCREMENT rowids monotonic, so the
+        # external-content FTS rowid mapping never collides with a live
+        # reader's snapshot mid-build.
+        conn.execute("DELETE FROM rl_chunk_embeddings")
+        conn.execute("DELETE FROM rl_chunks")
 
     start = time.time()
     now = time.time()
@@ -115,6 +261,12 @@ def build_index(
             "SELECT rowid, file_path, title, body, category "
             "FROM rl_files"
         )
+
+        # Schema v2: chunk rows for full-body FTS + chunk embeddings.
+        # rl_files now carries the FULL body (see _extract_file_info), so
+        # the legacy file-level FTS above is also full-text — pre-v2
+        # readers of a v2-built index gain keyword coverage immediately.
+        _insert_chunk_rows(conn, file_infos)
 
         for trig_sql in (
             "CREATE TRIGGER rl_files_ai AFTER INSERT ON rl_files BEGIN "
@@ -190,9 +342,52 @@ def build_index(
             "or free a GPU and rebuild.",
             stats["files_indexed"],
         )
+
+    # Phase 3b (schema v2): chunk embeddings — semantic coverage for the
+    # full body, not just the first RL_EMBED_MAX_CONTENT_LEN chars.
+    stats["chunks_indexed"] = 0
+    stats["chunks_embedded"] = 0
+    try:
+        with lock:
+            chunk_rows = conn.execute(
+                "SELECT rowid, file_path, body FROM rl_chunks"
+            ).fetchall()
+    except (sqlite3.Error, AttributeError) as e:
+        logger.debug("Chunk rows unreadable (pre-v2 DB?): %s", e)
+        chunk_rows = []
+    stats["chunks_indexed"] = len(chunk_rows)
+
+    for i in range(0, len(chunk_rows), EMBED_BATCH_SIZE):
+        batch = chunk_rows[i: i + EMBED_BATCH_SIZE]
+        cids = [r[0] for r in batch]
+        cpaths = [r[1] for r in batch]
+        ctexts = [r[2] for r in batch]
+        vectors = embed_batch_fn(ctexts, batch_size=EMBED_BATCH_SIZE)
+
+        embed_rows: list[tuple] = []
+        for cid, cpath, vector in zip(cids, cpaths, vectors):
+            if vector is not None:
+                blob = struct.pack(f"{RL_EMBED_DIM}f", *vector)
+                info = info_by_path.get(cpath)
+                mtime = info["mtime"] if info else 0
+                embed_rows.append((cid, cpath, blob, mtime, now))
+
+        if embed_rows:
+            with lock:
+                conn.executemany(
+                    "INSERT OR REPLACE INTO rl_chunk_embeddings"
+                    " (chunk_id, file_path, embedding, mtime, created_at)"
+                    " VALUES (?, ?, ?, ?, ?)",
+                    embed_rows,
+                )
+                conn.commit()
+            stats["chunks_embedded"] += len(embed_rows)
+
     logger.info(
-        "RLIndex build complete: %d files, %d embeddings, %.1fs",
+        "RLIndex build complete: %d files, %d embeddings, %d chunks "
+        "(%d chunk embeddings), %.1fs",
         stats["files_indexed"], stats["files_embedded"],
+        stats["chunks_indexed"], stats["chunks_embedded"],
         stats["elapsed_seconds"],
     )
     return stats
@@ -243,6 +438,25 @@ def update_file(
                     (info["file_path"], blob, info["mtime"], time.time()),
                 )
 
+            # Schema v2: refresh this file's chunks + chunk embeddings.
+            # Each chunk embed is a single encode call (chunks are small
+            # by construction); a failed chunk embed degrades to FTS-only
+            # for that chunk, same as the file-level path.
+            chunk_rowids = _replace_file_chunks(
+                conn, info["file_path"], info["body"]
+            )
+            for rid, chunk in zip(chunk_rowids, _chunk_text(info["body"])):
+                cv = embed_fn(chunk)
+                if cv is not None:
+                    cblob = struct.pack(f"{embed_dim}f", *cv)
+                    conn.execute(
+                        "INSERT OR REPLACE INTO rl_chunk_embeddings"
+                        " (chunk_id, file_path, embedding, mtime,"
+                        "  created_at) VALUES (?, ?, ?, ?, ?)",
+                        (rid, info["file_path"], cblob,
+                         info["mtime"], time.time()),
+                    )
+
             conn.commit()
             return True
         except (sqlite3.Error, KeyError, TypeError, AttributeError) as e:
@@ -270,6 +484,28 @@ def remove_file(
 
     with lock:
         try:
+            # Schema v2: drop chunk FTS rows before the content rows they
+            # reference (external-content FTS must not keep dead rowids).
+            old_rowids = [
+                r[0]
+                for r in conn.execute(
+                    "SELECT rowid FROM rl_chunks WHERE file_path = ?",
+                    (rel_path,),
+                )
+            ]
+            if old_rowids:
+                conn.executemany(
+                    "DELETE FROM rl_chunks_fts WHERE rowid = ?",
+                    [(rid,) for rid in old_rowids],
+                )
+                conn.execute(
+                    "DELETE FROM rl_chunks WHERE file_path = ?", (rel_path,)
+                )
+                conn.execute(
+                    "DELETE FROM rl_chunk_embeddings WHERE file_path = ?",
+                    (rel_path,),
+                )
+
             conn.execute(
                 "DELETE FROM rl_files WHERE file_path = ?", (rel_path,)
             )
@@ -344,6 +580,7 @@ def reindex_stale(
     count = 0
 
     with lock:
+        updated: list[dict] = []
         for info in file_infos:
             try:
                 conn.execute(
@@ -358,6 +595,7 @@ def reindex_stale(
                         info["size"], info["indexed_at"],
                     ),
                 )
+                updated.append(info)
             except (sqlite3.Error, KeyError, AttributeError) as e:
                 logger.error(
                     "Failed to update RL file %s: %s",
@@ -366,11 +604,11 @@ def reindex_stale(
                 continue
 
         # Batch embeddings in one model call
-        texts = [info["body"] for info in file_infos]
+        texts = [info["body"] for info in updated]
         vectors = embed_batch_fn(texts, batch_size=EMBED_BATCH_SIZE)
 
         embed_rows: list[tuple] = []
-        for info, vector in zip(file_infos, vectors):
+        for info, vector in zip(updated, vectors):
             if vector is not None:
                 blob = struct.pack(f"{embed_dim}f", *vector)
                 embed_rows.append((
@@ -384,6 +622,44 @@ def reindex_stale(
                 " (file_path, embedding, mtime, created_at)"
                 " VALUES (?, ?, ?, ?)",
                 embed_rows,
+            )
+
+        # Schema v2: re-chunk the updated files and batch-embed the new
+        # chunks. Chunk FTS rows are replaced per file (not rebuilt
+        # wholesale) — reindex_stale may touch a small slice of a large
+        # index, and a full FTS drop/recreate per sync would be wasteful.
+        chunk_pairs: list[tuple] = []  # (rowid, file_path, mtime, chunk_text)
+        for info in updated:
+            rowids = _replace_file_chunks(
+                conn, info["file_path"], info["body"]
+            )
+            chunk_pairs.extend(
+                (rid, info["file_path"], info["mtime"], chunk)
+                for rid, chunk in zip(rowids, _chunk_text(info["body"]))
+            )
+
+        chunk_rows: list[tuple] = []
+        for i in range(0, len(chunk_pairs), EMBED_BATCH_SIZE):
+            batch = chunk_pairs[i: i + EMBED_BATCH_SIZE]
+            cids = [p[0] for p in batch]
+            cpaths = [p[1] for p in batch]
+            cmtime = [p[2] for p in batch]
+            ctexts = [p[3] for p in batch]
+            cvectors = embed_batch_fn(ctexts, batch_size=EMBED_BATCH_SIZE)
+            chunk_rows.extend(
+                (cid, cpath, struct.pack(f"{embed_dim}f", *v), fmtime, now)
+                for cid, cpath, fmtime, v in zip(
+                    cids, cpaths, cmtime, cvectors
+                )
+                if v is not None
+            )
+
+        if chunk_rows:
+            conn.executemany(
+                "INSERT OR REPLACE INTO rl_chunk_embeddings"
+                " (chunk_id, file_path, embedding, mtime, created_at)"
+                " VALUES (?, ?, ?, ?, ?)",
+                chunk_rows,
             )
 
         conn.commit()

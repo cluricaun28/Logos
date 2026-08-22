@@ -121,7 +121,13 @@ def _extract_file_info(file_path: Path) -> dict | None:
         "file_path": rel_path,
         "title": title,
         "frontmatter": frontmatter,
-        "body": body_clean[:RL_EMBED_MAX_CONTENT_LEN],
+        # Schema v2: store the FULL cleaned body. Pre-v2 truncated here to
+        # RL_EMBED_MAX_CONTENT_LEN (8000 chars), which made everything past
+        # that mark invisible to FTS5 and to the file-level embedding. The
+        # file-level embedding still sees only the first 8K (the embed
+        # functions truncate); full-body semantic coverage now comes from
+        # rl_builder's per-chunk embeddings.
+        "body": body_clean,
         "category": category,
         "mtime": file_path.stat().st_mtime,
         "size": len(content),
@@ -254,6 +260,34 @@ class RLIndex:
                 logger.info("RL FTS index rebuilt")
         except (sqlite3.Error, AttributeError) as e:
             logger.debug("FTS self-heal check failed: %s", e)
+
+        # Schema v2: same O(1) drift check for the chunk FTS index.
+        try:
+            has_chunk_fts = self._conn.execute(
+                "SELECT name FROM sqlite_master"
+                " WHERE type = 'table' AND name = 'rl_chunks_fts'"
+            ).fetchone()
+            if has_chunk_fts:
+                n_chunks = self._conn.execute(
+                    "SELECT count(*) FROM rl_chunks"
+                ).fetchone()[0]
+                n_chunk_indexed = self._conn.execute(
+                    "SELECT count(*) FROM rl_chunks_fts_docsize"
+                ).fetchone()[0]
+                if n_chunk_indexed != n_chunks:
+                    logger.warning(
+                        "RL chunk FTS index out of sync "
+                        "(indexed=%d, content=%d) — rebuilding",
+                        n_chunk_indexed, n_chunks,
+                    )
+                    self._conn.execute(
+                        "INSERT INTO rl_chunks_fts(rl_chunks_fts)"
+                        " VALUES('rebuild')"
+                    )
+                    self._conn.commit()
+                    logger.info("RL chunk FTS index rebuilt")
+        except (sqlite3.Error, AttributeError) as e:
+            logger.debug("Chunk FTS self-heal check failed: %s", e)
 
     def shutdown(self) -> None:
         with self._lock:

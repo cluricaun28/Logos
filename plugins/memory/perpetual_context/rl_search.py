@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import math
+import sqlite3
 import struct
 from typing import Any
 
@@ -123,6 +124,21 @@ def search(
         return []
 
 
+def _has_chunk_index(conn: Any) -> bool:
+    """True when schema-v2 chunk rows exist (chunk FTS is populated).
+
+    A v2-built index may momentarily have zero chunks only for a
+    truly empty RL; an unmigrated (pre-v2) DB always reads 0 here and
+    the caller falls back to the legacy file-level FTS — identical
+    behavior to pre-chunking.
+    """
+    try:
+        n = conn.execute("SELECT count(*) FROM rl_chunks").fetchone()[0]
+        return n > 0
+    except sqlite3.OperationalError:
+        return False
+
+
 def _fts_search(
     *,
     conn: Any,
@@ -144,6 +160,48 @@ def _fts_search(
         if not terms:
             return []
         fts_query = " OR ".join(f'"{t}"' for t in terms)
+
+        # Schema v2: chunk FTS covers the FULL body (pre-v2 stopped at
+        # 8000 chars). FTS5 `rank` only resolves in the UNALIASED table
+        # form — `alias.rank` inside a JOIN raises "no such column" — so
+        # fetch ranked chunk rows and collapse to best-rank-per-file in
+        # Python. Fetch up to 4x the pool: a long file can hold several
+        # matching chunks, and dedupe must not starve the candidate pool.
+        if _has_chunk_index(conn):
+            where = "rl_chunks_fts MATCH ?"
+            params: list = [fts_query]
+            if category:
+                where += " AND rl_files.category = ?"
+                params.append(category)
+            sql = (
+                "SELECT rl_files.file_path, rl_files.title,"
+                " rl_files.category, rank"
+                " FROM rl_chunks_fts"
+                " JOIN rl_files"
+                " ON rl_files.file_path = rl_chunks_fts.file_path"
+                f" WHERE {where}"
+                " ORDER BY rank LIMIT ?"
+            )
+            params.append(max(top_k * 4, 200))
+
+            cursor = conn.execute(sql, params)
+            best: dict[str, dict] = {}
+            for row in cursor.fetchall():
+                fp = row[0]
+                entry = best.get(fp)
+                if entry is None or row[3] < entry["_rank"]:
+                    best[fp] = {
+                        "file_path": fp,
+                        "title": row[1],
+                        "category": row[2],
+                        "_rank": float(row[3]),
+                    }
+            return [
+                v
+                for _, v in sorted(
+                    best.items(), key=lambda kv: kv[1]["_rank"]
+                )[:top_k]
+            ]
 
         where = "rl_index_fts MATCH ?"
         params: list = [fts_query]
@@ -228,6 +286,36 @@ def _semantic_search(
         cursor = conn.execute(sql, params)
         rows = cursor.fetchall()
 
+        # Schema v2: chunk embeddings extend semantic coverage to the full
+        # body (the file-level vector only represents the first 8K chars).
+        # Pre-v2 DBs lack the table — fall through with file-level only,
+        # exactly as before.
+        try:
+            if category:
+                csql = (
+                    "SELECT rf.file_path, rf.title, rf.category,"
+                    " ce.embedding"
+                    " FROM rl_chunk_embeddings ce"
+                    " JOIN rl_files rf"
+                    " ON rf.file_path = ce.file_path"
+                    " WHERE rf.category = ?"
+                    " AND LENGTH(ce.embedding) >= ?"
+                )
+                cparams: list = [category, RL_EMBED_DIM * 4]
+            else:
+                csql = (
+                    "SELECT rf.file_path, rf.title, rf.category,"
+                    " ce.embedding"
+                    " FROM rl_chunk_embeddings ce"
+                    " JOIN rl_files rf"
+                    " ON rf.file_path = ce.file_path"
+                    " WHERE LENGTH(ce.embedding) >= ?"
+                )
+                cparams = [RL_EMBED_DIM * 4]
+            rows.extend(conn.execute(csql, cparams).fetchall())
+        except sqlite3.OperationalError:
+            pass
+
         if not rows:
             return []
 
@@ -283,8 +371,20 @@ def _semantic_search(
 
         scored.sort(key=lambda x: -x[3])
 
+        # A file may now appear multiple times (one file-level row plus N
+        # chunk rows in schema v2). Aggregate max-similarity-per-file: a
+        # single well-matching chunk lifts the whole file. On pre-v2
+        # indexes each file appears exactly once, so this is a no-op.
+        best: dict[str, tuple] = {}
+        for fp, title, cat, sim in scored:
+            cur = best.get(fp)
+            if cur is None or sim > cur[3]:
+                best[fp] = (fp, title, cat, sim)
+
         results: list[dict[str, Any]] = []
-        for fp, title, cat, sim in scored[:top_k]:
+        for fp, title, cat, sim in sorted(
+            best.values(), key=lambda x: -x[3]
+        )[:top_k]:
             results.append({
                 "file_path": fp,
                 "title": title,
@@ -379,9 +479,22 @@ def get_stats(*, conn: Any) -> dict:
             "SELECT COALESCE(SUM(size), 0) FROM rl_files"
         ).fetchone()[0]
 
+        # Schema v2 chunk counters (0 on pre-v2 indexes).
+        try:
+            chunk_count = conn.execute(
+                "SELECT COUNT(*) FROM rl_chunks"
+            ).fetchone()[0]
+            chunk_embed_count = conn.execute(
+                "SELECT COUNT(*) FROM rl_chunk_embeddings"
+            ).fetchone()[0]
+        except sqlite3.OperationalError:
+            chunk_count = chunk_embed_count = 0
+
         return {
             "files_indexed": file_count,
             "files_embedded": embed_count,
+            "chunks_indexed": chunk_count,
+            "chunks_embedded": chunk_embed_count,
             "categories": categories,
             "total_bytes": total_size,
         }
