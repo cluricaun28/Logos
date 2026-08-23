@@ -123,7 +123,8 @@ all = [
 logos = "logos_cli.main:main"
 logos-agent = "run_agent:main"
 logos-acp = "acp_adapter.entry:main"
-# Deprecated legacy aliases (kept so existing installs/entry points keep working)
+# Legacy aliases — removal next cycle (pre-rebrand entry points kept so
+# existing installs keep working)
 hermes = "logos_cli.main:main"
 hermes-agent = "run_agent:main"
 hermes-acp = "acp_adapter.entry:main"
@@ -134,7 +135,7 @@ py-modules = ["run_agent", "model_tools", "toolsets", "batch_runner", "trajector
 [tool.setuptools.package-data]
 
 [tool.setuptools.packages.find]
-include = ["agent", "agent.*", "tools", "tools.*", "logos_cli", "hermes_cli", "gateway", "gateway.*", "cron", "acp_adapter", "plugins", "plugins.*"]
+include = ["agent", "agent.*", "tools", "tools.*", "logos_cli", "gateway", "gateway.*", "cron", "acp_adapter", "plugins", "plugins.*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
