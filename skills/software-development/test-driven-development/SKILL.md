@@ -2,7 +2,7 @@
 name: test-driven-development
 description: "TDD: enforce RED-GREEN-REFACTOR, tests before code."
 version: 1.1.0
-author: Hermes Agent (adapted from obra/superpowers)
+author: Logos (adapted from obra/superpowers)
 license: MIT
 metadata:
   hermes:
@@ -279,7 +279,7 @@ Can't check all boxes? You skipped TDD. Start over.
 | Must mock everything | Code too coupled. Use dependency injection. |
 | Test setup huge | Extract helpers. Still complex? Simplify the design. |
 
-## Hermes Agent Integration
+## Logos Integration
 
 ### Running Tests
 

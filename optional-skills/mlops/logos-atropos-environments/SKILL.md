@@ -2,7 +2,7 @@
 name: logos-atropos-environments
 description: Build, test, and debug Logos RL environments for Atropos training. Covers the HermesAgentBaseEnv interface, reward functions, agent loop integration, evaluation with tools, wandb logging, and the three CLI modes (serve/process/evaluate). Use when creating, reviewing, or fixing RL environments in the logos repo.
 version: 1.1.0
-author: Hermes Agent
+author: Logos
 license: MIT
 metadata:
   hermes:
@@ -10,9 +10,9 @@ metadata:
     related_skills: [axolotl, fine-tuning-with-trl, lm-evaluation-harness]
 ---
 
-# Hermes Agent Atropos Environments
+# Logos Atropos Environments
 
-Guide for building RL environments in the hermes-agent repo that integrate with the Atropos training framework.
+Guide for building RL environments in the logos repo that integrate with the Atropos training framework.
 
 ## Architecture Overview
 
@@ -27,7 +27,7 @@ Atropos BaseEnv (atroposlib/envs/base.py)
                                     compute_reward, evaluate, wandb_log
 ```
 
-Hermes environments are special because they run a **multi-turn agent loop with tool calling** — not just single-turn completions. The base env handles the loop; you implement the task and scoring.
+Logos environments are special because they run a **multi-turn agent loop with tool calling** — not just single-turn completions. The base env handles the loop; you implement the task and scoring.
 
 ## File Locations
 
@@ -146,7 +146,7 @@ return 1.0 if result["exit_code"] == 0 else 0.0
 ### 5. `evaluate()` — Periodic evaluation with full agent loop
 
 **MUST use the full agent loop with tools**, not single-turn chat_completion.
-The whole point of hermes-agent environments is agentic evaluation:
+The whole point of logos environments is agentic evaluation:
 
 ```python
 async def evaluate(self, *args, **kwargs) -> None:
@@ -242,7 +242,7 @@ Config priority: CLI args > YAML file > config_init() defaults.
 
 1. **AgentResult has .messages, not .final_response** — Extract the final response by iterating reversed(result.messages) looking for the last assistant message with content.
 
-2. **evaluate() must use HermesAgentLoop, not chat_completion** — Single-turn chat_completion has no tools. The whole point of hermes-agent benchmarks is agentic evaluation with tool use.
+2. **evaluate() must use HermesAgentLoop, not chat_completion** — Single-turn chat_completion has no tools. The whole point of logos benchmarks is agentic evaluation with tool use.
 
 3. **Don't call _llm_judge twice** — If compute_reward already calls it, extract the score from the buffer instead of calling judge separately in evaluate().
 

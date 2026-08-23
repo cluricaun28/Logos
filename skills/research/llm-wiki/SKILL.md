@@ -2,7 +2,7 @@
 name: llm-wiki
 description: "Karpathy's LLM Wiki: build/query interlinked markdown KB."
 version: 2.1.0
-author: Hermes Agent
+author: Logos
 license: MIT
 metadata:
   hermes:
@@ -34,7 +34,7 @@ Use this skill when the user:
 
 ## Wiki Location
 
-**Location:** Set via `WIKI_PATH` environment variable (e.g. in `~/.hermes/.env`).
+**Location:** Set via `WIKI_PATH` environment variable (e.g. in `~/.logos/.env` (legacy `~/.hermes/.env`)`).
 
 If unset, defaults to `~/wiki`.
 

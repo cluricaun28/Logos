@@ -2,7 +2,7 @@
 name: github-pr-workflow
 description: "GitHub PR lifecycle: branch, commit, open, CI, merge."
 version: 1.1.0
-author: Hermes Agent
+author: Logos
 license: MIT
 metadata:
   hermes:
@@ -29,9 +29,13 @@ else
   AUTH="git"
   # Ensure we have a token for API calls
   if [ -z "$GITHUB_TOKEN" ]; then
-    if [ -f ~/.hermes/.env ] && grep -q "^GITHUB_TOKEN=" ~/.hermes/.env; then
-      GITHUB_TOKEN=$(grep "^GITHUB_TOKEN=" ~/.hermes/.env | head -1 | cut -d= -f2 | tr -d '\n\r')
-    elif grep -q "github.com" ~/.git-credentials 2>/dev/null; then
+    for _envf in ~/.logos/.env ~/.hermes/.env; do
+      if [ -f "$_envf" ] && grep -q "^GITHUB_TOKEN=***" "$_envf"; then
+        GITHUB_TOKEN=*** "^GITHUB_TOKEN=***" "$_envf" | head -1 | cut -d= -f2 | tr -d '\n\r')
+        break
+      fi
+    done
+    if [ -z "$GITHUB_TOKEN" ] && grep -q "github.com" ~/.git-credentials 2>/dev/null; then
       GITHUB_TOKEN=$(grep "github.com" ~/.git-credentials 2>/dev/null | head -1 | sed 's|https://[^:]*:\([^@]*\)@.*|\1|')
     fi
   fi

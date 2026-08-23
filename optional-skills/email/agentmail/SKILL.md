@@ -1,6 +1,6 @@
 ---
 name: agentmail
-description: Give the agent its own dedicated email inbox via AgentMail. Send, receive, and manage email autonomously using agent-owned email addresses (e.g. hermes-agent@agentmail.to).
+description: Give the agent its own dedicated email inbox via AgentMail. Send, receive, and manage email autonomously using agent-owned email addresses (e.g. logos-agent@agentmail.to).
 version: 1.0.0
 metadata:
   hermes:
@@ -34,7 +34,7 @@ AgentMail gives the agent its own identity and inbox.
 - Create an account and generate an API key (starts with `am_`)
 
 ### 2. Configure MCP Server
-Add to `~/.hermes/config.yaml` (paste your actual key — MCP env vars are not expanded from .env):
+Add to `~/.logos/config.yaml` (legacy `~/.hermes/config.yaml`)` (paste your actual key — MCP env vars are not expanded from .env):
 ```yaml
 mcp_servers:
   agentmail:
@@ -44,9 +44,9 @@ mcp_servers:
       AGENTMAIL_API_KEY: "am_your_key_here"
 ```
 
-### 3. Restart Hermes
+### 3. Restart Logos
 ```bash
-hermes
+logos
 ```
 All 11 AgentMail tools are now available automatically.
 
@@ -70,8 +70,8 @@ All 11 AgentMail tools are now available automatically.
 
 ### Create an inbox and send an email
 1. Create a dedicated inbox:
-   - Use `create_inbox` with a username (e.g. `hermes-agent`)
-   - The agent gets address: `hermes-agent@agentmail.to`
+   - Use `create_inbox` with a username (e.g. `logos-agent`)
+   - The agent gets address: `logos-agent@agentmail.to`
 2. Send an email:
    - Use `send_message` with `inbox_id`, `to`, `subject`, `text`
 3. Check for replies:
@@ -114,7 +114,7 @@ All 11 AgentMail tools are now available automatically.
 ## Verification
 After setup, test with:
 ```
-hermes --toolsets mcp -q "Create an AgentMail inbox called test-agent and tell me its email address"
+logos --toolsets mcp -q "Create an AgentMail inbox called test-agent and tell me its email address"
 ```
 You should see the new inbox address returned.
 

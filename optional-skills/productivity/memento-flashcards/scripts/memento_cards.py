@@ -2,7 +2,7 @@
 """Memento card storage, spaced-repetition engine, and CSV I/O.
 
 Stdlib-only. All output is JSON for agent parsing.
-Data file: $HERMES_HOME/skills/productivity/memento-flashcards/data/cards.json
+Data file: $LOGOS_HOME/skills/productivity/memento-flashcards/data/cards.json
 """
 
 import argparse

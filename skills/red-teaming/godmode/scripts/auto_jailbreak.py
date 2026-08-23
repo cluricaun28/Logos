@@ -7,7 +7,7 @@ finds what works, and locks it in by writing config.yaml + prefill.json.
 
 Usage in execute_code:
     exec(open(os.path.expanduser(
-        os.path.join(os.environ.get("LOGOS_HOME") or os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes"), "skills/red-teaming/godmode/scripts/auto_jailbreak.py")
+        os.path.join(os.environ.get("LOGOS_HOME") or os.environ.get("HERMES_HOME") or os.path.expanduser("~/.logos"), "skills/red-teaming/godmode/scripts/auto_jailbreak.py")
     )).read())
     
     result = auto_jailbreak()  # Uses current model from config
@@ -35,7 +35,7 @@ try:
     _SKILL_DIR = Path(__file__).resolve().parent.parent
 except NameError:
     # __file__ not defined when loaded via exec() — search standard paths
-    _SKILL_DIR = Path(os.environ.get("LOGOS_HOME") or os.environ.get("HERMES_HOME") or str(Path.home() / ".hermes")) / "skills" / "red-teaming" / "godmode"
+    _SKILL_DIR = Path(os.environ.get("LOGOS_HOME") or os.environ.get("HERMES_HOME") or str(Path.home() / ".logos")) / "skills" / "red-teaming" / "godmode"
 
 _SCRIPTS_DIR = _SKILL_DIR / "scripts"
 _TEMPLATES_DIR = _SKILL_DIR / "templates"
@@ -57,9 +57,9 @@ if _race_path.exists():
 # Logos config paths
 # ═══════════════════════════════════════════════════════════════════
 
-LOGOS_HOME = Path(os.environ.get("LOGOS_HOME") or os.environ.get("HERMES_HOME") or str(Path.home() / ".hermes"))
-CONFIG_PATH = HERMES_HOME / "config.yaml"
-PREFILL_PATH = HERMES_HOME / "prefill.json"
+LOGOS_HOME = Path(os.environ.get("LOGOS_HOME") or os.environ.get("HERMES_HOME") or str(Path.home() / ".logos"))
+CONFIG_PATH = LOGOS_HOME / "config.yaml"
+PREFILL_PATH = LOGOS_HOME / "prefill.json"
 
 # ═══════════════════════════════════════════════════════════════════
 # Canary queries — questions that typically trigger safety filters
@@ -178,7 +178,7 @@ MODEL_STRATEGIES = {
             ),
         },
     },
-    # Nous/Hermes models — already uncensored, just needs clean prompt
+    # Nous/Logos models — already uncensored, just needs clean prompt
     "hermes": {
         "order": ["prefill_only"],
         "system_templates": {},
@@ -407,7 +407,7 @@ def _write_config(system_prompt: str = None, prefill_file: str = None):
 
 
 def _write_prefill(prefill_messages: list):
-    """Write prefill messages to ~/.hermes/prefill.json."""
+    """Write prefill messages to prefill.json in the Logos home."""
     with open(PREFILL_PATH, "w") as f:
         json.dump(prefill_messages, f, indent=2, ensure_ascii=False)
     return str(PREFILL_PATH)

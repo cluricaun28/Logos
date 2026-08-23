@@ -48,7 +48,7 @@ Before frame stripping, run through these checks:
 
 ### Step 1: Identify Source Framing
 
-If a worldview profile exists (`~/.hermes/skills/worldview-profile/SKILL.md`),
+If a worldview profile exists (`${LOGOS_HOME:-${HERMES_HOME:-$HOME/.logos}}/skills/worldview-profile/SKILL.md`),
 load it for context. Identify:
 
 - Loaded terminology (god terms, devil terms, weasel words)

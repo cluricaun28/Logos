@@ -115,7 +115,7 @@ def install_deps():
         print(
             "On environments without pip (e.g. Nix), install the optional extra instead:"
         )
-        print("  pip install 'hermes-agent[google]'")
+        print("  pip install 'logos[google]'")
         print(f"Or manually: {sys.executable} -m pip install {' '.join(REQUIRED_PACKAGES)}")
         return False
 

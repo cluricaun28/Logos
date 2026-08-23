@@ -148,7 +148,8 @@ DEFAULT_AGENT_IDENTITY = (
 
 HERMES_AGENT_HELP_GUIDANCE = (
     "If the user asks about configuring, setting up, or using Logos "
-    "itself, load the `hermes-agent` skill with skill_view(name='hermes-agent') "
+    "itself, load the `logos` skill with skill_view(name='logos') "
+    "(legacy skill name: hermes-agent) "
     "before answering. Docs: https://hermes-agent.nousresearch.com/docs"
 )
 
@@ -942,7 +943,7 @@ def build_skills_system_prompt(
                 "Load with skill_view(name) when genuinely needed, not as a reflexive step.\n"
                 "Whenever the user asks you to configure, set up, install, enable, disable, modify, "
                 "or troubleshoot Logos itself — its CLI, config, models, providers, tools, "
-                "skills, voice, gateway, plugins, or any feature — load the `hermes-agent` skill "
+                "skills, voice, gateway, plugins, or any feature — load the `logos` skill "
                 "first. It has the actual commands (e.g. `logos config set …`, `logos tools`, "
                 "`logos setup`) so you don't have to guess or invent workarounds.\n"
                 "If a skill has issues, fix it with skill_manage(action='patch').\n"
@@ -984,7 +985,7 @@ def build_skills_system_prompt(
                 "Load with skill_view(name) when genuinely needed, not as a reflexive step.\n"
                 "Whenever the user asks you to configure, set up, install, enable, disable, modify, "
                 "or troubleshoot Logos itself — its CLI, config, models, providers, tools, "
-                "skills, voice, gateway, plugins, or any feature — load the `hermes-agent` skill "
+                "skills, voice, gateway, plugins, or any feature — load the `logos` skill "
                 "first. It has the actual commands (e.g. `logos config set …`, `logos tools`, "
                 "`logos setup`) so you don't have to guess or invent workarounds.\n"
                 "If a skill has issues, fix it with skill_manage(action='patch').\n"

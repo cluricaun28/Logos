@@ -2,7 +2,7 @@
 name: logos
 description: "Configure, extend, or contribute to Logos."
 version: 2.0.0
-author: Hermes Agent + Teknium
+author: Logos + Teknium
 license: MIT
 metadata:
   hermes:
@@ -11,22 +11,22 @@ metadata:
     related_skills: [claude-code, codex, opencode]
 ---
 
-# Hermes Agent
+# Logos
 
-Hermes Agent is an open-source AI agent framework by Nous Research that runs in your terminal, messaging platforms, and IDEs. It belongs to the same category as Claude Code (Anthropic), Codex (OpenAI), and OpenClaw — autonomous coding and task-execution agents that use tool calling to interact with your system. Hermes works with any LLM provider (OpenRouter, Anthropic, OpenAI, DeepSeek, local models, and 15+ others) and runs on Linux, macOS, and WSL.
+Logos is an open-source AI agent framework by Nous Research that runs in your terminal, messaging platforms, and IDEs. It belongs to the same category as Claude Code (Anthropic), Codex (OpenAI), and OpenClaw — autonomous coding and task-execution agents that use tool calling to interact with your system. Logos works with any LLM provider (OpenRouter, Anthropic, OpenAI, DeepSeek, local models, and 15+ others) and runs on Linux, macOS, and WSL.
 
-What makes Hermes different:
+What makes Logos different:
 
-- **Self-improving through skills** — Hermes learns from experience by saving reusable procedures as skills. When it solves a complex problem, discovers a workflow, or gets corrected, it can persist that knowledge as a skill document that loads into future sessions. Skills accumulate over time, making the agent better at your specific tasks and environment.
+- **Self-improving through skills** — Logos learns from experience by saving reusable procedures as skills. When it solves a complex problem, discovers a workflow, or gets corrected, it can persist that knowledge as a skill document that loads into future sessions. Skills accumulate over time, making the agent better at your specific tasks and environment.
 - **Persistent memory across sessions** — remembers who you are, your preferences, environment details, and lessons learned. Pluggable memory backends (built-in, Honcho, Mem0, and more) let you choose how memory works.
 - **Multi-platform gateway** — the same agent runs on Telegram, Discord, Slack, WhatsApp, Signal, Matrix, Email, and 10+ other platforms with full tool access, not just chat.
 - **Provider-agnostic** — swap models and providers mid-workflow without changing anything else. Credential pools rotate across multiple API keys automatically.
-- **Profiles** — run multiple independent Hermes instances with isolated configs, sessions, skills, and memory.
+- **Profiles** — run multiple independent Logos instances with isolated configs, sessions, skills, and memory.
 - **Extensible** — plugins, MCP servers, custom tools, webhook triggers, cron scheduling, and the full Python ecosystem.
 
-People use Hermes for software development, research, system administration, data analysis, content creation, home automation, and anything else that benefits from an AI agent with persistent context and full system access.
+People use Logos for software development, research, system administration, data analysis, content creation, home automation, and anything else that benefits from an AI agent with persistent context and full system access.
 
-**This skill helps you work with Hermes Agent effectively** — setting it up, configuring features, spawning additional agent instances, troubleshooting issues, finding the right commands and settings, and understanding how the system works when you need to extend or contribute to it.
+**This skill helps you work with Logos effectively** — setting it up, configuring features, spawning additional agent instances, troubleshooting issues, finding the right commands and settings, and understanding how the system works when you need to extend or contribute to it.
 
 **Docs:** https://hermes-agent.nousresearch.com/docs/
 
@@ -37,19 +37,19 @@ People use Hermes for software development, research, system administration, dat
 curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash
 
 # Interactive chat (default)
-hermes
+logos
 
 # Single query
-hermes chat -q "What is the capital of France?"
+logos chat -q "What is the capital of France?"
 
 # Setup wizard
-hermes setup
+logos setup
 
 # Change model/provider
-hermes model
+logos model
 
 # Check health
-hermes doctor
+logos doctor
 ```
 
 ---
@@ -59,7 +59,7 @@ hermes doctor
 ### Global Flags
 
 ```
-hermes [flags] [command]
+logos [flags] [command]
 
   --version, -V             Show version
   --resume, -r SESSION      Resume session by ID or title
@@ -76,7 +76,7 @@ No subcommand defaults to `chat`.
 ### Chat
 
 ```
-hermes chat [flags]
+logos chat [flags]
   -q, --query TEXT          Single query, non-interactive
   -m, --model MODEL         Model (e.g. anthropic/claude-sonnet-4)
   -t, --toolsets LIST       Comma-separated toolsets
@@ -90,62 +90,62 @@ hermes chat [flags]
 ### Configuration
 
 ```
-hermes setup [section]      Interactive wizard (model|terminal|gateway|tools|agent)
-hermes model                Interactive model/provider picker
-hermes config               View current config
-hermes config edit          Open config.yaml in $EDITOR
-hermes config set KEY VAL   Set a config value
-hermes config path          Print config.yaml path
-hermes config env-path      Print .env path
-hermes config check         Check for missing/outdated config
-hermes config migrate       Update config with new options
-hermes login [--provider P] OAuth login (nous, openai-codex)
-hermes logout               Clear stored auth
-hermes doctor [--fix]       Check dependencies and config
-hermes status [--all]       Show component status
+logos setup [section]      Interactive wizard (model|terminal|gateway|tools|agent)
+logos model                Interactive model/provider picker
+logos config               View current config
+logos config edit          Open config.yaml in $EDITOR
+logos config set KEY VAL   Set a config value
+logos config path          Print config.yaml path
+logos config env-path      Print .env path
+logos config check         Check for missing/outdated config
+logos config migrate       Update config with new options
+logos login [--provider P] OAuth login (nous, openai-codex)
+logos logout               Clear stored auth
+logos doctor [--fix]       Check dependencies and config
+logos status [--all]       Show component status
 ```
 
 ### Tools & Skills
 
 ```
-hermes tools                Interactive tool enable/disable (curses UI)
-hermes tools list           Show all tools and status
-hermes tools enable NAME    Enable a toolset
-hermes tools disable NAME   Disable a toolset
+logos tools                Interactive tool enable/disable (curses UI)
+logos tools list           Show all tools and status
+logos tools enable NAME    Enable a toolset
+logos tools disable NAME   Disable a toolset
 
-hermes skills list          List installed skills
-hermes skills search QUERY  Search the skills hub
-hermes skills install ID    Install a skill (ID can be a hub identifier OR a direct https://…/SKILL.md URL; pass --name to override when frontmatter has no name)
-hermes skills inspect ID    Preview without installing
-hermes skills config        Enable/disable skills per platform
-hermes skills check         Check for updates
-hermes skills update        Update outdated skills
-hermes skills uninstall N   Remove a hub skill
-hermes skills publish PATH  Publish to registry
-hermes skills browse        Browse all available skills
-hermes skills tap add REPO  Add a GitHub repo as skill source
+logos skills list          List installed skills
+logos skills search QUERY  Search the skills hub
+logos skills install ID    Install a skill (ID can be a hub identifier OR a direct https://…/SKILL.md URL; pass --name to override when frontmatter has no name)
+logos skills inspect ID    Preview without installing
+logos skills config        Enable/disable skills per platform
+logos skills check         Check for updates
+logos skills update        Update outdated skills
+logos skills uninstall N   Remove a hub skill
+logos skills publish PATH  Publish to registry
+logos skills browse        Browse all available skills
+logos skills tap add REPO  Add a GitHub repo as skill source
 ```
 
 ### MCP Servers
 
 ```
-hermes mcp serve            Run Hermes as an MCP server
-hermes mcp add NAME         Add an MCP server (--url or --command)
-hermes mcp remove NAME      Remove an MCP server
-hermes mcp list             List configured servers
-hermes mcp test NAME        Test connection
-hermes mcp configure NAME   Toggle tool selection
+logos mcp serve            Run Logos as an MCP server
+logos mcp add NAME         Add an MCP server (--url or --command)
+logos mcp remove NAME      Remove an MCP server
+logos mcp list             List configured servers
+logos mcp test NAME        Test connection
+logos mcp configure NAME   Toggle tool selection
 ```
 
 ### Gateway (Messaging Platforms)
 
 ```
-hermes gateway run          Start gateway foreground
-hermes gateway install      Install as background service
-hermes gateway start/stop   Control the service
-hermes gateway restart      Restart the service
-hermes gateway status       Check status
-hermes gateway setup        Configure platforms
+logos gateway run          Start gateway foreground
+logos gateway install      Install as background service
+logos gateway start/stop   Control the service
+logos gateway restart      Restart the service
+logos gateway status       Check status
+logos gateway setup        Configure platforms
 ```
 
 Supported platforms: Telegram, Discord, Slack, WhatsApp, Signal, Email, SMS, Matrix, Mattermost, Home Assistant, DingTalk, Feishu, WeCom, BlueBubbles (iMessage), Weixin (WeChat), API Server, Webhooks. Open WebUI connects via the API Server adapter.
@@ -155,72 +155,72 @@ Platform docs: https://hermes-agent.nousresearch.com/docs/user-guide/messaging/
 ### Sessions
 
 ```
-hermes sessions list        List recent sessions
-hermes sessions browse      Interactive picker
-hermes sessions export OUT  Export to JSONL
-hermes sessions rename ID T Rename a session
-hermes sessions delete ID   Delete a session
-hermes sessions prune       Clean up old sessions (--older-than N days)
-hermes sessions stats       Session store statistics
+logos sessions list        List recent sessions
+logos sessions browse      Interactive picker
+logos sessions export OUT  Export to JSONL
+logos sessions rename ID T Rename a session
+logos sessions delete ID   Delete a session
+logos sessions prune       Clean up old sessions (--older-than N days)
+logos sessions stats       Session store statistics
 ```
 
 ### Cron Jobs
 
 ```
-hermes cron list            List jobs (--all for disabled)
-hermes cron create SCHED    Create: '30m', 'every 2h', '0 9 * * *'
-hermes cron edit ID         Edit schedule, prompt, delivery
-hermes cron pause/resume ID Control job state
-hermes cron run ID          Trigger on next tick
-hermes cron remove ID       Delete a job
-hermes cron status          Scheduler status
+logos cron list            List jobs (--all for disabled)
+logos cron create SCHED    Create: '30m', 'every 2h', '0 9 * * *'
+logos cron edit ID         Edit schedule, prompt, delivery
+logos cron pause/resume ID Control job state
+logos cron run ID          Trigger on next tick
+logos cron remove ID       Delete a job
+logos cron status          Scheduler status
 ```
 
 ### Webhooks
 
 ```
-hermes webhook subscribe N  Create route at /webhooks/<name>
-hermes webhook list         List subscriptions
-hermes webhook remove NAME  Remove a subscription
-hermes webhook test NAME    Send a test POST
+logos webhook subscribe N  Create route at /webhooks/<name>
+logos webhook list         List subscriptions
+logos webhook remove NAME  Remove a subscription
+logos webhook test NAME    Send a test POST
 ```
 
 ### Profiles
 
 ```
-hermes profile list         List all profiles
-hermes profile create NAME  Create (--clone, --clone-all, --clone-from)
-hermes profile use NAME     Set sticky default
-hermes profile delete NAME  Delete a profile
-hermes profile show NAME    Show details
-hermes profile alias NAME   Manage wrapper scripts
-hermes profile rename A B   Rename a profile
-hermes profile export NAME  Export to tar.gz
-hermes profile import FILE  Import from archive
+logos profile list         List all profiles
+logos profile create NAME  Create (--clone, --clone-all, --clone-from)
+logos profile use NAME     Set sticky default
+logos profile delete NAME  Delete a profile
+logos profile show NAME    Show details
+logos profile alias NAME   Manage wrapper scripts
+logos profile rename A B   Rename a profile
+logos profile export NAME  Export to tar.gz
+logos profile import FILE  Import from archive
 ```
 
 ### Credential Pools
 
 ```
-hermes auth add             Interactive credential wizard
-hermes auth list [PROVIDER] List pooled credentials
-hermes auth remove P INDEX  Remove by provider + index
-hermes auth reset PROVIDER  Clear exhaustion status
+logos auth add             Interactive credential wizard
+logos auth list [PROVIDER] List pooled credentials
+logos auth remove P INDEX  Remove by provider + index
+logos auth reset PROVIDER  Clear exhaustion status
 ```
 
 ### Other
 
 ```
-hermes insights [--days N]  Usage analytics
-hermes update               Update to latest version
-hermes pairing list/approve/revoke  DM authorization
-hermes plugins list/install/remove  Plugin management
-hermes honcho setup/status  Honcho memory integration (requires honcho plugin)
-hermes memory setup/status/off  Memory provider config
-hermes completion bash|zsh  Shell completions
-hermes acp                  ACP server (IDE integration)
-hermes claw migrate         Migrate from OpenClaw
-hermes uninstall            Uninstall Hermes
+logos insights [--days N]  Usage analytics
+logos update               Update to latest version
+logos pairing list/approve/revoke  DM authorization
+logos plugins list/install/remove  Plugin management
+logos honcho setup/status  Honcho memory integration (requires honcho plugin)
+logos memory setup/status/off  Memory provider config
+logos completion bash|zsh  Shell completions
+logos acp                  ACP server (IDE integration)
+logos claw migrate         Migrate from OpenClaw
+logos uninstall            Uninstall Logos
 ```
 
 ---
@@ -274,7 +274,7 @@ Type these during an interactive chat session.
 /deny                Deny a pending command (gateway)
 /restart             Restart gateway (gateway)
 /sethome             Set current chat as home channel (gateway)
-/update              Update Hermes to latest (gateway)
+/update              Update Logos to latest (gateway)
 /platforms (/gateway) Show platform connection status (gateway)
 ```
 
@@ -309,20 +309,20 @@ Type these during an interactive chat session.
 ## Key Paths & Config
 
 ```
-~/.hermes/config.yaml       Main configuration
-~/.hermes/.env              API keys and secrets
-$HERMES_HOME/skills/        Installed skills
-~/.hermes/sessions/         Session transcripts
-~/.hermes/logs/             Gateway and error logs
-~/.hermes/auth.json         OAuth tokens and credential pools
-~/.hermes/hermes-agent/     Source code (if git-installed)
+~/.logos/config.yaml (legacy `~/.hermes/config.yaml`)       Main configuration
+~/.logos/.env              API keys and secrets
+$LOGOS_HOME/skills/        Installed skills
+~/.logos/sessions/         Session transcripts
+~/.logos/logs/             Gateway and error logs
+~/.logos/auth.json         OAuth tokens and credential pools
+${LOGOS_HOME:-${HERMES_HOME:-$HOME/.logos}}/hermes-agent/     Source code (if git-installed)
 ```
 
-Profiles use `~/.hermes/profiles/<name>/` with the same layout.
+Profiles use `~/.logos/profiles/<name>/` with the same layout.
 
 ### Config Sections
 
-Edit with `hermes config edit` or `hermes config set section.key value`.
+Edit with `logos config edit` or `logos config set section.key value`.
 
 | Section | Key options |
 |---------|-------------|
@@ -342,14 +342,14 @@ Full config reference: https://hermes-agent.nousresearch.com/docs/user-guide/con
 
 ### Providers
 
-20+ providers supported. Set via `hermes model` or `hermes setup`.
+20+ providers supported. Set via `logos model` or `logos setup`.
 
 | Provider | Auth | Key env var |
 |----------|------|-------------|
 | OpenRouter | API key | `OPENROUTER_API_KEY` |
 | Anthropic | API key | `ANTHROPIC_API_KEY` |
-| Nous Portal | OAuth | `hermes auth` |
-| OpenAI Codex | OAuth | `hermes auth` |
+| Nous Portal | OAuth | `logos auth` |
+| OpenAI Codex | OAuth | `logos auth` |
 | GitHub Copilot | Token | `COPILOT_GITHUB_TOKEN` |
 | Google Gemini | API key | `GOOGLE_API_KEY` or `GEMINI_API_KEY` |
 | DeepSeek | API key | `DEEPSEEK_API_KEY` |
@@ -365,7 +365,7 @@ Full config reference: https://hermes-agent.nousresearch.com/docs/user-guide/con
 | AI Gateway (Vercel) | API key | `AI_GATEWAY_API_KEY` |
 | OpenCode Zen | API key | `OPENCODE_ZEN_API_KEY` |
 | OpenCode Go | API key | `OPENCODE_GO_API_KEY` |
-| Qwen OAuth | OAuth | `hermes login --provider qwen-oauth` |
+| Qwen OAuth | OAuth | `logos login --provider qwen-oauth` |
 | Custom endpoint | Config | `model.base_url` + `model.api_key` in config.yaml |
 | GitHub Copilot ACP | External | `COPILOT_CLI_PATH` or Copilot CLI |
 
@@ -373,7 +373,7 @@ Full provider docs: https://hermes-agent.nousresearch.com/docs/integrations/prov
 
 ### Toolsets
 
-Enable/disable via `hermes tools` (interactive) or `hermes tools enable/disable NAME`.
+Enable/disable via `logos tools` (interactive) or `logos tools enable/disable NAME`.
 
 | Toolset | What it provides |
 |---------|-----------------|
@@ -404,21 +404,21 @@ Tool changes take effect on `/reset` (new session). They do NOT apply mid-conver
 
 ## Security & Privacy Toggles
 
-Common "why is Hermes doing X to my output / tool calls / commands?" toggles — and the exact commands to change them. Most of these need a fresh session (`/reset` in chat, or start a new `hermes` invocation) because they're read once at startup.
+Common "why is Logos doing X to my output / tool calls / commands?" toggles — and the exact commands to change them. Most of these need a fresh session (`/reset` in chat, or start a new `hermes` invocation) because they're read once at startup.
 
 ### Secret redaction in tool output
 
-Secret redaction is **off by default** — tool output (terminal stdout, `read_file`, web content, subagent summaries, etc.) passes through unmodified. If the user wants Hermes to auto-mask strings that look like API keys, tokens, and secrets before they enter the conversation context and logs:
+Secret redaction is **off by default** — tool output (terminal stdout, `read_file`, web content, subagent summaries, etc.) passes through unmodified. If the user wants Logos to auto-mask strings that look like API keys, tokens, and secrets before they enter the conversation context and logs:
 
 ```bash
-hermes config set security.redact_secrets true       # enable globally
+logos config set security.redact_secrets true       # enable globally
 ```
 
-**Restart required.** `security.redact_secrets` is snapshotted at import time — toggling it mid-session (e.g. via `export HERMES_REDACT_SECRETS=true` from a tool call) will NOT take effect for the running process. Tell the user to run `hermes config set security.redact_secrets true` in a terminal, then start a new session. This is deliberate — it prevents an LLM from flipping the toggle on itself mid-task.
+**Restart required.** `security.redact_secrets` is snapshotted at import time — toggling it mid-session (e.g. via `export HERMES_REDACT_SECRETS=true` from a tool call) will NOT take effect for the running process. Tell the user to run `logos config set security.redact_secrets true` in a terminal, then start a new session. This is deliberate — it prevents an LLM from flipping the toggle on itself mid-task.
 
 Disable again with:
 ```bash
-hermes config set security.redact_secrets false
+logos config set security.redact_secrets false
 ```
 
 ### PII redaction in gateway messages
@@ -426,36 +426,36 @@ hermes config set security.redact_secrets false
 Separate from secret redaction. When enabled, the gateway hashes user IDs and strips phone numbers from the session context before it reaches the model:
 
 ```bash
-hermes config set privacy.redact_pii true    # enable
-hermes config set privacy.redact_pii false   # disable (default)
+logos config set privacy.redact_pii true    # enable
+logos config set privacy.redact_pii false   # disable (default)
 ```
 
 ### Command approval prompts
 
-By default (`approvals.mode: manual`), Hermes prompts the user before running shell commands flagged as destructive (`rm -rf`, `git reset --hard`, etc.). The modes are:
+By default (`approvals.mode: manual`), Logos prompts the user before running shell commands flagged as destructive (`rm -rf`, `git reset --hard`, etc.). The modes are:
 
 - `manual` — always prompt (default)
 - `smart` — use an auxiliary LLM to auto-approve low-risk commands, prompt on high-risk
 - `off` — skip all approval prompts (equivalent to `--yolo`)
 
 ```bash
-hermes config set approvals.mode smart       # recommended middle ground
-hermes config set approvals.mode off         # bypass everything (not recommended)
+logos config set approvals.mode smart       # recommended middle ground
+logos config set approvals.mode off         # bypass everything (not recommended)
 ```
 
 Per-invocation bypass without changing config:
-- `hermes --yolo …`
+- `logos --yolo …`
 - `export HERMES_YOLO_MODE=1`
 
 Note: YOLO / `approvals.mode: off` does NOT turn off secret redaction. They are independent.
 
 ### Shell hooks allowlist
 
-Some shell-hook integrations require explicit allowlisting before they fire. Managed via `~/.hermes/shell-hooks-allowlist.json` — prompted interactively the first time a hook wants to run.
+Some shell-hook integrations require explicit allowlisting before they fire. Managed via `~/.logos/shell-hooks-allowlist.json` — prompted interactively the first time a hook wants to run.
 
 ### Disabling the web/browser/image-gen tools
 
-To keep the model away from network or media tools entirely, open `hermes tools` and toggle per-platform. Takes effect on next session (`/reset`). See the Tools & Skills section above.
+To keep the model away from network or media tools entirely, open `logos tools` and toggle per-platform. Takes effect on next session (`/reset`). See the Tools & Skills section above.
 
 ---
 
@@ -495,9 +495,9 @@ Voice commands: `/voice on` (voice-to-voice), `/voice tts` (always voice), `/voi
 
 ---
 
-## Spawning Additional Hermes Instances
+## Spawning Additional Logos Instances
 
-Run additional Hermes processes as fully independent subprocesses — separate sessions, tools, and environments.
+Run additional Logos processes as fully independent subprocesses — separate sessions, tools, and environments.
 
 ### When to Use This vs delegate_task
 
@@ -512,15 +512,15 @@ Run additional Hermes processes as fully independent subprocesses — separate s
 ### One-Shot Mode
 
 ```
-terminal(command="hermes chat -q 'Research GRPO papers and write summary to ~/research/grpo.md'", timeout=300)
+terminal(command="logos chat -q 'Research GRPO papers and write summary to ~/research/grpo.md'", timeout=300)
 
 # Background for long tasks:
-terminal(command="hermes chat -q 'Set up CI/CD for ~/myapp'", background=true)
+terminal(command="logos chat -q 'Set up CI/CD for ~/myapp'", background=true)
 ```
 
 ### Interactive PTY Mode (via tmux)
 
-Hermes uses prompt_toolkit, which requires a real terminal. Use tmux for interactive spawning:
+Logos uses prompt_toolkit, which requires a real terminal. Use tmux for interactive spawning:
 
 ```
 # Start
@@ -543,11 +543,11 @@ terminal(command="tmux send-keys -t agent1 '/exit' Enter && sleep 2 && tmux kill
 
 ```
 # Agent A: backend
-terminal(command="tmux new-session -d -s backend -x 120 -y 40 'hermes -w'", timeout=10)
+terminal(command="tmux new-session -d -s backend -x 120 -y 40 'logos -w'", timeout=10)
 terminal(command="sleep 8 && tmux send-keys -t backend 'Build REST API for user management' Enter", timeout=15)
 
 # Agent B: frontend
-terminal(command="tmux new-session -d -s frontend -x 120 -y 40 'hermes -w'", timeout=10)
+terminal(command="tmux new-session -d -s frontend -x 120 -y 40 'logos -w'", timeout=10)
 terminal(command="sleep 8 && tmux send-keys -t frontend 'Build React dashboard for user management' Enter", timeout=15)
 
 # Check progress, relay context between them
@@ -559,10 +559,10 @@ terminal(command="tmux send-keys -t frontend 'Here is the API schema from the ba
 
 ```
 # Resume most recent session
-terminal(command="tmux new-session -d -s resumed 'hermes --continue'", timeout=10)
+terminal(command="tmux new-session -d -s resumed 'logos --continue'", timeout=10)
 
 # Resume specific session
-terminal(command="tmux new-session -d -s resumed 'hermes --resume 20260225_143052_a1b2c3'", timeout=10)
+terminal(command="tmux new-session -d -s resumed 'logos --resume 20260225_143052_a1b2c3'", timeout=10)
 ```
 
 ### Tips
@@ -570,7 +570,7 @@ terminal(command="tmux new-session -d -s resumed 'hermes --resume 20260225_14305
 - **Prefer `delegate_task` for quick subtasks** — less overhead than spawning a full process
 - **Use `-w` (worktree mode)** when spawning agents that edit code — prevents git conflicts
 - **Set timeouts** for one-shot mode — complex tasks can take 5-10 minutes
-- **Use `hermes chat -q` for fire-and-forget** — no PTY needed
+- **Use `logos chat -q` for fire-and-forget** — no PTY needed
 - **Use tmux for interactive sessions** — raw PTY mode has `\r` vs `\n` issues with prompt_toolkit
 - **For scheduled tasks**, use the `cronjob` tool instead of spawning — handles delivery and retry
 
@@ -584,15 +584,15 @@ terminal(command="tmux new-session -d -s resumed 'hermes --resume 20260225_14305
 3. In gateway: `/restart`. In CLI: exit and relaunch.
 
 ### Tool not available
-1. `hermes tools` — check if toolset is enabled for your platform
+1. `logos tools` — check if toolset is enabled for your platform
 2. Some tools need env vars (check `.env`)
 3. `/reset` after enabling tools
 
 ### Model/provider issues
-1. `hermes doctor` — check config and dependencies
-2. `hermes login` — re-authenticate OAuth providers
+1. `logos doctor` — check config and dependencies
+2. `logos login` — re-authenticate OAuth providers
 3. Check `.env` has the right API key
-4. **Copilot 403**: `gh auth login` tokens do NOT work for Copilot API. You must use the Copilot-specific OAuth device code flow via `hermes model` → GitHub Copilot.
+4. **Copilot 403**: `gh auth login` tokens do NOT work for Copilot API. You must use the Copilot-specific OAuth device code flow via `logos model` → GitHub Copilot.
 
 ### Changes not taking effect
 - **Tools/skills:** `/reset` starts a new session with updated toolset
@@ -600,14 +600,14 @@ terminal(command="tmux new-session -d -s resumed 'hermes --resume 20260225_14305
 - **Code changes:** Restart the CLI or gateway process
 
 ### Skills not showing
-1. `hermes skills list` — verify installed
-2. `hermes skills config` — check platform enablement
-3. Load explicitly: `/skill name` or `hermes -s name`
+1. `logos skills list` — verify installed
+2. `logos skills config` — check platform enablement
+3. Load explicitly: `/skill name` or `logos -s name`
 
 ### Gateway issues
 Check logs first:
 ```bash
-grep -i "failed to send\|error" ~/.hermes/logs/gateway.log | tail -20
+grep -i "failed to send\|error" ~/.logos/logs/gateway.log | tail -20
 ```
 
 Common gateway problems:
@@ -623,8 +623,8 @@ Common gateway problems:
 ### Auxiliary models not working
 If `auxiliary` tasks (vision, compression, session_search) fail silently, the `auto` provider can't find a backend. Either set `OPENROUTER_API_KEY` or `GOOGLE_API_KEY`, or explicitly configure each auxiliary task's provider:
 ```bash
-hermes config set auxiliary.vision.provider <your_provider>
-hermes config set auxiliary.vision.model <model_name>
+logos config set auxiliary.vision.provider <your_provider>
+logos config set auxiliary.vision.model <model_name>
 ```
 
 ---
@@ -633,21 +633,21 @@ hermes config set auxiliary.vision.model <model_name>
 
 | Looking for... | Location |
 |----------------|----------|
-| Config options | `hermes config edit` or [Configuration docs](https://hermes-agent.nousresearch.com/docs/user-guide/configuration) |
-| Available tools | `hermes tools list` or [Tools reference](https://hermes-agent.nousresearch.com/docs/reference/tools-reference) |
+| Config options | `logos config edit` or [Configuration docs](https://hermes-agent.nousresearch.com/docs/user-guide/configuration) |
+| Available tools | `logos tools list` or [Tools reference](https://hermes-agent.nousresearch.com/docs/reference/tools-reference) |
 | Slash commands | `/help` in session or [Slash commands reference](https://hermes-agent.nousresearch.com/docs/reference/slash-commands) |
-| Skills catalog | `hermes skills browse` or [Skills catalog](https://hermes-agent.nousresearch.com/docs/reference/skills-catalog) |
-| Provider setup | `hermes model` or [Providers guide](https://hermes-agent.nousresearch.com/docs/integrations/providers) |
-| Platform setup | `hermes gateway setup` or [Messaging docs](https://hermes-agent.nousresearch.com/docs/user-guide/messaging/) |
-| MCP servers | `hermes mcp list` or [MCP guide](https://hermes-agent.nousresearch.com/docs/user-guide/features/mcp) |
-| Profiles | `hermes profile list` or [Profiles docs](https://hermes-agent.nousresearch.com/docs/user-guide/profiles) |
-| Cron jobs | `hermes cron list` or [Cron docs](https://hermes-agent.nousresearch.com/docs/user-guide/features/cron) |
-| Memory | `hermes memory status` or [Memory docs](https://hermes-agent.nousresearch.com/docs/user-guide/features/memory) |
-| Env variables | `hermes config env-path` or [Env vars reference](https://hermes-agent.nousresearch.com/docs/reference/environment-variables) |
-| CLI commands | `hermes --help` or [CLI reference](https://hermes-agent.nousresearch.com/docs/reference/cli-commands) |
-| Gateway logs | `~/.hermes/logs/gateway.log` |
-| Session files | `~/.hermes/sessions/` or `hermes sessions browse` |
-| Source code | `~/.hermes/hermes-agent/` |
+| Skills catalog | `logos skills browse` or [Skills catalog](https://hermes-agent.nousresearch.com/docs/reference/skills-catalog) |
+| Provider setup | `logos model` or [Providers guide](https://hermes-agent.nousresearch.com/docs/integrations/providers) |
+| Platform setup | `logos gateway setup` or [Messaging docs](https://hermes-agent.nousresearch.com/docs/user-guide/messaging/) |
+| MCP servers | `logos mcp list` or [MCP guide](https://hermes-agent.nousresearch.com/docs/user-guide/features/mcp) |
+| Profiles | `logos profile list` or [Profiles docs](https://hermes-agent.nousresearch.com/docs/user-guide/profiles) |
+| Cron jobs | `logos cron list` or [Cron docs](https://hermes-agent.nousresearch.com/docs/user-guide/features/cron) |
+| Memory | `logos memory status` or [Memory docs](https://hermes-agent.nousresearch.com/docs/user-guide/features/memory) |
+| Env variables | `logos config env-path` or [Env vars reference](https://hermes-agent.nousresearch.com/docs/reference/environment-variables) |
+| CLI commands | `logos --help` or [CLI reference](https://hermes-agent.nousresearch.com/docs/reference/cli-commands) |
+| Gateway logs | `~/.logos/logs/gateway.log` |
+| Session files | `~/.logos/sessions/` or `logos sessions browse` |
+| Source code | `${LOGOS_HOME:-${HERMES_HOME:-$HOME/.logos}}/hermes-agent/` |
 
 ---
 
@@ -678,7 +678,7 @@ hermes-agent/
 └── website/              # Docusaurus docs site
 ```
 
-Config: `~/.hermes/config.yaml` (settings), `~/.hermes/.env` (API keys).
+Config: `~/.logos/config.yaml` (settings), `~/.logos/.env` (API keys).
 
 ### Adding a Tool (3 files)
 

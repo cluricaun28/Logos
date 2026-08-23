@@ -7,7 +7,7 @@ description: >
   Requires a BCI wearable (Muse 2/S or OpenBCI) and the NeuroSkill desktop app
   running locally.
 version: 1.0.0
-author: Hermes Agent + Nous Research
+author: Logos + Nous Research
 license: MIT
 metadata:
   hermes:
@@ -18,7 +18,7 @@ metadata:
 
 # NeuroSkill BCI Integration
 
-Connect Hermes to a running [NeuroSkill](https://neuroskill.com/) instance to read
+Connect Logos to a running [NeuroSkill](https://neuroskill.com/) instance to read
 real-time brain and body metrics from a BCI wearable. Use this to give
 cognitively-aware responses, suggest interventions, and track mental performance
 over time.

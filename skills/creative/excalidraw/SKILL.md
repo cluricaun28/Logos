@@ -2,7 +2,7 @@
 name: excalidraw
 description: "Hand-drawn Excalidraw JSON diagrams (arch, flow, seq)."
 version: 1.0.0
-author: Hermes Agent
+author: Logos
 license: MIT
 dependencies: []
 metadata:
@@ -35,7 +35,7 @@ Wrap your elements array in the standard `.excalidraw` envelope and save with `w
 {
   "type": "excalidraw",
   "version": 2,
-  "source": "hermes-agent",
+  "source": "logos-agent",
   "elements": [ ...your elements array here... ],
   "appState": {
     "viewBackgroundColor": "#ffffff"

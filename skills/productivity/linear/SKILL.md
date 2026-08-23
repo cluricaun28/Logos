@@ -2,7 +2,7 @@
 name: linear
 description: "Linear: manage issues, projects, teams via GraphQL + curl."
 version: 1.0.0
-author: Hermes Agent
+author: Logos
 license: MIT
 prerequisites:
   env_vars: [LINEAR_API_KEY]
@@ -19,7 +19,7 @@ Manage Linear issues, projects, and teams directly via the GraphQL API using `cu
 ## Setup
 
 1. Get a personal API key from **Linear Settings > API > Personal API keys**
-2. Set `LINEAR_API_KEY` in your environment (via `hermes setup` or your env config)
+2. Set `LINEAR_API_KEY` in your environment (via `logos setup` or your env config)
 
 ## API Basics
 

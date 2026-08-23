@@ -52,7 +52,7 @@ Using the three-tier web pipeline:
 
 ### Step 5: Create or Update the Dossier
 
-Save as `~/.hermes/reference-library/organizations/{domain}-v1.md`:
+Save as `~/.logos/reference-library/organizations/` (legacy `~/.hermes/reference-library/organizations/`){domain}-v1.md`:
 
 ```
 ---

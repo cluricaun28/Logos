@@ -53,7 +53,7 @@ Do not present all at once — go one section, get their answer, move on.
 
 ### Step 2: Generate the Profile
 
-Save the results as `~/.hermes/skills/worldview-profile/SKILL.md` with this
+Save the results as `${LOGOS_HOME:-${HERMES_HOME:-$HOME/.logos}}/skills/worldview-profile/SKILL.md` with this
 structure:
 
 ```
