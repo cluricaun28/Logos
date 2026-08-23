@@ -38,7 +38,7 @@ _OPENCLAW_SCRIPT = (
     / "migration"
     / "openclaw-migration"
     / "scripts"
-    / "openclaw_to_hermes.py"
+    / "openclaw_to_logos.py"
 )
 
 # Fallback: user may have installed the skill from the Hub
@@ -48,7 +48,12 @@ _OPENCLAW_SCRIPT_INSTALLED = (
     / "migration"
     / "openclaw-migration"
     / "scripts"
-    / "openclaw_to_hermes.py"
+    / "openclaw_to_logos.py"
+)
+
+# Legacy name (pre-rebrand Hub installs still ship the old filename)
+_OPENCLAW_SCRIPT_INSTALLED_LEGACY = (
+    _OPENCLAW_SCRIPT_INSTALLED.parent / "openclaw_to_hermes.py"
 )
 
 # Known OpenClaw directory names (current + legacy)
@@ -193,8 +198,16 @@ _WORKSPACE_STATE_GLOBS = (
 
 
 def _find_migration_script() -> Path | None:
-    """Find the openclaw_to_hermes.py script in known locations."""
-    for candidate in [_OPENCLAW_SCRIPT, _OPENCLAW_SCRIPT_INSTALLED]:
+    """Find the openclaw_to_logos.py script in known locations.
+
+    Falls back to the pre-rebrand filename (openclaw_to_hermes.py) for
+    skills installed from the Hub before the rename.
+    """
+    for candidate in (
+        _OPENCLAW_SCRIPT,
+        _OPENCLAW_SCRIPT_INSTALLED,
+        _OPENCLAW_SCRIPT_INSTALLED_LEGACY,
+    ):
         if candidate.exists():
             return candidate
     return None
@@ -202,7 +215,7 @@ def _find_migration_script() -> Path | None:
 
 def _load_migration_module(script_path: Path):
     """Dynamically load the migration script as a module."""
-    spec = importlib.util.spec_from_file_location("openclaw_to_hermes", script_path)
+    spec = importlib.util.spec_from_file_location("openclaw_to_logos", script_path)
     if spec is None or spec.loader is None:
         return None
     mod = importlib.util.module_from_spec(spec)
