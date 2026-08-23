@@ -12,7 +12,7 @@ from agent.prompt_builder import (
     _truncate_content,
     _parse_skill_file,
     _skill_should_show,
-    _find_hermes_md,
+    _find_logos_md,
     _find_git_root,
     _strip_yaml_frontmatter,
     build_skills_system_prompt,
@@ -568,7 +568,35 @@ class TestBuildContextFilesPrompt:
         assert "Top level" in result
         assert "Src-specific" not in result
 
-    # --- .hermes.md / HERMES.md discovery ---
+    # --- LOGOS.md / HERMES.md (legacy) project context discovery ---
+
+    def test_loads_logos_md(self, tmp_path):
+        (tmp_path / "LOGOS.md").write_text("Use pytest for testing.")
+        result = build_context_files_prompt(cwd=str(tmp_path))
+        assert "pytest for testing" in result
+        assert "Project Context" in result
+
+    def test_loads_logos_md_dotfile(self, tmp_path):
+        (tmp_path / ".logos.md").write_text("Use Ruff for linting.")
+        result = build_context_files_prompt(cwd=str(tmp_path))
+        assert "Ruff for linting" in result
+
+    def test_logos_md_takes_priority_over_hermes_md(self, tmp_path):
+        """LOGOS names beat legacy HERMES names in the same directory."""
+        (tmp_path / "LOGOS.md").write_text("From Logos.")
+        (tmp_path / ".logos.md").write_text("From Logos dotfile.")
+        (tmp_path / "HERMES.md").write_text("From legacy.")
+        (tmp_path / ".hermes.md").write_text("From legacy dotfile.")
+        result = build_context_files_prompt(cwd=str(tmp_path))
+        assert "From Logos." in result
+        assert "From Logos dotfile" not in result
+        assert "From legacy" not in result
+
+    def test_hermes_md_still_loads_when_no_logos_md(self, tmp_path):
+        """Legacy path: HERMES.md loads when no LOGOS.md exists."""
+        (tmp_path / "HERMES.md").write_text("Legacy project rules.")
+        result = build_context_files_prompt(cwd=str(tmp_path))
+        assert "Legacy project rules" in result
 
     def test_loads_hermes_md(self, tmp_path):
         (tmp_path / ".hermes.md").write_text("Use pytest for testing.")
@@ -581,12 +609,13 @@ class TestBuildContextFilesPrompt:
         result = build_context_files_prompt(cwd=str(tmp_path))
         assert "type hints" in result
 
-    def test_hermes_md_lowercase_takes_priority(self, tmp_path):
+    def test_legacy_hermes_md_uppercase_takes_priority(self, tmp_path):
+        """Order per Phase D spec: HERMES.md precedes .hermes.md (LOGOS names first)."""
         (tmp_path / ".hermes.md").write_text("From dotfile.")
         (tmp_path / "HERMES.md").write_text("From uppercase.")
         result = build_context_files_prompt(cwd=str(tmp_path))
-        assert "From dotfile" in result
-        assert "From uppercase" not in result
+        assert "From uppercase" in result
+        assert "From dotfile" not in result
 
     def test_hermes_md_parent_dir_discovery(self, tmp_path):
         """Walks parent dirs up to git root."""
@@ -695,41 +724,56 @@ class TestBuildContextFilesPrompt:
 
 
 # =========================================================================
-# .hermes.md helper functions
+# LOGOS.md helper functions (legacy: HERMES.md)
 # =========================================================================
 
 
-class TestFindHermesMd:
-    def test_finds_in_cwd(self, tmp_path):
-        (tmp_path / ".hermes.md").write_text("rules")
-        assert _find_hermes_md(tmp_path) == tmp_path / ".hermes.md"
+class TestFindLogosMd:
+    def test_finds_logos_md_in_cwd(self, tmp_path):
+        (tmp_path / "LOGOS.md").write_text("rules")
+        assert _find_logos_md(tmp_path) == tmp_path / "LOGOS.md"
 
-    def test_finds_uppercase(self, tmp_path):
+    def test_finds_logos_md_dotfile(self, tmp_path):
+        (tmp_path / ".logos.md").write_text("rules")
+        assert _find_logos_md(tmp_path) == tmp_path / ".logos.md"
+
+    def test_logos_names_beat_legacy_names(self, tmp_path):
+        (tmp_path / "LOGOS.md").write_text("new")
+        (tmp_path / ".logos.md").write_text("dot")
+        (tmp_path / "HERMES.md").write_text("legacy")
+        (tmp_path / ".hermes.md").write_text("legacy dot")
+        assert _find_logos_md(tmp_path) == tmp_path / "LOGOS.md"
+
+    def test_finds_legacy_hermes_md(self, tmp_path):
         (tmp_path / "HERMES.md").write_text("rules")
-        assert _find_hermes_md(tmp_path) == tmp_path / "HERMES.md"
+        assert _find_logos_md(tmp_path) == tmp_path / "HERMES.md"
 
-    def test_prefers_lowercase(self, tmp_path):
-        (tmp_path / ".hermes.md").write_text("lower")
+    def test_finds_legacy_dot_hermes_md(self, tmp_path):
+        (tmp_path / ".hermes.md").write_text("rules")
+        assert _find_logos_md(tmp_path) == tmp_path / ".hermes.md"
+
+    def test_legacy_prefers_uppercase(self, tmp_path):
+        (tmp_path / ".hermes.md").write_text("dot")
         (tmp_path / "HERMES.md").write_text("upper")
-        assert _find_hermes_md(tmp_path) == tmp_path / ".hermes.md"
+        assert _find_logos_md(tmp_path) == tmp_path / "HERMES.md"
 
     def test_walks_to_git_root(self, tmp_path):
         (tmp_path / ".git").mkdir()
-        (tmp_path / ".hermes.md").write_text("root rules")
+        (tmp_path / "LOGOS.md").write_text("root rules")
         sub = tmp_path / "a" / "b"
         sub.mkdir(parents=True)
-        assert _find_hermes_md(sub) == tmp_path / ".hermes.md"
+        assert _find_logos_md(sub) == tmp_path / "LOGOS.md"
 
     def test_returns_none_when_absent(self, tmp_path):
-        assert _find_hermes_md(tmp_path) is None
+        assert _find_logos_md(tmp_path) is None
 
     def test_stops_at_git_root(self, tmp_path):
         """Does not walk past the git root."""
-        (tmp_path / ".hermes.md").write_text("outside")
+        (tmp_path / "LOGOS.md").write_text("outside")
         repo = tmp_path / "repo"
         repo.mkdir()
         (repo / ".git").mkdir()
-        assert _find_hermes_md(repo) is None
+        assert _find_logos_md(repo) is None
 
 
 class TestFindGitRoot:

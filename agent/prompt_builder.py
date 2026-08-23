@@ -88,21 +88,24 @@ def _find_git_root(start: Path) -> Optional[Path]:
     return None
 
 
-_HERMES_MD_NAMES = (".hermes.md", "HERMES.md")
+# LOGOS names first (preferred); HERMES names are the legacy pre-rebrand
+# fallback — repos pinned to the old name keep working without changes.
+_LOGOS_MD_NAMES = ("LOGOS.md", ".logos.md", "HERMES.md", ".hermes.md")
 
 
-def _find_hermes_md(cwd: Path) -> Optional[Path]:
-    """Discover the nearest ``.hermes.md`` or ``HERMES.md``.
+def _find_logos_md(cwd: Path) -> Optional[Path]:
+    """Discover the nearest ``LOGOS.md`` (or ``.logos.md`` / legacy ``HERMES.md`` / ``.hermes.md``).
 
     Search order: *cwd* first, then each parent directory up to (and
-    including) the git repository root.  Returns the first match, or
-    ``None`` if nothing is found.
+    including) the git repository root.  Within a directory, LOGOS names
+    are preferred.  Returns the first match, or ``None`` if nothing is
+    found.
     """
     stop_at = _find_git_root(cwd)
     current = cwd.resolve()
 
     for directory in [current, *current.parents]:
-        for name in _HERMES_MD_NAMES:
+        for name in _LOGOS_MD_NAMES:
             candidate = directory / name
             if candidate.is_file():
                 return candidate
@@ -1122,26 +1125,26 @@ def load_soul_md() -> Optional[str]:
         return None
 
 
-def _load_hermes_md(cwd_path: Path) -> str:
-    """.hermes.md / HERMES.md — walk to git root."""
-    hermes_md_path = _find_hermes_md(cwd_path)
-    if not hermes_md_path:
+def _load_logos_md(cwd_path: Path) -> str:
+    """LOGOS.md / .logos.md (legacy: HERMES.md / .hermes.md) — walk to git root."""
+    logos_md_path = _find_logos_md(cwd_path)
+    if not logos_md_path:
         return ""
     try:
-        content = hermes_md_path.read_text(encoding="utf-8").strip()
+        content = logos_md_path.read_text(encoding="utf-8").strip()
         if not content:
             return ""
         content = _strip_yaml_frontmatter(content)
-        rel = hermes_md_path.name
+        rel = logos_md_path.name
         try:
-            rel = str(hermes_md_path.relative_to(cwd_path))
+            rel = str(logos_md_path.relative_to(cwd_path))
         except ValueError:
             pass
         content = _scan_context_content(content, rel)
         result = f"## {rel}\n\n{content}"
-        return _truncate_content(result, ".hermes.md")
+        return _truncate_content(result, logos_md_path.name)
     except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
-        logger.debug("Could not read %s: %s", hermes_md_path, e)
+        logger.debug("Could not read %s: %s", logos_md_path, e)
         return ""
 
 
@@ -1211,7 +1214,7 @@ def build_context_files_prompt(cwd: Optional[str] = None, skip_soul: bool = Fals
     """Discover and load context files for the system prompt.
 
     Priority (first found wins — only ONE project context type is loaded):
-      1. .hermes.md / HERMES.md  (walk to git root)
+      1. LOGOS.md / .logos.md (legacy: HERMES.md / .hermes.md)  (walk to git root)
       2. AGENTS.md / agents.md   (cwd only)
       3. CLAUDE.md / claude.md   (cwd only)
       4. .cursorrules / .cursor/rules/*.mdc  (cwd only)
@@ -1230,7 +1233,7 @@ def build_context_files_prompt(cwd: Optional[str] = None, skip_soul: bool = Fals
 
     # Priority-based project context: first match wins
     project_context = (
-        _load_hermes_md(cwd_path)
+        _load_logos_md(cwd_path)
         or _load_agents_md(cwd_path)
         or _load_claude_md(cwd_path)
         or _load_cursorrules(cwd_path)
