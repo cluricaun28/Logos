@@ -82,6 +82,7 @@ async def test_draining_rejects_new_session_messages():
 def test_load_busy_input_mode_prefers_env_then_config_then_default(tmp_path, monkeypatch):
     monkeypatch.setattr(gateway_run, "_logos_home", tmp_path)
     monkeypatch.delenv("HERMES_GATEWAY_BUSY_INPUT_MODE", raising=False)
+    monkeypatch.delenv("LOGOS_GATEWAY_BUSY_INPUT_MODE", raising=False)
 
     assert gateway_run.GatewayRunner._load_busy_input_mode() == "interrupt"
 
