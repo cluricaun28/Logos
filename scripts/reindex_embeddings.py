@@ -5,7 +5,7 @@ Wired as a cron job that runs at 4:00 AM. Skips entirely if message count
 is below 15,000 (not worth the compute for small databases).
 
 Usage:
-    python -m hermes.scripts.reindex_embeddings
+    python scripts/reindex_embeddings.py
 """
 
 from __future__ import annotations
