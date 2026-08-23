@@ -341,7 +341,7 @@ MIT. All custom additions are MIT licensed.
 
 ---
 
-**Built on:** Logos is a fork of [Nous Research's Hermes Agent](https://github.com/NousResearch/hermes-agent) (Apache-2.0) — we acknowledge that foundation and the work it carried.
+**Built on:** Logos was built on [Nous Research's Hermes Agent](https://github.com/NousResearch/hermes-agent) (Apache-2.0) — we acknowledge that foundation and the work it carried.
 Rebranded to Logos and detached from upstream on 2026-05-11; legacy `~/.hermes` homes and `HERMES_*` env vars still work as compatibility fallbacks.
 
 **Project:** [cluricaun28/Logos](https://github.com/cluricaun28/Logos) — fully independent, selective cherry-picking only.

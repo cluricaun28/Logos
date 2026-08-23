@@ -33,8 +33,8 @@ git log upstream/main --oneline -20
 git cherry-pick <commit-hash>
 
 # Test after each pick
-hermes gateway restart
-hermes logs --follow
+logos gateway restart
+logos logs --follow
 ```
 
 ## Upstream Status

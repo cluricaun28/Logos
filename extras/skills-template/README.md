@@ -57,7 +57,7 @@ Skills are loaded via `skill_view(skill_name)` when needed. The system prompt in
 
 ```markdown
 ## Before replying, scan the skills below and load only those DIRECTLY relevant to your task
-- '''codebase-backup''' — Versioned backup system for Hermes codebase
-- '''hermes-agent''' — Hermes Agent configuration, setup, troubleshooting
+- '''codebase-backup''' — Versioned backup system for Logos codebase
+- '''logos''' — Logos configuration, setup, troubleshooting
 [... more skills ...]
 ```

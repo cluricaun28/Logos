@@ -239,7 +239,7 @@ The recall engine runs before each agent turn via `prefetch()` in `PerpetualCont
 | Category | Definition | Web threshold | Routing |
 |----------|-----------|---------------|---------|
 | **Ambiguous** | ≤5 words, ≤2 content words | Never fires web | Tiered PM recall (5→15 turns→clarify) |
-| **Internal** | Hermes, gateway, agent, recall, etc. | Never fires web | Tiered PM recall |
+| **Internal** | Logos, gateway, agent, recall, etc. | Never fires web | Tiered PM recall |
 | **Static** | Bible, calculus, world war, "what is" | 0.05 (almost never) | Full pipeline |
 | **Slow** | Python, Docker, NVIDIA, accounting | 0.35 (moderate) | Full pipeline |
 | **Volatile** | Pricing, latest, news, DPO | 0.60 (fires often) | Full pipeline |
@@ -534,7 +534,7 @@ Custom code lives in `plugins/memory/perpetual_context/` (38 modules, ~11,300 li
 
 ### 5.4 Safe Harbor Architecture
 
-Three-tier survival model for `hermes update`:
+Three-tier survival model for `logos update`:
 
 - **Tier 1 (Safe Harbor):** `~/.hermes/plugins/` — survives updates. Memory plugin and rolling window engine live here.
 - **Tier 2 (External Backup):** `~/.hermes/backups/` — `perpetual_context_db.py` copied before each update, restored automatically.

@@ -60,8 +60,8 @@ rsync -avz -e ssh \
 # Backup from WSL to Windows Desktop
 rsync -avz \
   --exclude='.git/' \
-  ~/.hermes/ \
-  /mnt/c/Users/USERNAME/Desktop/hermes-backup-$(date +%Y%m%d)/
+  ~/.logos/ \
+  /mnt/c/Users/USERNAME/Desktop/logos-backup-$(date +%Y%m%d)/
 ```
 
 Replace `USERNAME` with the actual Windows username. Find it with:

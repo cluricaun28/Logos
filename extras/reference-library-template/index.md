@@ -8,8 +8,8 @@ description: Master index for your personal knowledge base and system documentat
 
 ## System Documentation
 
-### Hermes Agent Setup
-- [hermes-agent-customizations](topics/hermes-agent-customizations.md) — Document your local modifications here
+### Logos Setup
+- [logos-customizations](topics/logos-customizations.md) — Document your local modifications here
 - [perpetual-memory-system](topics/perpetual-memory-system.md) — Architecture, configuration, operational status
 - [rolling-window-context-engine](topics/rolling-window-context-engine.md) — Context archiving strategy
 
@@ -42,7 +42,7 @@ description: Master index for your personal knowledge base and system documentat
 reference-library/
 ├── index.md          ← You are here — master index linking to everything
 ├── topics/           ← System docs, workflows, procedures, research
-│   ├── hermes-agent-customizations.md
+│   ├── logos-customizations.md
 │   ├── perpetual-memory-system.md
 │   └── skills-index.md
 ├── tools/            ← Tool schemas and usage guides

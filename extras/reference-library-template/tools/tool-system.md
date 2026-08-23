@@ -2,14 +2,14 @@
 
 ## Purpose
 
-This directory contains documentation for every tool available to the Hermes agent. Each tool gets its own page with the full JSON schema, parameters, usage examples, and edge cases.
+This directory contains documentation for every tool available to the Logos agent. Each tool gets its own page with the full JSON schema, parameters, usage examples, and edge cases.
 
 ## Why Document Tools Here?
 
 The system prompt uses **deferred tool injection** — only essential tools (file ops, terminal, web search) have schemas in-context. All other tools are listed by name with a one-line description. Before using a deferred tool, the agent reads its full schema from this directory:
 
 ```python
-read_file("~/.hermes/reference-library/tools/{tool_name}.md")
+read_file("~/.logos/reference-library/tools/{tool_name}.md")
 ```
 
 This keeps the system prompt lean while giving the agent access to complete tool documentation when needed.

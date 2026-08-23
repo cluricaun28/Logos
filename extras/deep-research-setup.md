@@ -5,7 +5,7 @@ This document explains how to set up the web search infrastructure needed for th
 ## Architecture Overview
 
 ```
-Hermes Agent (perpetual_context plugin)
+Logos (perpetual_context plugin)
   ├── Tier 1: SearXNG (local meta-search)
   │   └── Aggregates results from Google, Bing, DuckDuckGo, etc.
   ├── Tier 2: Firecrawl (web scraping + content extraction)
@@ -93,9 +93,9 @@ curl -s "http://localhost:8080/search?q=test&format=json" | head -c 200
 # Should return JSON with results
 ```
 
-### Configure Hermes to Use SearXNG
+### Configure Logos to Use SearXNG
 
-Add to `~/.hermes/config.yaml`:
+Add to `~/.logos/config.yaml`:
 
 ```yaml
 web_search:
@@ -149,11 +149,11 @@ EOF
 3. Set the environment variable:
 
 ```bash
-export FIRECRAWL_API_KEY="fc-your-api-key-here"
+export FIRECRAWL_API_KEY="fc-you...here"
 export FIRECRAWL_API_URL="https://api.firecrawl.dev"
 ```
 
-Or add to `~/.hermes/config.yaml`:
+Or add to `~/.logos/config.yaml`:
 
 ```yaml
 web_search:
@@ -166,7 +166,7 @@ web_search:
 ```bash
 # Test with cloud API
 curl -s "https://api.firecrawl.dev/v1/scrape?url=https://example.com&format=markdown" \
-  -H "Authorization: Bearer $FIRECRAWL_API_KEY" | head -c 200
+  -H "Authorization: Bearer $FIREC...KEY" | head -c 200
 
 # Should return markdown content from example.com
 ```
@@ -177,7 +177,7 @@ curl -s "https://api.firecrawl.dev/v1/scrape?url=https://example.com&format=mark
 
 The deep research engine is part of the `perpetual_context` plugin. It's automatically available once the plugin is enabled and environment variables are set.
 
-In `~/.hermes/config.yaml`:
+In `~/.logos/config.yaml`:
 
 ```yaml
 plugins:
@@ -194,7 +194,7 @@ web_search:
 
 ## Step 4: Verify the Full Pipeline
 
-Start a Hermes session and test:
+Start a Logos session and test:
 
 1. **Basic search:** Ask a factual question — the agent should use SearXNG via `web_search_tool`
 2. **Deep research:** Ask for detailed analysis on a topic — the agent should call Firecrawl to extract content from top results

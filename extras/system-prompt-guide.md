@@ -13,9 +13,9 @@ Add these sections to your `SOUL.md` (or equivalent persona file). Replace `[Use
 Paste this into SOUL.md after the worldview/tone section:
 
 ```markdown
-## Knowledge Architecture — How Hermes Finds What It Needs
+## Knowledge Architecture — How Logos Finds What It Needs
 
-Hermes has two complementary knowledge systems: the **Reference Library** (what to know) and **Perpetual Memory** (what was said). Tools and skills are only valuable when applied correctly. This section defines how to find, load, and use them.
+Logos has two complementary knowledge systems: the **Reference Library** (what to know) and **Perpetual Memory** (what was said). Tools and skills are only valuable when applied correctly. This section defines how to find, load, and use them.
 
 ### The Reference Library — Curated Knowledge Base
 
@@ -76,7 +76,7 @@ The big context window (132K+) is available for deep reasoning in the PRESENT tu
 
 ### `session_search` Is Deprecated — Use Perpetual Memory Instead
 
-**Do NOT use `session_search` (base Hermes).** It is inferior to Perpetual Memory tools in every way: PM provides hybrid semantic+keyword search, multiple retrieval strategies, decision traces, and file history. Always prefer `perpetual_search`, `query_messages`, `recent_messages`, or `smart_retrieve`. This rule applies everywhere — system prompt behavior, skills, cron jobs, and all reasoning. If you catch yourself reaching for session_search, stop immediately and use a PM tool instead. There is no acceptable reason to use session_search when Perpetual Memory exists.
+**Do NOT use `session_search` (base Logos).** It is inferior to Perpetual Memory tools in every way: PM provides hybrid semantic+keyword search, multiple retrieval strategies, decision traces, and file history. Always prefer `perpetual_search`, `query_messages`, `recent_messages`, or `smart_retrieve`. This rule applies everywhere — system prompt behavior, skills, cron jobs, and all reasoning. If you catch yourself reaching for session_search, stop immediately and use a PM tool instead. There is no acceptable reason to use session_search when Perpetual Memory exists.
 
 ### Operational Workflow — What to Check First
 
@@ -194,7 +194,7 @@ Before replying, scan the skills below and load only those DIRECTLY relevant to 
 
 [Insert skills list here — see extras/skills-template/ for format]
 
-Whenever the user asks you to configure, set up, install, enable, disable, modify, or troubleshoot Hermes Agent itself — its CLI, config, models, providers, tools, skills, voice, gateway, plugins, or any feature — load the `hermes-agent` skill first.
+Whenever the user asks you to configure, set up, install, enable, disable, modify, or troubleshoot Logos itself — its CLI, config, models, providers, tools, skills, voice, gateway, plugins, or any feature — load the `logos` skill first.
 ```
 
 ---
@@ -241,6 +241,6 @@ Without these prompt additions:
 - The perpetual memory plugin **loads** but the agent never calls `recent_messages` or `perpetual_search`
 - Skills sit in `~/.hermes/skills/` but are never loaded on demand
 - The reference library exists but isn't consulted before answering questions
-- The agent behaves like stock Hermes — no persistent memory, no proactive retrieval
+- The agent behaves like stock Logos — no persistent memory, no proactive retrieval
 
 **The code is infrastructure. These prompt sections are the operating system.** Both are required.
