@@ -63,3 +63,4 @@ web/public/fonts/*.woff2
 
 # Pinned project briefs (per-operator state, not shipped)
 HERMES.md
+LOGOS.md
