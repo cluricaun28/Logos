@@ -3,7 +3,7 @@
 Takes structured data from ExtractionEngine (active tasks, file edits, errors, gaps)
 and formats it into a compact retrieval index for injection during compression.
 
-Strictly capped at 4KB to preserve reasoning tokens on local hardware.
+Capped at MAX_BRIDGE_CHARS (default 16KB) to preserve reasoning tokens on local hardware.
 Uses FIFO truncation if the index exceeds the limit.
 
 Negative feedback loop: After building the bridge, scores quality and records
@@ -25,8 +25,12 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Strict 4KB cap to preserve reasoning tokens on local hardware
-MAX_BRIDGE_CHARS = 4000
+# Cap to preserve reasoning tokens on local hardware.
+# 2026-08-24: raised 4000 -> 16000. At 4000 the bridge exceeded the cap on real
+# sessions (observed 4251) and truncated, dropping the active_tasks section
+# first and breaking task continuity across session splits. 16000 chars (~4K
+# tokens) is ~1.6% of a 256K window — negligible overhead.
+MAX_BRIDGE_CHARS = 16000
 
 # Minimum quality score before appending preservation warnings
 _PRESERVATION_WARNING_THRESHOLD = 0.65
@@ -107,9 +111,13 @@ class ContextBridgeBuilder:
                     "Context Bridge exceeded %d chars (%d). Truncating oldest entries.",
                     MAX_BRIDGE_CHARS, len(bridge_text),
                 )
-                # FIFO truncation: remove oldest sections first
-                while len(bridge_text) > MAX_BRIDGE_CHARS and len(sections) > 1:
-                    sections.pop(0)
+                # Truncation: drop low-priority sections first, protecting
+                # active_tasks (index 0) and the retrieval-guidance section
+                # (last) — the two that let the next session pick up where this
+                # one left off. pop(-2) removes 2nd-to-last, so the first and
+                # last sections survive.
+                while len(bridge_text) > MAX_BRIDGE_CHARS and len(sections) > 2:
+                    sections.pop(-2)
                     bridge_text = "\n".join(sections)
 
             return bridge_text if bridge_text.strip() else ""
