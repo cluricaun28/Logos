@@ -103,6 +103,33 @@ else:
     logger.info("No .env file found. Using system environment variables.")
 
 
+_USAGE_EVENT_LOCK = None
+
+
+def append_usage_event(home, record: dict) -> None:
+    """Append one per-call usage record to ``<home>/logs/usage.jsonl``.
+
+    Fleet-wide harness-performance rollup source: a flat, append-only JSONL
+    with one line per LLM call, tagged with the Logos ``session_id`` + the
+    agent home path, so the owner agent can aggregate every instance
+    (sovereignty: each instance writes only to its own home). Best-effort —
+    never raises and never blocks the agent loop.
+    """
+    global _USAGE_EVENT_LOCK
+    try:
+        import threading
+        if _USAGE_EVENT_LOCK is None:
+            _USAGE_EVENT_LOCK = threading.Lock()
+        logs_dir = Path(home) / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        line = json.dumps(record, separators=(",", ":"), default=str) + "\n"
+        with _USAGE_EVENT_LOCK:
+            with open(logs_dir / "usage.jsonl", "a", encoding="utf-8") as f:
+                f.write(line)
+    except Exception:
+        pass
+
+
 # Import our tool system
 from model_tools import (
     get_tool_definitions,
@@ -11627,6 +11654,24 @@ class AIAgent:
                             prompt_tokens, completion_tokens, total_tokens,
                             api_duration, _cache_pct,
                         )
+
+                        # Per-call usage stamp → fleet-wide harness-performance rollup.
+                        append_usage_event(get_logos_home(), {
+                            "ts": time.time(),
+                            "session": self.session_id,
+                            "agent": str(get_logos_home()),
+                            "model": self.model,
+                            "provider": self.provider or "",
+                            "api_mode": self.api_mode or "",
+                            "n": self.session_api_calls,
+                            "in": prompt_tokens,
+                            "out": completion_tokens,
+                            "total": total_tokens,
+                            "reason": canonical_usage.reasoning_tokens,
+                            "cache_r": canonical_usage.cache_read_tokens,
+                            "cache_w": canonical_usage.cache_write_tokens,
+                            "latency_s": round(api_duration, 3),
+                        })
 
                         cost_result = estimate_usage_cost(
                             self.model,
