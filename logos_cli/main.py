@@ -6853,7 +6853,7 @@ def cmd_logs(args):
 def main():
     """Main entry point for hermes CLI."""
     parser = argparse.ArgumentParser(
-        prog="hermes",
+        prog="logos",
         description="Logos - AI assistant with tool-calling capabilities",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""

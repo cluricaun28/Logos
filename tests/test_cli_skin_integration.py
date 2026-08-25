@@ -99,7 +99,8 @@ class TestCompactBannerSkinIntegration:
              patch("cli.format_banner_version_label", return_value="Logos v0.1.0 (test)"):
             banner = _build_compact_banner()
 
-        assert "NOUS HERMES" in banner
+        assert "LOGOS" in banner
+        assert "NOUS HERMES" not in banner
 
     def test_poseidon_compact_banner_uses_skin_branding_instead_of_nous_hermes(self):
         set_active_skin("poseidon")
