@@ -2,13 +2,15 @@
 """
 RL Live Viewer — read-only Wikipedia-style browser for a Logos Reference Library.
 No build step: renders markdown off-disk on request, so it is never stale.
-Cross-linking (wikilinks + backlinks) is the primary feature. Search reuses the
-exact FTS5 index the agents use (search.db / rl_fts), so human + agent views agree.
+Cross-linking (wikilinks + backlinks) is the primary feature. Search reads the
+same v2 hybrid index the agents use (~/.hermes/rl_index.db / rl_index_fts),
+with legacy search.db/rl_fts and in-memory title matching as fallbacks, so
+human + agent views agree.
 
 Per-user: point RL_ROOT at one user's reference-library; run one instance per user.
 Read-only: no write endpoints.
 """
-import os, re, time, html, sqlite3, sys
+import os, re, time, html, sqlite3, sys, threading
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -30,14 +32,20 @@ def _slug(s):
     return re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-")
 
 def build_index():
-    """Scan all .md files -> resolution maps + backlink map."""
+    """Scan all .md files -> resolution maps + backlink map + home data.
+
+    Returns 7-tuple: (path_index, name_index, title_index, files, backlinks,
+    cat_counts, recent). cat_counts/recent are computed HERE (background
+    thread) so the home page never rglobs in the request path."""
     path_index = {}    # "system/foo" -> "system/foo.md"
     name_index = {}    # "foo" (stem)  -> "system/foo.md"  (first wins)
     title_index = {}   # slug of display title -> path
     files = {}         # relpath(without .md) -> relpath(with .md)
     backlinks = {}     # target-path -> [source-paths]
+    titles = {}        # key(no .md) -> display title (for title-substring fallback)
     md_files = [p for p in RL_ROOT.rglob("*.md")
                 if p.is_file() and "static" not in p.parts and "assets" not in p.parts]
+    cat_counts = {}
     for p in md_files:
         rel = p.relative_to(RL_ROOT).as_posix()
         key = rel[:-3]  # strip .md
@@ -45,19 +53,25 @@ def build_index():
         path_index.setdefault(key, rel)
         stem = Path(rel).stem
         name_index.setdefault(stem, rel)
+        parts = p.relative_to(RL_ROOT).parts
+        top = parts[0] if len(parts) > 1 else "(root)"
+        cat_counts[top] = cat_counts.get(top, 0) + 1
         # frontmatter title
         try:
             txt = p.read_text(errors="ignore")
         except Exception:
             txt = ""
+        disp = stem.replace("-", " ").title()
         m = re.match(r"^---\s*\n(.*?)\n---", txt, re.S)
         if m:
             try:
                 fm = yaml.safe_load(m.group(1)) or {}
                 if isinstance(fm, dict) and fm.get("title"):
                     title_index.setdefault(_slug(str(fm["title"])), rel)
+                    disp = str(fm["title"])
             except Exception:
                 pass
+        titles[key] = disp
     # backlinks: scan every file for wikilinks
     for p in md_files:
         rel = p.relative_to(RL_ROOT).as_posix()
@@ -71,7 +85,21 @@ def build_index():
             resolved = _resolve_target(target, path_index, name_index, title_index)
             if resolved:
                 backlinks.setdefault(resolved[:-3], set()).add(src)  # key by no-.md path
-    return path_index, name_index, title_index, files, backlinks
+    # recent updates (top 14 by mtime) — computed here, not per home request
+    recent = []
+    for p in md_files:
+        try:
+            st = p.stat()
+        except OSError:
+            continue
+        rel = p.relative_to(RL_ROOT).as_posix()
+        key = rel[:-3]
+        recent.append((key, titles.get(key, p.stem.replace("-", " ").title()),
+                       st.st_mtime,
+                       p.parent.relative_to(RL_ROOT).as_posix() or "root"))
+    recent.sort(key=lambda r: r[2], reverse=True)
+    recent = recent[:14]
+    return path_index, name_index, title_index, files, backlinks, cat_counts, recent, titles
 
 def _resolve_target(target, path_index, name_index, title_index):
     t = target.strip()
@@ -87,16 +115,31 @@ def _resolve_target(target, path_index, name_index, title_index):
     return None
 
 IDX = build_index()
-PATH_INDEX, NAME_INDEX, TITLE_INDEX, FILES, BACKLINKS = IDX
+PATH_INDEX, NAME_INDEX, TITLE_INDEX, FILES, BACKLINKS, CAT_COUNTS, RECENT, FILES_TITLES = IDX
 _last_scan = time.time()
 
 def reload_if_stale(force=False):
-    global IDX, PATH_INDEX, NAME_INDEX, TITLE_INDEX, FILES, BACKLINKS, _last_scan
-    # cheap staleness: rescan if forced or every 60s (keeps cross-links live)
-    if force or time.time() - _last_scan > 60:
+    global IDX, PATH_INDEX, NAME_INDEX, TITLE_INDEX, FILES, BACKLINKS, CAT_COUNTS, RECENT, FILES_TITLES, _last_scan
+    # Refresh normally happens in _index_loop (background, every 120s).
+    # Synchronous rebuild is a rare safety net (loop died / >5min stale).
+    if force or time.time() - _last_scan > 300:
         IDX = build_index()
-        PATH_INDEX, NAME_INDEX, TITLE_INDEX, FILES, BACKLINKS = IDX
+        PATH_INDEX, NAME_INDEX, TITLE_INDEX, FILES, BACKLINKS, CAT_COUNTS, RECENT, FILES_TITLES = IDX
         _last_scan = time.time()
+
+def _index_loop():
+    """Background: keep the link/home index fresh without blocking requests."""
+    global IDX, PATH_INDEX, NAME_INDEX, TITLE_INDEX, FILES, BACKLINKS, CAT_COUNTS, RECENT, FILES_TITLES, _last_scan
+    while True:
+        time.sleep(120)
+        try:
+            IDX = build_index()
+            PATH_INDEX, NAME_INDEX, TITLE_INDEX, FILES, BACKLINKS, CAT_COUNTS, RECENT, FILES_TITLES = IDX
+            _last_scan = time.time()
+        except Exception:
+            pass
+
+threading.Thread(target=_index_loop, daemon=True).start()
 
 app = FastAPI()
 
@@ -252,27 +295,16 @@ CATEGORIES = ["people","organizations","technology","events","places","projects"
 @app.get("/", response_class=HTMLResponse)
 def home():
     reload_if_stale()
-    # count pages per category dir
-    cats = []
-    for d in sorted(p for p in RL_ROOT.iterdir() if p.is_dir() and p.name not in ("static","assets",".git")):
-        n = sum(1 for _ in d.rglob("*.md"))
-        if n:
-            cats.append((d.name, n))
-    loose = [p for p in RL_ROOT.glob("*.md")]
+    # category counts + recents are precomputed in build_index() (refreshed by
+    # the background _index_loop) — no per-request disk scans here.
     cards = "".join(
         f'<a href="/browse/{name}">{html.escape(name.replace("-"," ").title())}<span class="n">{n} pages</span></a>'
-        for name, n in sorted(cats, key=lambda x:-x[1]))
-    # recent updates (top 12 by mtime)
-    mdlist = []
-    for p in RL_ROOT.rglob("*.md"):
-        if p.is_file() and "static" not in p.parts:
-            mdlist.append(p)
-    mdlist.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+        for name, n in sorted(CAT_COUNTS.items(), key=lambda x: -x[1])
+        if n and name != "(root)")
     recent = "".join(
-        f'<li><a href="/page/{p.relative_to(RL_ROOT).as_posix()[:-3]}">'
-        f'{html.escape(p.stem.replace("-"," ").title())}</a>'
-        f'<div class="snip">{time.strftime("%b %d %H:%M", time.localtime(p.stat().st_mtime))} · {p.parent.relative_to(RL_ROOT).as_posix() or "root"}</div></li>'
-        for p in mdlist[:14])
+        f'<li><a href="/page/{key}">{html.escape(title)}</a>'
+        f'<div class="snip">{time.strftime("%b %d %H:%M", time.localtime(mtime))} · {html.escape(parent)}</div></li>'
+        for key, title, mtime, parent in RECENT)
     return f"""<!DOCTYPE html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>{html.escape(USER_LABEL)} Reference Library</title>
 <style>{CSS}</style></head><body>
@@ -322,32 +354,118 @@ def page(path: str):
     return render_page(path)
 
 # ---------------------------------------------------------------- search
+# The v2 hybrid index (rl_index.db — the same one the agents query via
+# reference_library_search) is the primary source. Legacy search.db/rl_fts
+# (per-page FTS, frozen 2026-08-16) is a fallback if the v2 DB is missing.
+SEARCH_DB = RL_ROOT / "search.db"                      # legacy v1
+SEARCH_DB_V2 = RL_ROOT.parent / "rl_index.db"          # v2, agent-shared
+
+_SEARCH_STOP = {"the","a","an","of","on","for","to","in","and","or","what",
+                "is","are","was","were","right","now","where","which","how",
+                "do","does","did","with","about","at","by","it","its",
+                "this","that","i","my","our","you","your"}
+
+def _fts_tokens(q: str):
+    toks = [t for t in re.split(r"\s+", q) if t]
+    cleaned = [t for t in toks if len(t) >= 2 and t.lower() not in _SEARCH_STOP]
+    return cleaned or toks
+
+def _q(tok: str) -> str:
+    return '"' + tok.replace('"', '""') + '"'
+
+def _fts_search_v2(con, q: str, toks):
+    """Hybrid-index search: AND -> OR -> de-pluralized, title-boosted ranking."""
+    attempts = [
+        " AND ".join(_q(t) for t in toks),
+        " OR ".join(_q(t) for t in toks),
+    ]
+    # de-pluralize pass: gpus->gpu, cards->card (helps unicode61, no stemming)
+    dep = [t[:-1] if t.lower().endswith("s") and len(t) > 3 else t for t in toks]
+    if dep != toks:
+        attempts += [
+            " AND ".join(_q(t) for t in dep),
+            " OR ".join(_q(t) for t in dep),
+        ]
+    sql = ("SELECT file_path, title, snippet(rl_index_fts, 2, '<b>', '</b>', '…', 24) "
+           "FROM rl_index_fts WHERE rl_index_fts MATCH ? "
+           "ORDER BY bm25(rl_index_fts, 0.1, 3.0, 1.0, 0.1) LIMIT 25")
+    for attempt in attempts:
+        try:
+            rows = con.execute(sql, (attempt,)).fetchall()
+            if rows:
+                return rows
+        except sqlite3.OperationalError:
+            continue
+    return []
+
+def _fts_search_v1(con, q: str, toks):
+    """Legacy per-page index (search.db/rl_fts) — columns (path, title, ...)."""
+    attempts = [
+        " AND ".join(_q(t) for t in toks),
+        " OR ".join(_q(t) for t in toks),
+    ]
+    sql = ("SELECT path, title, snippet(rl_fts, 2, '<b>', '</b>', '…', 24) "
+           "FROM rl_fts WHERE rl_fts MATCH ? ORDER BY rank LIMIT 25")
+    for attempt in attempts:
+        try:
+            rows = con.execute(sql, (attempt,)).fetchall()
+            if rows:
+                return rows
+        except sqlite3.OperationalError:
+            continue
+    return []
+
+def _title_search(q: str, toks):
+    """In-memory last resort: display-title substring (no DB needed)."""
+    needle = q.lower().strip()
+    hits = []
+    for key, title in FILES_TITLES.items():
+        tl = title.lower()
+        if needle and needle in tl:
+            hits.append((key + ".md", title, f"matched in <b>title</b>"))
+        else:
+            for t in toks:
+                if t.lower() in tl:
+                    hits.append((key + ".md", title, f"matched in <b>title</b>"))
+                    break
+        if len(hits) >= 25:
+            break
+    return hits
+
 @app.get("/search", response_class=HTMLResponse)
 def search(request: Request):
     q = (request.query_params.get("q") or "").strip()
     results = []
     total_pages = len(FILES)
-    if q and SEARCH_DB.exists():
-        try:
-            con = sqlite3.connect(f"file:{SEARCH_DB}?mode=ro", uri=True)
-            cur = con.cursor()
-            # build a safe FTS5 query: AND of double-quoted tokens
-            toks = [t for t in re.split(r"\s+", q) if t]
-            fts_q = " AND ".join('"'+t.replace('"','')+ '"' for t in toks)
+    toks = _fts_tokens(q)
+    if q:
+        rows = []
+        # v2 (agent-shared) index first
+        if SEARCH_DB_V2.exists():
             try:
-                rows = cur.execute(
-                    "SELECT path, title, snippet(rl_fts,2,'<b>','</b>','…',24) "
-                    "FROM rl_fts WHERE rl_fts MATCH ? ORDER BY rank LIMIT 25",
-                    (fts_q,)).fetchall()
-            except sqlite3.OperationalError:
-                rows = cur.execute(
-                    "SELECT path, title, snippet(rl_fts,2,'<b>','</b>','…',24) "
-                    "FROM rl_fts WHERE rl_fts MATCH ? ORDER BY rank LIMIT 25",
-                    (' OR '.join('"'+t.replace('"','')+'" ' for t in toks))).fetchall()
-            con.close()
-            results = rows
-        except Exception as e:
-            results = [(f"(search error: {e})", "", "")]
+                con = sqlite3.connect(f"file:{SEARCH_DB_V2}?mode=ro", uri=True)
+                try:
+                    n_docs = con.execute("SELECT COUNT(*) FROM rl_index_fts_docsize").fetchone()[0]
+                    if n_docs >= 100:  # v2 index is populated
+                        rows = _fts_search_v2(con, q, toks)
+                finally:
+                    con.close()
+            except Exception:
+                rows = []
+        # legacy fallback (v2 missing/empty)
+        if not rows and SEARCH_DB.exists():
+            try:
+                con = sqlite3.connect(f"file:{SEARCH_DB}?mode=ro", uri=True)
+                try:
+                    rows = _fts_search_v1(con, q, toks)
+                finally:
+                    con.close()
+            except Exception as e:
+                rows = [(f"(search error: {e})", "", "")]
+        # in-memory title fallback
+        if not rows:
+            rows = _title_search(q, toks)
+        results = rows
     items = ""
     for path, title, snip in results:
         key = path[:-3] if path.endswith(".md") else path
