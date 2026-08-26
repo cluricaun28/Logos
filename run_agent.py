@@ -28,6 +28,97 @@ import hashlib
 import json
 import logging
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Context/fallback config resolution (P3, 2026-08-26 review follow-up)
+#
+# Canonical home for compressor / context-fallback knobs (threshold, enabled,
+# target_ratio, protect_last_n, ...) is the ``context.fallback`` section:
+#
+#     context:
+#       engine: semantic_vector
+#       semantic_vector: {...}
+#       fallback:              # canonical home for fallback/compressor knobs
+#         threshold: 0.5
+#
+# Legacy homes — top-level ``archiving:`` (fallback ``compression:``) — are
+# still read VERBATIM so every existing fleet config keeps working untouched.
+# When BOTH exist, ``context.fallback`` wins and the shadowed legacy section
+# is named in an explicit WARNING.  Recognized-but-unread keys such as
+# ``context.archiving`` also get ONE loud warning naming their live
+# replacement — silent drops are the bug (agent-first doctrine, 2026-07-16).
+# ---------------------------------------------------------------------------
+
+_CONTEXT_DEAD_KEYS = {
+    "archiving": (
+        "Config key 'context.archiving' is DEAD — nothing reads it. Move its "
+        "knobs (threshold/enabled/target_ratio/protect_last_n) to "
+        "'context.fallback' (or the live top-level 'archiving' section)."
+    ),
+    "compression": (
+        "Config key 'context.compression' is DEAD — nothing reads it. Move its "
+        "knobs to 'context.fallback' (or the live top-level 'compression' "
+        "section)."
+    ),
+}
+
+# Warning strings already emitted this process (once-per-process guard so a
+# long-lived gateway that rebuilds agents doesn't spam the same line).
+_EMITTED_CONTEXT_CONFIG_WARNINGS: set = set()
+
+
+def resolve_context_fallback_config(cfg):
+    """Resolve the compressor/fallback knob dict from a full config.
+
+    Pure function — returns ``(fallback_cfg, warnings)``:
+      * ``fallback_cfg``: the knob dict (may be empty → call sites apply
+        their own defaults; never mutated in place).
+      * ``warnings``: list of human-readable warning strings the caller
+        should surface (empty in the common legacy/canonical-only cases).
+
+    Precedence: non-empty ``context.fallback`` > top-level ``archiving`` >
+    top-level ``compression``.  Legacy behaviour is preserved verbatim:
+    a falsy ``archiving`` falls through to ``compression``, and any
+    non-dict section resolves to ``{}``.
+    """
+    warnings = []
+    cfg = cfg if isinstance(cfg, dict) else {}
+    ctx = cfg.get("context")
+    ctx = ctx if isinstance(ctx, dict) else {}
+
+    # Dead-key detection: recognized-looking keys inside `context:` that
+    # no code path reads.
+    for dead, msg in _CONTEXT_DEAD_KEYS.items():
+        if ctx.get(dead):
+            warnings.append(msg)
+
+    fallback = ctx.get("fallback")
+    fallback = fallback if isinstance(fallback, dict) else None
+
+    legacy = cfg.get("archiving", {})
+    if not legacy:
+        legacy = cfg.get("compression", {})
+    legacy = legacy if isinstance(legacy, dict) else {}
+
+    if fallback and legacy:
+        warnings.append(
+            "Config: 'context.fallback' OVERRIDES the legacy top-level "
+            "'archiving'/'compression' section — the legacy section is "
+            "shadowed. Delete the legacy section or move its knobs under "
+            "'context.fallback:' to silence this warning."
+        )
+    if fallback:
+        return fallback, warnings
+    return legacy, warnings
+
+
+def emit_context_config_warnings(warnings):
+    """Log config-resolution warnings once per unique message, per process."""
+    for w in warnings or []:
+        if w not in _EMITTED_CONTEXT_CONFIG_WARNINGS:
+            _EMITTED_CONTEXT_CONFIG_WARNINGS.add(w)
+            logger.warning(w)
 import os
 import random
 import re
@@ -1863,12 +1954,12 @@ class AIAgent:
         # Initialize context archiver for automatic context management
         # Archives conversation when approaching model's context limit
         # Configuration via config.yaml (archiving section)
-        _archiving_cfg = _agent_cfg.get("archiving", {})
-        if not _archiving_cfg:
-            # Backward compat: check old key name
-            _archiving_cfg = _agent_cfg.get("compression", {})
-        if not isinstance(_archiving_cfg, dict):
-            _archiving_cfg = {}
+        # Configuration via config.yaml — canonical home is context.fallback;
+        # legacy top-level archiving/compression still read verbatim (see
+        # resolve_context_fallback_config).  Dead keys and shadowed legacy
+        # sections emit one loud WARNING at startup.
+        _archiving_cfg, _fallback_cfg_warnings = resolve_context_fallback_config(_agent_cfg)
+        emit_context_config_warnings(_fallback_cfg_warnings)
         archiving_threshold = float(_archiving_cfg.get("threshold", 0.50))
         archiving_enabled = str(_archiving_cfg.get("enabled", True)).lower() in ("true", "1", "yes")
         archiving_target_ratio = float(_archiving_cfg.get("target_ratio", 0.20))

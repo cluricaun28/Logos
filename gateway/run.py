@@ -4657,8 +4657,19 @@ class GatewayRunner:
 
                     # Read archiving settings — only use enabled flag.
                     # The threshold is intentionally separate from the agent's
-                    # archiving.threshold (hygiene runs higher).
-                    _comp_cfg = _hyg_data.get("archiving", {}) or _hyg_data.get("compression", {})
+                    # archiving.threshold (hygiene runs higher).  Resolution
+                    # goes through the shared P3 helper so context.fallback is
+                    # honored identically here (warnings are emitted by the
+                    # agent startup path, not per hygiene tick).
+                    try:
+                        from run_agent import resolve_context_fallback_config
+                        _comp_cfg, _ = resolve_context_fallback_config(_hyg_data)
+                    except (ImportError, AttributeError, ModuleNotFoundError):
+                        # run_agent unavailable (e.g. partially-stubbed test
+                        # double) — legacy inline resolution, same precedence.
+                        _comp_cfg = _hyg_data.get("archiving", {}) or _hyg_data.get("compression", {})
+                        if not isinstance(_comp_cfg, dict):
+                            _comp_cfg = {}
                     if isinstance(_comp_cfg, dict):
                         _hyg_compression_enabled = str(
                             _comp_cfg.get("enabled", True)
@@ -9096,6 +9107,9 @@ class GatewayRunner:
         ("compression", "threshold"),
         ("compression", "target_ratio"),
         ("compression", "protect_last_n"),
+        # P3 (2026-08-26): canonical context.fallback section — the whole
+        # dict participates in the cache signature so edits bust the cache.
+        ("context", "fallback"),
     )
 
     @classmethod
