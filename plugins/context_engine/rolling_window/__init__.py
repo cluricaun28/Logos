@@ -144,6 +144,7 @@ class RollingWindowContextEngine(ContextEngine):
             context_engine_log({
                 "type": "calibration",
                 "engine": self.name,
+                "session": getattr(self, "_session_id", "none") or "none",
                 "path": getattr(self, "_last_archive_path", "unknown"),
                 "estimated": est,
                 "actual": actual,
@@ -258,7 +259,9 @@ class RollingWindowContextEngine(ContextEngine):
 
     def on_session_start(self, session_id: str, **kwargs) -> None:
         """Called when a new conversation session begins."""
-        pass
+        # 2026-08-26 (work order P2): attribute engine events to a session
+        # (see semantic_vector engine — same fix, parity path).
+        self._session_id = session_id
 
     def on_session_end(self, session_id: str, messages: list[dict[str, Any]]) -> None:
         """Called at real session boundaries. NOT called per-turn."""

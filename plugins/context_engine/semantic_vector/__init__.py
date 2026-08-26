@@ -234,6 +234,7 @@ class SemanticVectorContextEngine(ContextEngine):
             context_engine_log({
                 "type": "calibration",
                 "engine": self.name,
+                "session": getattr(self, "_session_id", "none") or "none",
                 "path": getattr(self, "_last_archive_path", "unknown"),
                 "estimated": est,
                 "actual": actual,
@@ -807,6 +808,7 @@ class SemanticVectorContextEngine(ContextEngine):
         context_engine_log({
             "type": "task_aware_prune",
             "engine": self.name,
+            "session": getattr(self, "_session_id", "none") or "none",
             "path": self._last_archive_path,
             "messages_in": ta_stats["messages_in"],
             "kept": ta_stats["kept"],
@@ -1284,6 +1286,10 @@ class SemanticVectorContextEngine(ContextEngine):
         Tries to get the embedding model (from cache or by loading).
         Does NOT nuke the model — the module-level cache persists.
         """
+        # 2026-08-26 (work order P2): stash session id so EVERY emitted
+        # context-engine.jsonl event is attributable (calibration events
+        # previously had no session field, unlike archive events).
+        self._session_id = session_id
         try:
             self._get_embedding_model()
         except Exception as e:
