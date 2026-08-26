@@ -23,8 +23,10 @@ import logging
 
 logger = logging.getLogger(__name__)
 import os
+import re
 import threading
 import time
+from pathlib import Path
 from concurrent.futures import (
     ThreadPoolExecutor,
     TimeoutError as FuturesTimeoutError,
@@ -741,6 +743,271 @@ def check_delegate_requirements() -> bool:
     return True
 
 
+# ---------------------------------------------------------------------------
+# Completion contract, fan-in reconciliation, and resumable-child state
+# ---------------------------------------------------------------------------
+# Design (work order 20260826, phases A + F):
+#   - Child summaries are SELF-REPORTS: best-effort evidence, artifacts are
+#     ground truth. The contract below lets the orchestrator machine-check
+#     the child's claim (completed == total) WITHOUT hard-failing.
+#   - ``fan_in()`` reconciles an expected item set against files actually
+#     present in an output dir — the 144-vs-129 class of "silently missing"
+#     fan-out artifacts.
+#   - Timed-out/partial children persist a resume payload under
+#     ``<HERMES_HOME>/state/delegations/<child_id>.json`` so a re-dispatch
+#     with ``resume_from`` can skip already-complete items instead of redoing
+#     them. Paths go through ``get_logos_home()`` (profile-safe, AGENTS.md).
+
+#: Fenced block the child system prompt requires at the end of its summary:
+#:   ```json completion_report
+#:   {"completed": 12, "total": 12, "output_paths": [...], "failures": []}
+#:   ```
+_COMPLETION_REPORT_FENCE_RE = re.compile(
+    r"```(?:json\s+completion_report|completion_report)\s*(.*?)```",
+    re.DOTALL | re.IGNORECASE,
+)
+
+
+def _coerce_contract_int(value: Any) -> Optional[int]:
+    """Best-effort int for contract fields; None when not coercible."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.strip().lstrip("-").isdigit():
+        try:
+            return int(value.strip())
+        except ValueError:
+            return None
+    return None
+
+
+def parse_completion_report(text: Optional[str]) -> Optional[Dict[str, Any]]:
+    """Parse the fenced ``json completion_report`` block from a child summary.
+
+    Returns the normalized contract dict
+    ``{completed, total, output_paths, failures}`` or ``None`` when no block
+    is present / it cannot be parsed. Best-effort by design: model output is
+    evidence, not a hard gate — the caller warns on mismatch, never fails.
+    """
+    if not text or not isinstance(text, str):
+        return None
+    matches = _COMPLETION_REPORT_FENCE_RE.findall(text)
+    if not matches:
+        return None
+    # Last block wins — earlier ones may be examples quoted mid-summary.
+    for blob in reversed(matches):
+        try:
+            data = json.loads(blob)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        completed = _coerce_contract_int(data.get("completed"))
+        total = _coerce_contract_int(data.get("total"))
+        output_paths = data.get("output_paths")
+        failures = data.get("failures")
+        return {
+            "completed": completed,
+            "total": total,
+            "output_paths": [str(p) for p in output_paths]
+            if isinstance(output_paths, (list, tuple))
+            else [],
+            "failures": [str(f) for f in failures]
+            if isinstance(failures, (list, tuple))
+            else [],
+        }
+    return None
+
+
+def fan_in(expected: List[str], output_dir: str) -> Dict[str, Any]:
+    """Reconcile an expected item set against artifacts on disk in *output_dir*.
+
+    Machine-readable fan-out audit (the "144 dispatched, 129 arrived" class):
+    every expected item is matched, case-insensitively, against files found
+    recursively under ``output_dir`` by file stem (``report_007`` matches
+    ``report_007.md``, ``report_007.json``, and ``nested/report_007.md``).
+
+    Returns ``{"merged": [...], "missing": [...], "dupes": {item: [relpaths]}}``:
+      - merged:  items with exactly one artifact on disk
+      - missing: items with no artifact (fan-out silently dropped work)
+      - dupes:   items with 2+ artifacts, mapped to their relative paths
+
+    Files that match no expected item are not reported here (that is an
+    allowlist question the caller owns, not a fan-in loss).
+    """
+    out_root = Path(str(output_dir))
+    files_by_stem: Dict[str, List[str]] = {}
+    if out_root.is_dir():
+        for root, _dirs, files in os.walk(out_root):
+            for fname in files:
+                fpath = Path(root) / fname
+                try:
+                    rel = str(fpath.relative_to(out_root))
+                except ValueError:  # pragma: no cover - walk guarantees
+                    continue
+                stem = fpath.name
+                # Strip all suffixes: item_007.tar.gz -> item_007
+                while "." in stem and not stem.startswith("."):
+                    stem = stem.rsplit(".", 1)[0]
+                files_by_stem.setdefault(stem.casefold(), []).append(rel)
+
+    merged: List[str] = []
+    missing: List[str] = []
+    dupes: Dict[str, List[str]] = {}
+    for item in expected or []:
+        item_str = str(item)
+        stem = Path(item_str).name
+        while "." in stem and not stem.startswith("."):
+            stem = stem.rsplit(".", 1)[0]
+        hits = sorted(files_by_stem.get(stem.casefold(), []))
+        if not hits:
+            missing.append(item_str)
+        elif len(hits) == 1:
+            merged.append(item_str)
+        else:
+            dupes[item_str] = hits
+    return {"merged": merged, "missing": missing, "dupes": dupes}
+
+
+#: child_ids are internal ids (subagent uuids); refuse anything path-ish.
+_DELEGATION_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
+
+
+def _delegation_state_dir() -> Path:
+    """Resume-state dir, profile-aware (never hardcode ~/.hermes)."""
+    from logos_constants import get_logos_home
+
+    return get_logos_home() / "state" / "delegations"
+
+
+def persist_delegation_state(
+    child_id: str,
+    *,
+    done_items: Optional[List[str]],
+    output_dir: Optional[str],
+    task_context: Optional[Dict[str, Any]],
+) -> Optional[str]:
+    """Persist a resumable snapshot for a partial/timed-out child.
+
+    Writes ``<HERMES_HOME>/state/delegations/<child_id>.json``:
+    ``{schema, child_id, done_items, output_dir, task_context, updated_at}``.
+    Returns the path, or None on failure (loud warning — never silent).
+    """
+    if not child_id or not _DELEGATION_ID_RE.match(str(child_id)):
+        logger.warning(
+            "persist_delegation_state: refusing unsafe child_id %r — resume "
+            "state NOT saved",
+            child_id,
+        )
+        return None
+    path = _delegation_state_dir() / f"{child_id}.json"
+    payload = {
+        "schema": "delegation_resume_v1",
+        "child_id": str(child_id),
+        "done_items": sorted({str(d) for d in (done_items or [])}),
+        "output_dir": str(output_dir) if output_dir else None,
+        "task_context": task_context or {},
+        "updated_at": time.time(),
+    }
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2))
+        os.replace(tmp, path)
+        return str(path)
+    except OSError as exc:
+        logger.warning(
+            "persist_delegation_state: write to %s failed (%s) — child %s is "
+            "NOT resumable",
+            path,
+            exc,
+            child_id,
+        )
+        return None
+
+
+def load_delegation_state(child_id: str) -> Optional[Dict[str, Any]]:
+    """Load a resume payload written by :func:`persist_delegation_state`.
+
+    Returns None (with a loud log line for corrupt payloads) when the
+    child_id is unknown, unsafe, or unreadable.
+    """
+    if not child_id or not _DELEGATION_ID_RE.match(str(child_id)):
+        logger.warning(
+            "load_delegation_state: refusing unsafe child_id %r", child_id
+        )
+        return None
+    path = _delegation_state_dir() / f"{child_id}.json"
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning(
+            "load_delegation_state: %s is unreadable (%s) — ignoring resume "
+            "state for %s",
+            path,
+            exc,
+            child_id,
+        )
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def build_resume_note(state: Dict[str, Any]) -> str:
+    """Prompt block injected into a resumed child's context.
+
+    The done-set comes from persisted artifact state; the child is told to
+    VERIFY (artifacts are ground truth) and continue with the remainder.
+    """
+    done = [str(d) for d in (state.get("done_items") or [])]
+    if done:
+        shown = "\n".join(f"- {d}" for d in done[:200])
+        more = (
+            f"\n(+{len(done) - 200} more recorded in the resume payload)"
+            if len(done) > 200
+            else ""
+        )
+        listing = f"{shown}{more}"
+    else:
+        listing = "(none recorded — re-verify everything before proceeding)"
+    return (
+        "\n\nRESUMED RUN: a previous attempt at this task was interrupted "
+        "and persisted partial state. These items are already complete — "
+        "verify and continue with the remainder (do NOT redo completed "
+        f"work):\n{listing}"
+    )
+
+
+def _derive_done_items(
+    output_dir: Optional[str], messages: Optional[List[Any]]
+) -> List[str]:
+    """Best-effort 'what is already done' for a partial child.
+
+    Ground truth first: files physically present in ``output_dir``. Declared
+    ``output_paths`` from any partial completion_report in the transcript are
+    added on top (claims without artifacts still get flagged by fan_in).
+    """
+    done: set = set()
+    if output_dir and os.path.isdir(output_dir):
+        for root, _dirs, files in os.walk(output_dir):
+            for fname in files:
+                try:
+                    rel = os.path.relpath(
+                        os.path.join(root, fname), output_dir
+                    )
+                except ValueError:
+                    continue
+                done.add(rel)
+    for msg in messages or []:
+        if isinstance(msg, dict) and msg.get("role") == "assistant":
+            report = parse_completion_report(msg.get("content") or "")
+            if report:
+                done.update(report["output_paths"])
+    return sorted(done)
+
+
 def _build_child_system_prompt(
     goal: str,
     context: Optional[str] = None,
@@ -790,6 +1057,17 @@ def _build_child_system_prompt(
         "- What you found or accomplished\n"
         "- Any files you created or modified\n"
         "- Any issues encountered\n\n"
+        "Your summary MUST end with a fenced completion report block, exactly "
+        "this shape:\n"
+        "```json completion_report\n"
+        '{"completed": <int items finished>, "total": <int items required>, '
+        '"output_paths": ["<absolute path per artifact file>"], '
+        '"failures": ["<one short line per unfinished item>"]}\n'
+        "```\n"
+        "The orchestrator machine-checks completed == total and surfaces a "
+        "contract_mismatch warning on your result when they differ — report "
+        "honestly: unfinished work belongs in 'failures', not in 'completed'. "
+        "Use 1/1 for a single-deliverable task with no itemized breakdown.\n\n"
         "Important workspace rule: Never assume a repository lives at /workspace/... or any other container-style path unless the task/context explicitly gives that path. "
         "If no exact local path is provided, discover it first before issuing git/workdir-specific commands.\n\n"
         "Be thorough but concise -- your response is returned to the "
@@ -1786,8 +2064,15 @@ def _run_single_child(
             # Resume-from-partial: if the child did real work before timing
             # out, surface a resume hint + best-effort partial output so the
             # parent can re-dispatch intelligently instead of restarting.
+            # Persist {done_items, output_dir, task_context} so the parent can
+            # re-dispatch with resume_from=<child_id> and skip completed items.
             _resume_hint = None
             _partial_output = None
+            _msgs = getattr(child, "messages", None) or getattr(
+                child, "_messages", None
+            )
+            if not isinstance(_msgs, list):
+                _msgs = []
             if is_timeout and child_api_calls > 0:
                 _resume_hint = (
                     f"Timed out after {child_timeout}s with "
@@ -1797,16 +2082,41 @@ def _run_single_child(
                     f"timing out; continue from where the partial output stops "
                     f"(do not redo completed work).'"
                 )
-                _msgs = getattr(child, "messages", None) or getattr(
-                    child, "_messages", None
-                )
-                if isinstance(_msgs, list) and _msgs:
+                if _msgs:
                     try:
                         _partial_output = _extract_output_tail(
                             {"messages": _msgs}, max_entries=6, max_chars=4000
                         ) or None
                     except Exception:
                         _partial_output = None
+            _resume_state_path = None
+            if is_timeout:
+                try:
+                    _resume_state_path = persist_delegation_state(
+                        child_task_id,
+                        done_items=_derive_done_items(
+                            _kwargs.get("output_dir"), _msgs
+                        ),
+                        output_dir=_kwargs.get("output_dir"),
+                        task_context=_kwargs.get("task_context")
+                        or {"goal": goal},
+                    )
+                    if _resume_state_path:
+                        _resume_hint = (
+                            (_resume_hint + " ")
+                            if _resume_hint
+                            else f"Timed out after {child_timeout}s. "
+                        ) + (
+                            f"Partial state persisted — re-dispatch with "
+                            f"resume_from='{child_task_id}' to continue from "
+                            f"the recorded done-set."
+                        )
+                except Exception:
+                    logger.debug(
+                        "resume-state persistence failed for child %s",
+                        child_task_id,
+                        exc_info=True,
+                    )
             return {
                 "task_index": task_index,
                 "status": "timeout" if is_timeout else "error",
@@ -1819,6 +2129,10 @@ def _run_single_child(
                 "diagnostic_path": diagnostic_path,
                 "resume_hint": _resume_hint,
                 "partial_output": _partial_output,
+                # Stable id for resume_from on a re-dispatch (only useful
+                # when a resume payload was actually persisted).
+                "child_id": child_task_id,
+                "resume_state_path": _resume_state_path,
             }
         finally:
             # Shut down executor without waiting — if the child thread
@@ -1957,6 +2271,74 @@ def _run_single_child(
         }
         if status == "failed":
             entry["error"] = result.get("error", "Subagent did not produce a response.")
+
+        # Completion contract check (work order P1/A).  The child system
+        # prompt requires a fenced `json completion_report` block at the end
+        # of the summary; here we machine-check completed == total.  Mismatch
+        # is an EXPLICIT warning block on the result, never a hard fail —
+        # model output is best-effort evidence, artifacts are ground truth.
+        _contract = parse_completion_report(summary) if summary else None
+        if _contract:
+            entry["completion_contract"] = _contract
+            _c_done = _contract.get("completed")
+            _c_total = _contract.get("total")
+            if (
+                isinstance(_c_done, int)
+                and isinstance(_c_total, int)
+                and _c_done != _c_total
+            ):
+                logger.warning(
+                    "Subagent %d: completion contract mismatch "
+                    "(completed=%s total=%s, failures=%d) — surfacing "
+                    "contract_mismatch warning to parent",
+                    task_index, _c_done, _c_total,
+                    len(_contract.get("failures") or []),
+                )
+                entry["contract_mismatch"] = {
+                    "warning": (
+                        f"Child reported {_c_done}/{_c_total} items "
+                        "complete (completed != total). Treat the summary as "
+                        "UNVERIFIED: reconcile output_paths against artifacts "
+                        "on disk (fan_in() in tools/delegate_tool.py) before "
+                        "relying on it."
+                    ),
+                    "completed": _c_done,
+                    "total": _c_total,
+                    "failures": _contract.get("failures") or [],
+                }
+        elif status == "completed":
+            # No block at all: still evidence-shaped info, not an error.
+            entry["completion_contract"] = None
+
+        # Partial completion via max_iterations: persist the same resume
+        # payload a timeout would write, so resume_from works here too.
+        if exit_reason == "max_iterations":
+            try:
+                _mi_msgs = result.get("messages") or []
+                entry["child_id"] = child_task_id
+                entry["resume_state_path"] = persist_delegation_state(
+                    child_task_id,
+                    done_items=_derive_done_items(
+                        _kwargs.get("output_dir"),
+                        _mi_msgs if isinstance(_mi_msgs, list) else [],
+                    ),
+                    output_dir=_kwargs.get("output_dir"),
+                    task_context=_kwargs.get("task_context") or {"goal": goal},
+                )
+                if entry.get("resume_state_path"):
+                    entry["resume_hint"] = (
+                        "Child hit max_iterations (partial result). Partial "
+                        f"state persisted — re-dispatch with "
+                        f"resume_from='{child_task_id}' to continue from the "
+                        "recorded done-set."
+                    )
+            except Exception:
+                logger.debug(
+                    "resume-state persistence failed for max_iterations "
+                    "child %s",
+                    child_task_id,
+                    exc_info=True,
+                )
 
         # Cross-agent file-state reminder.  If this subagent wrote any
         # files the parent had already read, surface it so the parent
@@ -2140,6 +2522,8 @@ def delegate_task(
     role: Optional[str] = None,
     background: Optional[bool] = None,
     timeout: Optional[float] = None,
+    output_dir: Optional[str] = None,
+    resume_from: Optional[str] = None,
     parent_agent=None,
 ) -> str:
     """
@@ -2150,7 +2534,7 @@ def delegate_task(
       - Batch:  provide tasks array [{goal, context, toolsets, persona, capability_mode, role}, ...]
 
     The 'persona' parameter (optional) references a skill-driven persona from
-    ~/.hermes/personas/registry.yaml. When set, the child agent automatically
+    ~/.hermes/personas/registry.yaml. When set, the child automatically
     loads the referenced skill's instructions and applies the persona's toolset
     restrictions and reasoning effort settings.
 
@@ -2168,6 +2552,13 @@ def delegate_task(
     The 'background' parameter (single-task only) dispatches the child to
     run asynchronously. The parent returns immediately with a handle, and
     the result re-enters the conversation as a fresh turn when complete.
+
+    The 'output_dir' parameter (per-task or top-level) declares where the
+    child writes its artifacts. Timed-out/partial children persist
+    {done_items, output_dir, task_context} to
+    <HERMES_HOME>/state/delegations/<child_id>.json; re-dispatching with
+    'resume_from': <child_id> injects that done-set into the new child's
+    prompt so completed items are verified, not redone.
 
     Returns JSON with results array (sync) or a dispatched handle (async).
     """
@@ -2255,6 +2646,32 @@ def delegate_task(
         if not task.get("goal", "").strip():
             return tool_error(f"Task {i} is missing a 'goal'.")
 
+    # Resume / fan-out plumbing (work order P1/F).  Copy task dicts so the
+    # caller's structures aren't mutated.  resume_from must resolve to a
+    # persisted payload — an unknown id fails loudly (a silent fresh run
+    # would silently redo completed work and hide a typo'd id).
+    resolved_tasks = []
+    for i, task in enumerate(task_list):
+        t = dict(task)
+        rf = t.get("resume_from") or (
+            resume_from if len(task_list) == 1 else None
+        )
+        od = t.get("output_dir") or output_dir
+        if rf:
+            state = load_delegation_state(str(rf))
+            if state is None:
+                return tool_error(
+                    f"Task {i}: resume_from='{rf}' has no persisted "
+                    f"delegation state under {_delegation_state_dir()} — "
+                    "dispatch without resume_from to start a fresh run."
+                )
+            t["context"] = (t.get("context") or "") + build_resume_note(state)
+            od = od or state.get("output_dir")
+            t["resumed_from"] = str(rf)
+        t["output_dir"] = od
+        resolved_tasks.append(t)
+    task_list = resolved_tasks
+
     overall_start = time.monotonic()
     results = []
 
@@ -2336,10 +2753,17 @@ def delegate_task(
             _parent_session_id = getattr(parent_agent, "session_id", "") or ""
 
             def _async_runner(
-                _child=child, _goal=_t["goal"], _cto=(_t.get("timeout") or timeout)
+                _child=child, _goal=_t["goal"], _cto=(_t.get("timeout") or timeout),
+                _odir=_t.get("output_dir"),
+                _tctx={
+                    "goal": _t["goal"],
+                    "context": _t.get("context"),
+                    "output_dir": _t.get("output_dir"),
+                },
             ):
                 return _run_single_child(
-                    0, _goal, _child, parent_agent, child_timeout=_cto
+                    0, _goal, _child, parent_agent, child_timeout=_cto,
+                    output_dir=_odir, task_context=_tctx,
                 )
 
             def _async_interrupt(_child=child):
@@ -2394,6 +2818,12 @@ def delegate_task(
         result = _run_single_child(
             0, _t["goal"], child, parent_agent,
             child_timeout=(_t.get("timeout") or timeout),
+            output_dir=_t.get("output_dir"),
+            task_context={
+                "goal": _t["goal"],
+                "context": _t.get("context"),
+                "output_dir": _t.get("output_dir"),
+            },
         )
         results.append(result)
     else:
@@ -2411,6 +2841,12 @@ def delegate_task(
                     child=child,
                     parent_agent=parent_agent,
                     child_timeout=(t.get("timeout") or timeout),
+                    output_dir=t.get("output_dir"),
+                    task_context={
+                        "goal": t["goal"],
+                        "context": t.get("context"),
+                        "output_dir": t.get("output_dir"),
+                    },
                 )
                 futures[future] = i
 
@@ -2880,7 +3316,15 @@ DELEGATE_TASK_SCHEMA = {
                         },
                         "timeout": {
                             "type": "number",
-                            "description": "Optional per-task timeout in seconds (overrides the top-level 'timeout' / config default of 600s). On timeout the result includes a 'resume_hint' + 'partial_output'.",
+                            "description": "Optional per-task timeout in seconds (overrides the top-level 'timeout' / config default of 600s). On timeout the result includes a 'resume_hint' + 'partial_output' plus a persisted resume payload ('child_id').",
+                        },
+                        "output_dir": {
+                            "type": "string",
+                            "description": "Per-task override of the top-level 'output_dir'. See top-level description.",
+                        },
+                        "resume_from": {
+                            "type": "string",
+                            "description": "Per-task override of the top-level 'resume_from'. See top-level description.",
                         },
                     },
                     "required": ["goal"],
@@ -2938,6 +3382,28 @@ DELEGATE_TASK_SCHEMA = {
                 "type": "number",
                 "description": "Optional per-call timeout in seconds applied to every task (overrides the delegation.child_timeout_seconds config default of 600s). Raise it for long work (e.g. 900-1200). On timeout the result includes a 'resume_hint' + 'partial_output' for re-dispatch. For a single task, prefer the per-task 'timeout'.",
             },
+            "output_dir": {
+                "type": "string",
+                "description": (
+                    "Directory where children write their artifacts. Declaring it "
+                    "activates resumable children: a timed-out or max-iterations "
+                    "child persists {done_items, output_dir, task_context} and its "
+                    "result carries 'child_id'. Use fan_in(expected, output_dir) "
+                    "logic (tools/delegate_tool.py) to reconcile expected vs "
+                    "actual artifacts. Per-task override: tasks[i].output_dir."
+                ),
+            },
+            "resume_from": {
+                "type": "string",
+                "description": (
+                    "child_id of a previous timed-out/partial child (from its "
+                    "result). The persisted done-set is injected into the new "
+                    "child's prompt: 'these items are already complete — verify "
+                    "and continue with the remainder'. Fails loudly if no "
+                    "resume state exists for the id. Per-task override: "
+                    "tasks[i].resume_from."
+                ),
+            },
         },
         "required": [],
     },
@@ -2955,12 +3421,17 @@ registry.register(
         goal=args.get("goal"),
         context=args.get("context"),
         toolsets=args.get("toolsets"),
+        persona=args.get("persona"),
+        capability_mode=args.get("capability_mode"),
         tasks=args.get("tasks"),
         max_iterations=args.get("max_iterations"),
         acp_command=args.get("acp_command"),
         acp_args=args.get("acp_args"),
         role=args.get("role"),
         background=args.get("background"),
+        timeout=args.get("timeout"),
+        output_dir=args.get("output_dir"),
+        resume_from=args.get("resume_from"),
         parent_agent=kw.get("parent_agent"),
     ),
     check_fn=check_delegate_requirements,
