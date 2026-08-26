@@ -665,7 +665,7 @@ DEFAULT_CONFIG = {
         "final_response_markdown": "strip",  # render | strip | raw
         "inline_diffs": True,     # Show inline diff previews for write actions (write_file, patch, skill_manage)
         "show_cost": False,       # Show $ cost in the status bar (off by default)
-        "skin": "default",
+        "skin": "logos",  # fleet default skin (green LOGOS theme); /skin or display.skin overrides
         "user_message_preview": {  # CLI: how many submitted user-message lines to echo back in scrollback
             "first_lines": 2,
             "last_lines": 2,

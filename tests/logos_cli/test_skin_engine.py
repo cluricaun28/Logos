@@ -100,6 +100,25 @@ class TestBuiltinSkins:
         assert skin.get_color("banner_text") == "#2C1810"
         assert skin.get_color("completion_menu_bg") == "#F5EFE0"
 
+    def test_logos_skin_loads(self):
+        from logos_cli.skin_engine import load_skin
+        skin = load_skin("logos")
+        assert skin.name == "logos"
+        assert skin.tool_prefix == "┊"
+        assert skin.get_color("banner_border") == "#2E7D32"
+        assert skin.get_color("banner_accent") == "#66BB6A"
+        assert skin.get_color("status_bar_bg") == "#0F2A14"
+        assert skin.get_color("session_label") == "#A5D6A7"
+        assert skin.get_branding("agent_name") == "Logos"
+        assert "██╗" in skin.banner_logo
+        assert "#1B5E20" in skin.banner_logo
+        assert "#66BB6A" in skin.banner_logo
+        assert "HERMES" not in skin.banner_logo
+        assert "⚕" in skin.get_branding("response_label")
+        assert "⣿" in skin.banner_hero
+        assert "#2E7D32" in skin.banner_hero
+        assert skin.get_spinner_wings() == []
+
     def test_unknown_skin_falls_back_to_default(self):
         from logos_cli.skin_engine import load_skin
         skin = load_skin("nonexistent_skin_xyz")
@@ -133,6 +152,7 @@ class TestSkinManagement:
         skins = list_skins()
         names = [s["name"] for s in skins]
         assert "default" in names
+        assert "logos" in names
         assert "ares" in names
         assert "mono" in names
         assert "slate" in names
@@ -150,25 +170,25 @@ class TestSkinManagement:
     def test_init_skin_from_empty_config(self):
         from logos_cli.skin_engine import init_skin_from_config, get_active_skin_name
         init_skin_from_config({})
-        assert get_active_skin_name() == "default"
+        assert get_active_skin_name() == "logos"
 
     def test_init_skin_from_null_display(self):
-        """display: null should fall back to default, not crash."""
+        """display: null should fall back to the logos default, not crash."""
         from logos_cli.skin_engine import init_skin_from_config, get_active_skin_name
         init_skin_from_config({"display": None})
-        assert get_active_skin_name() == "default"
+        assert get_active_skin_name() == "logos"
 
     def test_init_skin_from_non_dict_display(self):
-        """display: <non-dict> should fall back to default."""
+        """display: <non-dict> should fall back to the logos default."""
         from logos_cli.skin_engine import init_skin_from_config, get_active_skin_name
         init_skin_from_config({"display": "invalid"})
-        assert get_active_skin_name() == "default"
+        assert get_active_skin_name() == "logos"
 
         init_skin_from_config({"display": 42})
-        assert get_active_skin_name() == "default"
+        assert get_active_skin_name() == "logos"
 
         init_skin_from_config({"display": []})
-        assert get_active_skin_name() == "default"
+        assert get_active_skin_name() == "logos"
 
 
 class TestUserSkins:

@@ -388,7 +388,7 @@ def load_cli_config() -> Dict[str, Any]:
             "streaming": True,
             "busy_input_mode": "interrupt",
 
-            "skin": "default",
+            "skin": "logos",  # fleet default skin (green LOGOS theme); /skin or display.skin overrides
         },
         "clarify": {
             "timeout": 120,  # Seconds to wait for a clarify answer before auto-proceeding

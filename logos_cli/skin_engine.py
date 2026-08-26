@@ -97,7 +97,8 @@ USAGE
 BUILT-IN SKINS
 ==============
 
-- ``default`` — Classic Logos gold/kawaii (the current look)
+- ``logos``   — Green flagship theme (the default when no skin is configured)
+- ``default`` — Classic Logos gold/kawaii
 - ``ares``    — Crimson/bronze war-god theme with custom spinner wings
 - ``mono``    — Clean grayscale monochrome
 - ``slate``   — Cool blue developer-focused theme
@@ -195,6 +196,68 @@ _BUILTIN_SKINS: Dict[str, Dict[str, Any]] = {
             "help_header": "(^_^)? Available Commands",
         },
         "tool_prefix": "┊",
+    },
+    "logos": {
+        "name": "logos",
+        "description": "Logos green - flagship theme (the default)",
+        "colors": {
+            "banner_border": "#2E7D32",
+            "banner_title": "#A5D6A7",
+            "banner_accent": "#66BB6A",
+            "banner_dim": "#1B5E20",
+            "banner_text": "#E8F5E9",
+            "ui_accent": "#66BB6A",
+            "ui_label": "#A5D6A7",
+            "ui_ok": "#4caf50",
+            "ui_error": "#ef5350",
+            "ui_warn": "#ffa726",
+            "prompt": "#E8F5E9",
+            "input_rule": "#2E7D32",
+            "response_border": "#A5D6A7",
+            "status_bar_bg": "#0F2A14",
+            "status_bar_text": "#E8F5E9",
+            "status_bar_strong": "#A5D6A7",
+            "status_bar_dim": "#4E6B52",
+            "status_bar_good": "#7BC96F",
+            "status_bar_warn": "#A5D6A7",
+            "status_bar_bad": "#FF8A65",
+            "status_bar_critical": "#EF5350",
+            "session_label": "#A5D6A7",
+            "session_border": "#4E6B52",
+        },
+        "spinner": {
+            # Empty = use hardcoded defaults in display.py
+        },
+        "branding": {
+            "agent_name": "Logos",
+            "welcome": "Welcome to Logos! Type your message or /help for commands.",
+            "goodbye": "Goodbye! ⚕",
+            "response_label": " ⚕ Logos ",
+            "prompt_symbol": "❯ ",
+            "help_header": "(^_^)? Available Commands",
+        },
+        "tool_prefix": "┊",
+        "banner_logo": """[bold #1B5E20]██╗      ██████╗  ██████╗  ██████╗ ███████╗[/]
+[bold #2E7D32]██║     ██╔═══██╗██╔════╝ ██╔═══██╗██╔════╝[/]
+[#388E3C]██║     ██║   ██║██║  ███╗██║   ██║███████╗[/]
+[#43A047]██║     ██║   ██║██║   ██║██║   ██║╚════██║[/]
+[#4CAF50]███████╗╚██████╔╝╚██████╔╝╚██████╔╝███████║[/]
+[#66BB6A]╚══════╝ ╚═════╝  ╚═════╝  ╚═════╝ ╚══════╝[/]""",
+        "banner_hero": """[#2E7D32]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣀⡀⠀⣀⣀⠀⢀⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
+[#2E7D32]⠀⠀⠀⠀⠀⠀⢀⣠⣴⣾⣿⣿⣇⠸⣿⣿⠇⣸⣿⣿⣷⣦⣄⡀⠀⠀⠀⠀⠀⠀[/]
+[#81C784]⠀⢀⣠⣴⣶⠿⠋⣩⡿⣿⡿⠻⣿⡇⢠⡄⢸⣿⠟⢿⣿⢿⣍⠙⠿⣶⣦⣄⡀⠀[/]
+[#81C784]⠀⠀⠉⠉⠁⠶⠟⠋⠀⠉⠀⢀⣈⣁⡈⢁⣈⣁⡀⠀⠉⠀⠙⠻⠶⠈⠉⠉⠀⠀[/]
+[#A5D6A7]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣴⣿⡿⠛⢁⡈⠛⢿⣿⣦⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
+[#A5D6A7]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠿⣿⣦⣤⣈⠁⢠⣴⣿⠿⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
+[#81C784]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠉⠻⢿⣿⣦⡉⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
+[#81C784]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠘⢷⣦⣈⠛⠃⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
+[#2E7D32]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢠⣴⠦⠈⠙⠿⣦⡄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
+[#2E7D32]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠸⣿⣤⡈⠁⢤⣿⠇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
+[#1B5E20]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⠛⠷⠄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
+[#1B5E20]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣀⠑⢶⣄⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
+[#1B5E20]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣿⠁⢰⡆⠈⡿⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
+[#1B5E20]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠳⠈⣡⠞⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
+[#1B5E20]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]""",
     },
     "ares": {
         "name": "ares",
@@ -769,11 +832,11 @@ def init_skin_from_config(config: dict) -> None:
     display = config.get("display") or {}
     if not isinstance(display, dict):
         display = {}
-    skin_name = display.get("skin", "default")
+    skin_name = display.get("skin", "logos")
     if isinstance(skin_name, str) and skin_name.strip():
         set_active_skin(skin_name.strip())
     else:
-        set_active_skin("default")
+        set_active_skin("logos")
 
 
 # =============================================================================
