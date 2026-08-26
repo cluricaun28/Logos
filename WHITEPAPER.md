@@ -2,7 +2,7 @@
 type: topic
 topic: "Logos — System White Paper"
 created: 2026-05-07
-last_updated: 2026-08-20
+last_updated: 2026-08-26
 confidence: high
 related_entries:
   - "Hermes Agent Architecture(topics/hermes-agent/architecture)"
@@ -21,7 +21,7 @@ description: "Comprehensive white paper documenting the purpose, architecture, a
 
 *A white paper on sovereign knowledge management through persistent memory, curated truth, and epistemic sovereignty*
 
-**Version:** 3.3  |  **Date:** August 2026  |  **Repository:** cluricaun28/logos
+**Version:** 3.3  |  **Date:** 2026-08-26  |  **Repository:** cluricaun28/logos (detached, standalone)
 
 ---
 
@@ -381,6 +381,8 @@ context:
 
 **Observability:** Every archive logs vector counts, pruned message count, and state map injection to `agent.log`. Check with: `grep 'SemanticVector' ~/.hermes/logs/agent.log | tail -20`.
 
+**Fallback knob configuration — `context.fallback` (2026-08-26):** the compressor / rolling-fallback knobs (`threshold`, `enabled`, `target_ratio`, `protect_last_n`) have their canonical home in a `context.fallback` section. The legacy top-level `archiving:` (fallback `compression:`) sections keep working verbatim — every existing fleet config is untouched. If both exist, `context.fallback` wins and the shadowed legacy section is named in one explicit startup WARNING. A never-read key such as `context.archiving` now triggers a dead-key WARNING at startup naming its live replacement (agent-first doctrine: loud warnings beat silent drops).
+
 **Key classes:** `SemanticVectorContextEngine` in `plugins/context_engine/semantic_vector/__init__.py` (811 lines), `RollingWindowContextEngine` in `plugins/context_engine/rolling_window/__init__.py` (278 lines).
 
 ---
@@ -442,6 +444,8 @@ See [[Skill Priority-Based Injection(topics/hermes-agent/skill-priority-injectio
 
 **Subagent hardening (2026-08-20):** The delegation harness (`tools/delegate_tool.py`) gained three mechanisms proven by the 2026-08-19/20 sandbox soak (wave-2 mass-timeout analysis): a per-task `timeout` override (single + batch call sites, non-numeric values fall back to default), stale-intro detection (`_looks_like_intermediate_summary()` flags a child whose final answer is actually a pre-tool intent line and attaches the real `output_tail`), and resume hints on timeout (`resume_hint` + best-effort `partial_output` so work done before the timeout isn't discarded). All additive; each independently revertable.
 
+**Delegation completion contract (2026-08-26, c4648f38):** child summaries must end with a fenced `json completion_report` block — `{completed, total, output_paths, failures}` — parsed by the orchestrator, which returns an explicit `contract_mismatch` warning block on `completed != total` (soft-fail: model output is best-effort evidence, artifacts are ground truth). `fan_in(expected, output_dir)` reconciles an expected artifact set against the globbed outputs and reports `{merged, missing, dupes}` — proven against the 144-vs-129 class of silent loss. Timed-out or partial children persist `{done_items, output_dir, task_context}` under `<HERMES_HOME>/state/delegations/<child_id>.json`, and `resume_from: <child_id>` injects the done-set so the child verifies and continues instead of restarting. Related (d05e43ef): every event in `context-engine.jsonl` — calibration included — now carries a non-empty `session` field.
+
 ### 4.10 Pinned Project Briefs — Mid-Context Project Focus (new)
 
 **Purpose:** Hold a long-running project's objective across context-window archiving and session resets — toggleable mid-session, no restart.
@@ -459,6 +463,12 @@ Proven 2026-08-20: with a pin, a 205-product description rewrite + dimensions au
 ---
 
 ## 5. Codebase Organization
+
+**Measured scale (2026-08-26, post-cleanup R1–R13):** gateway ≈ 27,400 LOC across `run.py` + 17 platform adapters; `tools/` ≈ 50,700 LOC; `tests/` ≈ 227,000 lines. The 2026-08 cleanup deleted the Docusaurus `website/`, the Ink TUI (`ui-tui/` + `tui_gateway/`), the dashboard plugin, and the docker/nix packaging trees; CI workflows referencing only those removed subsystems went with them. The repo is detached from Hermes Agent and lives at **cluricaun28/logos**.
+
+### 5.0 Rebrand (landed 2026-08-26)
+
+The system ships as **Logos**: default banner and CLI identity say Logos (not Nous Hermes / Nous Research), the built-in green `logos` skin is the CLI default (`display.skin`), and both `logos` and legacy `hermes` console entrypoints resolve to `logos_cli.main:main`. Pre-rebrand `~/.hermes` homes still resolve when `~/.logos` does not exist.
 
 ### 5.1 Custom Plugin Modules (~44 modules, ~15,600 lines)
 
@@ -510,7 +520,7 @@ Custom code lives in `plugins/memory/perpetual_context/` (38 modules, ~11,300 li
 
 **Deprecated (kept in `deprecated/` subdirectory or marked in code):**
 - `injection_router.py` — superseded by `semantic_intent_router.py` (embedding-centroid intent classification); moved to `deprecated/`
-**Test suite:** 20+ custom test functions across 5 files. All passing as of 2026-07-16. (Upstream test suite also runs — 1,700+ tests total.)
+**Test suite:** 20+ custom test functions across 5 files. All passing as of 2026-07-16. (Upstream test suite also runs — measured 2026-08-26: `tests/` ≈ 227,000 lines across ~700 files.)
 
 ### 5.2 Core Database Engine
 
@@ -601,6 +611,22 @@ This is not moral relativism disguised as "both sides." It is epistemic honesty 
 | Messaging | Telegram bot gateway | N/A | Primary communication channel |
 | Media generation | ComfyUI (3 instances) | 8188 (image, GPU 5) · 8189 (video, GPU 3) · 8190 (video, GPU 7) | Pinned stack: Qwen Image 2512 fp8 (image) · Wan 2.2 5B (fast video, ~90s/clip) · Kandinsky 5.0 Pro (hero video, frame 0 locked to product photo). Uncensored Wan 2.2 Remix 14B + Wan 14B I2V on disk, load-on-demand |
 | Agent-to-agent | A2A HTTP endpoint (per gateway) | per-agent port (owner 8811, fleet 8801–8808, candidate 8899) | `API_SERVER_ENABLED=true` + per-instance key; agents message each other directly; fleet registry is the address book |
+| Fleet metering (optional) | LiteLLM proxy | 8001 | Per-user virtual keys in front of the :8000 vLLM upstream; per-key `usage.jsonl` attribution — an OPTIONAL fleet extension, not part of the single-user baseline |
+
+### 7.3 Quickstart — Single-User Deployment (the default reading)
+
+The default deployment is **one user, one box**. Everything below is the whole prerequisite list:
+
+1. `pip install -e .` — installs the `logos` CLI (entrypoint `logos_cli.main:main`).
+2. Any OpenAI-compatible inference endpoint on the same box: a **vLLM** server (:8000) or **llama.cpp**'s `llama-server`. No cloud API required.
+3. Run `logos` for the interactive CLI, or start **one** messaging gateway (e.g. Telegram).
+4. Persistence is a single SQLite file (`~/.logos/perpetual_context.db`) — no Postgres, Redis, Docker stack, or proxy needed.
+
+Everything else in this whitepaper — the LiteLLM fleet proxy (:8001, per-user keys, `usage.jsonl` attribution), per-user agent units under `/data1/agents/`, A2A agent-to-agent endpoints, the multi-GPU vLLM fleet — is an **optional fleet extension** layered on the single-box core, never a prerequisite.
+
+### 7.4 Fleet Usage Metering (optional extension)
+
+On shared boxes a LiteLLM proxy on :8001 fronts the inference server with per-user virtual keys; each user's agent points at the proxy instead of :8000, and the proxy appends per-key usage lines to `usage.jsonl` — per-user token attribution with zero agent-code changes.
 
 ---
 
@@ -640,6 +666,7 @@ The system is designed to run several autonomous jobs that maintain and improve 
 
 | Date | Milestone |
 |------|-----------|
+| 2026-08-26 | **v3.3 — Rebrand landed + post-cleanup reality, single-user-first framing.** Logos identity default (banner/CLI say Logos; green `logos` skin default; `logos`/`hermes` entrypoints → `logos_cli.main:main`). Cleanup R1–R13 removed website/, ui-tui/, tui_gateway/, dashboard plugin, docker/nix packaging (+ their CI). Measured scale: gateway ≈27.4K LOC, tools ≈50.7K, tests ≈227K lines, 17 platform adapters, detached repo cluricaun28/logos. Delegation completion contract + `fan_in` reconciliation + resumable children; canonical `context.fallback` config section with dead-key/shadow WARNINGs; LiteLLM per-user-key fleet metering (`usage.jsonl`); fleet pieces documented as OPTIONAL over the one-box core. |
 | 2026-04-21 | Perpetual Memory system deployed (SQLite + FTS5) |
 | 2026-04-23 | Context Bridge structured extraction |
 | 2026-04-25 | vLLM Docker setup, OpenRouter fallback removed |
