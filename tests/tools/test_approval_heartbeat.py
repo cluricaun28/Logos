@@ -56,6 +56,17 @@ class TestApprovalHeartbeat:
         # by default, so env var is the portable way to drive this in tests.
         os.environ["HERMES_SESSION_KEY"] = self.SESSION_KEY
 
+        # Pre-warm the tirith security binary: on first use it auto-downloads
+        # into this test's isolated HERMES_HOME (conftest redirects it per
+        # test). Running it here keeps the network fetch OUT of the timing
+        # windows these tests measure — otherwise a slow download lands
+        # inside the 5s thread.join and fails the test.
+        try:
+            from tools.tirith_security import _resolve_tirith_path
+            _resolve_tirith_path("tirith")
+        except Exception:
+            pass  # offline: guard skips the scan, timing still measured
+
     def teardown_method(self):
         for k, v in self._saved_env.items():
             if v is None:
@@ -140,9 +151,15 @@ class TestApprovalHeartbeat:
             resolve_gateway_approval,
         )
 
-        register_gateway_notify(self.SESSION_KEY, lambda _payload: None)
+        # Gate the resolve on the approval prompt actually being queued.
+        # In production the user can only respond AFTER the prompt is shown,
+        # so a fixed pre-resolve sleep can race cold-start work (e.g. the
+        # first-run tirith binary download into the per-test HERMES_HOME)
+        # that delays the queue append past the resolve — making the resolve
+        # a no-op and the wait thread sit out the full gateway timeout.
+        prompted = threading.Event()
+        register_gateway_notify(self.SESSION_KEY, lambda _payload: prompted.set())
 
-        start_time = time.monotonic()
         result_holder: dict = {}
 
         def _run_check():
@@ -153,9 +170,15 @@ class TestApprovalHeartbeat:
         thread = threading.Thread(target=_run_check, daemon=True)
         thread.start()
 
-        # Resolve almost immediately — the wait loop should return within
-        # its current 1s poll slice.
-        time.sleep(0.1)
+        # Block until the approval request is queued (prompt "sent to user"),
+        # bounded so a genuinely hung worker still fails fast.
+        assert prompted.wait(timeout=10.0), (
+            "approval prompt was never queued within 10s"
+        )
+
+        # Measure responsiveness from the moment the user "responds" —
+        # the wait loop should return within its current 1s poll slice.
+        start_time = time.monotonic()
         resolve_gateway_approval(self.SESSION_KEY, "once")
         thread.join(timeout=5)
         elapsed = time.monotonic() - start_time
