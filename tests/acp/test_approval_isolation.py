@@ -124,6 +124,11 @@ class TestThreadLocalApprovalCallback:
         # thread ident (dual-read: LOGOS_* would shadow the per-thread scope).
         monkeypatch.delenv("LOGOS_SESSION_KEY", raising=False)
         monkeypatch.delenv("HERMES_SESSION_KEY", raising=False)
+        # Cron marker leaks into test envs whenever tests run inside a gateway
+        # process (cron/scheduler.py sets LOGOS_CRON_SESSION in-process and
+        # never clears it). The approval guard's cron-deny path keys on it.
+        monkeypatch.delenv("LOGOS_CRON_SESSION", raising=False)
+        monkeypatch.delenv("HERMES_CRON_SESSION", raising=False)
         from tools.terminal_tool import (
             _get_cached_sudo_password,
             _reset_cached_sudo_passwords,
@@ -226,6 +231,10 @@ class TestAcpExecAskGate:
         monkeypatch.delenv("LOGOS_YOLO_MODE", raising=False)
         monkeypatch.delenv("LOGOS_SESSION_KEY", raising=False)
         monkeypatch.delenv("HERMES_SESSION_KEY", raising=False)
+        # Cron marker inherits from the gateway process env (cron/scheduler.py
+        # sets it in-process); would route this test down the cron-deny path.
+        monkeypatch.delenv("LOGOS_CRON_SESSION", raising=False)
+        monkeypatch.delenv("HERMES_CRON_SESSION", raising=False)
 
         from tools.approval import check_all_command_guards
 
