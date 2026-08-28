@@ -556,6 +556,8 @@ async def vision_analyze_tool(
         # Local vision models (llama.cpp, ollama) can take well over 30s.
         vision_timeout = 120.0
         vision_temperature = 0.1
+        vision_max_tokens = 4096
+        vision_extra_body = None
         try:
             from logos_cli.config import load_config
             _cfg = load_config()
@@ -566,15 +568,23 @@ async def vision_analyze_tool(
             _vtemp = _vision_cfg.get("temperature")
             if _vtemp is not None:
                 vision_temperature = float(_vtemp)
+            _vmax = _vision_cfg.get("max_tokens")
+            if _vmax is not None:
+                vision_max_tokens = int(_vmax)
+            _vbody = _vision_cfg.get("extra_body")
+            if isinstance(_vbody, dict) and _vbody:
+                vision_extra_body = dict(_vbody)
         except (AttributeError, ImportError, KeyError, ModuleNotFoundError, TypeError):
             pass
         call_kwargs = {
             "task": "vision",
             "messages": messages,
             "temperature": vision_temperature,
-            "max_tokens": 2000,
+            "max_tokens": vision_max_tokens,
             "timeout": vision_timeout,
         }
+        if vision_extra_body:
+            call_kwargs["extra_body"] = vision_extra_body
         if model:
             call_kwargs["model"] = model
         # Try full-size image first; on size-related rejection, downscale and retry.
