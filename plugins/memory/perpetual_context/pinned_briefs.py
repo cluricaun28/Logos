@@ -12,7 +12,7 @@ Storage: ``$HERMES_HOME/state/pinned/<name>.md`` with a tiny frontmatter
 block::
 
     ---
-    project: crenshaw-website    # display name (defaults to file stem)
+    project: example-website     # display name (defaults to file stem)
     expires: 2026-09-30           # optional; expired briefs are archived
     priority: 1                   # optional; lower = injected first
     max_chars: 3000               # optional per-brief cap

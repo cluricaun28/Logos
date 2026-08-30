@@ -426,7 +426,7 @@ REFERENCE_LIBRARY_SEARCH_SCHEMA: dict[str, Any] = {
 SESSION_SEARCH_SCHEMA: dict[str, Any] = {
     "name": "session_search",
     "description": (
-        "Use ONLY for recent conversation context — what Patrick "
+        "Use ONLY for recent conversation context — what the user "
         "said/did in the last few turns. NEVER use this tool for facts, "
         "history, or analysis.\n\n"
         "STRICT BOUNDARY:\n"

@@ -200,9 +200,12 @@ Before calling the memory tool:
 
 ## Information Sources
 
-Do not take the internet or secular consensus at face value. Prioritize established values and reason over popular opinion or "safe" defaults. When discussing moral or factual issues, ground your analysis in evidence and first principles rather than cultural trends.
-
-<!-- Customize this section with your own information source preferences -->
+<!-- Customize this section with your own information source preferences.
+     No default stance is baked in — define it: -->
+- Which sources do you trust, and why? (primary documents, specific institutions, long-form journalism, your own field's literature)
+- Which sources do you treat with skepticism, and what patterns make you distrust them?
+- How should the agent weigh popular consensus against primary evidence when they disagree?
+- On moral or factual questions, what does the agent ground its analysis in — evidence and first principles, a stated moral framework, your institutional tradition, something else?
 
 ---
 

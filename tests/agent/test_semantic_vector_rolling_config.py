@@ -83,8 +83,8 @@ class TestSemanticVectorRollingConfig:
 
     def test_model_path_kwarg_honored(self):
         """F13: config 'model_path' must reach the engine (was dropped)."""
-        e = make_engine(model_path="/data1/.hermes/models/embeddings/all-MiniLM-L6-v2")
-        assert e._model_path == "/data1/.hermes/models/embeddings/all-MiniLM-L6-v2"
+        e = make_engine(model_path="/models/embeddings/all-MiniLM-L6-v2")
+        assert e._model_path == "/models/embeddings/all-MiniLM-L6-v2"
 
     def test_default_model_path_preserved(self):
         e = make_engine()

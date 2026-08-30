@@ -7,7 +7,7 @@ Reduces context bloat by splitting tools into two tiers:
     reads the RL page for parameter details when needed.
 
 Essential set re-audited 2026-08-21 from 90 days of session JSONL
-(91 sessions, 14,006 lines, Patrick's fleet):
+(91 sessions, 14,006 lines, owner's fleet):
   - promoted to essential: process (130 calls / 33 sessions),
     vision_analyze (148 calls / 9 sessions)
   - demoted to deferred:   skills_list (2 sessions), clarify (3 sessions),

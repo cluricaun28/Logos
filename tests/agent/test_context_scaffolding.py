@@ -80,8 +80,8 @@ class TestIsScaffoldingOnly:
 class TestStripEngineScaffolding:
     def test_map_prefixed_reply(self):
         assert (
-            strip_engine_scaffolding(STATE_MAP + "\n\nYou're welcome, Patrick.")
-            == "You're welcome, Patrick."
+            strip_engine_scaffolding(STATE_MAP + "\n\nYou're welcome, Alex.")
+            == "You're welcome, Alex."
         )
 
     def test_bridge_only_returns_empty(self):

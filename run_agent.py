@@ -13395,7 +13395,7 @@ class AIAgent:
                     # describes using tools ("I'll search for...", "I'll run...",
                     # "I'll navigate to...") but tools are available, the model is
                     # describing instead of executing. This is the #19847 case:
-                    # Ornstein3.6-27B and similar models sometimes output plans
+                    # Qwen3.6-27B (fine-tuned) and similar models sometimes output plans
                     # describing tool use rather than actually calling tools.
                     #
                     # Detection: if the first turn (or a turn where tools should

@@ -20,7 +20,7 @@ import yaml
 
 # Accept both RL_ROOT (original) and RLV_ROOT (systemd unit convention used
 # by the per-user fleet units) — RLV_ROOT wins when both are set.
-RL_ROOT = Path(os.environ.get("RLV_ROOT") or os.environ.get("RL_ROOT", "/home/exx/.hermes/reference-library")).resolve()
+RL_ROOT = Path(os.environ.get("RLV_ROOT") or os.environ.get("RL_ROOT", str(Path.home() / ".logos" / "reference-library"))).resolve()
 SEARCH_DB = RL_ROOT / "search.db"
 PORT = int(os.environ.get("RLV_PORT", "8090"))
 USER_LABEL = os.environ.get("RLV_USER", "RL")

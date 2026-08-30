@@ -136,7 +136,7 @@ def _fts_search(
 
     try:
         # OR-of-quoted-terms: each word is a literal phrase, so queries like
-        # "Crenshaw ZFS storage" match docs containing ANY of the words.
+        # "NAS ZFS storage" match docs containing ANY of the words.
         # (Wrapping the whole query in one phrase required the exact sequence
         # to appear verbatim and returned ~0 hits for normal queries,
         # silently defeating the FTS half of hybrid search.)

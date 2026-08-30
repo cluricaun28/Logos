@@ -11,7 +11,7 @@ Architecture:
   - RLUpdateDetector: Detects stale/contradictory RL pages needing updates
 
 All operations degrade gracefully — returns original draft if provider unavailable.
-NO data leaves the local system. All inference runs on Patrick's machine.
+NO data leaves the local system. All inference runs on the user's machine.
 """
 
 from __future__ import annotations

@@ -28,6 +28,9 @@ cli-config.yaml
 
 # OS
 .DS_Store
+
+# Local working notes (pinned-brief artifacts, session scratch)
+HERMES.md
 Thumbs.db
 desktop.ini
 

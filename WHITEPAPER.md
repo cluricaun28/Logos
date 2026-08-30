@@ -2,18 +2,8 @@
 type: topic
 topic: "Logos — System White Paper"
 created: 2026-05-07
-last_updated: 2026-08-26
+last_updated: 2026-08-29
 confidence: high
-related_entries:
-  - "Hermes Agent Architecture(topics/hermes-agent/architecture)"
-  - "Epistemic Sovereignty Framework(topics/epistemic-sovereignty)"
-  - "Curated Knowledge Architecture(topics/epistemic/curated-knowledge)"
-  - "Perpetual Memory System(topics/recall/database-schema)"
-  - "Recall Engine(topics/recall-engine)"
-  - "Reference Library System(topics/library/architecture)"
-  - "Logos Engine Overview(topics/logos-engine/overview)"
-  - "Context Bridge(topics/recall/context-bridge)"
-  - "Modular Plugin Architecture(topics/hermes-agent/plugins)"
 description: "Comprehensive white paper documenting the purpose, architecture, and operation of Logos, a sovereign agentic intelligence system. Explains the 'what,' 'why,' and 'how' of the entire system from first principles."
 ---
 
@@ -44,7 +34,7 @@ The system is built around the principle that *retrieval is superior to retentio
 
 ### 2.1 The Epistemic Problem
 
-Frontier AI models are trained on web-scraped data — Reddit, Wikipedia, news sites — that contains contradictory worldviews presented as equally valid. When a model says *"Christians believe X, Muslims believe Y, both have merit,"* it is not being neutral — it is making a meta-claim that truth is subjective. That is moral relativism dressed as objectivity.
+Frontier AI models are trained on web-scraped data — Reddit, Wikipedia, news sites — that contains contradictory worldviews presented as equally valid. When a model says *"Group A believes X, Group B believes Y, both have merit,"* it is not being neutral — it is making a meta-claim that truth is subjective. That is moral relativism dressed as objectivity.
 
 The resulting models:
 - Perform false neutrality across mutually exclusive truth claims
@@ -61,6 +51,8 @@ Standard agent architectures face three limitations that this system addresses:
 3. **No growth:** The agent doesn't improve over time. Each session starts from the same base model weights. Nothing learned in one conversation persists as improved knowledge for the next.
 
 ### 2.3 The User's Goal
+
+The system's founding requirement (stated by the original developer):
 
 > *"I want an agentic AI assistant that learns things on its own, filters for bias/motives and treats them honestly, is respectful of my worldview, makes that resource available to me. It should recall perfectly, and it should be able to research and discern faster than me. Superfast chatbot is not my goal."*
 
@@ -89,7 +81,7 @@ This is analogous to how a librarian works: the books aren't in their head, but 
 
 ### 3.2 Local Inference Sovereignty
 
-All reasoning runs on local hardware via vLLM (port 8000). No cloud model calls, no external API requests, no data leaving the system. Qwen3.8-27B (FP8) served via vLLM on `:8000`, with an identical hot-standby instance on `:8011` for zero-downtime swaps and failover. No paid services are used without explicit permission.
+All reasoning runs on local hardware via vLLM (port 8000). No cloud model calls, no external API requests, no data leaving the system. The reference setup serves Qwen3.8-27B (FP8) via vLLM on `:8000`, with an identical hot-standby instance on `:8011` for zero-downtime swaps and failover. The reference deployment uses no paid services.
 
 ### 3.3 Curated Knowledge as Truth Anchor
 
@@ -108,19 +100,19 @@ This is a deliberate design choice. A fast wrong answer is worse than a slow rig
 
 ### 3.5 The Chain of Purpose
 
-The system exists to serve Patrick's needs (truth-seeking, sovereign knowledge, business operations). Patrick directs, the agent maintains. Every design choice serves this chain.
+The system exists to serve the owner's needs (truth-seeking, sovereign knowledge, daily operations). The owner directs, the agent maintains. Every design choice serves this chain.
 
 ```
-Purpose → Patrick's needs
+Purpose → Owner's needs
          ↓
 Maintainer → Agent (AI) executes and maintains
          ↓
 System → Logos with RL, PM, skills, tools
 ```
 
-**Design choices matter only insofar as they serve the chain.** "AI-optimized" code only matters if it makes the agent more reliable at maintaining the system for Patrick — not as an abstract principle, but concretely: does this design choice help the agent correctly modify, debug, and keep the system working?
+**Design choices matter only insofar as they serve the chain.** "AI-optimized" code only matters if it makes the agent more reliable at maintaining the system for its owner — not as an abstract principle, but concretely: does this design choice help the agent correctly modify, debug, and keep the system working?
 
-**Evaluate every design choice with one question:** *"Does this make the agent more reliable at serving Patrick's needs?"* If yes, implement it. If no, skip it regardless of how technically elegant it is.
+**Evaluate every design choice with one question:** *"Does this make the agent more reliable at serving the owner's needs?"* If yes, implement it. If no, skip it regardless of how technically elegant it is.
 
 ---
 
@@ -170,7 +162,7 @@ The system comprises four major subsystems that work together:
 
 **Purpose:** Never lose anything that was ever said.
 
-Every conversation turn across all sessions is stored verbatim in a local SQLite database (`~/.logos/perpetual_context.db`; pre-rebrand `~/.hermes` homes still work) with FTS5 full-text indexing. Current scale: 26,000+ messages across 3,900+ sessions, 47 database tables.
+Every conversation turn across all sessions is stored verbatim in a local SQLite database (`~/.logos/perpetual_context.db`; pre-rebrand `~/.hermes` homes still work) with FTS5 full-text indexing. Scale on the reference deployment (Aug 2026, measured): 26,000+ messages across 3,900+ sessions, 47 database tables.
 
 **Architecture:**
 
@@ -240,7 +232,7 @@ The recall engine runs before each agent turn via `prefetch()` in `PerpetualCont
 |----------|-----------|---------------|---------|
 | **Ambiguous** | ≤5 words, ≤2 content words | Never fires web | Tiered PM recall (5→15 turns→clarify) |
 | **Internal** | Logos, gateway, agent, recall, etc. | Never fires web | Tiered PM recall |
-| **Static** | Bible, calculus, world war, "what is" | 0.05 (almost never) | Full pipeline |
+| **Static** | philosophy, calculus, world war, "what is" | 0.05 (almost never) | Full pipeline |
 | **Slow** | Python, Docker, NVIDIA, accounting | 0.35 (moderate) | Full pipeline |
 | **Volatile** | Pricing, latest, news, DPO | 0.60 (fires often) | Full pipeline |
 
@@ -259,20 +251,16 @@ Results from all sources are merged with unified relevance scoring (RL: 0.40, PM
 
 **Purpose:** Provide a local, authoritative, worldview-aligned source of truth before the model ever considers training data or web search.
 
-The [[system/reference-library-purpose|Reference Library]] (`~/.hermes/reference-library/`) is a structured knowledge base organized into:
+The [[system/reference-library-purpose|Reference Library]] (`~/.logos/reference-library/`) is a structured knowledge base. The shipped starter template (`extras/reference-library-template/`) uses:
 
-- **`people/`** — Individuals with biographical, professional, and worldview-relevant information
-- **`organizations/`** — Companies, institutions, movements with motive/funding mapping and bias analysis
-- **`ideas/`** — Subject matter entries (architecture, workflows, philosophical frameworks)
-- **`places/`** — Geographic locations and their historical significance
-- **`events/`** — Historical events and their analysis
-- **`technology/`** — Technical documentation, tools, and system architecture
-- **`library/`** — Encyclopædia Britannica 1911 and other reference corpora
-- **`archive/`** — Historical documents and reference materials
-- **`system/`** — Internal system documentation and white papers
+- **`topics/`** — Subject matter entries (architecture, workflows, research, philosophical frameworks)
+- **`tools/`** — Tool schemas and usage guides
+- **`entities/`** — People, organizations, publications with motive/funding mapping, credibility tracking, and bias analysis
 - **`sources/`** — Source intelligence dossiers auto-created by `source_analyze`
 
-**Current scale:** ~675 curated pages (102 people, 181 organizations, 98 ideas, 128 technology, 30 events, 6 places, 39 system, 63 legacy topics) + 32,000+ Britannica 1911 entries in archive (not served in Quartz build). Total indexed: 33,800+ entries.
+Grow the layout as your library needs — the reference deployment organizes `topics/` into people, organizations, ideas, places, events, and technology, and keeps a public-domain encyclopedic archive (Encyclopædia Britannica 1911) plus a curated research corpus (Aquinas) for content-aware search.
+
+**Scale on the reference deployment (Aug 2026, measured):** ~675 curated pages + 32,000+ public-domain archive entries (not served in the static build). Total indexed: 33,800+ entries.
 
 **Hybrid search index (`rl_index.db`):**
 
@@ -288,7 +276,7 @@ The [[system/reference-library-purpose|Reference Library]] (`~/.hermes/reference
 - Technical truth stands on its own — SOLID principles and wiring tables aren't "user-specific"
 - The worldview lens applies where values matter (history, politics, ethics)
 
-**Serving:** Quartz v5 builds the curated corpus (950+ pages) into a searchable, cross-linked static site served on port 8081 (Python static server; Caddy deferred). Accessible via Tailscale. Britannica 1911 archive (32K+ entries) excluded from Quartz build for performance — searchable through agent tools instead.
+**Serving (optional):** A static-site build (e.g., Quartz) can turn the curated corpus into a searchable, cross-linked site served locally (port 8081 on the reference deployment, exposed on a private tailnet). The public-domain archive is excluded from the build for performance — searchable through agent tools instead.
 
 **Mandatory first step:** The `reference_library_search` tool must be consulted before the model generates answers from training data or session memory alone. This is enforced in the system prompt and the prefetch pipeline.
 
@@ -332,11 +320,11 @@ The Logos Engine operates as a three-stage verification pipeline:
 | 3:00 AM | RL Growth | Expands RL entries based on detected gaps and distillation output |
 | 4:00 AM | Re-process EB 1911 | Rebuilds Britannica 1911 entries from original source files |
 | 4:00 AM | Logos Intelligence Scout | Builds source intelligence dossiers from high-frequency domains |
-| 4:00 AM | Hermes Backup | Backs up entire Hermes directory (off-box USB on Crenshaw server) |
+| 4:00 AM | Logos Backup | Backs up the entire Logos home directory (reference: off-box USB) |
 | 8:00 AM | Model Download Verification | Verifies HuggingFace model downloads completed |
 | 9:00 AM | Retrieval Quality Report | Monitors retrieval quality trends |
 
-Supporting bridges: `britannica_bridge.py` and `aquinas_bridge.py` provide content-aware search across the Britannica 1911 and Aquinas Research Library corpora respectively, integrated into the distillation pipeline.
+Supporting bridges: `britannica_bridge.py` and `aquinas_bridge.py` provide content-aware search across the public-domain encyclopedic corpus (Britannica 1911) and the curated Aquinas research corpus respectively, integrated into the distillation pipeline.
 
 ### 4.7 Context Archiving — Dual Engine
 
@@ -376,10 +364,10 @@ context:
     protect_last_n: 6          # recent turns always kept
     state_map_max_chars: 800   # cap on injected state header
     threshold_percent: 0.75    # fire semantic prune at 75% of context_length
-    model_path: /data1/.hermes/models/embeddings/all-MiniLM-L6-v2
+    model_path: ~/.logos/models/embeddings/all-MiniLM-L6-v2
 ```
 
-**Observability:** Every archive logs vector counts, pruned message count, and state map injection to `agent.log`. Check with: `grep 'SemanticVector' ~/.hermes/logs/agent.log | tail -20`.
+**Observability:** Every archive logs vector counts, pruned message count, and state map injection to `agent.log`. Check with: `grep 'SemanticVector' ~/.logos/logs/agent.log | tail -20`.
 
 **Fallback knob configuration — `context.fallback` (2026-08-26):** the compressor / rolling-fallback knobs (`threshold`, `enabled`, `target_ratio`, `protect_last_n`) have their canonical home in a `context.fallback` section. The legacy top-level `archiving:` (fallback `compression:`) sections keep working verbatim — every existing fleet config is untouched. If both exist, `context.fallback` wins and the shadowed legacy section is named in one explicit startup WARNING. A never-read key such as `context.archiving` now triggers a dead-key WARNING at startup naming its live replacement (agent-first doctrine: loud warnings beat silent drops).
 
@@ -416,7 +404,7 @@ truthful_on:
   - Statements from U.S. government officials
 omits:
   - Internal dissent or conflicting assessments
-  - Full scope of coordination with Israel
+  - The full negotiating position behind public statements
 ---
 ```
 
@@ -442,9 +430,9 @@ See [[Skill Priority-Based Injection(topics/hermes-agent/skill-priority-injectio
 
 **Subagent ACP Transport:** Subagents can be dispatched via ACP subprocess transport (`claude --acp --stdio`) instead of the default agent loop, enabling spawning of Claude Code or other ACP-capable agents from any parent context.
 
-**Subagent hardening (2026-08-20):** The delegation harness (`tools/delegate_tool.py`) gained three mechanisms proven by the 2026-08-19/20 sandbox soak (wave-2 mass-timeout analysis): a per-task `timeout` override (single + batch call sites, non-numeric values fall back to default), stale-intro detection (`_looks_like_intermediate_summary()` flags a child whose final answer is actually a pre-tool intent line and attaches the real `output_tail`), and resume hints on timeout (`resume_hint` + best-effort `partial_output` so work done before the timeout isn't discarded). All additive; each independently revertable.
+**Subagent hardening (2026-08-20):** The delegation harness (`tools/delegate_tool.py`) gained three mechanisms proven by a two-day sandbox soak (mass-timeout analysis): a per-task `timeout` override (single + batch call sites, non-numeric values fall back to default), stale-intro detection (`_looks_like_intermediate_summary()` flags a child whose final answer is actually a pre-tool intent line and attaches the real `output_tail`), and resume hints on timeout (`resume_hint` + best-effort `partial_output` so work done before the timeout isn't discarded). All additive; each independently revertable.
 
-**Delegation completion contract (2026-08-26, c4648f38):** child summaries must end with a fenced `json completion_report` block — `{completed, total, output_paths, failures}` — parsed by the orchestrator, which returns an explicit `contract_mismatch` warning block on `completed != total` (soft-fail: model output is best-effort evidence, artifacts are ground truth). `fan_in(expected, output_dir)` reconciles an expected artifact set against the globbed outputs and reports `{merged, missing, dupes}` — proven against the 144-vs-129 class of silent loss. Timed-out or partial children persist `{done_items, output_dir, task_context}` under `<HERMES_HOME>/state/delegations/<child_id>.json`, and `resume_from: <child_id>` injects the done-set so the child verifies and continues instead of restarting. Related (d05e43ef): every event in `context-engine.jsonl` — calibration included — now carries a non-empty `session` field.
+**Delegation completion contract (2026-08-26, c4648f38):** child summaries must end with a fenced `json completion_report` block — `{completed, total, output_paths, failures}` — parsed by the orchestrator, which returns an explicit `contract_mismatch` warning block on `completed != total` (soft-fail: model output is best-effort evidence, artifacts are ground truth). `fan_in(expected, output_dir)` reconciles an expected artifact set against the globbed outputs and reports `{merged, missing, dupes}` — proven against the expected-N-vs-actual-M class of silent loss. Timed-out or partial children persist `{done_items, output_dir, task_context}` under `<HERMES_HOME>/state/delegations/<child_id>.json`, and `resume_from: <child_id>` injects the done-set so the child verifies and continues instead of restarting. Related (d05e43ef): every event in `context-engine.jsonl` — calibration included — now carries a non-empty `session` field.
 
 ### 4.10 Pinned Project Briefs — Mid-Context Project Focus (new)
 
@@ -458,7 +446,7 @@ An agent pins a project by writing a short brief to `~/.hermes/state/pinned/<pro
 - **Content rule:** objective + artifact pointers + status + checklist — never details; details live in a state file on disk that the brief references
 - **Fail-open:** a malformed brief can never break prompt construction
 
-Proven 2026-08-20: with a pin, a 205-product description rewrite + dimensions audit ran as a single 13-minute, 50-message session with **zero "continue" prompts**; the same task unpinned required multi-window stitching. Live on the owner instance, all 8 fleet agents, and the candidate (merged 2026-08-20).
+Proven in the reference deployment (2026-08-20): with a pin, a 200+-item content rewrite + dimensions audit ran as a single 13-minute, 50-message session with **zero "continue" prompts**; the same task unpinned required multi-window stitching. Live on the owner instance, all fleet agents, and the prod candidate (merged 2026-08-20).
 
 ---
 
@@ -593,8 +581,9 @@ This is not moral relativism disguised as "both sides." It is epistemic honesty 
 
 ### 7.1 Hardware
 
-- **Hardware (production, since 2026-08-15):** Crenshaw server — Supermicro, 8× RTX PRO 6000 Blackwell (96 GB each, SM120), native Linux, 768 GB total VRAM. GPUs 2–7 reserved for future specialized models.
-- **Storage:** `/data1` (14 TB ext4) for models and agent homes; `/data2` (14 TB ZFS, auto-snapshots) for business data; weekly off-box USB backup.
+- **Reference (single-user):** one GPU with 24–32 GB VRAM (RTX 4090/5090 class) + 64 GB RAM runs the 27B-class reference model with room for the embedding model and local services.
+- **Owner production:** Supermicro, 8× RTX PRO 6000 Blackwell (96 GB each, SM120), native Linux, 768 GB total VRAM — a multi-model fleet. GPUs 2–7 reserved for future specialized models.
+- **Storage (reference):** one 14 TB data volume for models and agent homes (`/data1`-style layout), weekly off-box USB backup.
 
 ### 7.2 Software Stack
 
@@ -609,8 +598,8 @@ This is not moral relativism disguised as "both sides." It is epistemic honesty 
 | Camofox | Native | 9377 | Anti-detection Firefox fork, Tier 3 |
 | Quartz v5 | Node.js | 8081 | Static site serving the curated RL (Britannica archive excluded); Python static server
 | Messaging | Telegram bot gateway | N/A | Primary communication channel |
-| Media generation | ComfyUI (3 instances) | 8188 (image, GPU 5) · 8189 (video, GPU 3) · 8190 (video, GPU 7) | Pinned stack: Qwen Image 2512 fp8 (image) · Wan 2.2 5B (fast video, ~90s/clip) · Kandinsky 5.0 Pro (hero video, frame 0 locked to product photo). Uncensored Wan 2.2 Remix 14B + Wan 14B I2V on disk, load-on-demand |
-| Agent-to-agent | A2A HTTP endpoint (per gateway) | per-agent port (owner 8811, fleet 8801–8808, candidate 8899) | `API_SERVER_ENABLED=true` + per-instance key; agents message each other directly; fleet registry is the address book |
+| Media generation (optional) | ComfyUI | 8188+ | Open-weights image + video models (reference: Qwen-Image fp8, Wan 2.2, Kandinsky); load-on-demand on a spare GPU |
+| Agent-to-agent | A2A HTTP endpoint (per gateway) | per-agent port | `API_SERVER_ENABLED=true` + per-instance key; agents message each other directly; a fleet registry is the address book |
 | Fleet metering (optional) | LiteLLM proxy | 8001 | Per-user virtual keys in front of the :8000 vLLM upstream; per-key `usage.jsonl` attribution — an OPTIONAL fleet extension, not part of the single-user baseline |
 
 ### 7.3 Quickstart — Single-User Deployment (the default reading)
@@ -622,7 +611,7 @@ The default deployment is **one user, one box**. Everything below is the whole p
 3. Run `logos` for the interactive CLI, or start **one** messaging gateway (e.g. Telegram).
 4. Persistence is a single SQLite file (`~/.logos/perpetual_context.db`) — no Postgres, Redis, Docker stack, or proxy needed.
 
-Everything else in this whitepaper — the LiteLLM fleet proxy (:8001, per-user keys, `usage.jsonl` attribution), per-user agent units under `/data1/agents/`, A2A agent-to-agent endpoints, the multi-GPU vLLM fleet — is an **optional fleet extension** layered on the single-box core, never a prerequisite.
+Everything else in this whitepaper — the LiteLLM fleet proxy (:8001, per-user keys, `usage.jsonl` attribution), per-user agent units under a shared data volume, A2A agent-to-agent endpoints, the multi-GPU vLLM fleet — is an **optional fleet extension** layered on the single-box core, never a prerequisite.
 
 ### 7.4 Fleet Usage Metering (optional extension)
 
@@ -632,7 +621,7 @@ On shared boxes a LiteLLM proxy on :8001 fronts the inference server with per-us
 
 ## 8. Nightly Automation
 
-The system is designed to run several autonomous jobs that maintain and improve itself overnight. **Status (2026-08-20, measured): core nightly jobs ARE running on the Crenshaw server** — PM→RL distillation 03:00 (last run ok), sleep consolidation 03:30 (ok), RL sync 04:00 (last run reported an error — investigating), GPU fleet watchdog every 10 min, vLLM autoscaler every 2 min, image-cache retention 05:00. The home-server-era jobs (PM Signal Scanner, Intelligence Scout, off-box backup) have not been ported yet:
+The system is designed to run several autonomous jobs that maintain and improve itself overnight. **Status (2026-08-20, measured): core nightly jobs ARE running on the reference deployment** — PM→RL distillation 03:00 (last run ok), sleep consolidation 03:30 (ok), RL sync 04:00 (last run reported an error — investigating), GPU fleet watchdog every 10 min, vLLM autoscaler every 2 min, image-cache retention 05:00. The home-server-era jobs (PM Signal Scanner, Intelligence Scout, off-box backup) have not been ported yet:
 
 | Cron Job | Schedule | Purpose |
 |----------|----------|---------|
@@ -640,7 +629,7 @@ The system is designed to run several autonomous jobs that maintain and improve 
 | Nightly Distillation | 3:00 AM | Processes clusters through Synthesis → Audit → Commit |
 | RL Growth | 3:00 AM | Expands [[system/reference-library-purpose|Reference Library]] based on gaps |
 | Logos Intelligence Scout | 4:00 AM | Builds source intelligence dossiers |
-| Hermes Backup | 4:00 AM | Backs up entire system to Windows |
+| Logos Backup | 4:00 AM | Backs up the entire system (reference: off-box) |
 
 ---
 
@@ -670,7 +659,7 @@ The system is designed to run several autonomous jobs that maintain and improve 
 | 2026-04-21 | Perpetual Memory system deployed (SQLite + FTS5) |
 | 2026-04-23 | Context Bridge structured extraction |
 | 2026-04-25 | vLLM Docker setup, OpenRouter fallback removed |
-| 2026-05-17 | Switched to llama.cpp + Ornstein-SABER, semantic vector engine fix |
+| 2026-05-17 | Switched to llama.cpp + fine-tuned local model, semantic vector engine fix |
 | 2026-04-26 | Deep Research Engine Phases 2-4 built and wired |
 || 2026-04-27 | Project forked from Hermes Agent at cluricaun28/hermes-agent |
 | 2026-04-30 | Compress→archive rename, Batch #1 cherry-picks (20 commits), StreamingContextScrubber |
@@ -685,10 +674,10 @@ The system is designed to run several autonomous jobs that maintain and improve 
 | 2026-05-11 | **Full detachment from Hermes Agent:** Repo unforked from NousResearch/hermes-agent via GitHub "Leave fork network." DIVERGENCE.md updated to reflect standalone status. README rebranded with "What Makes Logos Different" section. 26 LLM paper entries added to RL (`topics/llm-papers/`). 3 media dossiers added (`topics/media/`). |
 | 2026-05-12 | **Semantic Vector engine promoted to primary:** Dual-engine context archiving finalized — semantic vector for topic-aware pruning, rolling window as deterministic fallback. Context Compressor refactored with plugin context engine hooks. `context_compressor.py` now calls `context_archiver.on_session_reset()` and `compression_count` resets on `/new`. All context engine code in `plugins/context_engine/`. |
 | 2026-05-12 | **Semantic Vector plugin deployed:** `SemanticVectorContextEngine` reimplemented as proper plugin (`plugins/context_engine/semantic_vector/`). CPU-only embedding on all-MiniLM-L6-v2, topic-aware pruning of dormant/resolved turns, state map injection. Rolling window relegated to emergency fallback. |
-| 2026-08-15 | **Migrated to Crenshaw server:** Supermicro 8× RTX PRO 6000 Blackwell (96 GB, SM120). PM/RL/rolling-window/context-engine restored; local 3-tier web stack stood up (SearXNG :8080, Firecrawl :3003, Camofox :9377); `sqlite_vec` added to gateway venv; Quartz v5 RL site on :8081. |
-| 2026-08-16 | **Model swap to Qwen3.8-27B:** vLLM serves `Qwen3.8-27B-Uncensored-FP8` on GPU 0 (:8000) with hot standby on GPU 1 (:8011); validated recipe = 262K context, fp8 KV, 32 sequences, MTP 3-token speculative decoding (2.03× decode). LiteLLM team proxy on :8001 (per-user keys, failover). Multi-user: server-side per-user agent instances under `/data1/agents/`. |
-| 2026-08-19 | **Sandbox soak + pinned-project validation:** prod candidate (port 8899, `/data1/logos-sandbox/logos`) ran two long projects — 205-product description rewrite (144 flagged, all rewritten + re-verified against the live store) and a 46-flag dimensions audit across multiple context windows. With a pinned brief: single 13-min / 50-message session, zero "continue" prompts; unpinned: multi-window stitching. Google Workspace onboarding completed for the 9-agent fleet (full 11 scopes + `cloud-platform`). |
-| 2026-08-20 | **Queue 1 merged to main (8 commits, all test-green, each independently revertable):** pcdb v3 (tool-role rows persist — fixes silent data loss), subagent hardening (per-task timeout, stale-intro detection, resume hints), pinned project briefs + `active:` toggle, context-bridge/scaffolding hidden from user-facing and A2A surfaces, test-environment isolation. Media stack pinned and A/B-verified: ComfyUI 8188/8189/8190 (Qwen Image 2512 fp8 · Wan 2.2 5B · Kandinsky 5.0 Pro; uncensored Remix 14B staged). A2A endpoints live on owner + all fleet agents. Base-code strip (unused Hermes plugins) validated on the candidate; prod cutover queued. |
+| 2026-08-15 | **Migrated to the owner's production server:** Supermicro 8× RTX PRO 6000 Blackwell (96 GB, SM120). PM/RL/rolling-window/context-engine restored; local 3-tier web stack stood up (SearXNG :8080, Firecrawl :3003, Camofox :9377); `sqlite_vec` added to gateway venv; Quartz v5 RL site on :8081. |
+| 2026-08-16 | **Model swap to Qwen3.8-27B:** vLLM serves `Qwen3.8-27B-Uncensored-FP8` on GPU 0 (:8000) with hot standby on GPU 1 (:8011); validated recipe = 262K context, fp8 KV, 32 sequences, MTP 3-token speculative decoding (2.03× decode). LiteLLM team proxy on :8001 (per-user keys, failover). Multi-user: server-side per-user agent instances under a shared data volume. |
+| 2026-08-19 | **Sandbox soak + pinned-project validation:** a prod candidate build ran two long projects — a 200+-item product-content rewrite (all flagged items rewritten + re-verified against the live store) and a multi-hundred-flag dimensions audit across multiple context windows. With a pinned brief: single 13-min / 50-message session, zero "continue" prompts; unpinned: multi-window stitching. Google Workspace onboarding completed for the 9-agent fleet (full 11 scopes + `cloud-platform`). |
+| 2026-08-20 | **Queue 1 merged to main (8 commits, all test-green, each independently revertable):** pcdb v3 (tool-role rows persist — fixes silent data loss), subagent hardening (per-task timeout, stale-intro detection, resume hints), pinned project briefs + `active:` toggle, context-bridge/scaffolding hidden from user-facing and A2A surfaces, test-environment isolation. Optional media stack pinned and A/B-verified (open-weights image + video models, load-on-demand). A2A endpoints live on owner + all fleet agents. Base-code strip (unused Hermes plugins) validated on the candidate; prod cutover queued. |
 | 2026-08-22 | **Docs sync (measured, not remembered):** all scale and line-count claims refreshed against the live codebase and databases — 26,601 PM messages / 3,904 sessions, 65,233 topics, 33,815 indexed RL entries, plugin 38 modules / ~11.3k lines + agent-side ~4.2k; rebrand leftovers fixed (hermes_state→logos_state, modified-files count 8→9); README gained the measured scale-proof block (943M build-day tokens, 0.99^N ≈ 0) sourced from the infographic data. |
 | 2026-05-15 | **Context engine hardening:** Module-level model cache (one load per process), `on_session_reset()` preserves model, full structured logging on every archive (vector counts, pruned messages, fallback path). Fixed `compression_count` not resetting on session reset. Added 5 generic research skills to repo (`frame-stripping`, `web-source-bias-research`, `narrative-control-detection`, `sovereign-intelligence-mapping`, `epistemic-framework-design`) plus `worldview-profile-builder` for new-user onboarding. Updated GETTING-STARTED and README. |
 
@@ -704,7 +693,7 @@ The system is designed to run several autonomous jobs that maintain and improve 
 
 ### Long-term
 
-- **DPO training on curated dataset:** Post-train the local Qwen3.8-27B on curated preference pairs *if* needed (currently shelved; re-benchmark against the 3.6 baseline in the 2026-08 review before deciding)
+- **DPO training on curated dataset:** Post-train the local model on curated preference pairs *if* needed (shelved pending a re-benchmark against the prior model baseline)
 - **Train from scratch:** When compute allows, train a model on the accumulated curated corpus as a long-term goal
 
 ---

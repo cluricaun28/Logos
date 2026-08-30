@@ -157,6 +157,12 @@ Then edit `~/.logos/SOUL.md`:
 3. Customize the **Tone & Style** section with your preferred communication style
 4. Keep all **Knowledge Architecture**, **Operational Discipline**, and **Active Retrieval** sections — these are what make perpetual memory work
 
+**Don't want to write it from scratch?** Have the agent run the interview:
+*"Run the worldview interview from `extras/worldview-interview-template.md`."*
+It walks you through your positions one section at a time and drafts the
+Worldview Baseline + Information Sources sections for your review. The
+template ships no default positions — everything in the file is yours.
+
 **For detailed explanations of each system prompt section, see [`extras/system-prompt-guide.md`](extras/system-prompt-guide.md).**
 
 ### Step 4: Initialize Your Reference Library
@@ -198,6 +204,39 @@ extras/skills-template/
 ```
 
 **How it works:** The system prompt includes a list of available skill names and descriptions. Before replying, the agent scans this list and loads only skills directly relevant to your task via `skill_view(skill_name)`.
+
+#### Shipped Research Skills (worldview-alignment tier)
+
+The repo bundles the skills that power the deep-research pipeline under
+`skills/research/`. They are **not** copied into your home by the installer —
+point the skill scanner at the repo directory in `~/.logos/config.yaml`:
+
+```yaml
+skills:
+  external_dirs:
+    - /path/to/this/repo/skills   # bundled skills become discoverable
+```
+
+The ones that matter for the research tier, and what each does:
+
+| Skill | Role in the pipeline | Needed for? |
+|-------|---------------------|------------|
+| `worldview-profile-builder` | One-time interview that produces your `worldview-profile` skill — the long-form baseline the research pipeline loads | **Yes, run once at setup** (or use `extras/worldview-interview-template.md` for SOUL.md) |
+| `frame-stripping` | 10 rules for separating verifiable claims from loaded framing; the core of source presentation | **Yes — core** |
+| `narrative-control-detection` | Spotting six-phase information-warfare patterns in research results | Recommended for news/media analysis |
+| `web-source-bias-research` | Deep-dive methodology for building source dossiers on a media outlet | Recommended |
+| `sovereign-intelligence-mapping` | Motive analysis across information sources and institutions | Recommended |
+| `epistemic-framework-design` | Methodology for designing your own source hierarchy and truth pipeline | Optional (reference material) |
+
+The rest of the bundled `skills/` tree (devops, github, media, mlops, ...)
+is general-purpose and optional — enable what you use. User-created skills
+live in `~/.logos/skills/` and are created by the agent with the
+`skill_manage` tool; the bundled set is read-only reference material.
+
+**Priority frontmatter:** any skill can set `priority: high` to get a full
+description in the system prompt (default is name-only for low-priority
+skills). Mark your load-bearing skills high-priority so the agent actually
+sees what they do.
 
 ### Step 6 (Optional): Set Up Deep Research
 
@@ -329,6 +368,7 @@ This project does **not** include:
 |------|---------|
 | [`system-prompt-guide.md`](extras/system-prompt-guide.md) | Exact SOUL.md sections needed for perpetual memory to work |
 | [`soul-template.md`](extras/soul-template.md) | Ready-to-use SOUL.md template with all system prompt additions |
+| [`worldview-interview-template.md`](extras/worldview-interview-template.md) | Generic, position-neutral interview for building your SOUL.md worldview baseline |
 | [`deep-research-setup.md`](extras/deep-research-setup.md) | SearXNG + Firecrawl setup guide for web research |
 | [`reference-library-template/`](extras/reference-library-template/) | Empty RL structure to copy as your starting point |
 | [`skills-template/`](extras/skills-template/) | Example skill showing proper format and structure |
