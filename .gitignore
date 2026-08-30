@@ -31,6 +31,10 @@ cli-config.yaml
 
 # Local working notes (pinned-brief artifacts, session scratch)
 HERMES.md
+
+# Owner-local model A/B test rigs (fleet ports hardcoded; sanitize before publishing)
+scripts/image_ab_test.py
+scripts/reasoning_ab_*.py
 Thumbs.db
 desktop.ini
 
