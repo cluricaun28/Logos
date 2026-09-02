@@ -63,6 +63,25 @@ logos/
 `gateway.log` when running the gateway. Profile-aware via `get_logos_home()`.
 Browse with `logos logs [--follow] [--level ...] [--session ...]`.
 
+## Code Navigation (zg — default for where/why/how questions)
+
+Adopted 9/2 (A/B: −69% tool calls / −68% tokens, zero accuracy regression —
+RL `technology/zg-ab-experiment.md`). For "where is X", "why does Y", "how
+does Z work", "where is this documented" in this codebase, use `zg`
+(hybrid FTS+vector; one call returns matching code inline) instead of the
+search_files → read_file → search_files dance.
+
+Convention (run from the repo root):
+- why / how / where-documented → `zg query "natural question"`
+- where's the source           → `zg query "natural question" -g "*.py" -g "!tests/**"`
+- you already know the name    → `zg query --rg "identifier"`
+
+Binary: `/home/exx/zg-poc/node_modules/.bin/zg` (run from `/data1/logos-sandbox/logos`).
+Index: `.zvec-grep/` at repo root (git-excluded); keep it fresh with `zg index`
+(idempotent) after landing a batch of new files.
+Fallback to search_files/read_file for: filename/path lookups, non-code or
+ops/config questions, and anything zg doesn't surface.
+
 ## File Dependency Chain
 
 ```
