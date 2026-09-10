@@ -193,6 +193,10 @@ ol.plist li a{font-weight:600}
 border-radius:20px;padding:1px 9px;font-size:12px;color:var(--dim);margin:0 4px 4px 0}
 .snip{color:var(--dim);font-size:13px;margin:2px 0 0}
 .snip b{color:var(--fg)}
+.banner{border-color:var(--acc2)}
+.banner a{font-weight:700;font-size:16px}
+.pnav{display:flex;gap:14px;align-items:center;margin:6px 0 0;color:var(--dim);font-size:13px}
+.pnav a{font-weight:600}
 .badge{font-size:11px;color:var(--dim);border:1px solid var(--line);border-radius:20px;padding:0 8px}
 footer{color:var(--dim);font-size:12px;margin-top:40px;text-align:center}
 """
@@ -322,31 +326,85 @@ def home():
 <footer>RL Live Viewer · rendered live from {html.escape(str(RL_ROOT))}</footer>
 </div></body></html>"""
 
-@app.get("/browse/{category}", response_class=HTMLResponse)
-def browse(category: str):
+@app.get("/browse/{category:path}", response_class=HTMLResponse)
+def browse(category: str, request: Request):
+    """Folder-style browse: subdirectories at this level (drill down) + files at
+    THIS level only (paginated), so big trees (e.g. crenshaw/jobs, 6k pages)
+    navigate instead of dumping one wall of links. Titles come from the
+    in-memory index — no per-file disk reads in the request path. A folder with
+    an index.md/INDEX.md gets a 'start here' banner pointing at it."""
     reload_if_stale()
-    d = RL_ROOT / category
+    cat = category.strip("/")
+    d = RL_ROOT / cat
     if not d.is_dir():
         return _404(category)
-    pages = []
-    for p in d.rglob("*.md"):
-        if p.is_file():
-            rel = p.relative_to(RL_ROOT).as_posix()
-            fm, _ = _frontmatter(p.read_text(errors="ignore")[:2000])
-            title = fm.get("title") or p.stem.replace("-"," ").title()
-            pages.append((rel[:-3], title, time.localtime(p.stat().st_mtime)))
-    pages.sort(key=lambda x: (x[0].count("/"), x[1].lower()))
-    items = "".join(
-        f'<li><a href="/page/{k}">{html.escape(t)}</a></li>' for k, t, _ in pages)
-    return f"""<!DOCTYPE html><html><head><meta charset="utf-8"><style>{CSS}</style>
-<title>{html.escape(category)} · {html.escape(USER_LABEL)} RL</title></head><body>
+    # subdirectories (skip static/assets/dotfiles) with subtree page counts
+    subdirs = []
+    for p in sorted(d.iterdir(), key=lambda x: x.name.lower()):
+        if p.is_dir() and not p.name.startswith(".") and p.name not in ("static", "assets"):
+            n = sum(1 for f in p.rglob("*.md") if f.is_file())
+            if n:
+                subdirs.append((p.name, n))
+    # files at this level only — titles from the in-memory index
+    files = []
+    for p in d.iterdir():
+        if p.is_file() and p.suffix == ".md":
+            key = f"{cat}/{p.name}"[:-3]
+            files.append((FILES_TITLES.get(key) or p.stem.replace("-", " ").title(), key))
+    files.sort(key=lambda x: x[0].lower())
+    # 'start here' banner: index/INDEX.md in this folder
+    banner = next((f"{cat}/{c}" for c in ("INDEX", "index") if f"{cat}/{c}" in FILES), None)
+    # pagination (files at this level; subdirs always listed in full)
+    PAGE = 400
+    pages = max(1, (len(files) + PAGE - 1) // PAGE)
+    try:
+        pnum = int(request.query_params.get("p", "1"))
+    except (ValueError, TypeError):
+        pnum = 1
+    pnum = max(1, min(pnum, pages))
+    chunk = files[(pnum - 1) * PAGE : pnum * PAGE]
+
+    crumbs = '<a href="/">home</a>'
+    parts = cat.split("/")
+    for i in range(len(parts) - 1):
+        crumbs += f' / <a href="/browse/{"/".join(parts[:i+1])}">{html.escape(parts[i])}</a>'
+    crumbs += f" / {html.escape(parts[-1])}"
+
+    subs_html = ""
+    if subdirs:
+        cards = "".join(
+            f'<a href="/browse/{cat}/{name}">{html.escape(name.replace("-", " ").title())}'
+            f'<span class="n">{n:,} pages</span></a>' for name, n in subdirs)
+        subs_html = f'<h2>Folders</h2><div class="catgrid">{cards}</div>'
+
+    banner_html = ""
+    if banner:
+        bt = html.escape(FILES_TITLES.get(banner) or Path(banner).stem.replace("-", " ").title())
+        banner_html = (f'<div class="card banner"><a href="/page/{banner}">📖 Start here: {bt}</a>'
+                       f'<div class="snip">index page for this folder</div></div>')
+
+    items = "".join(f'<li><a href="/page/{k}">{html.escape(t)}</a></li>' for t, k in chunk)
+    pnav = ""
+    if pages > 1:
+        prev = f'<a href="?p={pnum - 1}">← Prev</a>' if pnum > 1 else ""
+        nxt = f'<a href="?p={pnum + 1}">Next →</a>' if pnum < pages else ""
+        pnav = (f'<div class="pnav">{prev} <span>page {pnum} of {pages} · '
+                f'{len(files):,} files</span> {nxt}</div>')
+
+    total = len(files) + sum(n for _, n in subdirs)
+    return f"""<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><style>{CSS}</style>
+<title>{html.escape(cat.replace("-", " ").title())} · {html.escape(USER_LABEL)} RL</title></head><body>
 <header class="top"><div class="bar">
 <span class="brand">{html.escape(USER_LABEL)} <span class="user">RL</span></span>
 <form class="search" action="/search" method="get"><input name="q" placeholder="Search…"></form>
 </div></header><div class="wrap">
-<div class="crumbs"><a href="/">home</a> / {html.escape(category)}</div>
-<h1>{html.escape(category.replace("-"," ").title())} <span class="badge">{len(pages)} pages</span></h1>
-<div class="card"><ul class="plist">{items or '<li class="snip">no pages</li>'}</ul></div>
+<div class="crumbs">{crumbs}</div>
+<h1>{html.escape(cat.replace("-", " ").title())} <span class="badge">{total:,} pages</span></h1>
+{banner_html}{subs_html}
+<h2>Files <span class="badge">{len(files):,}</span></h2>
+<div class="card"><ul class="plist">{items or '<li class="snip">no files in this folder</li>'}</ul></div>
+{pnav}
 <footer>RL Live Viewer</footer></div></body></html>"""
 
 @app.get("/page/{path:path}", response_class=HTMLResponse)
