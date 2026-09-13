@@ -2003,6 +2003,54 @@ class TelegramAdapter(BasePlatformAdapter):
             print(f"[{self.name}] Failed to send document: {e}")
             return await super().send_document(chat_id, file_path, caption, file_name, reply_to)
 
+    def _process_video_note(self, video_path: str) -> tuple:
+        """Extract audio track + one mid frame from a video note file.
+
+        Returns (audio_ogg_path, frame_jpg_path); either element may be ""
+        if that extraction failed (the video itself is still cached).
+        """
+        import re
+        import subprocess
+        import tempfile
+
+        audio_out = ""
+        frame_out = ""
+        try:
+            with tempfile.TemporaryDirectory(prefix="logos_vn_") as tmp:
+                ogg_path = os.path.join(tmp, "audio.ogg")
+                jpg_path = os.path.join(tmp, "frame.jpg")
+                # Duration probe (ffmpeg prints it to stderr) for a mid-video frame.
+                dur = None
+                try:
+                    probe = subprocess.run(
+                        ["ffmpeg", "-i", video_path],
+                        capture_output=True, text=True, timeout=30,
+                    )
+                    m = re.search(r"Duration:\s*(\d+):(\d+):([\d.]+)", probe.stderr)
+                    if m:
+                        dur = (int(m.group(1)) * 3600 + int(m.group(2)) * 60
+                               + float(m.group(3)))
+                except Exception:
+                    dur = None
+                cmd = ["ffmpeg", "-y", "-loglevel", "error"]
+                seek = max(0.0, (dur / 2.0) - 0.25) if dur else 0.0
+                if seek > 0:
+                    cmd += ["-ss", f"{seek:.2f}"]
+                cmd += ["-i", video_path, "-frames:v", "1", jpg_path]
+                subprocess.run(cmd, capture_output=True, timeout=60, check=True)
+                with open(jpg_path, "rb") as f:
+                    frame_out = cache_image_from_bytes(f.read(), ext=".jpg")
+                subprocess.run(
+                    ["ffmpeg", "-y", "-loglevel", "error", "-i", video_path,
+                     "-vn", "-c:a", "libopus", "-b:a", "32k", ogg_path],
+                    capture_output=True, timeout=60, check=True,
+                )
+                with open(ogg_path, "rb") as f:
+                    audio_out = cache_audio_from_bytes(f.read(), ext=".ogg")
+        except Exception as e:
+            logger.warning("[Telegram] Video note processing failed: %s", e, exc_info=True)
+        return audio_out, frame_out
+
     async def send_video(
         self,
         chat_id: str,
@@ -2857,6 +2905,10 @@ class TelegramAdapter(BasePlatformAdapter):
             msg_type = MessageType.PHOTO
         elif msg.video:
             msg_type = MessageType.VIDEO
+        elif msg.video_note:
+            # Round "camera-on" voice messages — treat as video so the
+            # download/cache chain below picks them up.
+            msg_type = MessageType.VIDEO
         elif msg.audio:
             msg_type = MessageType.AUDIO
         elif msg.voice:
@@ -2948,6 +3000,29 @@ class TelegramAdapter(BasePlatformAdapter):
                 logger.info("[Telegram] Cached user video at %s", cached_path)
             except (AttributeError, KeyError, RuntimeError, TypeError) as e:
                 logger.warning("[Telegram] Failed to cache video: %s", e, exc_info=True)
+
+        # Download video notes (round camera-on voice messages): cache the video,
+        # extract the audio track so the existing STT path can transcribe it,
+        # and pull one mid frame so the agent can see the camera picture.
+        elif msg.video_note:
+            try:
+                file_obj = await msg.video_note.get_file()
+                video_bytes = await file_obj.download_as_bytearray()
+                cached_path = cache_video_from_bytes(bytes(video_bytes), ext=".mp4")
+                media_urls = [cached_path]
+                media_types = ["video/mp4"]
+                audio_path, frame_path = self._process_video_note(cached_path)
+                if frame_path:
+                    media_urls.insert(0, frame_path)
+                    media_types.insert(0, "image/jpeg")
+                if audio_path:
+                    media_urls.insert(0, audio_path)
+                    media_types.insert(0, "audio/ogg")
+                event.media_urls = media_urls
+                event.media_types = media_types
+                logger.info("[Telegram] Cached user video note at %s", cached_path)
+            except (AttributeError, KeyError, OSError, RuntimeError, TypeError) as e:
+                logger.warning("[Telegram] Failed to cache video note: %s", e, exc_info=True)
 
         # Download document files to cache for agent processing
         elif msg.document:
