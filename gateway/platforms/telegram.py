@@ -35,6 +35,7 @@ try:
     )
     from telegram.constants import ParseMode, ChatType
     from telegram.request import HTTPXRequest
+    from telegram.error import TelegramError as _PTBTelegramError
     TELEGRAM_AVAILABLE = True
 except ImportError:
     TELEGRAM_AVAILABLE = False
@@ -44,6 +45,7 @@ except ImportError:
     InlineKeyboardButton = Any
     InlineKeyboardMarkup = Any
     LinkPreviewOptions = None
+    _PTBTelegramError = RuntimeError  # PTB absent — adapter is inert
     Application = Any
     CommandHandler = Any
     CallbackQueryHandler = Any
@@ -1229,7 +1231,7 @@ class TelegramAdapter(BasePlatformAdapter):
                     text=formatted,
                     parse_mode=ParseMode.MARKDOWN_V2,
                 )
-            except (RuntimeError) as fmt_err:
+            except (RuntimeError, _PTBTelegramError) as fmt_err:
                 # "Message is not modified" is a no-op, not an error
                 if "not modified" in str(fmt_err).lower():
                     return SendResult(success=True, message_id=message_id)
@@ -1240,7 +1242,7 @@ class TelegramAdapter(BasePlatformAdapter):
                     text=content,
                 )
             return SendResult(success=True, message_id=message_id)
-        except (RuntimeError) as e:
+        except (RuntimeError, _PTBTelegramError) as e:
             err_str = str(e).lower()
             # "Message is not modified" — content identical, treat as success
             if "not modified" in err_str:
@@ -1258,7 +1260,7 @@ class TelegramAdapter(BasePlatformAdapter):
                         message_id=int(message_id),
                         text=truncated,
                     )
-                except (RuntimeError):
+                except (RuntimeError, _PTBTelegramError):
                     pass  # best-effort truncation
                 return SendResult(success=True, message_id=message_id)
             # Flood control / RetryAfter — short waits are retried inline,
@@ -1281,7 +1283,7 @@ class TelegramAdapter(BasePlatformAdapter):
                         text=content,
                     )
                     return SendResult(success=True, message_id=message_id)
-                except (RuntimeError) as retry_err:
+                except (RuntimeError, _PTBTelegramError) as retry_err:
                     logger.error(
                         "[%s] Edit retry failed after flood wait: %s",
                         self.name, retry_err,
