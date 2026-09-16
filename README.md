@@ -65,7 +65,7 @@ Provenance: the per-key spend log of the local proxy in front of the vLLM engine
 
 That was one user. Logos started with a single owner and has since **scaled to roughly a dozen users, each with their own private memory, reference library, and worldview profile**. The scaling is not a dozen users crammed into one card: every model instance runs on its own GPU, and the deployment grows by adding instances. The ~a-dozen-user deployment is a single 8-GPU server (96GB per GPU); the 32GB single-GPU box is the single-user reference configuration, not the multi-user one.
 
-Dated snapshot, **as of 2026-09-16 — and growing as it is used**: 55,000+ conversation turns stored verbatim across 5,000+ sessions; 40,000+ curated knowledge pages. Built and in continuous use since July 2025 — over a year, starting on my home PC and now scaled to a single-GPU server.
+Dated snapshot, **as of 2026-09-16 — and growing as it is used**: 55,000+ conversation turns stored verbatim across 5,000+ sessions; 40,000+ curated knowledge pages. Built on my home PC starting April 2026 — I built the core of the system (Perpetual Memory, Reference Library, the rolling-window context engine, local vLLM inference) directly into the hermes-agent framework (Nous Research, since mid-2025), then forked it — and have been in continuous use since; since scaled from that home PC to a multi-GPU server.
 
 One distinction the architecture makes that is easy to miss: a cloud-API model comes with the vendor controlling your system prompt and the safety training, in various degrees — you get what they allow you to have. A local model on your own harness is yours to direct. AI is a tool; whether it is used for good or evil is, as with all tools, determined by its user.
 

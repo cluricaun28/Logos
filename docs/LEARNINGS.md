@@ -122,7 +122,7 @@ and the deployment grows by adding instances. The ~a-dozen-user deployment is a 
 not the multi-user one. Per-user isolation is a property of the harness, not of the
 model — another piece of evidence that the interesting state lives outside the
 weights. Dated snapshot, **as of 2026-09-16 (and growing)**: 55,000+ conversation
-turns verbatim; 40,000+ curated knowledge pages. Built and in continuous use since July 2025 — over a year, starting on my home PC, now on a single-GPU server.
+turns verbatim; 40,000+ curated knowledge pages. Built on my home PC starting April 2026 — I built the core (Perpetual Memory, Reference Library, rolling-window context engine, local vLLM) directly into the hermes-agent framework (Nous Research, since mid-2025), then forked it — and have been in continuous use since; since scaled to a multi-GPU server.
 
 ## 9. Post-Training, Honestly
 
