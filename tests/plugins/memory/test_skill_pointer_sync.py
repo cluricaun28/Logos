@@ -122,7 +122,8 @@ def test_pointer_frontmatter_survives_yaml_roundtrip(tmp_path: Path) -> None:
     (nasty / "SKILL.md").write_text(
         # NOTE: the line-based _parse_skill_file tolerates the bare colon
         # (YAML would not) — exactly the case where the generated pointer
-        # page must quote the value to stay valid YAML for Quartz.
+        # page must quote the value to stay valid YAML (PyYAML; Quartz
+        # was the original consumer, retired 2026-08-23).
         "---\n"
         "name: shopify: admin\n"
         "description: Handles colons: here.\n"

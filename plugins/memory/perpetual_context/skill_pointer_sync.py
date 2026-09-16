@@ -53,8 +53,8 @@ def _parse_pointer_frontmatter(path: Path) -> dict[str, Any]:
 def _yaml_scalar(value: str) -> str:
     """Render a scalar for YAML frontmatter, quoting only when needed.
 
-    Quartz's frontmatter parser (and PyYAML) choke on unquoted values
-    containing `: `, `#`, or an unclosed `"` — e.g. a skill named
+    PyYAML (and Quartz's frontmatter parser, pre-retirement) choke on unquoted
+    values containing `: `, `#`, or an unclosed `"` — e.g. a skill named
     `Shopify: Admin` or a description cut mid-quote. yaml.safe_dump quotes
     only when the plain form is ambiguous, keeping simple names readable.
 
