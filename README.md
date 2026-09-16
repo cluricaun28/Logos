@@ -1,8 +1,10 @@
 # Logos — Sovereign Knowledge Management System
 
-**A sovereign agentic intelligence system built on local hardware with persistent memory, curated knowledge, and user-defined worldview alignment.**
+**A sovereign agentic intelligence system built on local hardware, with persistent memory, curated knowledge, and a model steered to *you*.**
 
-Most AI agents are stateless — they forget who you are and what you've decided once a conversation ends. Logos is a sovereign knowledge system that builds a permanent, local library of truth, anchored in your worldview.
+The mainstream path to capable AI is megamodels in football-field-sized data centers, delivered behind an API. Logos is evidence for the alternative: a 27B-parameter model on a single 32GB gaming GPU — local, personal, private. The harness uses the model as a brain, and the harness steers the model. Most of what makes the system capable lives in the harness, not the weights — and it ships with no model attached.
+
+Most AI agents are stateless — they forget who you are and what you've decided once a conversation ends. Logos is a sovereign knowledge system that builds a permanent, local library of truth, anchored in your worldview. It never summarizes history: the rolling context window is a *view* over a verbatim, infinite store — turns leave the window, not the record.
 
 ### The Core Philosophy
 - **Sovereignty:** All memory and knowledge live on your hardware. No cloud sync, no external API dependencies for recall.
@@ -22,7 +24,7 @@ The distinguishing features:
 - **SourceAnalyzer** (`agent/source_analysis.py`) — Phase 3.5 in the research pipeline. Builds and updates source dossiers automatically, flagging ideological markers and consistent omission patterns.
 - **Discernment Workflow** — Skill-driven claim evaluation with explicit step-by-step reasoning chain (replaced sovereign sieve from Phase 1).
 - **Skill-Driven Personas** — Pre-configured subagent roles (discernment-researcher, behavioral-tester, institutional-analyst, etc.) that auto-load the right skills and constraints.
-- **sqlite-vec Single-DB Storage** — All 21k+ PM vectors and 33k+ RL vectors live inside their respective SQLite databases (PM via vec0 virtual tables, RL via BLOB embeddings + FTS5). Atomic storage, no index drift. FAISS removed July 2026.
+- **sqlite-vec Single-DB Storage** — All PM turn vectors and RL page embeddings live inside their respective SQLite databases (PM via vec0 virtual tables, RL via BLOB embeddings + FTS5). Atomic storage, no index drift. FAISS removed July 2026.
 - **Schema Versioning** — Both databases use `PRAGMA user_version` for migration tracking (PM: v3 migration = tool-role rows persisted since 2026-08; RL index: v1)
 - **Nightly Maintenance** — Incremental RL re-index + VACUUM run nightly (04:00 sync); the session DB is auto-pruned and vacuumed by the gateway on a daily interval
 - **Recency Weighting** — Recent messages (7 days) get 1.5x score boost, 30 days get 1.2x. No decay — old messages don't lose score, recent ones gain it.
@@ -33,14 +35,39 @@ The distinguishing features:
 
 The system runs locally. No cloud APIs for memory or retrieval.
 
+### Steering the Model to You — Measured
+
+Nearly every major model tested lands in the same place on the [politicalcompass.org](https://politicalcompass.org) instrument (62 propositions): bottom-left, the secular-progressive quadrant. Claude, the GPT-5 family, Kimi, base Qwen, Gemini — all there. (The one exception is Grok 4.3, a deliberate positioning choice by xAI.) If that is your worldview, fine. If it isn't, it matters: the model's default voice is not yours.
+
+Logos doesn't ask you to adopt the default. A **user-defined worldview profile**, plus your curated library and memory, steers the model toward *your* positions — no fine-tuning, no retraining, and nothing baked in: the profile is yours to write, edit, and replace.
+
+We measured the effect rather than felt it:
+
+- **Base model + your profile: >13 units** of displacement on the instrument. In our deployment that moved the model into the top-right quadrant — the only model in that quadrant on the project's chart.
+- **Base model + prompt tweaks alone: <1 unit.** The profile is the displacement, not the wording.
+- **Method:** the project's 62-proposition instrument; scoring weights regressed from the dataset's own 1,371 recorded answer-sets; scorer validated against the project's control sets to ±0.001. Honest caveats: a single pass (±~1 unit), and the robust number is the *magnitude* — the direction is whatever your profile is.
+
+**Works best with uncensored / non-safety-trained models.** A heavily safety-trained model spends part of its weight fighting the steering; an uncensored model doesn't. (Uncensored ≠ unbiased — removing safety training removes the censor, not the corpus default. The profile does the steering either way.)
+
 ### Proven at Scale — Measured, Not Marketed
 
-One user's heaviest build day on this system (2026-08-20, from session logs):
+The honest question is not "how big is the window" — frontier APIs answer 1M tokens — but **how long can you keep talking?** And the answer there is a time limit, not a size. The operating pattern of a frontier agent is: fill the 1M window, compress, repeat. At a working agent's measured pace (~658K tokens/hour, from our own per-call logs), a 1M window fills in **about 90 minutes** — so by hour 20, 13+ lossy compression rounds have passed, and the conversation runs on summaries of summaries. The original bytes never come back, the degradation accumulates, and eventually the standard operational answer is to **start a new session** and hand off in a written summary. (Honest concession: at pure typing pace a 1M window holds ~33 hours of chat — an agent that makes tool calls doesn't chat at typing pace. And when a conversation ends — some products start a fresh one every day — the window closes and what carries forward, if anything, is a lossy summary the service wrote.)
 
-- **943M prompt tokens** — 19,832 API calls, ~3,600 context windows (262K) consumed
-- **0 load-bearing state lost** — every turn stored verbatim; recall returns the original
+Logos doesn't have to do that. Its compression is not summarization: the window is a **lossless view over a verbatim local store**. Compaction prunes the view; the store keeps every turn; recall returns the exact original — byte for byte, on the first call or the thousandth. That is an architectural claim, and here is proof it held up under real load. The numbers are conservative on purpose — one user, one model, one key, measured 2026-08-24 → 09-16 (UTC):
 
-Why the number matters: in a compression architecture, retention ≈ r^N — r is per-round summarizer fidelity, N the number of compaction rounds a thread passes through. Even a generous r = 0.99 gives 0.99³⁶⁰⁰ ≈ 0 for a single build day. At that scale, failure is deterministic, not probabilistic. Logos' answer is **archive, not compression** — compaction applies to the *view*, never the store, so retention stops compounding and becomes a property of each query instead.
+- **One conversation: 20 hours, no degradation, no restart.** The largest single conversation ran 20.1 hours straight — 870 turns, **13.2M tokens processed: 13× the entire 1M window** (per-call proxy log, tokenizer-true; largest single prompt 214,753 tokens, matching the context engine's own archive event). In the compress-restart cycle, that is the point where the honest answer is a new session. Here the record at hour 20 is byte-identical to hour 1, and every one of the 870 turns is still retrievable verbatim — and has been retrieved, from conversations running days after it closed.
+- **Across conversations: as long as the machine is on.** The store now holds 55,000+ turns — ~19M tokens (~77M characters), 19× a 1M-token cloud window — every byte retrievable full-text and semantic, single-digit milliseconds, on the same machine. No window, however large, holds a year of use; a cloud chat's "memory" is a set of summaries the model wrote, and the original turns are not recoverable from it.
+- **0 lost across 23 days.** 27,224 turns across 1,135 sessions, 4.1B tokens processed: 0 with missing or empty content. The store is append-only; nothing has ever been summarized over.
+
+The first two bullets are the parts a large window cannot do. A cloud chat's window is generous *within one conversation* and then gone: open the next conversation and it has no memory of the last. The store here persists across every conversation it has ever held and can retrieve any of them on demand. The difference is not a bigger window — it is a window that never loses what it is given, and a memory that does not end when the conversation does.
+
+Provenance: the per-key spend log of the local proxy in front of the vLLM engines (identity of the single key verified against the gateway's live config; every request id unique; per-engine totals cross-checked against each engine's own token counters), the conversation structure and the token/character figures read from the verbatim store itself, and the context engine's own event log (`context-engine.jsonl`), which records that session's window state on the day in question.
+
+That was one user. Logos started with a single owner and has since **scaled to roughly a dozen users, each with their own private memory, reference library, and worldview profile**. The scaling is not a dozen users crammed into one card: every model instance runs on its own GPU, and the deployment grows by adding instances. The ~a-dozen-user deployment is a single 8-GPU server (96GB per GPU); the 32GB single-GPU box is the single-user reference configuration, not the multi-user one.
+
+Dated snapshot, **as of 2026-09-16 — and growing as it is used**: 55,000+ conversation turns stored verbatim across 5,000+ sessions; 40,000+ curated knowledge pages; in continuous use for over a year (code lineage since July 2025; in active use before it was published).
+
+One distinction the architecture makes that is easy to miss: a cloud-API model comes with the vendor controlling your system prompt and the safety training, in various degrees — you get what they allow you to have. A local model on your own harness is yours to direct. AI is a tool; whether it is used for good or evil is, as with all tools, determined by its user.
 
 ---
 
@@ -269,7 +296,7 @@ The agent will:
 - **Analyzes web sources** for bias and omissions via `source_analyze` (mandatory for substantive topics)
 - **Auto-creates source dossiers** for new domains encountered during research
 - **Creates new RL entries** when learning something new
-- **Archives completed turns** to keep context window lean
+- **Archives completed turns — to Perpetual Memory, verbatim — keeping the context window lean**
 
 ### What You Should Do
 - **Customize SOUL.md** with your values, preferences, and communication style

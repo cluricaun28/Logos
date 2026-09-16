@@ -436,7 +436,7 @@ def _handle_context_depth(tool_handler: ToolHandler, args: dict[str, Any]) -> st
 def _hybrid_rl_search(query: str, top_k: int) -> list[dict[str, Any]] | None:
     """Hybrid RL search (FTS5 keyword + cosine semantic) over rl_index.db.
 
-    Covers ALL categories including the 32k-entry Britannica 1911 archive.
+    Covers ALL categories including the 32k-entry public-domain archive corpus.
     Returns None when the index or the search is unavailable, so the caller
     can fall back to the legacy substring scan. Never raises.
     """
@@ -539,7 +539,7 @@ def _handle_reference_library_search(tool_handler: ToolHandler, args: dict[str, 
             except Exception as e:  # noqa: S110 — degradation wrapper, must never fail RL search
                 logger.debug("Ref library search failed for %s: %s", md_file.name, e)
 
-    # Search Britannica archive via search.db FTS index
+    # Search public-domain archive via search.db FTS index
     try:
         import sqlite3
         search_db_path = os.path.expanduser("~/.hermes/reference-library/search.db")

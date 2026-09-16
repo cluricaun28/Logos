@@ -435,7 +435,7 @@ class RLUpdateDetector:
         Returns list of update recommendations.
 
         Scans only topics/ and entities/ directories — skips bulk data like
-        Britannica entries (32K+ files would make this O(n) unworkable).
+        Public-domain archive entries (32K+ files would make this O(n) unworkable).
         """
         target_dir = Path(os.path.expanduser(rl_dir)) if rl_dir else self._rl_dir
         recommendations: list[dict[str, Any]] = []
@@ -445,7 +445,7 @@ class RLUpdateDetector:
             return recommendations
 
         # Only scan topics/ and entities/ — skip bulk data directories
-        # that would make this prohibitively expensive (e.g. Britannica 32K entries)
+        # that would make this prohibitively expensive (e.g. the 32K-entry public-domain archive)
         scan_dirs = [target_dir / "topics", target_dir / "entities"]
         md_files = []
         for scan_dir in scan_dirs:

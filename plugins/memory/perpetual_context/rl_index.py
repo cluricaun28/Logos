@@ -86,8 +86,6 @@ def _extract_file_info(file_path: Path) -> dict | None:
         sub = parts[1].split("/")[0]
         if sub == "britannica":
             category = "britannica"
-        elif sub == "aquinas-library":
-            category = "aquinas"
 
     frontmatter = "{}"
     body = content

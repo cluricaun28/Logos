@@ -76,7 +76,7 @@ Convention (run from the repo root):
 - where's the source           → `zg query "natural question" -g "*.py" -g "!tests/**"`
 - you already know the name    → `zg query --rg "identifier"`
 
-Binary: `/home/exx/zg-poc/node_modules/.bin/zg` (run from `/data1/logos-sandbox/logos`).
+Binary: `~/zg-poc/node_modules/.bin/zg` (run from the repo root).
 Index: `.zvec-grep/` at repo root (git-excluded); keep it fresh with `zg index`
 (idempotent) after landing a batch of new files.
 Fallback to search_files/read_file for: filename/path lookups, non-code or

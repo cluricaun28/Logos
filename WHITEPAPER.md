@@ -2,7 +2,7 @@
 type: topic
 topic: "Logos — System White Paper"
 created: 2026-05-07
-last_updated: 2026-08-29
+last_updated: 2026-09-16
 confidence: high
 description: "Comprehensive white paper documenting the purpose, architecture, and operation of Logos, a sovereign agentic intelligence system. Explains the 'what,' 'why,' and 'how' of the entire system from first principles."
 ---
@@ -11,16 +11,17 @@ description: "Comprehensive white paper documenting the purpose, architecture, a
 
 *A white paper on sovereign knowledge management through persistent memory, curated truth, and epistemic sovereignty*
 
-**Version:** 3.3  |  **Date:** 2026-08-26  |  **Repository:** cluricaun28/logos (detached, standalone)
+**Version:** 3.5  |  **Date:** 2026-09-16  |  **Repository:** cluricaun28/logos (detached, standalone)
 
 ---
 
 ## 1. Executive Summary
 
-This document describes **Logos**, a *sovereign agentic intelligence system* designed for a single user with specific epistemic requirements. Logos was originally built on the [Hermes Agent](https://github.com/NousResearch/hermes-agent) framework by Nous Research and has since diverged substantially, transforming from a general-purpose local AI agent into a persistent knowledge system. Logos provides:
+This document describes **Logos**, a *sovereign agentic intelligence system* designed for a user with specific epistemic requirements — and since scaled to roughly a dozen of them, each with their own memory, library, and worldview profile, and their own model instance on dedicated GPU hardware (the ~a-dozen-user deployment is a single 8-GPU server, 96GB per GPU — scaling adds instances, it does not share one card). Logos was originally built on the [Hermes Agent](https://github.com/NousResearch/hermes-agent) framework by Nous Research and has since diverged substantially, transforming from a general-purpose local AI agent into a persistent knowledge system. Logos provides:
 
 - **Infinite recall** across all sessions through a SQLite + FTS5 perpetual memory database
 - **Worldview-aligned research** through a curated [[system/reference-library-purpose|Reference Library]] and a multi-phase deep research pipeline with bias detection
+- **Measured steering** — a user-defined worldview profile displaces the model by >13 units on a standardized position instrument with no retraining (§3.6)
 - **Structured session continuity** through context bridges that survive context-window archival
 - **Automated knowledge distillation** from raw conversation history into authoritative reference material
 - **Complete data sovereignty** — all inference, storage, and processing occurs on local hardware with no data leaving the system
@@ -34,11 +35,11 @@ The system is built around the principle that *retrieval is superior to retentio
 
 ### 2.1 The Epistemic Problem
 
-Frontier AI models are trained on web-scraped data — Reddit, Wikipedia, news sites — that contains contradictory worldviews presented as equally valid. When a model says *"Group A believes X, Group B believes Y, both have merit,"* it is not being neutral — it is making a meta-claim that truth is subjective. That is moral relativism dressed as objectivity.
+Frontier AI models are trained on web-scraped data — Reddit, Wikipedia, news sites — that contains contradictory worldviews presented as equally valid. When a model says *"Group A believes X, Group B believes Y, both have merit,"* it is not being neutral — it is making a meta-claim that truth is subjective. That is false balance dressed as objectivity.
 
 The resulting models:
 - Perform false neutrality across mutually exclusive truth claims
-- Teach moral relativism by default
+- Default to hedging across mutually exclusive claims
 - Are loaded with irrelevant noise because "there's signal somewhere in it"
 - Serve everyone rather than serving a specific person with specific truth claims and standards
 
@@ -114,6 +115,10 @@ System → Logos with RL, PM, skills, tools
 
 **Evaluate every design choice with one question:** *"Does this make the agent more reliable at serving the owner's needs?"* If yes, implement it. If no, skip it regardless of how technically elegant it is.
 
+### 3.6 Steering, Not Retraining
+
+Logos's worldview alignment is a measured, user-defined mechanism — not a retraining exercise. On the [politicalcompass.org](https://politicalcompass.org) 62-proposition instrument (scoring weights regressed from the dataset's own 1,371 recorded answer-sets; scorer validated against the project's control sets to ±0.001), a user's worldview profile loaded onto the same base weights displaced the model by **more than 13 units**, while prompt-level tweaks alone displace less than 1. Every major lab flagship tested clusters bottom-left (secular-progressive) on the instrument; the profile is the entire displacement. The direction is whatever the user's profile is, the profile is fully editable, and nothing is baked in. No post-training is required to get here — and it is deliberately still the case: harness-driven steering has proven more impactful than our post-training efforts to date, so the model in use is one readily available on Hugging Face. See [docs/LEARNINGS.md](docs/LEARNINGS.md) for the full method, caveats, and the three-way analysis of what weights are actually carrying.
+
 ---
 
 ## 4. System Architecture
@@ -162,17 +167,17 @@ The system comprises four major subsystems that work together:
 
 **Purpose:** Never lose anything that was ever said.
 
-Every conversation turn across all sessions is stored verbatim in a local SQLite database (`~/.logos/perpetual_context.db`; pre-rebrand `~/.hermes` homes still work) with FTS5 full-text indexing. Scale on the reference deployment (Aug 2026, measured): 26,000+ messages across 3,900+ sessions, 47 database tables.
+Every conversation turn across all sessions is stored verbatim in a local SQLite database (`~/.logos/perpetual_context.db`; pre-rebrand `~/.hermes` homes still work) with FTS5 full-text indexing. Scale on the reference deployment (Sep 2026, measured): 55,000+ messages across 5,000+ sessions, 47 database tables.
 
 **Architecture:**
 
 - **Messages table:** Each turn stored with `session_id`, `role` (user/assistant/system/tool), `content`, `metadata` (JSON), `created_at`, `token_count`, and an optional 384-dimensional embedding vector (all-MiniLM-L6-v2 via ONNX, sqlite-vec)
 - **FTS5 virtual tables:** Auto-synced via triggers on INSERT/UPDATE/DELETE. BM25 ranking for relevance scoring. Hybrid search fuses BM25 (60% weight) + semantic cosine similarity (40% weight) via sqlite-vec vec0 virtual table
-- **Topics table:** 65,000+ conversation topics with confidence scores and drift detection
+- **Topics table:** 90,000+ conversation topics with confidence scores and drift detection
 - **Relationships table:** 18,500+ entity-relationship mappings discovered during conversation analysis
 - **Signal clusters table:** High-signal conversation clusters identified for potential [[system/reference-library-purpose|Reference Library]] distillation
 - **Knowledge gaps table:** Unresolved questions flagged for automated reference building
-- **Session metadata table:** 3,900+ sessions with platform, duration, and message count tracking
+- **Session metadata table:** 5,000+ sessions with platform, duration, and message count tracking
 
 **Retrieval strategies (6 modes):**
 
@@ -238,7 +243,7 @@ The recall engine runs before each agent turn via `prefetch()` in `PerpetualCont
 
 **Full pipeline (4 phases) for static/slow/volatile queries:**
 
-- **Phase 1a:** [[system/reference-library-purpose|Reference Library]] search via `handle_reference_library_search()` — hybrid search (FTS5 + embeddings) across 30,000+ entries, sub-10ms latency
+- **Phase 1a:** [[system/reference-library-purpose|Reference Library]] search via `handle_reference_library_search()` — hybrid search (FTS5 + embeddings) across 40,000+ entries, sub-10ms latency
 - **Phase 1b:** Perpetual Memory hybrid search via `db.hybrid_search()` with configured depth limit
 - **Phase 1c:** Gap detection — if total results < 2, or PM scores below stability threshold, mark as gap
 - **Phase 2:** If gap detected, web search via `WebResearchClient` (SearXNG → Firecrawl → Camofox escalation)
@@ -258,9 +263,9 @@ The [[system/reference-library-purpose|Reference Library]] (`~/.logos/reference-
 - **`entities/`** — People, organizations, publications with motive/funding mapping, credibility tracking, and bias analysis
 - **`sources/`** — Source intelligence dossiers auto-created by `source_analyze`
 
-Grow the layout as your library needs — the reference deployment organizes `topics/` into people, organizations, ideas, places, events, and technology, and keeps a public-domain encyclopedic archive (Encyclopædia Britannica 1911) plus a curated research corpus (Aquinas) for content-aware search.
+Grow the layout as your library needs — the reference deployment organizes `topics/` into people, organizations, ideas, places, events, and technology, and keeps a public-domain encyclopedic archive plus a curated research corpus for content-aware search.
 
-**Scale on the reference deployment (Aug 2026, measured):** ~675 curated pages + 32,000+ public-domain archive entries (not served in the static build). Total indexed: 33,800+ entries.
+**Scale on the reference deployment (Sep 2026, measured):** 40,000+ indexed pages, including a public-domain archive corpus (not served in the static build).
 
 **Hybrid search index (`rl_index.db`):**
 
@@ -318,13 +323,13 @@ The Logos Engine operates as a three-stage verification pipeline:
 | 2:00 AM | RL Index Maintenance | VACUUM + REINDEX + integrity check on `rl_index.db` |
 | 3:00 AM | Nightly Distillation | Processes up to 3 clusters through Synthesis → Audit → Commit |
 | 3:00 AM | RL Growth | Expands RL entries based on detected gaps and distillation output |
-| 4:00 AM | Re-process EB 1911 | Rebuilds Britannica 1911 entries from original source files |
+| 4:00 AM | Rebuild archive entries | Rebuilds public-domain archive entries from original source files |
 | 4:00 AM | Logos Intelligence Scout | Builds source intelligence dossiers from high-frequency domains |
 | 4:00 AM | Logos Backup | Backs up the entire Logos home directory (reference: off-box USB) |
 | 8:00 AM | Model Download Verification | Verifies HuggingFace model downloads completed |
 | 9:00 AM | Retrieval Quality Report | Monitors retrieval quality trends |
 
-Supporting bridges: `britannica_bridge.py` and `aquinas_bridge.py` provide content-aware search across the public-domain encyclopedic corpus (Britannica 1911) and the curated Aquinas research corpus respectively, integrated into the distillation pipeline.
+Supporting bridge modules provide content-aware search across the public-domain encyclopedic corpus and the curated research corpus respectively, integrated into the distillation pipeline.
 
 ### 4.7 Context Archiving — Dual Engine
 
@@ -574,7 +579,7 @@ The [[system/reference-library-purpose|Reference Library]] serves as the system'
 3. **Filter:** The Sovereign Sieve detects framing, motive, and double standards
 4. **Distill:** High-signal findings are promoted to the [[system/reference-library-purpose|Reference Library]] via the Logos Engine
 
-This is not moral relativism disguised as "both sides." It is epistemic honesty about how information is weaponized in the modern media ecosystem.
+This is not false balance dressed as "both sides." It is epistemic honesty about how information is weaponized in the modern media ecosystem.
 ---
 
 ## 7. Infrastructure
@@ -583,7 +588,7 @@ This is not moral relativism disguised as "both sides." It is epistemic honesty 
 
 - **Reference (single-user):** one GPU with 24–32 GB VRAM (RTX 4090/5090 class) + 64 GB RAM runs the 27B-class reference model with room for the embedding model and local services.
 - **Owner production:** Supermicro, 8× RTX PRO 6000 Blackwell (96 GB each, SM120), native Linux, 768 GB total VRAM — a multi-model fleet. GPUs 2–7 reserved for future specialized models.
-- **Storage (reference):** one 14 TB data volume for models and agent homes (`/data1`-style layout), weekly off-box USB backup.
+- **Storage (reference):** one 14 TB data volume for models and agent homes, weekly off-box USB backup.
 
 ### 7.2 Software Stack
 
@@ -592,11 +597,11 @@ This is not moral relativism disguised as "both sides." It is epistemic honesty 
 | Inference | vLLM v0.27.1 (Docker) | 8000 (+ 8011 standby) | Qwen3.8-27B-Uncensored-FP8, 262K context, fp8 KV, MTP speculative decoding (2.03× measured), 32 sequences |
 | Embeddings | all-MiniLM-L6-v2 (ONNX) | N/A | In-process, ~80MB model, 384-dim vectors |
 | Perpetual Memory | SQLite + FTS5 | N/A | `~/.hermes/perpetual_context.db` |
-| RL Hybrid Index | SQLite + FTS5 + embeddings | N/A | `rl_index.db`, 30,000+ entries |
+| RL Hybrid Index | SQLite + FTS5 + embeddings | N/A | `rl_index.db`, 40,000+ entries |
 | SearXNG | Docker | Self-hosted | 251+ search services, Tier 1 |
 | Firecrawl | Docker stack | Self-hosted | API + Playwright + RabbitMQ + Redis + Postgres, Tier 2 |
 | Camofox | Native | 9377 | Anti-detection Firefox fork, Tier 3 |
-| Quartz v5 | Node.js | 8081 | Static site serving the curated RL (Britannica archive excluded); Python static server
+| Quartz v5 | Node.js | 8081 | Static site serving the curated RL (public-domain archive excluded); Python static server
 | Messaging | Telegram bot gateway | N/A | Primary communication channel |
 | Media generation (optional) | ComfyUI | 8188+ | Open-weights image + video models (reference: Qwen-Image fp8, Wan 2.2, Kandinsky); load-on-demand on a spare GPU |
 | Agent-to-agent | A2A HTTP endpoint (per gateway) | per-agent port | `API_SERVER_ENABLED=true` + per-instance key; agents message each other directly; a fleet registry is the address book |
@@ -655,6 +660,9 @@ The system is designed to run several autonomous jobs that maintain and improve 
 
 | Date | Milestone |
 |------|-----------|
+| 2026-09-16 | **v3.6 — Scale argument re-anchored to "how long can you keep talking" (owner rulings: if it doesn't prove a capability frontier cloud APIs lack, it's moot; numbers conservative and defensible, no exceptions; compare apples-to-apples — sustained time). README "Proven at Scale" and LEARNINGS §3–§4 now lead with the frontier operating pattern — fill the 1M window, compress (lossy), repeat, and eventually start a new session — and the measured counter: at the deployment's own per-call agent pace (~658K tokens/hour) a 1M window fills in ~91 min, so by hour 20 a frontier conversation is 13+ lossy compressions deep; Logos's compression is view-pruning over a verbatim store, no cycle. Proofs (all store- or proxy-measured): (1) largest conversation 20.1h straight, 870 turns, 13,243,828 tokens processed (in 13,175,443 + out 68,385, per-call usage.jsonl, tokenizer-true) = 13.2× a 1M window; largest single prompt 214,753 tokens, cross-verified against the context-engine archive event (context-engine.jsonl, 214,753/256,000 at the time); (2) a year of record — 55,791 msgs / 76,647,621 chars exact ≈ 19.16M tokens (chars÷4), 19× a 1M window, all verbatim, FTS5 measured 0.20–0.92 ms; (3) zero-loss 23-day window, exact UTC calendar bounds 2026-08-24 00:00 → 09-16 00:00: 27,224 turns across 1,135 sessions, 4.10B tokens processed (41,749 calls), 0 with missing or empty content. Honest concessions stated explicitly: inside one conversation a 1M window holds more at any moment; at pure typing pace (~30K tok/h) a 1M window holds ~33h of chat. The ~370K stored-content figure for the big conversation is now explicitly scoped as the persisted record (user input + assistant text + tool outputs), distinct from the 13.2M processed volume; the earlier "1,178 conversations / load-bearing state" phrasing retired (1,176 in the v3.5 entry was the proxy-log window, a different bound). The "10:25:42 split" investigated and retired (separate 10-message skill-review session, not a division of the conversation). Window size pinned to live config `max_tokens: 262144` (9/8 engine log recorded 256000 that day; 262K used as the claim — the larger, currently-configured number). |
+| 2026-09-16 | **v3.5 — Provable scale + sterilization pass 2.** Scale proof replaced with the biggest provable single-user run from the local proxy's per-key logs: 3.96B prompt tokens / 41,916 calls over 23 days (2026-08-24 03:10 → 09-16 16:15 UTC), 1.41B in a single week, 313M in a single day, individual prompts to 292K (full window); 351M of the total went to a local auditioned Flash-Next model during its 3-day evaluation window (8/26–8/28), the rest to the 27B production model. The earlier "943M build-day" figure (session-log/infographic accounting, not reproducible from proxy logs — per-user attribution began 2026-08-24) retired. Adversarial verification: single key identity confirmed by SHA-256 against the gateway's live config key (user_id=owner, only key on the account, no fleet-key overlap); all request_ids unique (no retry double-count); per-engine totals cross-checked against each vLLM engine's own prompt-token counters (sub-0.3%, standby engine matched to 29 tokens); per-day sums cross-checked against the proxy's second aggregation path (DailyUserSpend — exact match on full days); 1,176 conversation sessions confirmed in Perpetual Memory (largest: 870 turns / ~20h). Multi-user scaling clarified everywhere it appears: one model instance per GPU; the ~a-dozen-user deployment is a single 8-GPU server (96GB/GPU), not a shared 32GB card. Personal archive name removed from the RL category mapper (those pages now index under the default category; no query depended on the removed category); last company-name references sterilized, including gitignored local files. |
+| 2026-09-16 | **v3.4 — Public share release.** README reframed around the core thesis (an alternative to megamodel/data-center AI: a 27B on a single consumer GPU, steered by the harness). New "Steering the Model to You — Measured" section (politicalcompass.org 62-prop instrument; >13-unit profile displacement vs <1-unit prompt tweaks). New §3.6 Steering, Not Retraining and `docs/LEARNINGS.md`. Scale figures refreshed to the Sep 2026 snapshot (55,000+ PM messages / 5,000+ sessions; 40,000+ indexed RL pages); deployment noted as scaled from one user to ~a dozen. Docs sterilized: corpus and archive names generalized, epistemic framing de-doctrinalized. |
 | 2026-08-26 | **v3.3 — Rebrand landed + post-cleanup reality, single-user-first framing.** Logos identity default (banner/CLI say Logos; green `logos` skin default; `logos`/`hermes` entrypoints → `logos_cli.main:main`). Cleanup R1–R13 removed website/, ui-tui/, tui_gateway/, dashboard plugin, docker/nix packaging (+ their CI). Measured scale: gateway ≈27.4K LOC, tools ≈50.7K, tests ≈227K lines, 17 platform adapters, detached repo cluricaun28/logos. Delegation completion contract + `fan_in` reconciliation + resumable children; canonical `context.fallback` config section with dead-key/shadow WARNINGs; LiteLLM per-user-key fleet metering (`usage.jsonl`); fleet pieces documented as OPTIONAL over the one-box core. |
 | 2026-04-21 | Perpetual Memory system deployed (SQLite + FTS5) |
 | 2026-04-23 | Context Bridge structured extraction |
@@ -708,4 +716,4 @@ The system is not perfect — it is a work in progress. But it is *honest* about
 
 ---
 
-*This white paper was compiled from the live codebase, Reference Library documentation, and Perpetual Memory records of Logos. Last updated 2026-08-22.*
+*This white paper was compiled from the live codebase, Reference Library documentation, and Perpetual Memory records of Logos. Last updated 2026-09-16.*

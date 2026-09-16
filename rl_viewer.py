@@ -329,7 +329,7 @@ def home():
 @app.get("/browse/{category:path}", response_class=HTMLResponse)
 def browse(category: str, request: Request):
     """Folder-style browse: subdirectories at this level (drill down) + files at
-    THIS level only (paginated), so big trees (e.g. crenshaw/jobs, 6k pages)
+    THIS level only (paginated), so big trees (e.g. a large jobs tree, 6k pages)
     navigate instead of dumping one wall of links. Titles come from the
     in-memory index — no per-file disk reads in the request path. A folder with
     an index.md/INDEX.md gets a 'start here' banner pointing at it."""
