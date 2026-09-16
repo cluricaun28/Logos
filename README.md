@@ -217,6 +217,16 @@ This creates:
 
 **How it grows:** Your agent will automatically create new RL entries as you work. When researching a topic, the agent documents findings in `topics/`. When encountering tools, it schemas them in `tools/`. The index stays current because the agent updates it.
 
+**Viewing it in a browser:** the repo ships a read-only live viewer — markdown rendering, `[[wikilink]]` + backlink cross-linking, and search. No build step: it renders straight from disk on request, so it is never stale.
+
+```bash
+# From the repo root, in the same venv you installed Logos in
+python rl_viewer.py
+# → open http://localhost:8090 (serves ~/.logos/reference-library by default)
+```
+
+Options (env vars): `RLV_PORT` (default 8090), `RLV_USER` (label shown in the page header), `RLV_ROOT` (point at a different RL directory). Search uses the agent's hybrid index when one exists; on a brand-new library it falls back to title search until the agent builds the index. The viewer is read-only, but it binds all network interfaces — on a laptop that's usually fine (a firewall keeps it to you), worth knowing if your network isn't private.
+
 ### Step 5: Understand Skills On-Demand Loading
 
 Skills are reusable procedures stored in `~/.logos/skills/`. They load on demand — only when relevant to your current task. This keeps the context window lean.
