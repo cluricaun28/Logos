@@ -65,7 +65,7 @@ Provenance: the per-key spend log of the local proxy in front of the vLLM engine
 
 That was one user. Logos started with a single owner and has since **scaled to roughly a dozen users, each with their own private memory, reference library, and worldview profile**. The scaling is not a dozen users crammed into one card: every model instance runs on its own GPU, and the deployment grows by adding instances. The ~a-dozen-user deployment is a single 8-GPU server (96GB per GPU); the 32GB single-GPU box is the single-user reference configuration, not the multi-user one.
 
-Dated snapshot, **as of 2026-09-16 — and growing as it is used**: 55,000+ conversation turns stored verbatim across 5,000+ sessions; 40,000+ curated knowledge pages; in continuous use for over a year (code lineage since July 2025; in active use before it was published).
+Dated snapshot, **as of 2026-09-16 — and growing as it is used**: 55,000+ conversation turns stored verbatim across 5,000+ sessions; 40,000+ curated knowledge pages. Code lineage since July 2025 (over a year of continuous development); this deployment in active use since April 2026.
 
 One distinction the architecture makes that is easy to miss: a cloud-API model comes with the vendor controlling your system prompt and the safety training, in various degrees — you get what they allow you to have. A local model on your own harness is yours to direct. AI is a tool; whether it is used for good or evil is, as with all tools, determined by its user.
 
@@ -136,7 +136,7 @@ Optional local services (only for the deep-research tier — Step 6) and their d
 | SearXNG | 8080 | Metasearch engine |
 | Firecrawl | 3002 | Web content extraction |
 | Camofox | 9377 | Anti-detection browser |
-| Quartz v4 | 8081 | Reference Library static site |
+| RL live viewer (rl_viewer.py) | 8090 | Reference Library browser (on-demand render, never stale) |
 
 These are referenced throughout the codebase and config files.
 

@@ -74,3 +74,6 @@ LOGOS.md
 
 # strays from old string-format bug (P4 hygiene)
 /%s
+
+# local editor/backup strays
+*.bak
