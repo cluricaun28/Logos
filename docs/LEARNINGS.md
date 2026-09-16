@@ -112,17 +112,17 @@ strips framing, and distills new findings into the library. A corpus is a pile o
 claims; a curated library is a pile of *checked* claims — and the difference compounds
 exactly like the r^N argument compounds the other way.
 
-## 8. One User → ~A Dozen — One GPU per Instance, Not a Shared Card
+## 8. One User → A Dozen-Plus — One GPU per Instance, Not a Shared Card
 
-Logos started with a single owner and has scaled to roughly a dozen users, each with
+Logos started with a single owner and has scaled to a dozen-plus users, each with
 their own private memory, reference library, and worldview profile. The scaling is not
-a dozen users crammed into one 32GB card: every model instance runs on its own GPU,
-and the deployment grows by adding instances. The ~a-dozen-user deployment is a single
+a dozen-plus users crammed into one 32GB card: every model instance runs on its own
+GPU, and the deployment grows by adding instances. The dozen-plus-user deployment is a single
 8-GPU server (96GB per GPU); the 32GB single-GPU box is the single-user configuration,
 not the multi-user one. Per-user isolation is a property of the harness, not of the
 model — another piece of evidence that the interesting state lives outside the
 weights. Dated snapshot, **as of 2026-09-16 (and growing)**: 55,000+ conversation
-turns verbatim; 40,000+ curated knowledge pages. Built on my home PC starting April 2026 — I built the core (Perpetual Memory, Reference Library, rolling-window context engine, local vLLM) directly into the hermes-agent framework (Nous Research, since mid-2025), then forked it — and have been in continuous use since; since scaled to a multi-GPU server.
+turns verbatim; a 40,000+ page searchable knowledge library (curated reference + public-domain archive + operational records). Built on my home PC starting April 2026 — I built the core (Perpetual Memory, Reference Library, rolling-window context engine, local vLLM) directly into the hermes-agent framework (Nous Research, since mid-2025), then forked it — and have been in continuous use since; since scaled to a multi-GPU server.
 
 ## 9. Post-Training, Honestly
 

@@ -17,7 +17,7 @@ description: "Comprehensive white paper documenting the purpose, architecture, a
 
 ## 1. Executive Summary
 
-This document describes **Logos**, a *sovereign agentic intelligence system* designed for a user with specific epistemic requirements — and since scaled to roughly a dozen of them, each with their own memory, library, and worldview profile, and their own model instance on dedicated GPU hardware (the ~a-dozen-user deployment is a single 8-GPU server, 96GB per GPU — scaling adds instances, it does not share one card). Logos was originally built on the [Hermes Agent](https://github.com/NousResearch/hermes-agent) framework by Nous Research and has since diverged substantially, transforming from a general-purpose local AI agent into a persistent knowledge system. Logos provides:
+This document describes **Logos**, a *sovereign agentic intelligence system* designed for a user with specific epistemic requirements — and since scaled to a dozen-plus of them, each with their own memory, library, and worldview profile, and their own model instance on dedicated GPU hardware (the dozen-plus-user deployment is a single 8-GPU server, 96GB per GPU — scaling adds instances, it does not share one card). Logos was originally built on the [Hermes Agent](https://github.com/NousResearch/hermes-agent) framework by Nous Research and has since diverged substantially, transforming from a general-purpose local AI agent into a persistent knowledge system. Logos provides:
 
 - **Infinite recall** across all sessions through a SQLite + FTS5 perpetual memory database
 - **Worldview-aligned research** through a curated [[system/reference-library-purpose|Reference Library]] and a multi-phase deep research pipeline with bias detection
