@@ -122,7 +122,7 @@ and the deployment grows by adding instances. The ~a-dozen-user deployment is a 
 not the multi-user one. Per-user isolation is a property of the harness, not of the
 model — another piece of evidence that the interesting state lives outside the
 weights. Dated snapshot, **as of 2026-09-16 (and growing)**: 55,000+ conversation
-turns verbatim; 40,000+ curated knowledge pages. Code lineage since July 2025; this deployment in active use since April 2026.
+turns verbatim; 40,000+ curated knowledge pages. Built and in continuous use since July 2025 — over a year, starting on my home PC, now on a single-GPU server.
 
 ## 9. Post-Training, Honestly
 
