@@ -23,6 +23,7 @@ import re
 import shlex
 import sys
 import signal
+import sqlite3
 import tempfile
 import threading
 import time

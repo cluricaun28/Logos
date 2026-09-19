@@ -37,6 +37,7 @@ import os
 import platform
 import shlex
 import signal
+import sqlite3
 import socket
 import subprocess
 import sys
