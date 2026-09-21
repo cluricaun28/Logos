@@ -77,3 +77,6 @@ LOGOS.md
 
 # local editor/backup strays
 *.bak
+# dependabot-sweep gate artifacts
+.venv-depbot/
+*.pre-depbot
