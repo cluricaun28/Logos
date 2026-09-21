@@ -164,6 +164,20 @@ TOOLSETS = {
         "tools": ["delegate_task"],
         "includes": []
     },
+    
+    # Harness-neutral minimal ACI (2026-09-21, dsh survey P3): bash +
+    # file-edit only, mirroring DeepSeek Harness "Minimal" mode
+    # (persistent bash + str_replace_editor). For raw-weights model
+    # comparisons where the harness must not be a variable (DPO Run 1,
+    # frontier-diff). read_file is included because patch requires seeing
+    # file content to produce a unique match; file creation is covered by
+    # terminal. Deliberately NO web/browser/skills/memory/delegation/
+    # execute_code — those are harness capabilities, not ACI primitives.
+    "minimal": {
+        "description": "Harness-neutral minimal ACI — bash + file edit only (terminal, process, read_file, patch). For raw-weights model comparisons (DPO Run 1, frontier-diff), not general use.",
+        "tools": ["terminal", "process", "read_file", "patch"],
+        "includes": []
+    },
 
     # "honcho" toolset removed — Honcho is now a memory provider plugin.
     # Tools are injected via MemoryManager, not the toolset system.

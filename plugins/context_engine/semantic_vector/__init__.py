@@ -160,6 +160,32 @@ class SemanticVectorContextEngine(ContextEngine):
     # still exceeds the target/ceiling. See _task_aware_preprune().
     task_aware: bool = False
 
+    # Cache-aware pruning (2026-09-21, dsh survey P1b — the SWE-agent
+    # stub+polling principle: only change prompt bytes when the change is
+    # worth the one-time re-prefill it costs). Wired from
+    # context.semantic_vector.cache_aware (default True; set false to
+    # restore the pre-9/21 archive behavior exactly). Two mechanisms:
+    #   1. Sticky state map — the [Conversation State] block is only
+    #      rewritten when its bytes actually change, instead of being
+    #      strip+prepended onto the last assistant message on EVERY
+    #      archive (a tail bust on every archive, including no-op ones).
+    #   2. Savings gate — an archive whose pruning would save fewer than
+    #      min_savings_tokens of content tokens is skipped (no session
+    #      rotation, no system-prompt rebuild, no bust) unless the
+    #      pruned result is still over threshold or the context is in
+    #      the danger zone (the emergency brake always runs). After a
+    #      skip, the embedding-heavy re-evaluation is deferred
+    #      skip_cooldown_turns archive calls (the polling band); the
+    #      danger zone cuts the cooldown short.
+    cache_aware: bool = True
+    # Minimum projected content-token savings for an archive to be worth
+    # the one-time prefix re-prefill. A bust re-prefills the whole tail
+    # (measured 9/21: seconds on fleet tails); saving a few K chars does
+    # not pay for that.
+    min_savings_tokens: int = 1500
+    # Archive calls to defer re-evaluation after a low-savings skip.
+    skip_cooldown_turns: int = 5
+
     # F13 fix: class attr so the config kwarg 'model_path' lands here
     # (the kwargs loop only sets existing attributes; the class attr was
     # previously '_model_path', so config values were silently dropped).
@@ -214,6 +240,9 @@ class SemanticVectorContextEngine(ContextEngine):
         # / "rw_fallback" / "tailoff"). Initialized here so readers (e.g.
         # _log_task_aware) are safe on the very first archive call.
         self._last_archive_path = "unknown"
+        # P1b mech 2: remaining archive calls before a low-savings skip
+        # allows another full (embedding-heavy) re-evaluation.
+        self._skip_cooldown = 0
 
     # -- Abstract methods -----------------------------------------------------
 
@@ -283,6 +312,33 @@ class SemanticVectorContextEngine(ContextEngine):
                 self.protect_first_n + self.protect_last_n,
             )
             return messages
+
+        # P1b mech 2 (cooldown / polling band): after a low-savings skip,
+        # context has only grown a little — deferring the embedding-heavy
+        # re-evaluation keeps the prompt byte-identical for N calls. The
+        # danger zone always cuts the cooldown short (the emergency brake
+        # must never wait).
+        if self.cache_aware and self._skip_cooldown > 0:
+            self._skip_cooldown -= 1
+            _cool_tokens = current_tokens or self.last_prompt_tokens
+            _cool_danger = (
+                bool(self.context_length and self.danger_zone_percent)
+                and _cool_tokens
+                and _cool_tokens
+                > int(self.context_length * self.danger_zone_percent)
+            )
+            if not _cool_danger:
+                logger.info(
+                    "SemanticVector cache-aware cooldown: skipping archive "
+                    "re-evaluation (%d calls remaining)",
+                    self._skip_cooldown,
+                )
+                self._last_archive_path = "cache_aware_cooldown"
+                self._last_archive_post_est = estimate_content_tokens(messages)
+                _cool_msgs = list(messages)
+                _cool_sm = self._build_state_map()
+                self._inject_state_map_sticky(_cool_msgs, _cool_sm)
+                return _cool_msgs
 
         # Try semantic pruning first
         engine = self._get_embedding_model()
@@ -399,13 +455,13 @@ class SemanticVectorContextEngine(ContextEngine):
             self._last_archive_path = "semantic_below_threshold"
             state_map = self._build_state_map()
             if state_map and result:
-                self._inject_state_map(result, state_map)
+                _injected = self._inject_state_map_gated(result, state_map)
                 logger.info(
                     "SemanticVector archive: below threshold (%d < %d tokens), "
-                    "injected state map (%d chars), returned %d messages",
+                    "state map %s, returned %d messages",
                     effective_tokens,
                     self.threshold_tokens,
-                    len(state_map),
+                    "injected" if _injected else "unchanged (sticky)",
                     len(result),
                 )
             return result
@@ -481,17 +537,54 @@ class SemanticVectorContextEngine(ContextEngine):
         if needs_fallback:
             return result
 
+        # P1b mech 2 (savings gate): we know the pruned result is under
+        # threshold and out of the danger zone (else the fallback above
+        # would have returned). If the pruning saves fewer than
+        # min_savings_tokens of content, the archive's one-time costs —
+        # system-prompt rebuild, state-map rewrite, session rotation,
+        # and the prefix re-prefill they force — outweigh the savings.
+        # Skip it: context stays as-is until the next bigger opportunity
+        # (or the danger-zone brake). The cooldown band defers the
+        # embedding-heavy re-check for a few calls.
+        if self.cache_aware:
+            _pre_est = estimate_content_tokens(messages)
+            _post_est = estimate_content_tokens(result)
+            _savings = _pre_est - _post_est
+            if _savings < self.min_savings_tokens:
+                logger.info(
+                    "SemanticVector cache-aware skip: projected savings %d "
+                    "tokens < min %d — keeping context as-is (no bust)",
+                    _savings,
+                    self.min_savings_tokens,
+                )
+                context_engine_log({
+                    "type": "cache_aware_skip",
+                    "engine": self.name,
+                    "session": getattr(self, "_session_id", "none") or "none",
+                    "savings": _savings,
+                    "min_savings": self.min_savings_tokens,
+                    "pre_msgs": len(messages),
+                    "would_keep": len(result),
+                })
+                self._last_archive_path = "cache_aware_skip"
+                self._last_archive_post_est = _pre_est
+                self._skip_cooldown = self.skip_cooldown_turns
+                _skip_msgs = list(messages)
+                _skip_sm = self._build_state_map()
+                self._inject_state_map_sticky(_skip_msgs, _skip_sm)
+                return _skip_msgs
+
         # Inject state map
         state_map = self._build_state_map()
         if state_map and result:
-            self._inject_state_map(result, state_map)
+            _injected = self._inject_state_map_gated(result, state_map)
             logger.info(
                 "SemanticVector archive: %d -> %d messages, "
-                "pruned %d turns, injected state map (%d chars)",
+                "pruned %d turns, state map %s",
                 len(messages),
                 len(result),
                 len(messages) - len(result),
-                len(state_map),
+                "injected" if _injected else "unchanged (sticky)",
             )
         else:
             logger.info(
@@ -1133,6 +1226,88 @@ class SemanticVectorContextEngine(ContextEngine):
             first = messages[0]
             if first.get("role") == "user":
                 first["content"] = state_map + "\n\n" + first.get("content", "")
+
+    def _inject_state_map_sticky(self, messages, state_map: str) -> bool:
+        """Cache-aware wrapper around _inject_state_map (P1b mech 1).
+
+        The state map is anchored in an assistant message's content. The
+        pre-9/21 code strip+prepended it onto the (then) last assistant
+        message on EVERY archive — so whenever a newer assistant turn
+        appeared (anchor move) or the map text drifted, bytes changed
+        mid-tail → vLLM prefix bust from the old anchor to end of prompt
+        on nearly every archive, plus a legacy stacking leak (stale maps
+        left on surviving old anchors).
+
+        Rule:
+        - If some message already carries EXACTLY this state map, leave
+          the list untouched — the anchor stays put even when newer
+          assistant turns appear (zero rewrite, byte-stable).
+        - Otherwise (first archive, anchor pruned, or map drifted) run
+          the normal strip+prepend onto the last assistant message and
+          clean stale maps off all other surviving messages.
+
+        Returns True when the list was rewritten, False when it was left
+        byte-identical.
+        """
+        if not state_map or not messages:
+            return False
+        from agent.context_scaffolding import strip_state_map
+
+        # Anchor-preserving fast path: an identical map is already
+        # somewhere in the list → no rewrite at all.
+        for m in messages:
+            c = m.get("content", "")
+            if isinstance(c, str) and c.startswith("[Conversation State]"):
+                s = strip_state_map(c)
+                if state_map + "\n\n" + s == c:
+                    return False
+        # First archive, anchor pruned, or map drifted → rewrite. Target
+        # uses the same rule as _inject_state_map (last assistant, then
+        # first user), passed to the cleanup so the fresh anchor is not
+        # stripped a moment after being written.
+        target = None
+        for i in range(len(messages) - 1, -1, -1):
+            if messages[i].get("role") == "assistant":
+                target = messages[i]
+                break
+        if target is None:
+            target = (
+                messages[0]
+                if messages and messages[0].get("role") == "user"
+                else None
+            )
+        if target is None:
+            return False
+        self._inject_state_map(messages, state_map)
+        self._strip_state_maps_elsewhere(messages, target)
+        return True
+
+    def _strip_state_maps_elsewhere(self, messages, target) -> None:
+        """Remove state maps from all messages (legacy stacking leak).
+
+        Runs only when an injection rewrite happens (anchor move / map
+        drift), so the cleanup itself is a one-time byte change per
+        rewrite — never per archive. ``target`` is kept for API parity;
+        all maps are scanned because a drifted anchor may hold any of
+        the previously-stacked variants.
+        """
+        from agent.context_scaffolding import strip_state_map
+
+        for m in messages:
+            if m is target or m.get("role") == "system":
+                continue
+            c = m.get("content", "")
+            if isinstance(c, str) and c.startswith("[Conversation State]"):
+                m["content"] = strip_state_map(c)
+
+    def _inject_state_map_gated(self, messages, state_map: str) -> bool:
+        """Cache-aware dispatch: sticky injection when cache_aware is on,
+        the legacy always-reanchor injection when it is off (exact
+        pre-9/21 behavior)."""
+        if self.cache_aware:
+            return self._inject_state_map_sticky(messages, state_map)
+        self._inject_state_map(messages, state_map)
+        return True
 
     def _turn_to_msg_index(
         self, turn_idx: int, messages: List[Dict[str, Any]]

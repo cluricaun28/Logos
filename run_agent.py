@@ -9256,6 +9256,51 @@ class AIAgent:
 
         return messages
 
+    @staticmethod
+    def _pin_system_prompt_bytes(old_prompt: str, new_prompt: str):
+        """Cache-aware system-prompt pin (2026-09-21, dsh survey P1b).
+
+        Archive events rebuild the system prompt; the volatile lines the
+        rebuild re-stamps — the `[Current Time]` minute header and the
+        `[Perpetual Context Memory]` count — live in the FIRST block of
+        the prompt, so any re-stamp re-prefills the ENTIRE conversation
+        on vLLM. Re-pin the old bytes when the rebuild changed only those
+        volatile lines AND the calendar date did not roll over (a date
+        rollover is one controlled re-stamp per day — the timestamp
+        polling band). A real content change (memory block, skill list,
+        pinned briefs) returns the new prompt: a legitimate one-time bust.
+
+        Returns the prompt to use, or None when there is nothing to pin
+        (no old prompt). Pure function — unit-testable without an agent.
+        """
+        import re as _re
+
+        if not old_prompt or not new_prompt:
+            return None
+        if old_prompt == new_prompt:
+            return old_prompt
+
+        _volatile = _re.compile(
+            r"^\[Current Time: .*?\]$|^\[Perpetual Context Memory: .*?\]$",
+            _re.MULTILINE,
+        )
+        if _volatile.sub("", old_prompt) != _volatile.sub("", new_prompt):
+            # Non-volatile content actually changed — accept the new bytes.
+            return new_prompt
+
+        # Only volatile lines differ. Allow the re-stamp only on date
+        # rollover (strip the time-of-day tail from each [Current Time]
+        # line and compare the remaining date).
+        def _date_part(p: str) -> str:
+            m = _re.search(r"^\[Current Time: (.*?)\]$", p, _re.MULTILINE)
+            if not m:
+                return ""
+            return _re.sub(r"\s+\d{1,2}:\d{2}\s*[APap][Mm].*$", "", m.group(1))
+
+        if _date_part(old_prompt) == _date_part(new_prompt):
+            return old_prompt
+        return new_prompt
+
     def _archive_context(self, messages: list, system_message: str, *, approx_tokens: int = None, task_id: str = "default", focus_topic: str = None) -> tuple:
         """Archive conversation context and split the session in SQLite.
 
@@ -9353,8 +9398,24 @@ class AIAgent:
         if todo_snapshot:
             archived.append({"role": "user", "content": todo_snapshot})
 
+        _old_system_prompt = self._cached_system_prompt or ""
         self._invalidate_system_prompt()
         new_system_prompt = self._build_system_prompt(system_message)
+        # P1b mech 3 (2026-09-21): pin the old system-prompt bytes unless
+        # the rebuild changed real content or the date rolled over —
+        # otherwise the re-stamped [Current Time] header busts the whole
+        # conversation's vLLM prefix cache on every archive event.
+        if getattr(self.context_archiver, "cache_aware", True):
+            _pinned = AIAgent._pin_system_prompt_bytes(
+                _old_system_prompt, new_system_prompt
+            )
+            if _pinned is not None and _pinned != new_system_prompt:
+                logger.info(
+                    "Archive system-prompt pin: re-stamp-only rebuild "
+                    "pinned to previous bytes (%d chars)",
+                    len(_pinned),
+                )
+                new_system_prompt = _pinned
         self._cached_system_prompt = new_system_prompt
 
         if self._session_db:
