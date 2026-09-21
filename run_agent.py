@@ -1636,67 +1636,8 @@ class AIAgent:
                 print(f"🔄 Fallback chain ({len(self._fallback_chain)} providers): " +
                       " → ".join(f"{f['model']} ({f['provider']})" for f in self._fallback_chain))
 
-        # Load selective injection config (needed before tool loading)
-        try:
-            from logos_cli.config import load_config as _load_agent_config
-            _agent_cfg = _load_agent_config()
-        except Exception:
-            _agent_cfg = {}
-        selective_injection_cfg = _agent_cfg.get("selective_injection", True)
-        self.selective_injection = str(selective_injection_cfg).lower() in ("true", "1", "yes")
-
-        # Force-included toolsets for selective injection: tools in these
-        # toolsets get full schemas even though they're in the deferred tier.
-        # Default: none (the router's essential/deferred split is the
-        # source of truth). Opt-in per user via config.yaml:
-        #   agent:
-        #     selective_force_toolsets: [browser]
-        # NOTE: do NOT pass enabled_toolsets here — the platform-resolved
-        # enabled set is a meta-level "what's available" list, not an
-        # explicit per-toolset user choice, and force-including it nullifies
-        # the whole selective split (2026-08-21 tool-payload audit).
-        self._selective_force_toolsets: list[str] | None = None
-        try:
-            _si_agent_section = _agent_cfg.get("agent", {})
-            if isinstance(_si_agent_section, dict):
-                _forced = _si_agent_section.get("selective_force_toolsets")
-                if isinstance(_forced, list) and _forced:
-                    self._selective_force_toolsets = [str(t) for t in _forced]
-        except Exception:
-            pass
-
-        # Get available tools — selective injection (essential tools only) or full injection
-        # Deferred tools are listed in system prompt and looked up from RL when needed
-        if self.selective_injection:
-            self.tools = get_selective_tool_definitions(
-                enabled_toolsets=enabled_toolsets,
-                disabled_toolsets=disabled_toolsets,
-                quiet_mode=self.quiet_mode,
-                force_essential=self._selective_force_toolsets,
-            )
-
-            # ---- Selective injection: demotion of idle promoted tools ----
-            # Tools promoted from the deferred tier drop back to index-only
-            # after N unused API-call rounds, keeping the payload lean in
-            # long sessions. Default 5; set 0 in config to disable.
-            self._selective_demote_after_turns: int = 5
-            self._promoted_tools: dict[str, int] = {}  # tool -> last used api_call_count
-            self._demoted_tools: set[str] = set()
-            try:
-                from logos_cli.config import load_config as _load_si_cfg
-                _si_cfg = _load_si_cfg() or {}
-                _si_sec = _si_cfg.get("agent", {})
-                if isinstance(_si_sec, dict) and "demote_after_turns" in _si_sec:
-                    _d = _si_sec.get("demote_after_turns")
-                    self._selective_demote_after_turns = int(_d) if _d is not None else 5
-            except Exception:
-                pass
-        else:
-            self.tools = get_tool_definitions(
-                enabled_toolsets=enabled_toolsets,
-                disabled_toolsets=disabled_toolsets,
-                quiet_mode=self.quiet_mode,
-            )
+        # Load selective injection config + load tool definitions
+        self._init_selective_injection(enabled_toolsets, disabled_toolsets)
         
         # Show tool configuration and store valid tool names for validation
         self.valid_tool_names = set()
@@ -8388,6 +8329,150 @@ class AIAgent:
                     content[-1]["cache_control"] = {"type": "ephemeral"}
                 break
 
+    def _init_selective_injection(self, enabled_toolsets, disabled_toolsets) -> None:
+        """Load selective-injection config + the tool definitions.
+
+        Extracted from ``__init__`` (2026-09-21 prefix-stability work) so the
+        defaults are testable hermetically — a full ``AIAgent()`` constructor
+        also runs provider/client resolution, which is environment-dependent
+        in the test suite.
+
+        Config keys (top-level unless noted):
+        - ``selective_injection`` (default True)
+        - ``agent.selective_force_toolsets`` (default none)
+        - ``agent.demote_after_turns`` (default 0 = disabled)
+        - ``agent.prefix_logging`` (default False)
+        """
+        try:
+            from logos_cli.config import load_config as _load_agent_config
+            _agent_cfg = _load_agent_config() or {}
+        except Exception:
+            _agent_cfg = {}
+        selective_injection_cfg = _agent_cfg.get("selective_injection", True)
+        self.selective_injection = str(selective_injection_cfg).lower() in ("true", "1", "yes")
+
+        _agent_section = _agent_cfg.get("agent", {})
+        if not isinstance(_agent_section, dict):
+            _agent_section = {}
+
+        # Force-included toolsets for selective injection: tools in these
+        # toolsets get full schemas even though they're in the deferred tier.
+        # Default: none (the router's essential/deferred split is the
+        # source of truth). Opt-in per user via config.yaml:
+        #   agent:
+        #     selective_force_toolsets: [browser]
+        # NOTE: do NOT pass enabled_toolsets here — the platform-resolved
+        # enabled set is a meta-level "what's available" list, not an
+        # explicit per-toolset user choice, and force-including it nullifies
+        # the whole selective split (2026-08-21 tool-payload audit).
+        self._selective_force_toolsets: list[str] | None = None
+        _forced = _agent_section.get("selective_force_toolsets")
+        if isinstance(_forced, list) and _forced:
+            self._selective_force_toolsets = [str(t) for t in _forced]
+
+        # Get available tools — selective injection (essential tools only) or
+        # full injection. Deferred tools are listed in the system prompt and
+        # looked up from RL when needed.
+        if self.selective_injection:
+            self.tools = get_selective_tool_definitions(
+                enabled_toolsets=enabled_toolsets,
+                disabled_toolsets=disabled_toolsets,
+                quiet_mode=self.quiet_mode,
+                force_essential=self._selective_force_toolsets,
+            )
+
+            # ---- Selective injection: demotion of idle promoted tools ----
+            # Tools promoted from the deferred tier drop back to index-only
+            # after N unused API-call rounds, keeping the payload lean in
+            # long sessions.
+            # DEFAULT 0 (disabled) since 2026-09-21 prefix-stability work:
+            # the Qwen chat template renders the tools JSON as the FIRST
+            # block of the prompt, so removing a promoted schema busts the
+            # vLLM prefix cache for the ENTIRE conversation (full re-prefill
+            # of system + history on the next request). The lean-payload
+            # benefit (a few K tokens of KV) is far outweighed by the
+            # re-prefill cost on long sessions, and demotion also rewrites
+            # the "Recently Demoted" section of the deferred tools index in
+            # the system prompt (second bust). With demotion off the tools
+            # array is append-only per session: each deferred tool promotes
+            # once (unavoidable — the model must see the schema) and the
+            # prefix stays stable thereafter. Set agent.demote_after_turns:
+            # N (>0) in config.yaml to restore the old lean-payload behavior.
+            self._selective_demote_after_turns: int = 0
+            self._promoted_tools: dict[str, int] = {}  # tool -> last used api_call_count
+            self._demoted_tools: set[str] = set()
+            if "demote_after_turns" in _agent_section:
+                _d = _agent_section.get("demote_after_turns")
+                self._selective_demote_after_turns = int(_d) if _d is not None else 0
+
+            # Prefix-hash request logging (prefix-cache audit evidence).
+            # Off by default — one small JSONL write per API call when on.
+            self._prefix_logging_enabled = bool(_agent_section.get("prefix_logging"))
+        else:
+            self.tools = get_tool_definitions(
+                enabled_toolsets=enabled_toolsets,
+                disabled_toolsets=disabled_toolsets,
+                quiet_mode=self.quiet_mode,
+            )
+
+    def _log_request_prefix_hashes(self, api_messages: list) -> None:
+        """Append one JSONL line per API request for prefix-cache auditing.
+
+        vLLM prefix caching requires the rendered prompt to be byte-identical
+        up to the first changed token. With the Qwen chat template the tools
+        JSON renders as the FIRST block of the prompt, so any change to the
+        tools array (deferred-tool promotion/demotion) or to the system
+        prompt busts the cache for the ENTIRE conversation (full re-prefill
+        on the next request). Logging md5(system) + md5(tools JSON) + shape
+        per request makes every bust visible as a hash change between
+        consecutive requests of the same session.
+
+        Opt-in: ``agent.prefix_logging: true`` in config.yaml. Output:
+        ``<home>/state/request-prefix.jsonl`` (rotates to ``.jsonl.1`` at
+        5 MB). Never raises — observability must not break the agent loop.
+        """
+        try:
+            if not getattr(self, "_prefix_logging_enabled", False):
+                return
+            import hashlib
+            import json as _json
+            system = ""
+            if (
+                api_messages
+                and isinstance(api_messages[0], dict)
+                and api_messages[0].get("role") == "system"
+            ):
+                system = api_messages[0].get("content") or ""
+            tools_json = (
+                _json.dumps(self.tools, separators=(",", ":")) if self.tools else ""
+            )
+            state_dir = get_logos_home() / "state"
+            state_dir.mkdir(parents=True, exist_ok=True)
+            path = state_dir / "request-prefix.jsonl"
+            try:
+                if path.exists() and path.stat().st_size > 5_000_000:
+                    path.rename(state_dir / "request-prefix.jsonl.1")
+            except OSError:
+                pass
+            rec = {
+                "ts": time.time(),
+                "session": getattr(self, "session_id", None),
+                "turn": getattr(self, "session_api_calls", 0),
+                "sys_hash": hashlib.md5(
+                    system.encode("utf-8", "replace")
+                ).hexdigest()[:12],
+                "tools_hash": hashlib.md5(
+                    tools_json.encode("utf-8", "replace")
+                ).hexdigest()[:12],
+                "tools_n": len(self.tools or []),
+                "msgs": len(api_messages),
+                "approx_prefix_tokens": (len(system) + len(tools_json)) // 4,
+            }
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(_json.dumps(rec) + "\n")
+        except Exception:
+            pass
+
     def _build_api_kwargs(self, api_messages: list) -> dict:
         """Build the keyword arguments dict for the active API mode."""
         if self.api_mode == "anthropic_messages":
@@ -8457,6 +8542,9 @@ class AIAgent:
 
         # ── chat_completions (default) ─────────────────────────────────────
         _ct = self._get_transport()
+        # Prefix-cache audit: one JSONL line per request (no-op unless
+        # agent.prefix_logging is enabled).
+        self._log_request_prefix_hashes(api_messages)
 
         # Provider detection flags
         _is_qwen = self._is_qwen_portal()

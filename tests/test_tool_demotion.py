@@ -97,12 +97,47 @@ class TestIdleDemotion:
 
     def test_record_promotion_noop_when_disabled(self):
         from run_agent import AIAgent
-
         agent = _make_stub_agent(n_turns=0)
         agent._selective_demote_after_turns = 0
         # Must not raise, must not track.
         AIAgent._record_promotion(agent, "browser_navigate", 1)
         assert agent._promoted_tools == {}
+
+    def test_default_is_append_only_prefix_stable(self, monkeypatch):
+        """Regression guard (2026-09-21 prefix-stability work): the __init__
+        default must be 0 (no demotion). The Qwen chat template renders the
+        tools JSON as the FIRST block of the prompt, so demoting a promoted
+        tool mid-session changes the tools array and busts the vLLM prefix
+        cache for the ENTIRE conversation (full re-prefill). Measured A/B:
+        demote=5 churn cost 3 busts (TTFT 6.25/6.56/9.75s vs ~0.8s warm) in a
+        16-call / ~90K-token session vs zero busts for append-only. See
+        scripts/bench_prefix_cache.py + RL technology/logos-overnight-worklog-
+        2026-09-21.md. Set agent.demote_after_turns in config to override.
+
+        Exercises the real config→default path via _init_selective_injection
+        (the block __init__ delegates to) on a __new__ stub — hermetic, no
+        provider/client stack, immune to test-order pollution from other
+        suites that touch the config cache.
+        """
+        from run_agent import AIAgent
+        import logos_cli.config as _lc
+        # Hermetic: minimal config with no agent-section overrides → pure
+        # code defaults under test.
+        monkeypatch.setattr(
+            _lc, "load_config",
+            lambda *a, **k: {"model": {
+                "provider": "custom",
+                "base_url": "http://127.0.0.1:8000/v1",
+                "api_key": "***",
+            }},
+        )
+        agent = AIAgent.__new__(AIAgent)
+        agent.quiet_mode = True
+        AIAgent._init_selective_injection(agent, None, None)
+        assert agent.selective_injection is True
+        assert agent._selective_demote_after_turns == 0
+        assert agent._prefix_logging_enabled is False
+        assert agent.tools  # essential set loaded
 
     def test_essential_tools_never_tracked(self):
         """The dispatch refresh path only updates already-promoted tools,
