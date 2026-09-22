@@ -62,18 +62,28 @@ EMBED_MODEL_NAME = "all-MiniLM-L6-v2"
 
 
 def default_embed_model_path() -> Path:
-    """Default local embedding-model directory: ``<home>/models/embeddings/<EMBED_MODEL_NAME>``.
+    """Default local embedding-model directory: ``~/.hermes/models/embeddings/<EMBED_MODEL_NAME>``.
 
-    2026-09-21 (fleet embedfix): the previously hard-coded
-    ``~/.hermes/models/embeddings/...`` defaults in the semantic_vector
-    context engine and the perpetual-context embedding engine were dead
-    paths for fleet homes (``HERMES_HOME=/data1/agents/<u>/hermes``,
-    ``HOME=/home/<u>``) — both engines silently degraded (tail-off-only
-    pruning / FTS-only search). The home-relative default is the
-    provisioning contract: each home carries the model (or a symlink)
-    under ``models/embeddings/``.
+    2026-09-21/22 (fleet embedfix): centralizes the embedding-model default
+    that was duplicated (drift-prone) in the semantic_vector context engine
+    and the perpetual-context EmbeddingEngine. The fleet-wide silent
+    degradation (tail-off-only pruning; FTS-only RL/PM semantic search)
+    traced to dead model paths: explicit config keys pointing at the
+    pre-migration home (``/data1/.hermes/...``, absent) in all 13 fleet
+    configs, plus 3 fleet users missing the ``$HOME/.hermes/models``
+    symlink (hwilliams, karl, wyatt — created 9/22).
+
+    Resolution is deliberately ``$HOME``-based (``os.path.expanduser("~")``)
+    — NOT ``get_logos_home()``: the fleet sets ``HOME=/data1/agents/<u>``
+    with model symlinks under ``$HOME/.hermes/``, while ``HERMES_HOME``
+    points at the separate no-dot tree ``/data1/agents/<u>/hermes`` which
+    does not carry models (measured 9/22, all 13 units). Standard installs
+    keep the model (or a symlink to ``/data1/shared/models/embeddings/``)
+    under ``~/.hermes/`` — the same convention. Behavior for the default
+    path is unchanged from prod; both call sites now share one tested
+    helper.
     """
-    return get_logos_home() / "models" / "embeddings" / EMBED_MODEL_NAME
+    return Path(os.path.expanduser("~")) / ".hermes" / "models" / "embeddings" / EMBED_MODEL_NAME
 
 
 def get_logos_root() -> Path:
