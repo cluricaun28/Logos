@@ -186,7 +186,11 @@ class EmbeddingEngine:
             self._model = None
             return self._model
 
-        local_path = os.path.expanduser("~/.hermes/models/embeddings/all-MiniLM-L6-v2")
+        # 2026-09-21 (fleet embedfix): home-relative default — the hard-coded
+        # "~/.hermes" was a dead path for fleet homes, so RL semantic search
+        # silently ran FTS-only.
+        from logos_constants import default_embed_model_path
+        local_path = str(default_embed_model_path())
         for device in self._select_device_candidates(torch):
             try:
                 logger.info("Loading embedding model from '%s' on %s...", local_path, device)

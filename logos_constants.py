@@ -57,6 +57,25 @@ def get_logos_home() -> Path:
 get_hermes_home = get_logos_home
 
 
+# ─── Default local embedding model ───────────────────────────────────────────
+EMBED_MODEL_NAME = "all-MiniLM-L6-v2"
+
+
+def default_embed_model_path() -> Path:
+    """Default local embedding-model directory: ``<home>/models/embeddings/<EMBED_MODEL_NAME>``.
+
+    2026-09-21 (fleet embedfix): the previously hard-coded
+    ``~/.hermes/models/embeddings/...`` defaults in the semantic_vector
+    context engine and the perpetual-context embedding engine were dead
+    paths for fleet homes (``HERMES_HOME=/data1/agents/<u>/hermes``,
+    ``HOME=/home/<u>``) — both engines silently degraded (tail-off-only
+    pruning / FTS-only search). The home-relative default is the
+    provisioning contract: each home carries the model (or a symlink)
+    under ``models/embeddings/``.
+    """
+    return get_logos_home() / "models" / "embeddings" / EMBED_MODEL_NAME
+
+
 def get_logos_root() -> Path:
     """Return the root Logos directory for profile-level operations.
 

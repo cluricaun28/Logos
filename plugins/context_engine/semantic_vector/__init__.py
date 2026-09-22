@@ -29,7 +29,7 @@ from agent.context_engine import (
     context_engine_log,
     estimate_content_tokens,
 )
-from logos_constants import logos_env
+from logos_constants import default_embed_model_path, logos_env
 
 logger = logging.getLogger(__name__)
 
@@ -228,9 +228,10 @@ class SemanticVectorContextEngine(ContextEngine):
         if self.model_path:
             self._model_path = os.path.expanduser(self.model_path)
         if not self._model_path:
-            self._model_path = os.path.expanduser(
-                "~/.hermes/models/embeddings/all-MiniLM-L6-v2"
-            )
+            # 2026-09-21 (fleet embedfix): home-relative default via the
+            # canonical resolver — the old hard-coded "~/.hermes" was a dead
+            # path for fleet homes (HERMES_HOME=/data1/agents/<u>/hermes).
+            self._model_path = str(default_embed_model_path())
         # Phase C (2026-08-22): lazily constructed TaskAwarePruner (see
         # _get_pruner) and the drop count from the last
         # _rolling_window_fallback run (ceiling_override calibration stat).
