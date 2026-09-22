@@ -1538,7 +1538,7 @@ class GatewayRunner:
                     with open(cfg_path, encoding="utf-8") as _f:
                         cfg = _y.safe_load(_f) or {}
                     file_path = cfg.get("prefill_messages_file", "")
-            except (AttributeError, ImportError, KeyError, ModuleNotFoundError, OSError, PermissionError, TypeError, yaml.YAMLError):
+            except (AttributeError, ImportError, KeyError, ModuleNotFoundError, OSError, PermissionError, TypeError, Exception):
                 pass
         if not file_path:
             return []
