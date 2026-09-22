@@ -8,6 +8,7 @@ Uses a file-based lock (~/.hermes/cron/.tick.lock) so only one tick
 runs at a time if multiple processes overlap.
 """
 from __future__ import annotations
+import yaml
 
 import asyncio
 import concurrent.futures

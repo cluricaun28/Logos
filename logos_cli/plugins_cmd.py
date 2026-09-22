@@ -8,6 +8,7 @@ rendered with Rich Markdown.  Otherwise a default confirmation is shown.
 """
 
 from __future__ import annotations
+import yaml
 
 import logging
 import os

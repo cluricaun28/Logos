@@ -9,6 +9,7 @@ quickly without re-reading the file on every URL check.
 """
 
 from __future__ import annotations
+import yaml
 
 import fnmatch
 import logging

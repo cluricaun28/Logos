@@ -6,6 +6,7 @@ the provider's config schema. Writes config to config.yaml + .env.
 """
 
 from __future__ import annotations
+import yaml
 
 import getpass
 import os

@@ -10,6 +10,7 @@ All logic lives in shared do_* functions. The CLI entry point and slash command
 handler are thin wrappers that parse args and delegate.
 """
 from __future__ import annotations
+import yaml
 
 import json
 import re

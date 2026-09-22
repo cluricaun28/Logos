@@ -8,6 +8,7 @@ Handles loading and validating configuration for:
 - Delivery preferences
 """
 from __future__ import annotations
+import yaml
 
 import logging
 import os

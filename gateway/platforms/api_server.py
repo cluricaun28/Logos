@@ -21,6 +21,7 @@ Requires:
 - aiohttp (already available in the gateway)
 """
 from __future__ import annotations
+import yaml
 
 import asyncio
 import hashlib

@@ -25,6 +25,7 @@ Usage:
     result = file_ops.search("TODO", path=".", file_glob="*.py")
 """
 from __future__ import annotations
+import yaml
 
 import os
 import re

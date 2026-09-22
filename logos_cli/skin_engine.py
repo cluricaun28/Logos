@@ -112,6 +112,7 @@ Drop a YAML file in ``~/.hermes/skins/<name>.yaml`` following the schema above.
 Activate with ``/skin <name>`` in the CLI or ``display.skin: <name>`` in config.yaml.
 """
 from __future__ import annotations
+import yaml
 
 import logging
 from dataclasses import dataclass, field

@@ -4,6 +4,7 @@ Doctor command for hermes CLI.
 Diagnoses issues with Logos setup.
 """
 from __future__ import annotations
+import yaml
 
 import os
 import sys

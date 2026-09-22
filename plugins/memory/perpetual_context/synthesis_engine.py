@@ -15,6 +15,7 @@ NO data leaves the local system. All inference runs on the user's machine.
 """
 
 from __future__ import annotations
+import yaml
 
 import logging
 import os

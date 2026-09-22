@@ -19,6 +19,7 @@ Usage::
     logos profile delete coder          # remove profile + alias + service
 """
 from __future__ import annotations
+import yaml
 
 import json
 import os
