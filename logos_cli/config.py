@@ -754,6 +754,20 @@ DEFAULT_CONFIG = {
         "mistral": {
             "model": "voxtral-mini-latest",  # voxtral-mini-latest, voxtral-mini-2602
         },
+        # Live-turn streaming STT (local vLLM Voxtral-Realtime endpoint).
+        # OPT-IN; when off (or the endpoint is down/short clip) the batch path
+        # above is used. See tools/streaming_stt.py. Measured 9/23: ~510 ms
+        # first token, sub-second finalize, non-fatal fallback to batch.
+        "streaming": {
+            "enabled": False,
+            "endpoint": "ws://127.0.0.1:8123/v1/realtime",
+            "health_url": "http://127.0.0.1:8123/health",
+            "model": "voxtral-realtime",
+            "chunk_ms": 160,
+            "min_stream_seconds": 2.0,  # shorter clips (barge-in) stay on batch
+            "connect_timeout_s": 5.0,
+            "turn_timeout_s": 120.0,
+        },
     },
 
     "voice": {

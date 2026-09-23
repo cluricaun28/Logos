@@ -1172,9 +1172,19 @@ def is_whisper_hallucination(transcript: str) -> bool:
 # STT dispatch
 # ============================================================================
 def transcribe_recording(wav_path: str, model: Optional[str] = None) -> Dict[str, Any]:
-    """Transcribe a WAV recording using the existing Whisper pipeline.
+    """Transcribe a WAV recording from the LIVE voice loop.
 
-    Delegates to ``tools.transcription_tools.transcribe_audio()``.
+    Routing (opt-in streaming first, batch is the non-fatal fallback):
+      1. If ``stt.streaming.enabled`` and the local Voxtral-Realtime endpoint
+         is healthy and the clip is long enough (>= min_stream_seconds),
+         stream it over the Realtime WS (sub-second first token).
+      2. Otherwise (or on ANY streaming failure / empty transcript) fall back
+         to the batch faster-whisper pipeline below — voice never breaks.
+
+    Completed voice-note FILES from platforms (e.g. Telegram) do NOT go
+    through this function — they transcribe via
+    ``tools.transcription_tools.transcribe_audio`` directly, batch only.
+
     Filters out known Whisper hallucinations on silent audio.
 
     Args:
@@ -1184,6 +1194,34 @@ def transcribe_recording(wav_path: str, model: Optional[str] = None) -> Dict[str
     Returns:
         Dict with ``success``, ``transcript``, and optionally ``error``.
     """
+    # --- Live-turn streaming path (opt-in, non-fatal) ---
+    try:
+        from tools import streaming_stt
+
+        if streaming_stt.should_stream(wav_path):
+            sres = streaming_stt.transcribe_wav_streaming(wav_path)
+            if sres.get("success") and sres.get("transcript", "").strip():
+                if is_whisper_hallucination(sres["transcript"]):
+                    logger.info(
+                        "Filtered streaming hallucination: %r", sres["transcript"]
+                    )
+                    return {"success": True, "transcript": "", "filtered": True}
+                logger.info(
+                    "Live turn transcribed via streaming STT "
+                    "(first_token=%sms, finalize=%sms, %s s audio)",
+                    sres.get("first_token_ms"),
+                    sres.get("finalize_ms"),
+                    sres.get("duration_s"),
+                )
+                return sres
+            logger.debug(
+                "Streaming STT returned no usable result, falling back to batch: %s",
+                sres.get("error"),
+            )
+    except Exception as e:
+        logger.debug("Streaming STT path failed, falling back to batch: %s", e)
+
+    # --- Batch path (default + fallback) ---
     from tools.transcription_tools import transcribe_audio
 
     result = transcribe_audio(wav_path, model=model)
