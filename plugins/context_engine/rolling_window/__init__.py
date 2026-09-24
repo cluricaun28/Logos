@@ -36,9 +36,16 @@ from agent.context_engine import (
     ContextEngine,
     context_engine_log,
     estimate_content_tokens,
+    estimate_messages_tokens_full,
+    estimate_request_tokens_full,
 )
 
 logger = logging.getLogger(__name__)
+
+# Pre-send reserve (tokens) kept below context_length by enforce_hard_cap:
+# room for the completion + generation prompt. 4096 ≈ one large assistant
+# turn. 2026-09-23 (context-window project).
+HARD_CAP_RESERVE = 4096
 
 
 class RollingWindowContextEngine(ContextEngine):
@@ -80,8 +87,28 @@ class RollingWindowContextEngine(ContextEngine):
         self.last_completion_tokens = 0
         self.last_total_tokens = 0
         self.threshold_tokens = 0
-        self.context_length = 0
+        # 2026-09-23 (context-window project): accept a context_length config
+        # key — it was silently dropped before (register() forwards config as
+        # kwargs), leaving the hard cap with no ceiling until update_model
+        # fired. Production normally sets it via update_model.
+        self.context_length = int(kwargs.get("context_length", 0) or 0)
         self.archive_count = 0
+        # 2026-09-23 (context-window project): calibrated full-prompt state.
+        #   _payload_delta    — learned static-payload gap (tokens): what the
+        #                       real prompt_tokens adds on top of the
+        #                       deterministic full-payload estimate (chat
+        #                       template residue, multimodal parts, tokenizer
+        #                       mismatch). EMA-smoothed, clamped >= 0.
+        #   _payload_samples  — calibration sample count (0 = uncalibrated).
+        #   _est_at_send      — full-request estimate captured at the last
+        #                       pre-send hook; paired with the next
+        #                       usage.prompt_tokens in update_from_response.
+        self._payload_delta: int = 0
+        self._payload_samples: int = 0
+        self._est_at_send: int = 0
+        # Minimum tool-result size (chars) the hard cap will trim down to.
+        # Never fully nukes a result — keeps it recognizable/usable.
+        self.hard_cap_min_tool_chars: int = kwargs.get("hard_cap_min_tool_chars", 2000)
         # Set engine-specific config from kwargs or defaults
         self.window_size: int = kwargs.get("window_size", 20)
         self.max_tokens: int = kwargs.get("max_tokens", 131072)
@@ -98,6 +125,8 @@ class RollingWindowContextEngine(ContextEngine):
         self.archive_target: float = kwargs.get("archive_target", 0.0)
         self.hard_ceiling_percent: float = kwargs.get("hard_ceiling_percent", self.hard_ceiling_percent)
         self.danger_zone_percent: float = kwargs.get("danger_zone_percent", self.danger_zone_percent)
+        if self.context_length:
+            self.threshold_tokens = int(self.context_length * self.threshold_percent)
         
         # Lazy-import task-aware components (avoid circular imports)
         try:
@@ -151,10 +180,105 @@ class RollingWindowContextEngine(ContextEngine):
                 "ratio": round(actual / est, 3),
             })
         self._last_archive_post_est = 0
+        # 2026-09-23 (context-window project): learn the static-payload
+        # delta from the pre-send full-request estimate vs the REAL
+        # prompt_tokens the provider reports. EMA, clamped >= 0, so a
+        # mid-session shrink can't drive the delta negative. This closes
+        # the template/tokenizer/multimodal gap the deterministic
+        # estimate cannot see.
+        if self._est_at_send > 0 and actual > 0:
+            observed = max(0, actual - self._est_at_send)
+            if self._payload_samples == 0:
+                self._payload_delta = observed
+            else:
+                self._payload_delta = int(
+                    round(0.5 * self._payload_delta + 0.5 * observed)
+                )
+            self._payload_samples += 1
+            context_engine_log({
+                "type": "payload_calibration",
+                "engine": self.name,
+                "session": getattr(self, "_session_id", "none") or "none",
+                "estimated": self._est_at_send,
+                "actual": actual,
+                "observed_delta": observed,
+                "ema_delta": self._payload_delta,
+                "samples": self._payload_samples,
+            })
+        self._est_at_send = 0
         if isinstance(usage, dict):
             self.last_prompt_tokens = int(usage.get("prompt_tokens", 0))
             self.last_completion_tokens = int(usage.get("completion_tokens", 0))
             self.last_total_tokens = int(usage.get("total_tokens", 0))
+
+    # -- Full-request estimation + hard cap (2026-09-23) ---------------------
+
+    def estimate_full_request(
+        self,
+        messages: list[dict[str, Any]],
+        system_prompt: str = "",
+        tools: list[dict[str, Any]] | None = None,
+    ) -> int:
+        """Deterministic full-payload estimate + learned static delta.
+
+        Full-payload (content + tool_calls + system + schemas) chars//4 is
+        measured at ~1.0x real tokens; the learned _payload_delta covers the
+        remainder (template residue, tokenizer mismatch, multimodal parts).
+        """
+        est = estimate_request_tokens_full(
+            messages, system_prompt=system_prompt, tools=tools
+        )
+        return est + self._payload_delta
+
+    def record_send_estimate(self, est_tokens: int) -> None:
+        """DETERMINISTIC base only (no learned delta) — see base class."""
+        self._est_at_send = int(est_tokens or 0)
+
+    def enforce_hard_cap(
+        self,
+        messages: list[dict[str, Any]],
+        system_prompt: str = "",
+        tools: list[dict[str, Any]] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Deterministic pre-send ceiling: trim the LARGEST tool results
+        first until the calibrated estimate is under
+        ``context_length - HARD_CAP_RESERVE``.
+
+        Pure/deterministic, no LLM, no I/O. Operates on a copy — the
+        in-memory conversation (and the verbatim PM archive) keep the
+        full results. Tool results are halved down to
+        ``hard_cap_min_tool_chars`` floor, never nuked to zero. If no
+        tool result is left to trim, returns the (possibly untrimmed)
+        copy — the archive brake is the next line of defense.
+        """
+        if not self.context_length:
+            return messages
+        cap = self.context_length - HARD_CAP_RESERVE
+        result = list(messages)
+        trimmed = False
+        for _ in range(32):  # bounded: each trim halves a message
+            if self.estimate_full_request(result, system_prompt, tools) <= cap:
+                break
+            candidates = [
+                (i, len(m.get("content")))
+                for i, m in enumerate(result)
+                if m.get("role") == "tool"
+                and isinstance(m.get("content"), str)
+                and len(m.get("content")) > self.hard_cap_min_tool_chars
+            ]
+            if not candidates:
+                break
+            i, size = max(candidates, key=lambda x: x[1])
+            new_len = max(self.hard_cap_min_tool_chars, size // 2)
+            m = result[i]
+            result[i] = {
+                **m,
+                "content": m["content"][:new_len] + "\n...[hard-capped]...",
+            }
+            trimmed = True
+        # Return the ORIGINAL list when nothing was trimmed — callers can
+        # use identity (`is`) to detect "cap fired" without re-estimating.
+        return result if trimmed else messages
 
     def should_archive(self, prompt_tokens: int = None) -> bool:
         """Return True if archiving should fire this turn."""
@@ -306,8 +430,10 @@ class RollingWindowContextEngine(ContextEngine):
 
     def update_model(self, model: str, context_length: int, **kwargs) -> None:
         """Called when the user switches models."""
-        self.context_length = context_length
-        self.threshold_tokens = int(context_length * self.threshold_percent)
+        if context_length:
+            self.context_length = context_length
+        if self.context_length:
+            self.threshold_tokens = int(self.context_length * self.threshold_percent)
 
 
 # -- Plugin registration (required for discovery) --------------------------

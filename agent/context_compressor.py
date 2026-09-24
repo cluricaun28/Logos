@@ -26,7 +26,11 @@ import time
 from typing import Any, Dict, List, Optional
 
 from agent.auxiliary_client import call_llm
-from agent.context_engine import ContextEngine
+from agent.context_engine import (
+    ContextEngine,
+    context_engine_log,
+    estimate_request_tokens_full,
+)
 from agent.model_metadata import (
     MINIMUM_CONTEXT_LENGTH,
     get_model_context_length,
@@ -56,6 +60,11 @@ _MIN_SUMMARY_TOKENS = 2000
 _SUMMARY_RATIO = 0.20
 # Absolute ceiling for summary tokens (even on very large context windows)
 _SUMMARY_TOKENS_CEILING = 12_000
+
+# 2026-09-23 (context-window project): pre-send reserve (tokens) kept below
+# context_length by enforce_hard_cap — room for the completion + generation
+# prompt. 4096 ≈ one large assistant turn. Mirrors the plugin engines.
+HARD_CAP_RESERVE = 4096
 
 # Placeholder used when pruning old tool results
 _PRUNED_TOOL_PLACEHOLDER = "[Old tool output cleared to save context space]"
@@ -347,6 +356,11 @@ class ContextCompressor(ContextEngine):
         self._ineffective_compression_count = 0
         self._summary_failure_cooldown_until = 0.0  # transient errors must not block a fresh session
         self.compression_count = 0
+        # 2026-09-23: pre-send calibration state is per-session — a stale
+        # _est_at_send would pair with the NEW session's first response.
+        self._est_at_send = 0
+        self._payload_delta = 0
+        self._payload_samples = 0
 
     def update_model(
         self,
@@ -416,6 +430,15 @@ class ContextCompressor(ContextEngine):
             MINIMUM_CONTEXT_LENGTH,
         )
         self.compression_count = 0
+        # 2026-09-23 (context-window project): pre-send payload-delta
+        # calibration state (same scheme as the plugin engines). Pairs the
+        # full-request estimate recorded right before EVERY send with the
+        # provider's real prompt_tokens — EMA-smoothed, clamped >= 0.
+        self._est_at_send: int = 0
+        self._payload_delta: int = 0
+        self._payload_samples: int = 0
+        # Minimum tool-result size (chars) the hard cap trims down to.
+        self.hard_cap_min_tool_chars: int = 2000
 
         # Derive token budgets: ratio is relative to the threshold, not total context
         target_tokens = int(self.threshold_tokens * self.summary_target_ratio)
@@ -462,8 +485,100 @@ class ContextCompressor(ContextEngine):
 
     def update_from_response(self, usage: Dict[str, Any]):
         """Update tracked token usage from API response."""
+        # 2026-09-23 (context-window project): pre-send payload-delta
+        # calibration — pairs the estimate recorded right before the send
+        # with the REAL prompt_tokens. EMA, clamped >= 0.
+        actual = int(usage.get("prompt_tokens", 0) or 0)
+        if self._est_at_send > 0 and actual > 0:
+            observed = max(0, actual - self._est_at_send)
+            if self._payload_samples == 0:
+                self._payload_delta = observed
+            else:
+                self._payload_delta = int(
+                    round(0.5 * self._payload_delta + 0.5 * observed)
+                )
+            self._payload_samples += 1
+            context_engine_log({
+                "type": "payload_calibration",
+                "engine": self.name,
+                "session": getattr(self, "_session_id", "none") or "none",
+                "estimated": self._est_at_send,
+                "actual": actual,
+                "observed_delta": observed,
+                "ema_delta": self._payload_delta,
+                "samples": self._payload_samples,
+            })
+        self._est_at_send = 0
         self.last_prompt_tokens = usage.get("prompt_tokens", 0)
         self.last_completion_tokens = usage.get("completion_tokens", 0)
+
+    # -- Full-request estimation + hard cap (2026-09-23) ---------------------
+
+    def estimate_full_request(
+        self,
+        messages: List[Dict[str, Any]],
+        system_prompt: str = "",
+        tools: List[Dict[str, Any]] | None = None,
+    ) -> int:
+        """Deterministic full-payload estimate + learned static delta.
+
+        Full-payload (content + tool_calls + system + schemas) chars//4
+        plus the EMA _payload_delta learned from real prompt_tokens.
+        Use for threshold / danger-zone / hard-cap decisions.
+        """
+        est = estimate_request_tokens_full(
+            messages, system_prompt=system_prompt, tools=tools
+        )
+        return est + self._payload_delta
+
+    def record_send_estimate(self, est_tokens: int) -> None:
+        """DETERMINISTIC base only (no learned delta) — see base class."""
+        self._est_at_send = int(est_tokens or 0)
+
+    def enforce_hard_cap(
+        self,
+        messages: List[Dict[str, Any]],
+        system_prompt: str = "",
+        tools: List[Dict[str, Any]] | None = None,
+    ) -> List[Dict[str, Any]]:
+        """Deterministic pre-send ceiling: trim the LARGEST tool results
+        first until the calibrated estimate is under
+        ``context_length - HARD_CAP_RESERVE``.
+
+        Pure/deterministic, no LLM, no I/O. Operates on a copy — the
+        in-memory conversation keeps the full results. Tool results are
+        halved down to ``hard_cap_min_tool_chars`` floor, never nuked to
+        zero. If no tool result is left to trim, returns the (possibly
+        untrimmed) copy — compression is the next line of defense.
+        """
+        if not self.context_length:
+            return messages
+        cap = self.context_length - HARD_CAP_RESERVE
+        result = list(messages)
+        trimmed = False
+        for _ in range(32):  # bounded: each trim halves a message
+            if self.estimate_full_request(result, system_prompt, tools) <= cap:
+                break
+            candidates = [
+                (i, len(m.get("content")))
+                for i, m in enumerate(result)
+                if m.get("role") == "tool"
+                and isinstance(m.get("content"), str)
+                and len(m.get("content")) > self.hard_cap_min_tool_chars
+            ]
+            if not candidates:
+                break
+            i, size = max(candidates, key=lambda x: x[1])
+            new_len = max(self.hard_cap_min_tool_chars, size // 2)
+            m = result[i]
+            result[i] = {
+                **m,
+                "content": m["content"][:new_len] + "\n...[hard-capped]...",
+            }
+            trimmed = True
+        # Return the ORIGINAL list when nothing was trimmed — callers can
+        # use identity (`is`) to detect "cap fired" without re-estimating.
+        return result if trimmed else messages
 
     def should_compress(self, prompt_tokens: int = None) -> bool:
         """Check if context exceeds the compression threshold.

@@ -78,6 +78,79 @@ def estimate_content_tokens(messages: list) -> int:
     return total // 4
 
 
+def _message_payload_chars(messages: list) -> int:
+    """Char count of each message's ACTUAL payload: string or list content,
+    tool_calls (function name + arguments), plus a small per-message
+    allowance for the role token, delimiters, and tool_call_id.
+    """
+    import json as _json
+
+    total = 0
+    for m in messages or []:
+        if not isinstance(m, dict):
+            continue
+        c = m.get("content")
+        if isinstance(c, str):
+            total += len(c)
+        elif isinstance(c, list):
+            for part in c:
+                if isinstance(part, dict):
+                    total += len(part.get("text", "") or "")
+                elif isinstance(part, str):
+                    total += len(part)
+        for tc in m.get("tool_calls") or []:
+            if not isinstance(tc, dict):
+                continue
+            fn = tc.get("function") or {}
+            total += len(fn.get("name", "") or "")
+            args = fn.get("arguments")
+            if isinstance(args, str):
+                total += len(args)
+            elif isinstance(args, (dict, list)):
+                total += len(_json.dumps(args))
+        # role + delimiters + tool_call_id ≈ 3-4 BPE tokens
+        total += 16
+    return total
+
+
+def estimate_messages_tokens_full(messages: list) -> int:
+    """Chars//4 of each message's full payload (content + tool_calls).
+
+    2026-09-23 (context-window project): supersedes estimate_content_tokens
+    for full-prompt estimation. Content-only counts string bodies (user,
+    assistant, AND tool results) but misses tool_calls JSON (function name +
+    arguments), list/multimodal parts, and per-message template residue.
+    The measured static-payload gap (system prompt + tool schemas + injected
+    recall context + chat-template/tokenizer delta, the 2-22x calibration
+    ratio in context-engine.jsonl) is NOT captured here — it is learned at
+    runtime as the engine's _payload_delta from real usage.prompt_tokens.
+    Unlike estimate_messages_tokens_rough (model_metadata) it does not
+    stringify the dict, so it carries no Python-repr noise.
+    """
+    return (_message_payload_chars(messages) + 3) // 4
+
+
+def estimate_request_tokens_full(
+    messages: list,
+    system_prompt: str = "",
+    tools: list | None = None,
+) -> int:
+    """Chars//4 of a FULL chat-completions request: system prompt +
+    message payloads + tool schemas.
+
+    Use this (plus the engine's calibrated static-payload delta) for
+    thresholds, danger zones, and pre-send hard caps. Measured against the
+    real Qwen3.8-27B chat template on a tool-heavy session: ~1.09x real
+    tokens before the learned delta (conservative, as a gate wants).
+    """
+    total = _message_payload_chars(messages)
+    if system_prompt:
+        total += len(system_prompt)
+    if tools:
+        total += len(str(tools))
+    return (total + 3) // 4
+
+
 class ContextEngine(ABC):
     """Base class all context engines must implement."""
 
@@ -153,11 +226,59 @@ class ContextEngine(ABC):
         returning False lets the gateway report "nothing to archive yet"
         without making an LLM call.
 
-        Default returns True (always attempt).  Engines with a cheap way
-        to introspect their own head/tail boundaries should override this
-        to return False when the transcript is still entirely protected.
+        Default returns True (always attempt).  Engines that have a cheap way
+        to introspect their head/tail boundaries should override this to
+        return False when the transcript is still entirely protected.
         """
         return True
+
+    # -- Optional: pre-send full-request estimate / hard cap -----------------
+
+    def estimate_full_request(
+        self,
+        messages: List[Dict[str, Any]],
+        system_prompt: str = "",
+        tools: Optional[List[Dict[str, Any]]] = None,
+    ) -> int:
+        """Best estimate of the tokens the NEXT prompt will actually contain.
+
+        Base default: full-payload chars//4 (messages + system + tool
+        schemas), no learned component. Engines with a calibrated
+        static-payload delta (learned from real usage.prompt_tokens)
+        override this to add it.  Use this number for threshold, danger-zone,
+        and hard-cap decisions — never content-only or repr-based estimates.
+        """
+        return estimate_request_tokens_full(
+            messages, system_prompt=system_prompt, tools=tools
+        )
+
+    def record_send_estimate(self, est_tokens: int) -> None:
+        """Record the DETERMINISTIC full-payload base (NO learned delta).
+
+        Paired with the next usage.prompt_tokens in update_from_response()
+        as ``observed = actual − base`` — so the engine's delta EMA
+        converges to the TRUE static overhead. Passing base+delta would
+        plateau the EMA at half the overhead (calibration bias).
+        No-op by default.
+        """
+        return None
+
+    def enforce_hard_cap(
+        self,
+        messages: List[Dict[str, Any]],
+        system_prompt: str = "",
+        tools: Optional[List[Dict[str, Any]]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Deterministic pre-send ceiling hook.
+
+        Called (by run_agent, 2026-09-23) right before an API call so the
+        prompt can never exceed ``context_length - reserve``.  Default is a
+        no-op (returns ``messages`` unchanged) so callers can safely invoke it
+        on any engine; engines override to trim the largest tool results first
+        (and drop oldest as a last resort).  Must be pure/deterministic — no
+        LLM, no I/O.  Only mutates a COPY; the verbatim archive is untouched.
+        """
+        return messages
 
     # -- Optional: session lifecycle ---------------------------------------
 

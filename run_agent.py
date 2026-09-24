@@ -262,6 +262,7 @@ from agent.model_metadata import (
     query_ollama_num_ctx,
 )
 from agent.context_compressor import ContextCompressor
+from agent.context_engine import estimate_request_tokens_full
 from agent.subdirectory_hints import SubdirectoryHintTracker
 from agent.prompt_caching import apply_anthropic_cache_control
 from agent.prompt_builder import build_skills_system_prompt, build_context_files_prompt, build_environment_hints, load_soul_md, TOOL_USE_ENFORCEMENT_GUIDANCE, TOOL_USE_ENFORCEMENT_MODELS, GOOGLE_MODEL_OPERATIONAL_GUIDANCE, OPENAI_MODEL_EXECUTION_GUIDANCE
@@ -6407,6 +6408,75 @@ class AIAgent:
                 timeout=get_provider_request_timeout(self.provider, self.model),
             )
 
+    def _apply_pre_send_context_guard(self, api_kwargs: dict) -> dict:
+        """2026-09-23 (context-window project): pre-send context guard.
+
+        Runs right before every provider call, at both the streaming and
+        non-streaming choke points:
+
+        1. ``enforce_hard_cap`` — deterministic ceiling: trims the LARGEST
+           tool results (halved to the ``hard_cap_min_tool_chars`` floor,
+           never nuked) until the calibrated estimate fits under
+           ``context_length - reserve``. Operates on a copy — the stored
+           conversation (and the verbatim PM archive) keep full results.
+        2. ``record_send_estimate`` — records the calibrated full-request
+           estimate so the next ``update_from_response()`` learns the
+           static-payload delta from the provider's REAL prompt_tokens.
+
+        OpenAI-format calls: the system prompt rides inside ``messages``
+        (prepended at call build), so ``system_prompt=""`` avoids
+        double-counting. Anthropic/Bedrock/Codex kwarg shapes pass their
+        own ``system`` key or skip cleanly.
+
+        Idempotent — safe when the streaming path delegates to the
+        non-streaming call (second pass is a no-op under cap).
+
+        Never raises: a guard bug degrades to an unguarded send, it must
+        not kill the turn.
+        """
+        try:
+            archiver = getattr(self, "context_archiver", None)
+            if archiver is None:
+                return api_kwargs
+            messages = api_kwargs.get("messages")
+            if not isinstance(messages, list) or not messages:
+                return api_kwargs
+            if not all(isinstance(m, dict) and "role" in m for m in messages):
+                return api_kwargs
+            system_prompt = ""
+            _sys = api_kwargs.get("system")
+            if isinstance(_sys, str) and _sys:
+                # Anthropic shape: system is a separate kwarg, not in messages.
+                system_prompt = _sys
+            tools = api_kwargs.get("tools") or None
+            capped = archiver.enforce_hard_cap(
+                messages, system_prompt=system_prompt, tools=tools
+            )
+            if capped is not messages:
+                api_kwargs["messages"] = capped
+                logger.info(
+                    "Pre-send hard cap fired — trimmed largest tool results "
+                    "to fit context_length=%s",
+                    getattr(archiver, "context_length", 0),
+                )
+            # 2026-09-23: record the DETERMINISTIC base (no learned delta).
+            # update_from_response() pairs actual − base, so the engine's
+            # delta EMA converges to the TRUE static overhead. Recording
+            # base+delta here would plateau the EMA at half the overhead
+            # (calibration bias — the cap would then fire only after the
+            # request was already past the window).
+            base_est = estimate_request_tokens_full(
+                api_kwargs["messages"],
+                system_prompt=system_prompt,
+                tools=tools,
+            )
+            archiver.record_send_estimate(base_est)
+        except Exception as exc:
+            logger.warning(
+                "Pre-send context guard failed — sending unguarded: %s", exc
+            )
+        return api_kwargs
+
     def _interruptible_api_call(self, api_kwargs: dict):
         """
         Run the API call in a background thread so the main conversation loop
@@ -6421,6 +6491,10 @@ class AIAgent:
         the main retry loop can try again with backoff / credential rotation /
         provider fallback.
         """
+        # 2026-09-23 (context-window project): deterministic hard cap +
+        # pre-send estimate calibration (idempotent — the streaming
+        # delegate path may run it twice).
+        api_kwargs = self._apply_pre_send_context_guard(api_kwargs)
         result = {"response": None, "error": None}
         request_client_holder = {"client": None}
 
@@ -6706,6 +6780,10 @@ class AIAgent:
         Falls back to _interruptible_api_call on provider errors indicating
         streaming is not supported.
         """
+        # 2026-09-23 (context-window project): guard the streaming path
+        # (the delegate to _interruptible_api_call below re-runs it —
+        # idempotent under cap).
+        api_kwargs = self._apply_pre_send_context_guard(api_kwargs)
         if self.api_mode == "codex_responses":
             # Codex streams internally via _run_codex_stream. The main dispatch
             # in _interruptible_api_call already calls it; we just need to
@@ -10813,9 +10891,11 @@ class AIAgent:
             and len(messages) > self.context_archiver.protect_first_n
                                 + self.context_archiver.protect_last_n + 1
         ):
-            # Include tool schema tokens — with many tools these can add
-            # 20-30K+ tokens that the old sys+msg estimate missed entirely.
-            _preflight_tokens = estimate_request_tokens_rough(
+            # 2026-09-23 (context-window project): calibrated full-request
+            # estimate (full payload + learned static delta) instead of the
+            # rough estimator — the rough one undercounts tool-heavy
+            # sessions and fires this gate too late.
+            _preflight_tokens = self.context_archiver.estimate_full_request(
                 messages,
                 system_prompt=active_system_prompt or "",
                 tools=self.tools or None,
@@ -10860,8 +10940,8 @@ class AIAgent:
                     self._last_content_with_tools = None
                     self._last_content_tools_all_housekeeping = False
                     self._mute_post_response = False
-                    # Re-estimate after archiving
-                    _preflight_tokens = estimate_request_tokens_rough(
+                    # Re-estimate after archiving (calibrated, 2026-09-23)
+                    _preflight_tokens = self.context_archiver.estimate_full_request(
                         messages,
                         system_prompt=active_system_prompt or "",
                         tools=self.tools or None,
