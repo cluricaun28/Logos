@@ -1,0 +1,369 @@
+{
+  "vllm": "http://127.0.0.1:8000",
+  "model": "Qwen3.8-27B",
+  "engine": {
+    "context_length": 100000,
+    "threshold_percent": 0.24,
+    "similarity_threshold": 0.45,
+    "dormancy_decay": 10,
+    "resolution_decay": 40,
+    "protect_first_n": 3,
+    "protect_last_n": 6,
+    "task_aware": false,
+    "model_path": "/home/exx/.hermes/models/embeddings/all-MiniLM-L6-v2"
+  },
+  "system_prompt_chars": 78493,
+  "tools": 16,
+  "events": {
+    "A": {
+      "E0": {
+        "path": "tailoff",
+        "pre_msgs": 31,
+        "post_msgs": 8,
+        "system_sha": "5adbcd4c6751"
+      },
+      "E1": {
+        "path": "tailoff",
+        "pre_msgs": 11,
+        "post_msgs": 8,
+        "system_sha": "a018a986e20d"
+      },
+      "E2": {
+        "path": "tailoff",
+        "pre_msgs": 17,
+        "post_msgs": 8,
+        "system_sha": "cc82b4bbe881"
+      }
+    },
+    "B": {
+      "E0": {
+        "path": "tailoff",
+        "pre_msgs": 31,
+        "post_msgs": 8,
+        "system_sha": "baa32e87a2e2"
+      },
+      "E1": {
+        "path": "tailoff",
+        "pre_msgs": 11,
+        "post_msgs": 8,
+        "system_sha": "baa32e87a2e2"
+      },
+      "E2": {
+        "path": "tailoff",
+        "pre_msgs": 17,
+        "post_msgs": 8,
+        "system_sha": "baa32e87a2e2"
+      }
+    }
+  },
+  "results": {
+    "A": [
+      {
+        "call": 1,
+        "ttft_s": 3.712,
+        "prompt_tokens": 29699,
+        "hit_pct": 0.0,
+        "system_sha": "927ffcc4eadd",
+        "history_msgs": 1
+      },
+      {
+        "call": 2,
+        "ttft_s": 0.911,
+        "prompt_tokens": 33351,
+        "hit_pct": 84.6,
+        "system_sha": "927ffcc4eadd",
+        "history_msgs": 4
+      },
+      {
+        "call": 3,
+        "ttft_s": 0.373,
+        "prompt_tokens": 34346,
+        "hit_pct": 95.9,
+        "system_sha": "927ffcc4eadd",
+        "history_msgs": 7
+      },
+      {
+        "call": 4,
+        "ttft_s": 0.949,
+        "prompt_tokens": 37990,
+        "hit_pct": 86.7,
+        "system_sha": "927ffcc4eadd",
+        "history_msgs": 10
+      },
+      {
+        "call": 5,
+        "ttft_s": 0.835,
+        "prompt_tokens": 41642,
+        "hit_pct": 90.4,
+        "system_sha": "927ffcc4eadd",
+        "history_msgs": 13
+      },
+      {
+        "call": 6,
+        "ttft_s": 0.49,
+        "prompt_tokens": 42637,
+        "hit_pct": 95.6,
+        "system_sha": "927ffcc4eadd",
+        "history_msgs": 16
+      },
+      {
+        "call": 7,
+        "ttft_s": 0.874,
+        "prompt_tokens": 46281,
+        "hit_pct": 91.5,
+        "system_sha": "927ffcc4eadd",
+        "history_msgs": 19
+      },
+      {
+        "call": 8,
+        "ttft_s": 1.002,
+        "prompt_tokens": 49925,
+        "hit_pct": 91.1,
+        "system_sha": "927ffcc4eadd",
+        "history_msgs": 22
+      },
+      {
+        "call": 9,
+        "ttft_s": 1.093,
+        "prompt_tokens": 53569,
+        "hit_pct": 90.7,
+        "system_sha": "927ffcc4eadd",
+        "history_msgs": 25
+      },
+      {
+        "call": 10,
+        "ttft_s": 0.948,
+        "prompt_tokens": 57215,
+        "hit_pct": 93.2,
+        "system_sha": "927ffcc4eadd",
+        "history_msgs": 28
+      },
+      {
+        "call": 11,
+        "ttft_s": 1.111,
+        "prompt_tokens": 60957,
+        "hit_pct": 92.6,
+        "system_sha": "927ffcc4eadd",
+        "history_msgs": 31
+      },
+      {
+        "call": 12,
+        "ttft_s": 4.717,
+        "prompt_tokens": 37285,
+        "hit_pct": 4.2,
+        "system_sha": "5adbcd4c6751",
+        "history_msgs": 9
+      },
+      {
+        "call": 13,
+        "ttft_s": 0.363,
+        "prompt_tokens": 37325,
+        "hit_pct": 96.6,
+        "system_sha": "5adbcd4c6751",
+        "history_msgs": 11
+      },
+      {
+        "call": 14,
+        "ttft_s": 2.581,
+        "prompt_tokens": 30955,
+        "hit_pct": 40.5,
+        "system_sha": "a018a986e20d",
+        "history_msgs": 9
+      },
+      {
+        "call": 15,
+        "ttft_s": 0.872,
+        "prompt_tokens": 34748,
+        "hit_pct": 85.7,
+        "system_sha": "a018a986e20d",
+        "history_msgs": 12
+      },
+      {
+        "call": 16,
+        "ttft_s": 0.215,
+        "prompt_tokens": 34781,
+        "hit_pct": 99.2,
+        "system_sha": "a018a986e20d",
+        "history_msgs": 14
+      },
+      {
+        "call": 17,
+        "ttft_s": 0.801,
+        "prompt_tokens": 38523,
+        "hit_pct": 75.8,
+        "system_sha": "a018a986e20d",
+        "history_msgs": 17
+      },
+      {
+        "call": 18,
+        "ttft_s": 3.563,
+        "prompt_tokens": 37285,
+        "hit_pct": 33.6,
+        "system_sha": "cc82b4bbe881",
+        "history_msgs": 9
+      },
+      {
+        "call": 19,
+        "ttft_s": 0.383,
+        "prompt_tokens": 37369,
+        "hit_pct": 96.5,
+        "system_sha": "cc82b4bbe881",
+        "history_msgs": 11
+      }
+    ],
+    "B": [
+      {
+        "call": 1,
+        "ttft_s": 0.325,
+        "prompt_tokens": 29699,
+        "hit_pct": 95.0,
+        "system_sha": "baa32e87a2e2",
+        "history_msgs": 1
+      },
+      {
+        "call": 2,
+        "ttft_s": 0.906,
+        "prompt_tokens": 33351,
+        "hit_pct": 84.6,
+        "system_sha": "baa32e87a2e2",
+        "history_msgs": 4
+      },
+      {
+        "call": 3,
+        "ttft_s": 0.385,
+        "prompt_tokens": 34346,
+        "hit_pct": 95.9,
+        "system_sha": "baa32e87a2e2",
+        "history_msgs": 7
+      },
+      {
+        "call": 4,
+        "ttft_s": 0.95,
+        "prompt_tokens": 37990,
+        "hit_pct": 86.7,
+        "system_sha": "baa32e87a2e2",
+        "history_msgs": 10
+      },
+      {
+        "call": 5,
+        "ttft_s": 0.833,
+        "prompt_tokens": 41642,
+        "hit_pct": 90.4,
+        "system_sha": "baa32e87a2e2",
+        "history_msgs": 13
+      },
+      {
+        "call": 6,
+        "ttft_s": 0.502,
+        "prompt_tokens": 42637,
+        "hit_pct": 95.6,
+        "system_sha": "baa32e87a2e2",
+        "history_msgs": 16
+      },
+      {
+        "call": 7,
+        "ttft_s": 0.866,
+        "prompt_tokens": 46281,
+        "hit_pct": 91.5,
+        "system_sha": "baa32e87a2e2",
+        "history_msgs": 19
+      },
+      {
+        "call": 8,
+        "ttft_s": 1.002,
+        "prompt_tokens": 49925,
+        "hit_pct": 91.1,
+        "system_sha": "baa32e87a2e2",
+        "history_msgs": 22
+      },
+      {
+        "call": 9,
+        "ttft_s": 1.107,
+        "prompt_tokens": 53569,
+        "hit_pct": 90.7,
+        "system_sha": "baa32e87a2e2",
+        "history_msgs": 25
+      },
+      {
+        "call": 10,
+        "ttft_s": 0.996,
+        "prompt_tokens": 57215,
+        "hit_pct": 93.2,
+        "system_sha": "baa32e87a2e2",
+        "history_msgs": 28
+      },
+      {
+        "call": 11,
+        "ttft_s": 1.149,
+        "prompt_tokens": 60957,
+        "hit_pct": 92.6,
+        "system_sha": "baa32e87a2e2",
+        "history_msgs": 31
+      },
+      {
+        "call": 12,
+        "ttft_s": 1.526,
+        "prompt_tokens": 37285,
+        "hit_pct": 75.7,
+        "system_sha": "baa32e87a2e2",
+        "history_msgs": 9
+      },
+      {
+        "call": 13,
+        "ttft_s": 0.348,
+        "prompt_tokens": 37325,
+        "hit_pct": 96.6,
+        "system_sha": "baa32e87a2e2",
+        "history_msgs": 11
+      },
+      {
+        "call": 14,
+        "ttft_s": 0.575,
+        "prompt_tokens": 30955,
+        "hit_pct": 91.2,
+        "system_sha": "baa32e87a2e2",
+        "history_msgs": 9
+      },
+      {
+        "call": 15,
+        "ttft_s": 0.897,
+        "prompt_tokens": 34748,
+        "hit_pct": 85.7,
+        "system_sha": "baa32e87a2e2",
+        "history_msgs": 12
+      },
+      {
+        "call": 16,
+        "ttft_s": 0.199,
+        "prompt_tokens": 34781,
+        "hit_pct": 99.2,
+        "system_sha": "baa32e87a2e2",
+        "history_msgs": 14
+      },
+      {
+        "call": 17,
+        "ttft_s": 0.828,
+        "prompt_tokens": 38523,
+        "hit_pct": 89.5,
+        "system_sha": "baa32e87a2e2",
+        "history_msgs": 17
+      },
+      {
+        "call": 18,
+        "ttft_s": 1.529,
+        "prompt_tokens": 37285,
+        "hit_pct": 75.7,
+        "system_sha": "baa32e87a2e2",
+        "history_msgs": 9
+      },
+      {
+        "call": 19,
+        "ttft_s": 0.371,
+        "prompt_tokens": 37369,
+        "hit_pct": 96.5,
+        "system_sha": "baa32e87a2e2",
+        "history_msgs": 11
+      }
+    ]
+  }
+}
