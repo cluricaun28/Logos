@@ -43,6 +43,18 @@ class FakeRetryAfter(Exception):
         self.retry_after = seconds
 
 
+class FakeTelegramError(Exception):
+    """Base for the fake telegram.error hierarchy.
+
+    2026-09-23: the adapter's top-level import block imports
+    ``TelegramError`` (commit 6540630d, 9/13). This fake predates that —
+    its missing attribute made ``from telegram.error import TelegramError``
+    raise ImportError, which sent the WHOLE adapter module into its
+    PTB-absent fallback branch (ParseMode=None, TELEGRAM_AVAILABLE=False)
+    and broke all tests in this file.
+    """
+
+
 # Build a fake telegram module tree so the adapter's internal imports work
 _fake_telegram = types.ModuleType("telegram")
 _fake_telegram.Update = object
@@ -51,6 +63,7 @@ _fake_telegram.Message = object
 _fake_telegram.InlineKeyboardButton = object
 _fake_telegram.InlineKeyboardMarkup = object
 _fake_telegram_error = types.ModuleType("telegram.error")
+_fake_telegram_error.TelegramError = FakeTelegramError
 _fake_telegram_error.NetworkError = FakeNetworkError
 _fake_telegram_error.BadRequest = FakeBadRequest
 _fake_telegram_error.TimedOut = FakeTimedOut
