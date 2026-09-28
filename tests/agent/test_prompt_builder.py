@@ -2,6 +2,7 @@
 
 import builtins
 import importlib
+import json
 import logging
 import sys
 
@@ -39,12 +40,26 @@ from logos_cli.nous_subscription import NousFeatureState, NousSubscriptionFeatur
 
 class TestGuidanceConstants:
     def test_memory_guidance_discourages_task_logs(self):
-        assert "durable facts" in MEMORY_GUIDANCE
+        # Standing-layer policy (owner ruling 9/28): facts default to the RL;
+        # the memory block holds standing rules + NOW pointers only.
+        assert "DEFAULT for any fact" in MEMORY_GUIDANCE
+        assert "Save durable knowledge there, not in memory" in MEMORY_GUIDANCE
         assert "Do NOT save task progress" in MEMORY_GUIDANCE
         # Fork: task-state recall routes through Perpetual Memory, not session_search.
         assert "perpetual_search" in MEMORY_GUIDANCE
         assert "like a diary" not in MEMORY_GUIDANCE
         assert ">80%" not in MEMORY_GUIDANCE
+
+    def test_memory_schema_and_guidance_agree_on_policy(self):
+        """Fleet-wide coherence: the tool schema and the system-prompt
+        guidance must carry the same standing-layer policy (9/28: they
+        contradicted each other — schema new, guidance old — which is
+        exactly the ratchet the owner flagged)."""
+        from tools.memory_tool import MEMORY_SCHEMA
+        schema_text = MEMORY_SCHEMA if isinstance(MEMORY_SCHEMA, str) else json.dumps(MEMORY_SCHEMA)
+        shared = "standing rules used multiple times per session"
+        assert shared in MEMORY_GUIDANCE
+        assert shared in schema_text
 
     def test_session_search_guidance_is_simple_cross_session_recall(self):
         assert "relevant cross-session context exists" in SESSION_SEARCH_GUIDANCE

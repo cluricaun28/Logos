@@ -539,6 +539,41 @@ under `skills.config.<key>`, prompted during setup, injected at load time).
 
 ---
 
+## Standing Layer (system prompt / memory / pinned briefs)
+
+The standing layer is the part of the system prompt at **top precedence every
+turn** — it can **outrank the user's live message**, so stale content here
+actively misleads. Four tiers, in precedence order:
+
+1. **SOUL.md** (`load_soul_md()`) — agent identity + standing rules. Per-user,
+   `~/.hermes/SOUL.md`.
+2. **Pinned briefs** (`plugins/memory/perpetual_context/pinned_briefs.py`) —
+   active project state, each with a `RETIRE WHEN`. **Dormant briefs (mtime >
+   14 days) auto-shrink to ~800 chars + a path pointer** (activity-based cap);
+   touching a project bumps mtime and restores the full cap.
+3. **Memory block** (`tools/memory_tool.py`) — capped (~2.2K chars); holds
+   **only** standing rules + `NOW:` pointers, not facts.
+4. **Reference Library + Perpetual Memory** — NOT injected; retrieved on demand.
+   **The default home for every fact.**
+
+**The rule (all tiers): facts → RL by default. The standing layer holds standing
+rules and pointers. Retire in place** — a stale entry is removed/replaced where
+it lives (memory tool, or editing the brief/soul), never "corrected" by a
+passing message (the system layer outranks the user's live message). Full
+measured rationale + A/B data: RL `technology/context-window-management-design.md`.
+
+**Two code hooks (9/28):**
+- The memory snapshot is frozen at session start for prefix-cache stability, so
+  mid-session writes never reach the system prompt.
+  `MemoryStore.refresh_snapshot()` is called at the **archive boundary** in
+  `run_agent._archive_context` to re-capture it (we archive history verbatim,
+  never summarize, so the archive is the refresh point). The P1b pin keeps the
+  old bytes unless the standing content actually changed.
+- Do NOT add a fifth injected tier. New durable knowledge goes to the RL
+  (retrieved), not the standing layer.
+
+---
+
 ## Important Policies
 
 ### Prompt Caching Must Not Break
