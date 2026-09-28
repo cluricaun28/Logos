@@ -142,6 +142,19 @@ class MemoryStore:
             "user": self._render_block("user", self.user_entries),
         }
 
+    def refresh_snapshot(self):
+        """Re-capture the system-prompt snapshot from disk.
+
+        Called at the archive boundary (run_agent._archive_context): the
+        snapshot is frozen at session start for prefix-cache stability,
+        so mid-session writes never reach the standing layer otherwise.
+        We archive history verbatim (never summarize), so the archive
+        boundary is the natural refresh point for the standing block.
+        Re-reading from disk (not in-memory state) also picks up writes
+        from other sessions or owner edits.
+        """
+        self.load_from_disk()
+
     @staticmethod
     @contextmanager
     def _file_lock(path: Path):
@@ -534,9 +547,17 @@ MEMORY_SCHEMA = {
         "If you've discovered a research finding, architectural insight, or curated knowledge "
         "that should persist across sessions, save it to the Reference Library using "
         "write_file(path='~/.hermes/reference-library/<category>/<name>.md', content='...').\n\n"
-        "MEMORY vs. REFERENCE LIBRARY:\n"
-        "- Memory: compact facts that prevent repeated corrections (user preferences, environment quirks, immediate context)\n"
-        "- Reference Library: structured, searchable, long-lived knowledge (research findings, architectural insights, curated data)\n\n"
+        "MEMORY vs. REFERENCE LIBRARY (default: RL):\\n"
+        "- Memory (standing layer, top precedence, ~2.2K chars): ONLY (a) standing rules "
+        "used multiple times per session, and (b) short pointers to RL pages or pinned "
+        "briefs (e.g. 'NOW: mail migration running -> RL crenshaw/.../plan.md'). "
+        "Test: does this cost a retrieval round-trip every session if not injected? "
+        "If no, it's an RL fact, not a standing entry.\\n"
+        "- Reference Library: all facts by default — structured, searchable, retrieved "
+        "on demand. Facts go here unless the test above says inject.\\n"
+        "- Time-bound project state goes to pinned briefs (with a RETIRE WHEN), never here.\\n"
+        "Standing entries are retired IN PLACE (replace/remove) the moment they go stale — "
+        "never left to decay; a stale standing rule outranks the user's live message.\\n\\n"
         "TWO TARGETS:\n"
         "- 'user': where to save user preferences and corrections\n"
         "- 'memory': where to save environment facts and project conventions\n\n"

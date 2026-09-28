@@ -9478,6 +9478,18 @@ class AIAgent:
 
         _old_system_prompt = self._cached_system_prompt or ""
         self._invalidate_system_prompt()
+        # 9/28 context-window design (RL context-window-management-design.md):
+        # the archive boundary is the standing layer's refresh point. The
+        # memory snapshot is frozen at session start (prefix-cache
+        # stability), so mid-session writes never reach the system prompt
+        # otherwise. We archive history verbatim (never summarize), so only
+        # the standing block is re-rendered here. The P1b pin below keeps
+        # the previous bytes if the rebuilt block is unchanged.
+        if self._memory_store is not None:
+            try:
+                self._memory_store.refresh_snapshot()
+            except Exception as _mem_refresh_err:  # noqa: BLE001 — fail-open
+                logger.debug("memory snapshot refresh failed: %s", _mem_refresh_err)
         new_system_prompt = self._build_system_prompt(system_message)
         # P1b mech 3 (2026-09-21): pin the old system-prompt bytes unless
         # the rebuild changed real content or the date rolled over —

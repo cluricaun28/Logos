@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import threading
+import time
 import types
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -297,3 +298,50 @@ def test_active_default_is_on(tmp_path: Path):
         encoding="utf-8",
     )
     assert len(load_briefs(tmp_path)) == 1
+
+
+# ── activity-based caps: dormant briefs shrink to a pointer ─────────────
+# 9/28 context-window design (RL context-window-management-design.md): the
+# standing layer is F2-dominant (it outranks the user's live message), so
+# a dormant project's full brief shouldn't hold top precedence. mtime is
+# the activity signal — working on a project edits its brief, which bumps
+# mtime; a project untouched for DORMANT_AFTER_DAYS shrinks to head +
+# full-path pointer.
+
+
+def test_dormant_brief_shrinks_to_pointer(tmp_path: Path):
+    p = tmp_path / "stale.md"
+    p.write_text(
+        BRIEF.format(project="stale", extra="", body="G" * 3000), encoding="utf-8"
+    )
+    old = time.time() - 20 * 86400  # untouched for 20 days
+    os.utime(p, (old, old))
+    out = render_briefs(load_briefs(tmp_path))
+    assert "### stale" in out
+    assert "dormant" in out
+    assert str(p) in out  # pointer to the full brief
+    # Body far shorter than the dormant cap (800)
+    assert "G" * 900 not in out
+
+
+def test_recent_brief_keeps_full_cap(tmp_path: Path):
+    (tmp_path / "live.md").write_text(
+        BRIEF.format(project="live", extra="", body="H" * 2500), encoding="utf-8"
+    )
+    out = render_briefs(load_briefs(tmp_path))
+    assert "H" * 2500 in out
+    assert "dormant" not in out
+
+
+def test_dormant_cap_below_per_brief_cap(tmp_path: Path):
+    """Even with a generous per-brief cap, dormancy wins."""
+    p = tmp_path / "stale.md"
+    p.write_text(
+        BRIEF.format(project="stale", extra="max_chars: 5000", body="J" * 3000),
+        encoding="utf-8",
+    )
+    old = time.time() - 30 * 86400
+    os.utime(p, (old, old))
+    out = render_briefs(load_briefs(tmp_path))
+    assert "J" * 900 not in out
+    assert "dormant" in out

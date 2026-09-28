@@ -225,6 +225,28 @@ class TestMemoryStoreSnapshot:
     def test_empty_snapshot_returns_none(self, store):
         assert store.format_for_system_prompt("memory") is None
 
+    def test_refresh_snapshot_recaptures_live_entries(self, store):
+        """refresh_snapshot() re-captures the frozen snapshot from live
+        entries — the archive-boundary refresh point (9/28 context-window
+        design: the standing layer refreshes where history rolls off)."""
+        store.load_from_disk()
+        store.add("memory", "fact learned mid-session")
+        # Still frozen until an explicit refresh
+        assert store.format_for_system_prompt("memory") is None
+        store.refresh_snapshot()
+        snap = store.format_for_system_prompt("memory")
+        assert snap is not None
+        assert "fact learned mid-session" in snap
+
+    def test_refresh_snapshot_reads_disk_not_stale_state(self, store, tmp_path):
+        """refresh_snapshot() re-reads from disk, so writes from other
+        sessions (or the owner editing the file) are picked up."""
+        (tmp_path / "MEMORY.md").write_text("external fact", encoding="utf-8")
+        store.refresh_snapshot()
+        assert "external fact" in store.memory_entries
+        snap = store.format_for_system_prompt("memory")
+        assert "external fact" in snap
+
 
 # =========================================================================
 # memory_tool() dispatcher

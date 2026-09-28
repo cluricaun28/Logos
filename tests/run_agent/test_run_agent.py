@@ -4884,3 +4884,71 @@ class TestMemoryProviderTurnStart:
         import inspect
         src = inspect.getsource(AIAgent.run_conversation)
         assert "on_turn_start(self._user_turn_count" in src
+
+
+class TestArchiveBoundaryStandingRefresh:
+    """9/28 context-window design (RL context-window-management-design.md):
+
+    The system prompt already rebuilds at the archive boundary, but the
+    memory snapshot is frozen at session start, so mid-session memory
+    writes never reach the standing layer — "memory goes stale within the
+    same context window." The archive boundary is the refresh point: we
+    archive (verbatim to PM), never summarize, so the standing block is
+    the only thing that gets re-rendered there.
+    """
+
+    def _make_agent_with_store(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "tools.memory_tool.get_memory_dir", lambda: tmp_path
+        )
+        from tools.memory_tool import MemoryStore
+        with (
+            patch(
+                "run_agent.get_selective_tool_definitions",
+                return_value=_make_tool_defs("web_search"),
+            ),
+            patch("run_agent.check_toolset_requirements", return_value={}),
+            patch("run_agent.OpenAI"),
+        ):
+            a = AIAgent(
+                api_key="test-k...7890",
+                base_url="https://openrouter.ai/api/v1",
+                quiet_mode=True,
+                skip_context_files=True,
+                skip_memory=True,
+            )
+            a.client = MagicMock()
+            store = MemoryStore()
+            store.load_from_disk()
+            a._memory_store = store
+            a._cached_system_prompt = "old prompt"
+            a._memory_manager = None
+            a._session_db = None
+            a.session_id = "test_session_archive_boundary"
+            a.logs_dir = tmp_path
+            archiver = MagicMock()
+            archiver.archive.return_value = [{"role": "user", "content": "kept"}]
+            archiver.archive_count = 1
+            archiver.name = "test-archiver"
+            a.context_archiver = archiver
+            return a, store
+
+    def test_archive_refreshes_frozen_memory_snapshot(self, tmp_path, monkeypatch):
+        a, store = self._make_agent_with_store(tmp_path, monkeypatch)
+        # Fact learned mid-session — frozen snapshot must not show it yet
+        store.add("memory", "fact learned mid-session")
+        assert store.format_for_system_prompt("memory") is None
+
+        a._archive_context([{"role": "user", "content": "old"}], "sys")
+
+        snap = store.format_for_system_prompt("memory")
+        assert snap is not None
+        assert "fact learned mid-session" in snap
+
+    def test_archive_without_memory_store_is_unaffected(self, tmp_path, monkeypatch):
+        a, _ = self._make_agent_with_store(tmp_path, monkeypatch)
+        a._memory_store = None  # skip_memory agents
+        messages, _ = a._archive_context(
+            [{"role": "user", "content": "old"}], "sys"
+        )
+        assert messages == [{"role": "user", "content": "kept"}]

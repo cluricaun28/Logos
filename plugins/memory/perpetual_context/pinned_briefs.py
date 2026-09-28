@@ -47,6 +47,13 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_PER_BRIEF_CHARS = 3000
 DEFAULT_TOTAL_CHARS = 8000
+# Activity-based caps (9/28 context-window design): the standing layer is
+# F2-dominant — it outranks the user's live message — so a *dormant*
+# project (brief untouched for 14+ days) should not hold its full cap at
+# top precedence. It shrinks to head + a pointer to the full file.
+# Working on a project edits its brief (bumps mtime), which keeps it full.
+DORMANT_AFTER_DAYS = 14
+DORMANT_CAP_CHARS = 800
 
 _frontmatter_re = re.compile(r"\A---\s*\n(.*?)\n---\s*\n?", re.DOTALL)
 
@@ -104,6 +111,10 @@ def load_briefs(pinned_dir: Path, now: datetime | None = None) -> list[dict]:
                     priority = int(meta.get("priority", "10"))
                 except ValueError:
                     priority = 10
+                try:
+                    mtime = path.stat().st_mtime
+                except OSError:
+                    mtime = 0.0  # unstatable → treat as dormant (shrunk)
                 out.append(
                     {
                         "name": path.stem,
@@ -112,6 +123,7 @@ def load_briefs(pinned_dir: Path, now: datetime | None = None) -> list[dict]:
                         "expires": expires,
                         "path": str(path),
                         "body": body.strip(),
+                        "mtime": mtime,
                         "max_chars": int(meta.get("max_chars", DEFAULT_PER_BRIEF_CHARS))
                         if str(meta.get("max_chars", "")).isdigit()
                         else DEFAULT_PER_BRIEF_CHARS,
@@ -127,10 +139,16 @@ def load_briefs(pinned_dir: Path, now: datetime | None = None) -> list[dict]:
 def render_briefs(
     briefs: list[dict],
     max_total_chars: int = DEFAULT_TOTAL_CHARS,
+    now: datetime | None = None,
 ) -> str:
-    """Render briefs into a system-prompt section. Deterministic order."""
+    """Render briefs into a system-prompt section. Deterministic order.
+
+    Dormant briefs (mtime older than DORMANT_AFTER_DAYS) are capped at
+    DORMANT_CAP_CHARS with a pointer to the full file — see module docstring.
+    """
     if not briefs:
         return ""
+    now = now or datetime.now().astimezone()
     briefs = sorted(briefs, key=lambda b: (b["priority"], b["name"]))
     parts: list[str] = []
     used = 0
@@ -139,8 +157,13 @@ def render_briefs(
         cap = min(b["max_chars"], max(0, max_total_chars - used))
         if cap <= 0:
             break
+        mtime = b.get("mtime", 0.0)
+        dormant = mtime > 0 and (now.timestamp() - mtime) > DORMANT_AFTER_DAYS * 86400
+        if dormant:
+            cap = min(cap, DORMANT_CAP_CHARS)
         if len(body) > cap:
-            body = body[:cap] + f"\n[…truncated — full brief at {b['path']}]"
+            marker = "…dormant" if dormant else "…truncated"
+            body = body[:cap] + f"\n[{marker} — full brief at {b['path']}]"
         until = f"until {b['expires']}" if b.get("expires") else "until unpinned"
         parts.append(f"### {b['project']} ({until})\n{body}")
         used += len(body)
