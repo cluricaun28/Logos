@@ -224,6 +224,17 @@ class ChatCompletionsTransport(ProviderTransport):
         qwen_meta = params.get("qwen_session_metadata")
         if qwen_meta and is_qwen:
             api_kwargs["metadata"] = qwen_meta
+        elif "metadata" not in api_kwargs:
+            # Session-affinity hint (2026-10-01 A/B): send session_id in
+            # metadata so a LiteLLM proxy with session_affinity enabled
+            # (router_settings.model_group_affinity_config) can pin a
+            # conversation to one engine -> vLLM prefix-cache locality.
+            # vLLM itself ignores `metadata` (verified: accepted on
+            # /v1/chat/completions, no 400), so this is a no-op for
+            # direct-engine routing.
+            _session_id = params.get("session_id")
+            if _session_id:
+                api_kwargs["metadata"] = {"session_id": _session_id}
 
         # Tools
         if tools:
