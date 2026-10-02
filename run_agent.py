@@ -9630,6 +9630,17 @@ class AIAgent:
             acp_command=function_args.get("acp_command"),
             acp_args=function_args.get("acp_args"),
             role=function_args.get("role"),
+            # Regression fix 2026-10-02: these fields were silently dropped on
+            # the agent-loop path (delegate_task is in _AGENT_LOOP_TOOLS and
+            # never reaches the registry handler at delegate_tool.py:3431).
+            # Result: background=true ran sync and held the parent turn.
+            # Match the registry handler exactly so both paths agree.
+            background=function_args.get("background"),
+            timeout=function_args.get("timeout"),
+            output_dir=function_args.get("output_dir"),
+            resume_from=function_args.get("resume_from"),
+            persona=function_args.get("persona"),
+            capability_mode=function_args.get("capability_mode"),
             parent_agent=self,
         )
 
