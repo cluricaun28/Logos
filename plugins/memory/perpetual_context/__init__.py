@@ -399,6 +399,70 @@ class PerpetualContextProvider(MemoryProvider):
         except Exception as e:  # noqa: S110 — degradation wrapper, must never crash agent
             logger.exception("Perpetual sync_turn failed: %s", e)
 
+    def on_delegation(
+        self,
+        task: str,
+        result: str,
+        *,
+        child_session_id: str = "",
+        **kwargs: Any,
+    ) -> None:
+        """Record a subagent-completion event so a user's delegated tasks are
+        recallable AND separable from the main conversation.
+
+        Fires on the PARENT (supervisor) agent when a child finishes; the child
+        itself has no provider session (skip_memory=True). We write ONE compact
+        system row into the parent session per delegation:
+
+        - recallable in the supervisor's own history (per-user task list):
+          ``perpetual_search "DELEGATION"`` or ``query_messages(role='system',
+          content LIKE '[DELEGATION]')`` lists that user's tasks,
+        - linked parent<->child via metadata (child_session_id +
+          parent_session_id) so a task can be traced to the worker's own session,
+        - zero embedding cost (role='system' early-returns in _store_embedding)
+          and never added to the live/user-visible context window (PM is the
+          recall layer, not the live buffer),
+        - degradation wrapper: must never crash the delegation-completion path.
+        """
+        with self._lock:
+            if not self._db or not self._db._initialized:
+                return
+            parent = self._session_id or ""
+            db = self._db
+        if not parent:
+            return
+
+        goal = (task or "").strip().replace("\n", " ")
+        if len(goal) > 300:
+            goal = goal[:300] + "\u2026"
+        summary = (result or "").strip().replace("\n", " ")
+        if len(summary) > 500:
+            summary = summary[:500] + "\u2026"
+        status = str(kwargs.get("status") or "done")
+        content = (
+            f"[DELEGATION] status={status} "
+            f"child_session={child_session_id or '-'} "
+            f"goal=\"{goal}\" "
+            f"summary=\"{summary}\""
+        )
+        meta = {
+            "delegation": "event",
+            "status": status,
+            "child_session_id": child_session_id or "",
+            "parent_session_id": parent,
+            "goal": goal,
+            "synced_at": time.time(),
+        }
+        try:
+            db.add_message(
+                session_id=parent,
+                role="system",
+                content=content,
+                metadata=meta,
+            )
+        except Exception as e:  # noqa: S110 — degradation wrapper, must never crash agent
+            logger.debug("PerpetualContext on_delegation failed: %s", e)
+
     # -- Tools ---------------------------------------------------------------
 
     def get_tool_schemas(self) -> list[dict[str, Any]]:
