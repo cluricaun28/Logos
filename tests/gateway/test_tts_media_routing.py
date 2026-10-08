@@ -11,11 +11,27 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from pathlib import Path
 
 from gateway.config import Platform, PlatformConfig
 from gateway.platforms.base import BasePlatformAdapter, MessageEvent, MessageType, SendResult
 from gateway.run import GatewayRunner
 from gateway.session import SessionSource, build_session_key
+
+
+@pytest.fixture(autouse=True)
+def _referenced_media_files():
+    """Create the /tmp files the MEDIA tags reference.
+
+    The base adapter now skips MEDIA paths whose file is not on disk
+    (``base.py`` is_file guard, added for the missing-TTS-file case). These
+    tests assert the ROUTING decision (which sender is called), not file
+    delivery, so the referenced files must exist for the guard to pass and
+    routing to be reached.
+    """
+    for name in ("speech.flac", "speech.ogg", "speech.mp3"):
+        Path(f"/tmp/{name}").write_bytes(b"")
+    yield
 
 
 class _MediaRoutingAdapter(BasePlatformAdapter):

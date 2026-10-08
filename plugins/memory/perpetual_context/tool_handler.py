@@ -28,6 +28,21 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
+def _coerce_int(value: Any, default: int) -> int:
+    """Coerce tool-call args to int.
+
+    Some providers serialize numeric JSON args as strings ("50"), which
+    breaks int comparisons like min(limit, 500) with TypeError.  Fall back
+    to `default` when the value is not a clean integer.
+    """
+    if isinstance(value, bool):
+        return int(value)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _format_msg(msg: dict[str, Any], content_limit: int | None = None) -> dict[str, Any]:
     """Normalize a DB message dict into a consistent JSON-friendly format."""
     content = msg.get("content", "")
@@ -272,7 +287,7 @@ def _handle_get_messages(tool_handler: ToolHandler, args: dict[str, Any]) -> str
         pattern=pattern,
         session_id=args.get("session_id") or None,
         role=args.get("role") or None,
-        limit=min(args.get("limit", 50), 100),
+        limit=min(_coerce_int(args.get("limit", 50), 50), 100),
     )
 
     if not results:
@@ -337,8 +352,8 @@ def _handle_query_messages(tool_handler: ToolHandler, args: dict[str, Any]) -> s
             metadata_value=meta_val,
             query=args.get("query"),
             stats=args.get("stats", False),
-            limit=min(args.get("limit", 100), 500),
-            offset=args.get("offset", 0),
+            limit=min(_coerce_int(args.get("limit", 100), 100), 500),
+            offset=_coerce_int(args.get("offset", 0), 0),
         )
         return json.dumps(result)
 
@@ -526,7 +541,14 @@ def _handle_reference_library_search(tool_handler: ToolHandler, args: dict[str, 
                             entity_name = line.split(":", 1)[1].strip().strip('"')
                             break
 
-                snippet_start = max(0, content.lower().find(query_lower) - 100)
+                _cl = content.lower()
+                _sidx = _cl.find(query_lower)
+                if _sidx < 0:
+                    for _w in query_words:
+                        if len(_w) > 2 and (_widx := _cl.find(_w)) >= 0:
+                            _sidx = _widx
+                            break
+                snippet_start = max(0, _sidx - 100) if _sidx >= 0 else 0
                 snippet = content[snippet_start:snippet_start + 300].replace("\n", " ").strip()
 
                 results.append({
@@ -557,7 +579,14 @@ def _handle_reference_library_search(tool_handler: ToolHandler, args: dict[str, 
                     try:
                         with open(file_path, "r", encoding="utf-8") as f:
                             content = f.read()
-                            snippet_start = max(0, content.lower().find(query_lower) - 100)
+                            _cl2 = content.lower()
+                            _sidx2 = _cl2.find(query_lower)
+                            if _sidx2 < 0:
+                                for _w2 in query_words:
+                                    if len(_w2) > 2 and (_widx2 := _cl2.find(_w2)) >= 0:
+                                        _sidx2 = _widx2
+                                        break
+                            snippet_start = max(0, _sidx2 - 100) if _sidx2 >= 0 else 0
                             snippet = content[snippet_start:snippet_start + 300].replace("\n", " ").strip()
 
                             results.append({
