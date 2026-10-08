@@ -26,7 +26,12 @@ import sys
 import unittest
 from unittest.mock import MagicMock, patch
 
-sys.path.insert(0, os.path.expanduser("~/.hermes/hermes-agent/plugins/memory"))
+# Test lives at <repo>/plugins/memory/perpetual_context/ — put
+# <repo>/plugins/memory on sys.path so `perpetual_context` imports as a
+# package (the old hardcoded ~/.hermes/hermes-agent/... path is gone).
+_MEMORY_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _MEMORY_DIR not in sys.path:
+    sys.path.insert(0, _MEMORY_DIR)
 
 from perpetual_context.context_bridge_builder import (
     MAX_BRIDGE_CHARS,
@@ -38,7 +43,7 @@ class TestConstants(unittest.TestCase):
     """Verify module-level constants."""
 
     def test_max_bridge_chars(self):
-        self.assertEqual(MAX_BRIDGE_CHARS, 4000)
+        self.assertEqual(MAX_BRIDGE_CHARS, 16000)
 
 
 class TestFormatActiveTasks(unittest.TestCase):

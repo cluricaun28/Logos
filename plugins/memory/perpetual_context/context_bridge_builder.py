@@ -35,6 +35,50 @@ MAX_BRIDGE_CHARS = 16000
 # Minimum quality score before appending preservation warnings
 _PRESERVATION_WARNING_THRESHOLD = 0.65
 
+# --- Per-entry caps (2026-10-07, owner-approved) --------------------------
+# The bridge is a retrieval INDEX, not a digest: each entry should be one
+# short pointer, not a re-statement of the discussion. On a single 5090 box
+# with short days the index stayed small; on a 13-user fleet the uncapped
+# text fields (which can embed a prior bridge, a tool-output dump, or a
+# multi-line decision) compound with session length and push the index past
+# MAX_BRIDGE_CHARS, forcing the FIFO truncation that drops active_tasks.
+# Capping each field keeps the index bounded regardless of session length.
+_ENTRY_SUMMARY_MAX = 120      # task/gap/error one-line summary
+_ENTRY_DESCRIPTION_MAX = 300  # "→ See turns …: <description>"
+_ENTRY_DECISION_MAX = 200     # "→ Key decision at turn #N: <text>"
+_ENTRY_RELATED_MAX = 200      # "→ Related discussion: … (<desc>)"
+
+# Self-reference markers: if an extracted entry's text is ITSELF a bridge
+# section header (the bridge pointing at a prior copy of itself), it is
+# bookkeeping noise, not active work — drop the entry. This is the defect
+# that made the bridge grow as a function of session length.
+_SELF_REF_MARKERS = (
+    "## Active Tasks",
+    "## Files Currently",
+    "## Known Errors",
+    "## Knowledge Gaps",
+    "## Historical Context",
+    "Context Bridge",
+)
+
+
+def _clip(text: Any, cap: int) -> str:
+    """Collapse whitespace and clip a field to a hard char cap."""
+    s = " ".join(str(text).split()) if text is not None else ""
+    if len(s) <= cap:
+        return s
+    return s[: cap - 1].rstrip() + "…"
+
+
+def _is_self_ref(*fields: Any) -> bool:
+    """True if any field's text is a prior bridge, not active work."""
+    for f in fields:
+        s = str(f or "")
+        if any(m in s for m in _SELF_REF_MARKERS):
+            return True
+    return False
+
+
 class ContextBridgeBuilder:
     """Formats extraction results into a compact context bridge string.
 
@@ -224,17 +268,22 @@ class ContextBridgeBuilder:
         """Format active tasks section."""
         lines = ["## Active Tasks (with retrieval pointers)"]
         for task in tasks[:3]:  # Limit to 3 most recent tasks
+            # Drop entries that are a prior bridge pointing at itself.
+            if _is_self_ref(task.get("summary"), task.get("description")):
+                continue
             turn_refs = ", ".join(f"#{t}" for t in task["turn_ids"])
-            desc = task.get("description", "full discussion")
-            lines.append(f"- **{task['summary']}**")
+            desc = _clip(task.get("description", "full discussion"), _ENTRY_DESCRIPTION_MAX)
+            summary = _clip(task["summary"], _ENTRY_SUMMARY_MAX)
+            lines.append(f"- **{summary}**")
             lines.append(f"  → See turns {turn_refs}: {desc}")
 
             # Add key decisions if available
             if task.get("decisions"):
                 for decision in task["decisions"][:2]:  # Max 2 decisions per task
+                    dec_text = _clip(decision["text"], _ENTRY_DECISION_MAX)
                     lines.append(
                         f"  → Key decision at turn #{decision['turn_id']}: "
-                        f"{decision['text']}"
+                        f"{dec_text}"
                     )
         return "\n".join(lines)
 
@@ -243,14 +292,14 @@ class ContextBridgeBuilder:
         lines = ["\n## Files Currently Being Edited"]
         for edit in edits[:3]:  # Limit to 3 most recent edits
             turn_ref = f"#{edit['last_edit_turn']}"
-            desc = edit.get("description", "patch applied")
+            desc = _clip(edit.get("description", "patch applied"), _ENTRY_DESCRIPTION_MAX)
             lines.append(f"- **{edit['path']}** (modified)")
             lines.append(f"  → Last edit: {turn_ref}, {desc}")
 
             # Add related discussion turns if available
             if edit.get("related_turns"):
                 rel_refs = ", ".join(f"#{t}" for t in edit["related_turns"][:5])
-                rel_desc = edit.get("related_description", "related discussion")
+                rel_desc = _clip(edit.get("related_description", "related discussion"), _ENTRY_RELATED_MAX)
                 lines.append(f"  → Related discussion: {rel_refs} ({rel_desc})")
         return "\n".join(lines)
 
@@ -260,7 +309,8 @@ class ContextBridgeBuilder:
         for error in errors[:3]:  # Limit to 3 most recent errors
             turn_ref = f"#{error['turn_id']}"
             fix_loc = error.get("fix_location", "N/A")
-            lines.append(f"- **{error['summary']}**")
+            summary = _clip(error["summary"], _ENTRY_SUMMARY_MAX)
+            lines.append(f"- **{summary}**")
             lines.append(
                 f"  → See {turn_ref} for full traceback "
                 f"and fix applied in {fix_loc}"
@@ -271,8 +321,11 @@ class ContextBridgeBuilder:
         """Format knowledge gaps section."""
         lines = ["\n## Knowledge Gaps (Pending Reference Library Entries)"]
         for gap in gaps[:3]:  # Limit to 3 most recent gaps
+            if _is_self_ref(gap.get("summary")):
+                continue
             turn_refs = ", ".join(f"#{t}" for t in gap["turn_ids"])
-            lines.append(f"- **{gap['summary']}** (confidence: {gap['confidence']})")
+            summary = _clip(gap["summary"], _ENTRY_SUMMARY_MAX)
+            lines.append(f"- **{summary}** (confidence: {gap['confidence']})")
             lines.append(
                 f"  → Discussed turns {turn_refs} "
                 f"— flagged for overnight RL building"
