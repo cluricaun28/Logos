@@ -409,6 +409,32 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
     return dot / (norm_a * norm_b)
 
 
+def snippet_match_index(body_lower: str, query: str, query_words: list[str]) -> int:
+    """Best character index for a snippet window in ``body_lower``.
+
+    Tries the full query string first (exact phrase), then individual query
+    terms in query order. Returns -1 when nothing matches. Fixes the
+    historical full-string ``body.find(query)`` that never matched multi-word
+    queries (measured 0/534 live results were true match windows — the rest
+    silently fell back to page top).
+
+    ``body_lower`` is lowercased here (defensively) so the match is
+    case-insensitive regardless of caller — production callers already pass
+    a lowercased body, this just makes the parameter name a guarantee.
+    """
+    body_lower = body_lower.lower()
+    idx = body_lower.find(query.lower())
+    if idx >= 0:
+        return idx
+    for word in query_words:
+        if len(word) <= 2:
+            continue
+        widx = body_lower.find(word.lower())
+        if widx >= 0:
+            return widx
+    return -1
+
+
 def _extract_snippets_batch(
     *,
     conn: Any,
@@ -428,12 +454,12 @@ def _extract_snippets_batch(
         )
 
         snippets: dict[str, str] = {}
-        query_lower = query.lower()
+        query_words = [w for w in query.lower().split() if len(w) > 2]
         max_len = 300
 
         for row in cursor.fetchall():
             fp, body = row
-            idx = body.lower().find(query_lower)
+            idx = snippet_match_index(body.lower(), query, query_words)
 
             if idx >= 0:
                 start = max(0, idx - 100)
