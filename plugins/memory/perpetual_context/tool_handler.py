@@ -12,6 +12,7 @@ import contextlib
 import json
 import logging
 import os
+import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -482,17 +483,39 @@ def _hybrid_rl_search(query: str, top_k: int) -> list[dict[str, Any]] | None:
         )
         if not rows:
             return []
+        # WS3 section-level injection (A/B 2026-10-07, shipped TWEAK):
+        # per result, the hit-section(s) + one-line summary + full verbatim
+        # page path pointer, capped 5K per page (5K cap mandatory: uncapped
+        # measured 105% bloat). Sections ordered by hit density before
+        # capping; britannica/heading-less pages are whole-page. Read-only
+        # disk access; any failure degrades to snippet-only (no "content").
+        # The snippet below is the per-term match window (10/7 fix).
+        from . import rl_sections  # noqa: PLC0415
+        from .rl_index import RL_BASE_DIR  # noqa: PLC0415
+        _rl_terms = [
+            t for t in re.findall(r"[A-Za-z0-9_]+", query.lower()) if len(t) > 1
+        ]
         out: list[dict[str, Any]] = []
         for r in rows:
             fp = r.get("file_path", "")
             directory = os.path.dirname(fp) or "."
-            out.append({
+            entry = {
                 "file": os.path.basename(fp),
                 "directory": directory,
                 "name": r.get("title") or os.path.basename(fp)[:-3].replace("-", " ").title(),
                 "score": r.get("score", 0),
                 "snippet": (r.get("snippet", "") + "...") if r.get("snippet") else "",
-            })
+            }
+            try:
+                abs_path = os.path.join(RL_BASE_DIR, fp)
+                with open(abs_path, "r", encoding="utf-8", errors="replace") as f:
+                    page = f.read()
+                entry["content"] = rl_sections.build_page_envelope(
+                    page, _rl_terms, file_path=fp, abs_path=abs_path,
+                )
+            except (OSError, UnicodeError):
+                pass  # snippet-only degradation — the search still returns
+            out.append(entry)
         return out
     except Exception as e:  # noqa: S110 — degradation wrapper, must never break the tool
         logger.debug("Hybrid RL search unavailable, using legacy scan: %s", e)
