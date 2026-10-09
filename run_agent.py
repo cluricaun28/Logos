@@ -1765,12 +1765,32 @@ class AIAgent:
         self._memory_nudge_interval = 10
         self._turns_since_memory = 0
         self._iters_since_skill = 0
+        # Per-turn bounded MEMORY injection (WS1, A/B 2026-10-07).
+        # "bounded" (default): standing core + top-N appended per turn at the
+        # tail of the effective system prompt; "full": legacy frozen full block.
+        self._memory_injection_mode = "full"
+        self._memory_injection_top_n = 5
+        self._memory_injection_gate = False
+        self._memory_injection_gate_threshold = 0.25
+        self._mem_inj_cache: dict = {}
         if not skip_memory:
             try:
                 mem_config = _agent_cfg.get("memory", {})
                 self._memory_enabled = mem_config.get("memory_enabled", False)
                 self._user_profile_enabled = mem_config.get("user_profile_enabled", False)
                 self._memory_nudge_interval = int(mem_config.get("nudge_interval", 10))
+                self._memory_injection_mode = str(
+                    mem_config.get("injection", "bounded")
+                ).strip().lower()
+                if self._memory_injection_mode not in ("bounded", "full"):
+                    self._memory_injection_mode = "bounded"
+                self._memory_injection_top_n = int(mem_config.get("injection_top_n", 5))
+                self._memory_injection_gate = bool(
+                    mem_config.get("injection_strong_match_gate", False)
+                )
+                self._memory_injection_gate_threshold = float(
+                    mem_config.get("injection_strong_match_threshold", 0.25)
+                )
                 if self._memory_enabled or self._user_profile_enabled:
                     from tools.memory_tool import MemoryStore
                     self._memory_store = MemoryStore(
@@ -1778,7 +1798,7 @@ class AIAgent:
                         user_char_limit=mem_config.get("user_char_limit", 1375),
                     )
                     self._memory_store.load_from_disk()
-            except (OSError, PermissionError, ImportError, AttributeError, TypeError):
+            except (OSError, PermissionError, ImportError, AttributeError, TypeError, ValueError):
                 pass  # Memory is optional -- don't break agent init
         
 
@@ -4782,6 +4802,71 @@ class AIAgent:
 
 
 
+    def _memory_injection_block_for_messages(self, messages: list) -> str:
+        """Per-turn bounded MEMORY block (WS1, A/B 2026-10-07).
+
+        Returns the standing-core + top-N MEMORY block for the current turn,
+        or "" when bounded injection is not active (disabled, "full" mode,
+        no memory, no user message). Appended at the TAIL of the effective
+        system prompt so the per-session stable prefix (cached system prompt
+        + ephemeral) stays byte-identical — only this block varies per turn.
+
+        Turn text mirrors the A/B corpus definition: the current (last) user
+        message plus the up-to-3 messages before it, "[role]: text" lines,
+        truncated to 8000 chars. Cached per turn-text (one embed per turn,
+        not per tool-loop iteration); the cache is cleared at the
+        archive-boundary snapshot refresh.
+        """
+        if (not getattr(self, "_memory_store", None)
+                or not getattr(self, "_memory_enabled", False)
+                or getattr(self, "_memory_injection_mode", "full") != "bounded"):
+            return ""
+        try:
+            import zlib
+
+            user_idx = None
+            for idx in range(len(messages) - 1, -1, -1):
+                if messages[idx].get("role") == "user":
+                    user_idx = idx
+                    break
+            if user_idx is None:
+                return ""
+
+            def _msg_text(msg: dict) -> str:
+                content = msg.get("content", "")
+                if isinstance(content, str):
+                    return content
+                if isinstance(content, list):
+                    return " ".join(
+                        str(p.get("text", "")) for p in content
+                        if isinstance(p, dict)
+                    )
+                return str(content)
+
+            parts = [
+                f"{msg.get('role', '')}: {_msg_text(msg)}"
+                for msg in messages[max(0, user_idx - 3):user_idx]
+            ]
+            parts.append(f"user: {_msg_text(messages[user_idx])}")
+            turn_text = "\n".join(parts)[:8000]
+
+            key = zlib.crc32(turn_text.encode("utf-8", "replace"))
+            cached = self._mem_inj_cache.get(key)
+            if cached is not None:
+                return cached
+            block = self._memory_store.build_injection_block(
+                turn_text,
+                top_n=self._memory_injection_top_n,
+                strong_match_gate=self._memory_injection_gate,
+                strong_match_threshold=self._memory_injection_gate_threshold,
+            ) or ""
+            if len(self._mem_inj_cache) >= 16:
+                self._mem_inj_cache.pop(next(iter(self._mem_inj_cache)))
+            self._mem_inj_cache[key] = block
+            return block
+        except Exception:  # noqa: S110 — injection must never break the turn
+            return ""
+
     def _build_system_prompt(self, system_message: str = None) -> str:
         """
         Assemble the full system prompt from all layers.
@@ -4872,9 +4957,15 @@ class AIAgent:
 
         if self._memory_store:
             if self._memory_enabled:
-                mem_block = self._memory_store.format_for_system_prompt("memory")
-                if mem_block:
-                    prompt_parts.append(mem_block)
+                # Bounded injection (WS1): the per-turn core+top-N block is
+                # appended at API-call time (tail of the effective system
+                # prompt), so the frozen full block must NOT also be built
+                # into the cached prompt. "full" mode keeps the legacy
+                # frozen-block behavior exactly.
+                if self._memory_injection_mode != "bounded":
+                    mem_block = self._memory_store.format_for_system_prompt("memory")
+                    if mem_block:
+                        prompt_parts.append(mem_block)
             # USER.md is always included when enabled.
             if self._user_profile_enabled:
                 user_block = self._memory_store.format_for_system_prompt("user")
@@ -9490,6 +9581,8 @@ class AIAgent:
                 self._memory_store.refresh_snapshot()
             except Exception as _mem_refresh_err:  # noqa: BLE001 — fail-open
                 logger.debug("memory snapshot refresh failed: %s", _mem_refresh_err)
+            # Snapshot entries changed -> per-turn bounded-injection cache is stale.
+            self._mem_inj_cache.clear()
         new_system_prompt = self._build_system_prompt(system_message)
         # P1b mech 3 (2026-09-21): pin the old system-prompt bytes unless
         # the rebuild changed real content or the date rolled over —
@@ -10523,6 +10616,14 @@ class AIAgent:
             effective_system = self._cached_system_prompt or ""
             if self.ephemeral_system_prompt:
                 effective_system = (effective_system + "\n\n" + self.ephemeral_system_prompt).strip()
+            # Per-turn bounded MEMORY injection (WS1): tail of the system
+            # prompt, so the stable prefix above stays cacheable.
+            _mem_injection = self._memory_injection_block_for_messages(messages)
+            if _mem_injection:
+                effective_system = (
+                    (effective_system + "\n\n" + _mem_injection).strip()
+                    if effective_system else _mem_injection
+                )
             # Always ensure a system message is present at position 0 — vLLM
             # returns 400 if the first message isn't a system message.  Use a
             # minimal placeholder when no system prompt is configured.
@@ -11241,6 +11342,16 @@ class AIAgent:
             effective_system = active_system_prompt or ""
             if self.ephemeral_system_prompt:
                 effective_system = (effective_system + "\n\n" + self.ephemeral_system_prompt).strip()
+            # Per-turn bounded MEMORY injection (WS1): appended at the very
+            # tail so everything above (cached prompt + ephemeral) keeps a
+            # byte-identical per-session prefix; only this block varies
+            # per turn.
+            _mem_injection = self._memory_injection_block_for_messages(messages)
+            if _mem_injection:
+                effective_system = (
+                    (effective_system + "\n\n" + _mem_injection).strip()
+                    if effective_system else _mem_injection
+                )
             # NOTE: Plugin context from pre_llm_call hooks is injected into the
             # user message (see injection block above), NOT the system prompt.
             # This is intentional — system prompt modifications break the prompt

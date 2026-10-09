@@ -123,6 +123,10 @@ class MemoryStore:
         self.user_char_limit = user_char_limit
         # Frozen snapshot for system prompt -- set once at load_from_disk()
         self._system_prompt_snapshot: Dict[str, str] = {"memory": "", "user": ""}
+        # Frozen snapshot entries (the set per-turn bounded injection selects
+        # over; never mutated mid-session, refreshed at the archive boundary
+        # with the rendered snapshot).
+        self._snapshot_memory_entries: List[str] = []
 
     def load_from_disk(self):
         """Load entries from MEMORY.md and USER.md, capture system prompt snapshot."""
@@ -141,6 +145,7 @@ class MemoryStore:
             "memory": self._render_block("memory", self.memory_entries),
             "user": self._render_block("user", self.user_entries),
         }
+        self._snapshot_memory_entries = list(self.memory_entries)
 
     def refresh_snapshot(self):
         """Re-capture the system-prompt snapshot from disk.
@@ -384,6 +389,49 @@ class MemoryStore:
         """
         block = self._system_prompt_snapshot.get(target, "")
         return block if block else None
+
+    def build_injection_block(self, turn_text: str, top_n: int = 5,
+                              strong_match_gate: bool = False,
+                              strong_match_threshold: float = 0.25) -> Optional[str]:
+        """Per-turn bounded MEMORY injection (WS1, A/B 2026-10-07).
+
+        Returns the standing-core + top-N block for the given turn, selected
+        over the FROZEN snapshot entries (mid-session writes never change
+        the standing layer until the archive-boundary refresh, same contract
+        as the full-block snapshot). Returns None when there is nothing to
+        inject. On embedder failure / cold start the full snapshot block is
+        returned byte-identical (the OLD behavior).
+        """
+        if target_entries := self._snapshot_memory_entries:
+            block = self._system_prompt_snapshot.get("memory", "")
+            if not target_entries or not block:
+                return None
+            try:
+                from agent.memory_injection import build_memory_injection
+                from agent.perpetual_context_db import EmbeddingEngine
+            except (ImportError, ModuleNotFoundError):
+                # Dependency unavailable -> byte-identical full-block fallback.
+                return block or None
+
+            def embed_fn(text: str):
+                try:
+                    return EmbeddingEngine.get().embed(text)
+                except Exception:  # noqa: S110 — degradation: fall back to full block
+                    return None
+
+            try:
+                raw_block = ENTRY_DELIMITER.join(target_entries)
+                out = build_memory_injection(
+                    raw_block, turn_text, embed_fn,
+                    top_n=top_n,
+                    char_limit=self.memory_char_limit,
+                    strong_match_gate=strong_match_gate,
+                    strong_match_threshold=strong_match_threshold,
+                )
+            except Exception:  # noqa: S110 — injection must never break the agent
+                return block or None
+            return out or (block or None)
+        return None
 
     # -- Internal helpers --
 
