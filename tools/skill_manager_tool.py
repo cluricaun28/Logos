@@ -436,7 +436,7 @@ def _generate_rl_lookup_card(skill_name: str, content: str, category: str = None
             f"---",
             f"name: {skill_name}",
             f"category: {category or 'general'}",
-            f"description: {description[:200] if description else 'Skill for task automation'}",
+            f"description: {json.dumps(description[:200]) if description else 'Skill for task automation'}",
             f"---",
             "",
             f"# {skill_name}",
