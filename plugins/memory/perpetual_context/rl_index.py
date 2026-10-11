@@ -16,6 +16,7 @@ Usage:
 
 from __future__ import annotations
 
+import fcntl
 import json
 import logging
 import os
@@ -38,6 +39,29 @@ RL_INDEX_DB_PATH = os.path.join(_RL_HOME, "rl_index.db")
 RL_BASE_DIR = os.path.join(_RL_HOME, "reference-library")
 RL_EMBED_DIM = 384
 RL_EMBED_MAX_CONTENT_LEN = 8000
+# Cross-process writer-lock timeout (s). Env-overridable for tests.
+RL_WRITER_LOCK_TIMEOUT = float(os.environ.get("RL_INDEX_WRITER_LOCK_TIMEOUT", "90"))
+
+# Process-level writer-lock state (module-global: the OS flock is per-open-
+# file-description, so reentrancy within one process must be tracked outside
+# any single fd/instance). See RLIndex._writer_lock.
+_PROCESS_LOCK_TOKEN: int | None = None  # pid holding the lock for this process
+_PROCESS_LOCK_DEPTH = 0                 # holds outstanding in this process
+_PROCESS_LOCK_FD = None                 # fd carrying the OS flock (module-held)
+
+
+def adopt_process_writer_lock() -> None:
+    """Mark THIS process as the RL-index writer-lock holder.
+
+    Call from a wrapper script that has already taken an exclusive flock
+    on <db>.writer.lock on its own fd (keep that fd open for the process
+    lifetime). RLIndex write paths in this process then re-enter instead
+    of contending against the wrapper's fd. Pre-merge callers guard with
+    hasattr(); on old builds this function simply does not exist.
+    """
+    global _PROCESS_LOCK_TOKEN, _PROCESS_LOCK_DEPTH
+    _PROCESS_LOCK_TOKEN = os.getpid()
+    _PROCESS_LOCK_DEPTH = 1
 EMBED_BATCH_SIZE = 64
 PROGRESS_LOG_INTERVAL = 512
 RL_SEMANTIC_WEIGHT = 0.4
@@ -158,6 +182,74 @@ class RLIndex:
         self._embedding_engine: Any | None = None
         self._embedding_model: Any | None = None
 
+    # -------------------------------------------------------------------
+    # Cross-process writer lock
+    # -------------------------------------------------------------------
+
+    def _writer_lock(self) -> None:
+        """Acquire the exclusive cross-process writer lock for this DB.
+
+        The FTS5 tables are external-content (content='rl_files' /
+        content='rl_chunks'). rl_builder.build_index drops the rl_files
+        sync triggers for its bulk phase; any content-table commit made by
+        a DIFFERENT process during that trigger-drop window skips the FTS
+        shadow update, leaving orphaned docsize/segment entries that later
+        surface as "database disk image is malformed" on MATCH (recurring
+        10/4, 10/10, 10/11 — see RL
+        technology/rl-fts-malformed-root-cause-2026-10-11.md).
+
+        All write paths (build_index, reindex_stale, update_file,
+        remove_file, FTS self-heal rebuild) must hold this lock. flock is
+        auto-released by the kernel if a writer dies.
+
+        Reentrancy is PROCESS-level (not fd-level): a wrapper script may
+        hold the OS flock on its own fd for its whole lifetime and call
+        adopt_process_writer_lock(); RLIndex write paths in that process
+        then re-enter without contending against the wrapper's fd. The
+        OS lock itself is held on the module-level _PROCESS_LOCK_FD (or
+        the wrapper's fd), so release order across instances never leaks
+        the lock.
+        """
+        global _PROCESS_LOCK_TOKEN, _PROCESS_LOCK_DEPTH, _PROCESS_LOCK_FD
+        if _PROCESS_LOCK_TOKEN == os.getpid():
+            _PROCESS_LOCK_DEPTH += 1
+            return
+        lock_path = self._db_path + ".writer.lock"
+        f = open(lock_path, "a+")
+        deadline = time.monotonic() + RL_WRITER_LOCK_TIMEOUT
+        while True:
+            try:
+                fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except (BlockingIOError, InterruptedError, PermissionError):
+                if time.monotonic() >= deadline:
+                    f.close()
+                    raise sqlite3.OperationalError(
+                        f"rl_index writer lock busy after "
+                        f"{RL_WRITER_LOCK_TIMEOUT:.0f}s ({lock_path})"
+                    )
+                time.sleep(0.1)
+        _PROCESS_LOCK_TOKEN = os.getpid()
+        _PROCESS_LOCK_DEPTH = 1
+        _PROCESS_LOCK_FD = f
+
+    def _writer_unlock(self) -> None:
+        global _PROCESS_LOCK_TOKEN, _PROCESS_LOCK_DEPTH, _PROCESS_LOCK_FD
+        if _PROCESS_LOCK_DEPTH <= 0:
+            return
+        _PROCESS_LOCK_DEPTH -= 1
+        if _PROCESS_LOCK_DEPTH > 0:
+            return
+        fd = _PROCESS_LOCK_FD
+        if fd is not None:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+                fd.close()
+            except OSError:
+                pass
+        _PROCESS_LOCK_FD = None
+        _PROCESS_LOCK_TOKEN = None
+
     @property
     def is_initialized(self) -> bool:
         return self._initialized
@@ -253,10 +345,14 @@ class RLIndex:
                     "RL FTS index out of sync (indexed=%d, content=%d) — rebuilding",
                     n_indexed, n_content,
                 )
-                self._conn.execute(
-                    "INSERT INTO rl_index_fts(rl_index_fts) VALUES('rebuild')"
-                )
-                self._conn.commit()
+                self._writer_lock()
+                try:
+                    self._conn.execute(
+                        "INSERT INTO rl_index_fts(rl_index_fts) VALUES('rebuild')"
+                    )
+                    self._conn.commit()
+                finally:
+                    self._writer_unlock()
                 logger.info("RL FTS index rebuilt")
         except (sqlite3.Error, AttributeError) as e:
             logger.debug("FTS self-heal check failed: %s", e)
@@ -280,11 +376,15 @@ class RLIndex:
                         "(indexed=%d, content=%d) — rebuilding",
                         n_chunk_indexed, n_chunks,
                     )
-                    self._conn.execute(
-                        "INSERT INTO rl_chunks_fts(rl_chunks_fts)"
-                        " VALUES('rebuild')"
-                    )
-                    self._conn.commit()
+                    self._writer_lock()
+                    try:
+                        self._conn.execute(
+                            "INSERT INTO rl_chunks_fts(rl_chunks_fts)"
+                            " VALUES('rebuild')"
+                        )
+                        self._conn.commit()
+                    finally:
+                        self._writer_unlock()
                     logger.info("RL chunk FTS index rebuilt")
         except (sqlite3.Error, AttributeError) as e:
             logger.debug("Chunk FTS self-heal check failed: %s", e)
@@ -309,41 +409,57 @@ class RLIndex:
 
     def build_index(self, rl_base: str | None = None) -> dict:
         from . import rl_builder  # noqa: PLC0415
-        return rl_builder.build_index(
-            conn=self._conn, lock=self._lock,
-            rl_base=rl_base or RL_BASE_DIR,
-            file_info_extractor=_extract_file_info,
-            embed_batch_fn=self._make_embed_batch_fn(),
-        )
+        self._writer_lock()
+        try:
+            return rl_builder.build_index(
+                conn=self._conn, lock=self._lock,
+                rl_base=rl_base or RL_BASE_DIR,
+                file_info_extractor=_extract_file_info,
+                embed_batch_fn=self._make_embed_batch_fn(),
+            )
+        finally:
+            self._writer_unlock()
 
     def update_file(self, file_path_str: str) -> bool:
         from . import rl_builder  # noqa: PLC0415
-        return rl_builder.update_file(
-            conn=self._conn, lock=self._lock,
-            file_path_str=file_path_str,
-            file_info_extractor=_extract_file_info,
-            embed_fn=self._make_embed_fn(),
-            embed_dim=RL_EMBED_DIM,
-        )
+        self._writer_lock()
+        try:
+            return rl_builder.update_file(
+                conn=self._conn, lock=self._lock,
+                file_path_str=file_path_str,
+                file_info_extractor=_extract_file_info,
+                embed_fn=self._make_embed_fn(),
+                embed_dim=RL_EMBED_DIM,
+            )
+        finally:
+            self._writer_unlock()
 
     def remove_file(self, file_path_str: str) -> bool:
         from . import rl_builder  # noqa: PLC0415
-        return rl_builder.remove_file(
-            conn=self._conn, lock=self._lock,
-            file_path_str=file_path_str,
-            rl_base=RL_BASE_DIR,
-        )
+        self._writer_lock()
+        try:
+            return rl_builder.remove_file(
+                conn=self._conn, lock=self._lock,
+                file_path_str=file_path_str,
+                rl_base=RL_BASE_DIR,
+            )
+        finally:
+            self._writer_unlock()
 
     def reindex_stale(self) -> int:
         from . import rl_builder  # noqa: PLC0415
-        return rl_builder.reindex_stale(
-            conn=self._conn, lock=self._lock,
-            file_info_extractor=_extract_file_info,
-            embed_batch_fn=self._make_embed_batch_fn(),
-            update_file_fn=self.update_file,
-            rl_base=RL_BASE_DIR,
-            embed_dim=RL_EMBED_DIM,
-        )
+        self._writer_lock()
+        try:
+            return rl_builder.reindex_stale(
+                conn=self._conn, lock=self._lock,
+                file_info_extractor=_extract_file_info,
+                embed_batch_fn=self._make_embed_batch_fn(),
+                update_file_fn=self.update_file,
+                rl_base=RL_BASE_DIR,
+                embed_dim=RL_EMBED_DIM,
+            )
+        finally:
+            self._writer_unlock()
 
     def search(
         self,
