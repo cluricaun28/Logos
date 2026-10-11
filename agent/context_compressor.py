@@ -1011,6 +1011,14 @@ The user has requested that this compaction PRIORITISE preserving all informatio
                 },
                 "messages": [{"role": "user", "content": prompt}],
                 "max_tokens": int(summary_budget * 1.3),
+                # C7-class (2026-08-17, see audit_service/synthesis_service):
+                # Qwen3.x thinking mode can exhaust the token budget with
+                # zero visible content (content=None → silent empty summary
+                # → context amnesia at every compaction). Compression is a
+                # mechanical extraction task — keep it deterministic and
+                # fast. 10/11 root-cause + probes: RL
+                # technology/aux-thinking-mode-empty-content-2026-10-11.md.
+                "extra_body": {"chat_template_kwargs": {"enable_thinking": False}},
                 # timeout resolved from auxiliary.compression.timeout config by call_llm
             }
             if self.summary_model:
