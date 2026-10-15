@@ -193,6 +193,36 @@ async def test_send_typing_retries_without_general_thread_when_not_found():
 
 
 @pytest.mark.asyncio
+async def test_send_typing_swallows_flood_control_retry_after():
+    """Regression (2026-10-15 errlog sweep): RetryAfter from send_chat_action
+    escaped the old RuntimeError-only handler and aborted the background
+    message-processing task ("Task exception was never retrieved"), losing
+    the agent reply. Typing failures are non-fatal and must never escape."""
+    adapter = _make_adapter()
+
+    async def mock_send_chat_action(**kwargs):
+        raise FakeRetryAfter(2)
+
+    adapter._bot = SimpleNamespace(send_chat_action=mock_send_chat_action)
+
+    # Must not raise — old code (except RuntimeError) let RetryAfter through.
+    await adapter.send_typing("123", metadata={"thread_id": "99999"})
+
+
+@pytest.mark.asyncio
+async def test_send_typing_swallows_network_error():
+    """NetworkError from send_chat_action is equally non-fatal for typing."""
+    adapter = _make_adapter()
+
+    async def mock_send_chat_action(**kwargs):
+        raise FakeNetworkError("Connection reset")
+
+    adapter._bot = SimpleNamespace(send_chat_action=mock_send_chat_action)
+
+    await adapter.send_typing("123", metadata={"thread_id": "99999"})
+
+
+@pytest.mark.asyncio
 async def test_send_retries_without_thread_on_thread_not_found():
     """When message_thread_id causes 'thread not found', retry without it."""
     adapter = _make_adapter()

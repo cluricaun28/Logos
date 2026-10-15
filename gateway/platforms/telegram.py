@@ -2292,13 +2292,16 @@ class TelegramAdapter(BasePlatformAdapter):
                         )
                     else:
                         raise
-            except (RuntimeError) as e:
-                # Typing failures are non-fatal; log at debug level only.
-                logger.debug(
-                    "[%s] Failed to send Telegram typing indicator: %s",
+            except Exception as e:
+                # Typing failures are non-fatal; log at warning level only.
+                # (2026-10-15 errlog sweep: RetryAfter/NetworkError from
+                # send_chat_action escaped the old RuntimeError-only handler
+                # and aborted the background message-processing task —
+                # "Task exception was never retrieved" — losing the reply.)
+                logger.warning(
+                    "[%s] Failed to send Telegram typing indicator (non-fatal): %s",
                     self.name,
                     e,
-                    exc_info=True,
                 )
     
     async def get_chat_info(self, chat_id: str) -> Dict[str, Any]:
