@@ -529,7 +529,15 @@ def reindex_stale(
     rl_base: str = RL_BASE_DIR,
     embed_dim: int = RL_EMBED_DIM,
 ) -> int:
-    """Re-index files whose mtime has changed. Returns count updated."""
+    """Re-index files whose mtime has changed, and discover new files.
+
+    Returns count updated. New-file discovery (2026-10-15, measured on the
+    fleet box): previously only rows already tracked in rl_files were
+    scanned, so files added to disk stayed invisible to search until a full
+    build_index() ran — the first 10 book-catalog pages (RL
+    library/corpus-catalog) plus 7 other pages were missing from the index
+    and ranked absent from top-20 on their own topical queries.
+    """
     stale: list[str] = []
     deleted: list[str] = []
 
@@ -537,8 +545,8 @@ def reindex_stale(
         cursor = conn.execute(
             "SELECT file_path, mtime FROM rl_files"
         )
-        for row in cursor.fetchall():
-            fp, recorded_mtime = row
+        rows = cursor.fetchall()
+        for fp, recorded_mtime in rows:
             full_path = os.path.join(rl_base, fp)
             try:
                 actual_mtime = os.path.getmtime(full_path)
@@ -546,6 +554,17 @@ def reindex_stale(
                     stale.append(fp)
             except FileNotFoundError:
                 deleted.append(fp)
+
+        # Discovery: .md files on disk that were never tracked. They join
+        # the stale set; the extractor below reads them fresh from disk.
+        tracked = {fp for fp, _mt in rows}
+        for dirpath, _dirnames, filenames in os.walk(rl_base):
+            for fn in filenames:
+                if not fn.endswith(".md"):
+                    continue
+                rel = os.path.relpath(os.path.join(dirpath, fn), rl_base)
+                if rel not in tracked:
+                    stale.append(rel)
 
         for fp in deleted:
             conn.execute("DELETE FROM rl_files WHERE file_path = ?", (fp,))
