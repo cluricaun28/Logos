@@ -7533,10 +7533,23 @@ class AIAgent:
                         # to non-streaming on the next attempt via _disable_streaming.
                         result["error"] = e
                         return
+            except InterruptedError:
+                # Pre-set /stop: the retry loop's interrupt check raised before
+                # any attempt. Store it in result so the post-loop
+                # `result["error"]` handling re-raises it even when this thread
+                # exits before the main poll loop's first t.is_alive() check —
+                # without this the method silently returned None (10/15 b4
+                # flake: test_interrupt_before_first_attempt, load-sensitive).
+                result["error"] = InterruptedError(
+                    "Agent interrupted before stream retry"
+                )
+                return
             finally:
                 request_client = request_client_holder.get("client")
                 if request_client is not None:
-                    self._close_request_openai_client(request_client, reason="stream_request_complete")
+                    self._close_request_openai_client(
+                        request_client, reason="stream_request_complete"
+                    )
 
         _stream_stale_timeout_base = float(logos_env("STREAM_STALE_TIMEOUT", 180.0))
         # Local providers (Ollama, oMLX, llama-cpp) can take 300+ seconds
