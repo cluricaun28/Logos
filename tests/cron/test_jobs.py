@@ -132,10 +132,16 @@ class TestComputeNextRun:
 
         assert compute_next_run(schedule) == run_at
 
-    def test_once_past_returns_none(self):
-        past = (datetime.now() - timedelta(hours=1)).isoformat()
+    def test_once_stale_past_catches_up_to_now(self, monkeypatch):
+        """A never-run one-shot whose run_at is past beyond the grace window
+        catches up to ``now`` (fires late) instead of returning None — a None
+        here means the job is silently dead forever (incident 2026-10-16)."""
+        now = datetime(2026, 3, 18, 4, 30, 0, tzinfo=timezone.utc)
+        monkeypatch.setattr("cron.jobs._logos_now", lambda: now)
+        past = "2026-03-18T03:00:00+00:00"  # 90 min before now, beyond 120s grace
         schedule = {"kind": "once", "run_at": past}
-        assert compute_next_run(schedule) is None
+        result = compute_next_run(schedule)
+        assert result == now.isoformat()
 
     def test_once_with_last_run_returns_none_even_within_grace(self, monkeypatch):
         now = datetime(2026, 3, 18, 4, 22, 3, tzinfo=timezone.utc)
@@ -618,14 +624,17 @@ class TestGetDueJobs:
         assert [job["id"] for job in due] == ["oneshot-recover"]
         assert get_job("oneshot-recover")["next_run_at"] == run_at
 
-    def test_broken_stale_one_shot_without_next_run_is_not_recovered(self, tmp_cron_dir, monkeypatch):
+    def test_broken_stale_one_shot_without_next_run_catches_up(self, tmp_cron_dir, monkeypatch):
+        """A never-run one-shot stuck at next_run_at=None with a stale run_at
+        is caught up to ``now`` and fired, not left silently dead (incident
+        2026-10-16: a one-shot created 16 min after its run_at never fired)."""
         now = datetime(2026, 3, 18, 4, 30, 0, tzinfo=timezone.utc)
         monkeypatch.setattr("cron.jobs._logos_now", lambda: now)
 
         save_jobs(
             [{
                 "id": "oneshot-stale",
-                "name": "Too old",
+                "name": "Catch up",
                 "prompt": "Word of the day",
                 "schedule": {"kind": "once", "run_at": "2026-03-18T04:22:00+00:00", "display": "once at 2026-03-18 04:22"},
                 "schedule_display": "once at 2026-03-18 04:22",
@@ -644,8 +653,10 @@ class TestGetDueJobs:
             }]
         )
 
-        assert get_due_jobs() == []
-        assert get_job("oneshot-stale")["next_run_at"] is None
+        due = get_due_jobs()
+        assert [job["id"] for job in due] == ["oneshot-stale"]
+        # Caught up to now instead of left at None (silent intent-loss).
+        assert get_job("oneshot-stale")["next_run_at"] == now.isoformat()
 
 
 class TestEnabledToolsets:

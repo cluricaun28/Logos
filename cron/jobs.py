@@ -241,6 +241,16 @@ def _recoverable_oneshot_run_at(
     One-shot jobs get a small grace window so jobs created a few seconds after
     their requested minute still run on the next tick. Once a one-shot has
     already run, it is never eligible again.
+
+    A never-run one-shot whose run_at is in the past BEYOND the grace window
+    catches up immediately (returns ``now``) instead of being dropped. A
+    one-shot is a single intent: firing late is recoverable (the output is
+    timestamped), but returning None here makes the job silently dead forever
+    — it is born with ``next_run_at=None`` at create time and this same
+    function is the only recovery path in ``get_due_jobs``, so a None is a
+    silent intent-loss with no error anywhere. Incident 2026-10-16: a
+    one-shot created 16 minutes after its run_at (agent took 16 min to
+    compose the prompt) never fired and had to be re-executed by hand.
     """
     if schedule.get("kind") != "once":
         return None
@@ -254,7 +264,8 @@ def _recoverable_oneshot_run_at(
     run_at_dt = _ensure_aware(datetime.fromisoformat(run_at))
     if run_at_dt >= now - timedelta(seconds=ONESHOT_GRACE_SECONDS):
         return run_at
-    return None
+    # Stale but never run — catch up now.
+    return now.isoformat()
 
 
 def _compute_grace_seconds(schedule: dict) -> int:
