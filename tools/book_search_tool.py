@@ -35,6 +35,7 @@ _MODULE_CANDIDATES = (
 
 _mod = None
 _load_attempted = False
+_check_cache = None
 
 
 def _bi():
@@ -57,16 +58,32 @@ def _bi():
 
 
 def check_book_index_ready() -> bool:
-    """Tool is available only when the index DB exists and has docs."""
+    """Tool is available only when the index DB exists and has docs.
+
+    Bounded probe + per-process memo. This check runs on EVERY tool-discovery
+    pass; a full ``COUNT(*)`` over the 260 GB FTS5 index walked the entire
+    index on each pass (measured 10/18: 1.1 TB of reads in a single
+    test-suite run, stalling the gateway test batch). A ``LIMIT 1`` rowid
+    probe is O(1), and a definitive True is memoized for the process
+    lifetime (the nightly build repopulates, never removes, the DB).
+    False is NOT memoized — the first-ever build flips it to True on the
+    next discovery pass.
+    """
+    global _check_cache
+    if _check_cache is True:
+        return True
     m = _bi()
     if m is None or not os.path.exists(getattr(m, "DB", "")):
         return False
     try:
         import sqlite3
         con = sqlite3.connect(m.DB)
-        n = con.execute("SELECT COUNT(*) FROM books_fts").fetchone()[0]
-        con.close()
-        return n > 0
+        try:
+            row = con.execute("SELECT rowid FROM books_fts LIMIT 1").fetchone()
+        finally:
+            con.close()
+        _check_cache = bool(row)
+        return _check_cache
     except Exception:
         return False
 

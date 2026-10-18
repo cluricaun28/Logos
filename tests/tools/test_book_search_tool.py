@@ -41,6 +41,7 @@ def _fresh_tool_module(monkeypatch, db_path):
     import tools.book_search_tool as mod
     mod._mod = None
     mod._load_attempted = False
+    mod._check_cache = None
     return mod
 
 
@@ -77,6 +78,41 @@ class TestCheckFn:
         ])
         mod = _fresh_tool_module(monkeypatch, db)
         assert mod.check_book_index_ready() is True
+
+    def test_check_is_bounded_probe_and_memoized(self, monkeypatch, tmp_path):
+        # 10/18: the check ran SELECT COUNT(*) — a FULL walk of the 260 GB FTS
+        # index — on every tool-discovery pass (1.1 TB of reads in one test
+        # suite run, stalling the gateway batch). It must be a bounded probe,
+        # and a True result must be memoized (no re-query on later passes).
+        db = _make_scratch_db(tmp_path, [
+            ("B", "A", "gutenberg", "/x/1.txt", "hello world"),
+        ])
+        mod = _fresh_tool_module(monkeypatch, db)
+        mod._check_cache = None
+        calls = []
+        real_connect = sqlite3.connect
+
+        class _SpyConn:
+            # sqlite3.Connection attributes are read-only (py3.12) — wrap it.
+            def __init__(self, inner):
+                self._inner = inner
+
+            def execute(self, sql, *args):
+                calls.append(sql)
+                return self._inner.execute(sql, *args)
+
+            def close(self):
+                self._inner.close()
+
+        def spy_connect(*a, **k):
+            return _SpyConn(real_connect(*a, **k))
+        monkeypatch.setattr(sqlite3, "connect", spy_connect)
+        assert mod.check_book_index_ready() is True
+        assert len(calls) == 1
+        assert "count" not in calls[0].lower()
+        assert "limit 1" in calls[0].lower()
+        assert mod.check_book_index_ready() is True
+        assert len(calls) == 1  # memoized — no second probe
 
 
 class TestHandler:
