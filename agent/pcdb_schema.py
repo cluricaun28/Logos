@@ -96,8 +96,12 @@ class _SchemaManager:
         for trigger in ("messages_ai", "messages_ad", "messages_au"):
             try:
                 conn.execute(f"DROP TRIGGER IF EXISTS {trigger}")
-            except sqlite3.Error:
-                logger.debug("Drop trigger failed")
+            except sqlite3.Error as e:
+                # 2026-10-17 sweep: a swallowed drop failure made the bare
+                # CREATE below hard-fail init ("trigger messages_ai already
+                # exists") -> PCD read-only. Warn loudly; CREATE uses
+                # IF NOT EXISTS as the safety net.
+                logger.warning("Drop trigger %s failed: %s (CREATE falls back to IF NOT EXISTS)", trigger, e)
 
         conn.execute("""
             CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts
@@ -106,18 +110,18 @@ class _SchemaManager:
 
         # Triggers to keep FTS5 in sync with messages (always created fresh after DROP)
         conn.execute("""
-            CREATE TRIGGER messages_ai AFTER INSERT ON messages BEGIN
+            CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN
                 INSERT INTO messages_fts(rowid, content, metadata, session_id)
                 VALUES (new.id, new.content, COALESCE(new.metadata, '{}'), new.session_id);
             END
         """)
         conn.execute("""
-            CREATE TRIGGER messages_ad AFTER DELETE ON messages BEGIN
+            CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN
                 DELETE FROM messages_fts WHERE rowid = old.id;
             END
         """)
         conn.execute("""
-            CREATE TRIGGER messages_au AFTER UPDATE ON messages BEGIN
+            CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE ON messages BEGIN
                 DELETE FROM messages_fts WHERE rowid = old.id;
                 INSERT INTO messages_fts(rowid, content, metadata, session_id)
                 VALUES (new.id, new.content, COALESCE(new.metadata, '{}'), new.session_id);
