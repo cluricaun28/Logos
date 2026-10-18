@@ -48,6 +48,8 @@ _HERMES_CORE_TOOLS = [
     "text_to_speech",
     # Planning & memory
     "todo", "memory",
+    # Local knowledge / corpus (alternate internet)
+    "book_search",
     # Clarifying questions
     "clarify",
     # Code execution + delegation
@@ -72,6 +74,12 @@ TOOLSETS = {
     "search": {
         "description": "Web search only (no content extraction/scraping)",
         "tools": ["web_search"],
+        "includes": []
+    },
+
+    "library": {
+        "description": "Local knowledge + preservation corpus ('alternate internet') full-text search",
+        "tools": ["book_search"],
         "includes": []
     },
     
