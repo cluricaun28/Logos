@@ -1715,6 +1715,26 @@ class TelegramAdapter(BasePlatformAdapter):
             # Catch-all (e.g. page counter button "mx:noop")
             await query.answer()
 
+    async def _safe_answer(self, query, text: str = "") -> None:
+        """Answer a callback query, tolerating expired/stale queries.
+
+        Telegram rejects answerCallbackQuery after its ~30s response window
+        (BadRequest: 'Query is too old and response timeout expired or query
+        id is invalid'). A slow agent (e.g. stuck at 'initializing') can push
+        our answer past that window. The answer is cosmetic — the real state
+        change (resolve_gateway_approval) still runs — so demote to WARNING.
+        """
+        from telegram.error import TelegramError
+
+        try:
+            await query.answer(text=text)
+        except TelegramError as exc:
+            logger.warning(
+                "Telegram query.answer failed (query likely expired while "
+                "agent was busy): %s",
+                exc,
+            )
+
     async def _handle_callback_query(
         self, update: "Update", context: "ContextTypes.DEFAULT_TYPE"
     ) -> None:
@@ -1739,18 +1759,18 @@ class TelegramAdapter(BasePlatformAdapter):
                 try:
                     approval_id = int(parts[2])
                 except (ValueError, IndexError):
-                    await query.answer(text="Invalid approval data.")
+                    await self._safe_answer(query, text="Invalid approval data.")
                     return
 
                 # Only authorized users may click approval buttons.
                 caller_id = str(getattr(query.from_user, "id", ""))
                 if not self._is_callback_user_authorized(caller_id):
-                    await query.answer(text="⛔ You are not authorized to approve commands.")
+                    await self._safe_answer(query, text="⛔ You are not authorized to approve commands.")
                     return
 
                 session_key = self._approval_state.pop(approval_id, None)
                 if not session_key:
-                    await query.answer(text="This approval has already been resolved.")
+                    await self._safe_answer(query, text="This approval has already been resolved.")
                     return
 
                 # Map choice to human-readable label
@@ -1763,7 +1783,7 @@ class TelegramAdapter(BasePlatformAdapter):
                 user_display = getattr(query.from_user, "first_name", "User")
                 label = label_map.get(choice, "Resolved")
 
-                await query.answer(text=label)
+                await self._safe_answer(query, text=label)
 
                 # Edit message to show decision, remove buttons
                 try:
