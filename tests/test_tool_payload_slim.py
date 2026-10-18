@@ -79,6 +79,52 @@ def test_deferred_index_excludes_injected_tools():
     assert r.get_deferred_index(injected_names=all_names) == ""
 
 
+def test_book_search_in_deferred_tier():
+    """10/18 book_search ship: the tool must be visible to the model.
+
+    The router tiers are STATIC catalogs (essential set + the deferred
+    ``categories`` dict inside get_deferred_index) — a newly registered tool
+    that is in neither is dispatchable but INVISIBLE: the model only knows
+    tools that are injected or indexed (measured 10/18: three live cron
+    probes reported the tool unavailable; one explicit call still succeeded,
+    proving registered-but-invisible).
+    """
+    from plugins.tool_router.tool_router import ToolRouter
+
+    r = ToolRouter()
+    assert r.is_deferred("book_search"), "book_search must ride the deferred tier"
+    assert not r.is_essential("book_search"), "book_search is a deep-check tier tool, not essential"
+    assert "book_search" in (r.get_deferred_index() or ""), "book_search missing from the deferred index"
+
+
+def test_every_available_tool_visible_in_some_tier():
+    """Invariant (10/18): a tool that resolves to a definition but appears in
+    neither the essential tier nor the deferred index is invisible to the
+    model — registered, dispatchable, unusable by spontaneous recall.
+
+    This is the gate that would have caught the book_search ship: the
+    canonical gate tested the registry (b1) and toolset resolution (b2) but
+    not router visibility.
+    """
+    import re
+
+    import tools  # noqa: F401 — trigger builtin discovery
+    from plugins.tool_router.tool_router import ToolRouter
+    from logos_cli.tools_config import _get_platform_tools
+    from model_tools import get_tool_definitions
+
+    ts = sorted(_get_platform_tools({}, "cron"))
+    defs = get_tool_definitions(ts, ["cronjob", "messaging", "clarify"], quiet_mode=True)
+    r = ToolRouter()
+    essential = {d["function"]["name"] for d in r.get_essential_definitions(defs)}
+    indexed = set(re.findall(r"'''([a-z0-9_]+)'''", r.get_deferred_index() or ""))
+    missing = sorted(
+        d["function"]["name"] for d in defs
+        if d["function"]["name"] not in essential | indexed
+    )
+    assert not missing, f"tools invisible to the model (in no tier): {missing}"
+
+
 # ---------------------------------------------------------------------------
 # PM provider tiering
 # ---------------------------------------------------------------------------

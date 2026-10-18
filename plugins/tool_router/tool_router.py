@@ -137,6 +137,11 @@ class ToolRouterConfig:
 
         # PM/RL extended suite (2026-08-21 tiering; see PM_EXTENDED_TOOLS)
         *PM_EXTENDED_TOOLS,
+
+        # Library / preservation corpus (2026-10-18 book_search ship):
+        # deep-check tier — model reads the RL page for parameters, schema
+        # promotes on first call.
+        "book_search",
     })
 
     # RL tools directory path
@@ -289,6 +294,9 @@ class ToolRouter:
                     "feishu_drive_list_comment_replies",
                     "feishu_drive_reply_comment"
                 ],
+                "Library": [
+                    "book_search"
+                ],
             }
 
             # Short descriptions for each tool (optimized for model parsing)
@@ -320,6 +328,7 @@ class ToolRouter:
                 "feishu_drive_list_comments": "List comments on Feishu document",
                 "feishu_drive_list_comment_replies": "List replies in a comment thread",
                 "feishu_drive_reply_comment": "Reply to comment thread on Feishu doc",
+                "book_search": "Full-text search over the local preservation corpus (books, Sefaria, CCEL, law) with provenance",
                 "process": "Manage background processes (list/poll/wait/kill)",
             }
 
