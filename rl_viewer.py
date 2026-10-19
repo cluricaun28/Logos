@@ -591,7 +591,7 @@ def search(request: Request):
 # Edges come from the SAME resolved wikilinks as the per-page backlinks — the
 # graph can never disagree with '⬅ Backlinks (N)'.
 
-MEGA_TREES = ("archive/britannica", "religion/bible", "crenshaw/jobs")
+MEGA_TREES = ("religion/bible", "crenshaw/jobs")  # archive/britannica removed 10/19: tree relocated to FL, 8 stubs remain
 GRAPH_NODE_CAP = 1500          # beyond this, drop degree-1 nodes (count is shown)
 _INDEX_GEN = 0                 # bumped on every index rebuild (graph cache key)
 _GRAPH_CACHE = {}              # cache key -> rendered HTML
