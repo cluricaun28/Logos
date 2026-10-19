@@ -30,24 +30,24 @@ FIXTURE_FILES = {
     "crenshaw/finances/qbo.md": "QBO\n\n[[alpha]] [[crenshaw/jobs/e1]]\n",
     "crenshaw/jobs/e1.md": "E1\n\n[[crenshaw/finances/qbo]]\n",
     "crenshaw/jobs/e2.md": "E2 (no links)\n",
-    "archive/britannica/a.md": "A\n\n[[archive/britannica/b]]\n",
-    "archive/britannica/b.md": "B\n\n[[crenshaw/jobs/e1]]\n",
+    "religion/bible/a.md": "A\n\n[[religion/bible/b]]\n",
+    "religion/bible/b.md": "B\n\n[[crenshaw/jobs/e1]]\n",
 }
 
 # Expected resolved edges (no-.md keys):
 #   alpha -> beta ; alpha -> crenshaw/finances/qbo
 #   crenshaw/finances/qbo -> alpha ; crenshaw/finances/qbo -> crenshaw/jobs/e1
 #   crenshaw/jobs/e1 -> crenshaw/finances/qbo
-#   archive/britannica/a -> archive/britannica/b
-#   archive/britannica/b -> crenshaw/jobs/e1
+#   religion/bible/a -> religion/bible/b
+#   religion/bible/b -> crenshaw/jobs/e1
 # NOTE: crenshaw/jobs/e1 sits inside the "crenshaw/jobs" MEGA_TREES prefix, so
 # graph views collapse it into the mega node — that is intended behavior.
 EXPECTED_OUT_EDGES = {
     "alpha": {"beta", "crenshaw/finances/qbo"},
     "crenshaw/finances/qbo": {"alpha", "crenshaw/jobs/e1"},
     "crenshaw/jobs/e1": {"crenshaw/finances/qbo"},
-    "archive/britannica/a": {"archive/britannica/b"},
-    "archive/britannica/b": {"crenshaw/jobs/e1"},
+    "religion/bible/a": {"religion/bible/b"},
+    "religion/bible/b": {"crenshaw/jobs/e1"},
 }
 
 
@@ -116,8 +116,8 @@ class TestBuildGraphData:
         assert cm[("(root)", "crenshaw")] == 1       # alpha -> qbo
         assert cm[("crenshaw", "(root)")] == 1       # qbo -> alpha
         assert cm[("crenshaw", "crenshaw")] == 2     # qbo -> e1, e1 -> qbo
-        assert cm[("archive", "archive")] == 1       # a -> b (internal)
-        assert cm[("archive", "crenshaw")] == 1      # b -> e1
+        assert cm[("religion", "religion")] == 1   # a -> b (internal)
+        assert cm[("religion", "crenshaw")] == 1    # b -> e1
         assert sum(cm.values()) == 7                 # 7 resolved wikilinks
 
 
@@ -128,26 +128,26 @@ class TestMegaCollapse:
         rlv, _, root = rl
         data = rlv.build_graph_data(str(root))
         pre = rlv.MEGA_TREES[0]
-        jobs_pre = "crenshaw/jobs"   # MEGA_TREES[2] — e1/e2 live under it
-        assert pre == "archive/britannica"
+        jobs_pre = "crenshaw/jobs"   # MEGA_TREES[1] — e1/e2 live under it
+        assert pre == "religion/bible"
         node_set = {k for k in data["files"]
                     if k in data["out_edges"] or k in data["backlinks"]}
         edges_in = _edge_pairs(data["out_edges"])
         nodes, edges, mega_pages = rlv.collapse_mega(node_set, edges_in, set(data["files"]))
-        # britannica: a+b collapse to one node
+        # bible: a+b collapse to one node
         assert pre in nodes
-        assert "archive/britannica/a" not in nodes
-        assert "archive/britannica/b" not in nodes
+        assert "religion/bible/a" not in nodes
+        assert "religion/bible/b" not in nodes
         assert mega_pages[pre] == 2
         # jobs: e1 (the only linked jobs page) collapses to the mega node
         assert jobs_pre in nodes
         assert "crenshaw/jobs/e1" not in nodes
         assert mega_pages[jobs_pre] == 2            # e1 + e2 counted from all_files
-        # cross-tree edges survive, pointing at the mega node
-        assert (pre, jobs_pre) in edges
+        # cross-tree edges survive, pointing at the mega node (pairs stored sorted)
+        assert (min(pre, jobs_pre), max(pre, jobs_pre)) in edges
         assert ("crenshaw/finances/qbo", jobs_pre) in edges
         # internal mega-tree edge vanished
-        assert ("archive/britannica/a", "archive/britannica/b") not in edges
+        assert ("religion/bible/a", "religion/bible/b") not in edges
         # non-mega nodes untouched
         assert "alpha" in nodes and "beta" in nodes
 
@@ -165,8 +165,11 @@ class TestMegaCollapse:
         assert rlv.MEGA_TREES[0] in nodes
         assert omitted == 1
         assert all(a in set(nodes) and b in set(nodes) for a, b in edges)
-        # mega link weight: b->e1 (1) + a->b internal (1) = 2
-        assert mega_links[rlv.MEGA_TREES[0]] == 2
+        # mega link weight: a->b internal = 1 (the b->e1 cross edge is counted
+        # under crenshaw/jobs: sorted pair puts that endpoint first, `ma or mb`
+        # prefers it — a letter-order fixture quirk, not a code change)
+        assert mega_links[rlv.MEGA_TREES[0]] == 1
+        assert mega_links["crenshaw/jobs"] == 2     # qbo<->e1 internal + e1->b cross
 
 
 class TestEgo:
@@ -202,9 +205,9 @@ class TestRoutes:
         assert "<svg" in r.text
         assert 'src="http' not in r.text
         assert "href=\"http" not in r.text
-        # mega node present, collapsed (no per-page britannica nodes linked)
-        assert "archive/britannica" in r.text
-        assert "/page/archive/britannica/a" not in r.text
+        # mega node present, collapsed (no per-page bible nodes linked)
+        assert "religion/bible" in r.text
+        assert "/page/religion/bible/a" not in r.text
 
     def test_graph_deterministic(self, rl):
         """Two calls -> byte-identical page; layout fn seeded (same input,
@@ -232,7 +235,7 @@ class TestRoutes:
         assert r.status_code == 200
         assert "<table" in r.text
         assert "<script" not in r.text          # no JS required
-        for cat in ("crenshaw", "archive", "(root)"):
+        for cat in ("crenshaw", "religion", "(root)"):
             assert html.escape(cat) in r.text
         # a known active cell (alpha -> qbo: (root) -> crenshaw, count 1)
         assert "rgba(88,166,255," in r.text
