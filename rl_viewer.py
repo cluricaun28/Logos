@@ -10,7 +10,7 @@ human + agent views agree.
 Per-user: point RL_ROOT at one user's reference-library; run one instance per user.
 Read-only: no write endpoints.
 """
-import os, re, time, html, sqlite3, sys, threading
+import os, re, time, html, sqlite3, sys, threading, math
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -31,29 +31,27 @@ WIKILINK_RE = re.compile(r"\[\[([^\]]+)\]\]")
 def _slug(s):
     return re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-")
 
-def build_index():
-    """Scan all .md files -> resolution maps + backlink map + home data.
+def _top_cat(key):
+    """Top-level category of a no-.md page key."""
+    parts = key.split("/")
+    return parts[0] if len(parts) > 1 else "(root)"
 
-    Returns 7-tuple: (path_index, name_index, title_index, files, backlinks,
-    cat_counts, recent). cat_counts/recent are computed HERE (background
-    thread) so the home page never rglobs in the request path."""
+def _index_maps(md_files, root):
+    """Pass 1: resolution maps + files + display titles + category counts."""
     path_index = {}    # "system/foo" -> "system/foo.md"
     name_index = {}    # "foo" (stem)  -> "system/foo.md"  (first wins)
     title_index = {}   # slug of display title -> path
     files = {}         # relpath(without .md) -> relpath(with .md)
-    backlinks = {}     # target-path -> [source-paths]
     titles = {}        # key(no .md) -> display title (for title-substring fallback)
-    md_files = [p for p in RL_ROOT.rglob("*.md")
-                if p.is_file() and "static" not in p.parts and "assets" not in p.parts]
     cat_counts = {}
     for p in md_files:
-        rel = p.relative_to(RL_ROOT).as_posix()
+        rel = p.relative_to(root).as_posix()
         key = rel[:-3]  # strip .md
         files[key] = rel
         path_index.setdefault(key, rel)
         stem = Path(rel).stem
         name_index.setdefault(stem, rel)
-        parts = p.relative_to(RL_ROOT).parts
+        parts = p.relative_to(root).parts
         top = parts[0] if len(parts) > 1 else "(root)"
         cat_counts[top] = cat_counts.get(top, 0) + 1
         # frontmatter title
@@ -72,10 +70,22 @@ def build_index():
             except Exception:
                 pass
         titles[key] = disp
-    # backlinks: scan every file for wikilinks
+    return path_index, name_index, title_index, files, cat_counts, titles
+
+def _scan_links(md_files, path_index, name_index, title_index, root):
+    """Pass 2: wikilink scan -> (backlinks, out_edges, cat_matrix).
+
+    Single source of truth for link resolution: backlinks and out_edges are
+    built from the SAME resolved edges, so the graph views can never disagree
+    with the per-page '⬅ Backlinks (N)' section. cat_matrix counts link
+    INSTANCES per (src_top_cat, dst_top_cat) pair."""
+    backlinks = {}     # target key(no .md) -> {source keys}
+    out_edges = {}     # source key(no .md) -> {target keys}
+    cat_matrix = {}    # (src_top, dst_top) -> instance count
     for p in md_files:
-        rel = p.relative_to(RL_ROOT).as_posix()
+        rel = p.relative_to(root).as_posix()
         src = rel[:-3]
+        src_top = _top_cat(src)
         try:
             txt = p.read_text(errors="ignore")
         except Exception:
@@ -84,7 +94,24 @@ def build_index():
             target = m.group(1).split("|")[0].strip()
             resolved = _resolve_target(target, path_index, name_index, title_index)
             if resolved:
-                backlinks.setdefault(resolved[:-3], set()).add(src)  # key by no-.md path
+                dst = resolved[:-3]
+                backlinks.setdefault(dst, set()).add(src)  # key by no-.md path
+                out_edges.setdefault(src, set()).add(dst)
+                k = (src_top, _top_cat(dst))
+                cat_matrix[k] = cat_matrix.get(k, 0) + 1
+    return backlinks, out_edges, cat_matrix
+
+def build_index():
+    """Scan all .md files -> resolution maps + link maps + home data.
+
+    Returns 10-tuple: (path_index, name_index, title_index, files, backlinks,
+    cat_counts, recent, titles, out_edges, cat_matrix). cat_counts/recent are
+    computed HERE (background thread) so the home page never rglobs in the
+    request path."""
+    md_files = [p for p in RL_ROOT.rglob("*.md")
+                if p.is_file() and "static" not in p.parts and "assets" not in p.parts]
+    path_index, name_index, title_index, files, cat_counts, titles = _index_maps(md_files, RL_ROOT)
+    backlinks, out_edges, cat_matrix = _scan_links(md_files, path_index, name_index, title_index, RL_ROOT)
     # recent updates (top 14 by mtime) — computed here, not per home request
     recent = []
     for p in md_files:
@@ -99,7 +126,8 @@ def build_index():
                        p.parent.relative_to(RL_ROOT).as_posix() or "root"))
     recent.sort(key=lambda r: r[2], reverse=True)
     recent = recent[:14]
-    return path_index, name_index, title_index, files, backlinks, cat_counts, recent, titles
+    return (path_index, name_index, title_index, files, backlinks,
+            cat_counts, recent, titles, out_edges, cat_matrix)
 
 def _resolve_target(target, path_index, name_index, title_index):
     t = target.strip()
@@ -115,27 +143,30 @@ def _resolve_target(target, path_index, name_index, title_index):
     return None
 
 IDX = build_index()
-PATH_INDEX, NAME_INDEX, TITLE_INDEX, FILES, BACKLINKS, CAT_COUNTS, RECENT, FILES_TITLES = IDX
+(PATH_INDEX, NAME_INDEX, TITLE_INDEX, FILES, BACKLINKS, CAT_COUNTS, RECENT, FILES_TITLES,
+ OUT_EDGES, CAT_MATRIX) = IDX
 _last_scan = time.time()
 
 def reload_if_stale(force=False):
-    global IDX, PATH_INDEX, NAME_INDEX, TITLE_INDEX, FILES, BACKLINKS, CAT_COUNTS, RECENT, FILES_TITLES, _last_scan
+    global IDX, PATH_INDEX, NAME_INDEX, TITLE_INDEX, FILES, BACKLINKS, CAT_COUNTS, RECENT, FILES_TITLES, OUT_EDGES, CAT_MATRIX, _last_scan, _INDEX_GEN
     # Refresh normally happens in _index_loop (background, every 120s).
     # Synchronous rebuild is a rare safety net (loop died / >5min stale).
     if force or time.time() - _last_scan > 300:
         IDX = build_index()
-        PATH_INDEX, NAME_INDEX, TITLE_INDEX, FILES, BACKLINKS, CAT_COUNTS, RECENT, FILES_TITLES = IDX
+        PATH_INDEX, NAME_INDEX, TITLE_INDEX, FILES, BACKLINKS, CAT_COUNTS, RECENT, FILES_TITLES, OUT_EDGES, CAT_MATRIX = IDX
         _last_scan = time.time()
+        _INDEX_GEN += 1
 
 def _index_loop():
     """Background: keep the link/home index fresh without blocking requests."""
-    global IDX, PATH_INDEX, NAME_INDEX, TITLE_INDEX, FILES, BACKLINKS, CAT_COUNTS, RECENT, FILES_TITLES, _last_scan
+    global IDX, PATH_INDEX, NAME_INDEX, TITLE_INDEX, FILES, BACKLINKS, CAT_COUNTS, RECENT, FILES_TITLES, OUT_EDGES, CAT_MATRIX, _last_scan, _INDEX_GEN
     while True:
         time.sleep(120)
         try:
             IDX = build_index()
-            PATH_INDEX, NAME_INDEX, TITLE_INDEX, FILES, BACKLINKS, CAT_COUNTS, RECENT, FILES_TITLES = IDX
+            PATH_INDEX, NAME_INDEX, TITLE_INDEX, FILES, BACKLINKS, CAT_COUNTS, RECENT, FILES_TITLES, OUT_EDGES, CAT_MATRIX = IDX
             _last_scan = time.time()
+            _INDEX_GEN += 1
         except Exception:
             pass
 
@@ -548,6 +579,382 @@ def search(request: Request):
 <h1>Search <span class="badge">{len(results)} results</span></h1>
 {items}
 <footer>searching the live FTS5 index (same as the agents) · {total_pages:,} pages</footer>
+</div></body></html>"""
+
+# ---------------------------------------------------------------- graph views
+# Read-only views of the wikilink structure: /graph (core topology),
+# /graph/ego (neighborhood), /graph/heat (category-pair matrix). Fully
+# offline: inline SVG + one small inline <script> for pan/zoom, ZERO external
+# references. Layout is server-computed and DETERMINISTIC (seed 42), and each
+# page's HTML is cached per index generation (content is static between the
+# background index rebuilds, and the seeded layout is stable across restarts).
+# Edges come from the SAME resolved wikilinks as the per-page backlinks — the
+# graph can never disagree with '⬅ Backlinks (N)'.
+
+MEGA_TREES = ("archive/britannica", "religion/bible", "crenshaw/jobs")
+GRAPH_NODE_CAP = 1500          # beyond this, drop degree-1 nodes (count is shown)
+_INDEX_GEN = 0                 # bumped on every index rebuild (graph cache key)
+_GRAPH_CACHE = {}              # cache key -> rendered HTML
+_GRAPH_LOCK = threading.Lock()
+
+def _mega_of(key):
+    """Mega-tree prefix this no-.md key belongs to, or None."""
+    for pre in MEGA_TREES:
+        if key == pre or key.startswith(pre + "/"):
+            return pre
+    return None
+
+def collapse_mega(node_set, edge_pairs, all_files):
+    """Collapse each MEGA_TREES subtree into ONE labeled node.
+
+    Returns (nodes, edges, mega_pages): nodes/edges are sorted lists of
+    no-.md keys (internal mega-tree edges vanish into the node's link weight),
+    mega_pages = {prefix: total pages in that tree} (from all_files)."""
+    norm = {}
+    for k in node_set:
+        m = _mega_of(k)
+        norm[k] = m if m else k
+    mega_pages = {pre: sum(1 for k in all_files if _mega_of(k) == pre)
+                  for pre in MEGA_TREES}
+    pairs = set()
+    for a, b in edge_pairs:
+        na, nb = norm.get(a, a), norm.get(b, b)
+        if na != nb:
+            pairs.add((na, nb) if na < nb else (nb, na))
+    nodes = sorted(set(norm.values()) | {p for p, n in mega_pages.items() if n})
+    return nodes, sorted(pairs), mega_pages
+
+def ego_graph(root_key, out_edges, backlinks, hops):
+    """Neighborhood of root_key over EXPLICIT wikilinks (out-edges ∪ inverted
+    backlinks — same edge set), undirected, BFS up to `hops` (1..4).
+
+    Returns (node_set, edge_pairs); edge pairs are sorted 2-tuples whose both
+    endpoints are inside node_set."""
+    hops = max(1, min(int(hops), 4))
+    adj = {}
+    for s, dsts in out_edges.items():
+        adj.setdefault(s, set()).update(dsts)
+        for d in dsts:
+            adj.setdefault(d, set()).add(s)
+    seen = {root_key}
+    frontier = {root_key}
+    for _ in range(hops):
+        nxt = set()
+        for u in frontier:
+            for v in adj.get(u, ()):
+                if v not in seen:
+                    seen.add(v)
+                    nxt.add(v)
+        frontier = nxt
+        if not frontier:
+            break
+    edges = set()
+    for u in seen:
+        for v in adj.get(u, ()):
+            if v in seen and v != u:
+                edges.add((u, v) if u < v else (v, u))
+    return seen, edges
+
+def graph_core(node_set, edge_pairs, all_files, max_nodes=GRAPH_NODE_CAP):
+    """Shared pipeline for /graph and /graph/ego: mega-tree collapse, then —
+    if the visible node count exceeds the cap — keep degree>=2 nodes + mega
+    nodes and report the omitted count.
+
+    Returns (nodes, edges, omitted, mega_pages, mega_links, deg) where
+    mega_links[pre] = distinct edge pairs touching that tree (internal pairs
+    count once) and deg is the degree in the FINAL (filtered) graph."""
+    nodes, edges, mega_pages = collapse_mega(node_set, edge_pairs, all_files)
+    mega_links = {pre: 0 for pre in MEGA_TREES}
+    for a, b in edge_pairs:
+        ma, mb = _mega_of(a), _mega_of(b)
+        if ma or mb:
+            mega_links[ma or mb] += 1
+    omitted = 0
+    if len(nodes) > max_nodes:
+        deg0 = {}
+        for a, b in edges:
+            deg0[a] = deg0.get(a, 0) + 1
+            deg0[b] = deg0.get(b, 0) + 1
+        keep = [n for n in nodes if _mega_of(n) or deg0.get(n, 0) >= 2]
+        keep_set = set(keep)
+        edges = [(a, b) for a, b in edges if a in keep_set and b in keep_set]
+        omitted = len(nodes) - len(keep)
+        nodes = keep
+    deg = {}
+    for a, b in edges:
+        deg[a] = deg.get(a, 0) + 1
+        deg[b] = deg.get(b, 0) + 1
+    return nodes, edges, omitted, mega_pages, mega_links, deg
+
+def build_graph_data(root_dir):
+    """Pure graph-data builder (tests run this on a temp fixture tree without
+    starting the app): same two-pass scan + resolution as build_index(), over
+    an arbitrary root directory.
+
+    Returns {"out_edges", "backlinks", "cat_matrix", "files", "cat_counts"}."""
+    root = Path(root_dir)
+    md_files = [p for p in root.rglob("*.md")
+                if p.is_file() and "static" not in p.parts and "assets" not in p.parts]
+    path_index, name_index, title_index, files, cat_counts, titles = _index_maps(md_files, root)
+    backlinks, out_edges, cat_matrix = _scan_links(md_files, path_index, name_index, title_index, root)
+    return {"out_edges": out_edges, "backlinks": backlinks, "cat_matrix": cat_matrix,
+            "files": files, "cat_counts": cat_counts}
+
+def _fr_layout(nodes, edges, root_key=None, iterations=100):
+    """Deterministic Fruchterman–Reingold layout (seed 42). Returns
+    {key: (x, y)} rounded to 0.1 — byte-stable across calls and restarts for
+    the same (nodes, edges). numpy is lazy-imported; without it falls back to
+    a deterministic phyllotaxis circle (still offline, still stable)."""
+    n = len(nodes)
+    if n == 0:
+        return {}
+    order = sorted(nodes)
+    idx = {k: i for i, k in enumerate(order)}
+    GOLD = 2.399963229728653
+    try:
+        import numpy as np
+    except ImportError:
+        return {k: (round(300.0 * math.cos(GOLD * i), 1),
+                    round(300.0 * math.sin(GOLD * i), 1))
+                for i, k in enumerate(order)}
+    rnd = np.random.RandomState(42)
+    P = np.empty((n, 2))
+    for i in range(n):
+        r = 30.0 * math.sqrt(i + 1)
+        a = GOLD * i
+        P[i] = (r * math.cos(a) + rnd.uniform(-8.0, 8.0),
+                r * math.sin(a) + rnd.uniform(-8.0, 8.0))
+    i0 = idx.get(root_key)
+    if i0 is not None:
+        P[i0] = (0.0, 0.0)
+    E = [(idx[a], idx[b]) for a, b in edges if a in idx and b in idx]
+    k = 16.0
+    temp = 120.0
+    if E:
+        ea = np.array([a for a, b in E], dtype=int)
+        eb = np.array([b for a, b in E], dtype=int)
+    for _ in range(iterations):
+        d = P[:, None, :] - P[None, :, :]
+        dist2 = np.einsum("ijk,ijk->ij", d, d)
+        np.fill_diagonal(dist2, 1e18)
+        disp = ((k * k / dist2)[:, :, None] * d).sum(axis=1)          # repulsion k²/d
+        if E:                                                         # attraction d²/k
+            de = P[ea] - P[eb]
+            de_dist = np.sqrt((de * de).sum(axis=1)) + 1e-9
+            fe = (de_dist * de_dist / k)[:, None] * de / de_dist[:, None]
+            np.add.at(disp, ea, -fe)
+            np.add.at(disp, eb, fe)
+        dl = np.sqrt((disp * disp).sum(axis=1)) + 1e-9
+        P += disp * np.minimum(1.0, temp / dl)[:, None]
+        if i0 is not None:
+            P[i0] = (0.0, 0.0)
+        temp *= 0.96
+    P -= P.mean(axis=0)
+    mx = max(float(np.abs(P[:, 0]).max()), 1e-6)
+    my = max(float(np.abs(P[:, 1]).max()), 1e-6)
+    P *= min(620.0 / mx, 430.0 / my, 3.0)
+    return {k: (round(float(x), 1), round(float(y), 1)) for k, (x, y) in zip(order, P)}
+
+GRAPH_JS = """
+(function(){
+var svg=document.getElementById('gsvg');if(!svg)return;
+var vp=svg.querySelector('#viewport');if(!vp)return;
+var x=0,y=0,s=1;
+function ap(){vp.setAttribute('transform','translate('+x+','+y+') scale('+s+')');}
+svg.addEventListener('wheel',function(e){e.preventDefault();
+var r=svg.getBoundingClientRect();
+var mx=(e.clientX-r.left)*(1400/r.width);
+var my=(e.clientY-r.top)*(900/r.height);
+var ns=Math.min(12,Math.max(0.15,s*(e.deltaY<0?1.15:1/1.15)));
+x=mx-(mx-x)*(ns/s);y=my-(my-y)*(ns/s);s=ns;ap();
+},{passive:false});
+var drag=null;
+svg.addEventListener('mousedown',function(e){drag=[e.clientX,e.clientY,x,y];svg.style.cursor='grabbing';});
+window.addEventListener('mousemove',function(e){if(!drag)return;
+var r=svg.getBoundingClientRect();
+x=drag[2]+(e.clientX-drag[0])*(1400/r.width);
+y=drag[3]+(e.clientY-drag[1])*(900/r.height);ap();});
+window.addEventListener('mouseup',function(){drag=null;svg.style.cursor='grab';});
+})();
+"""
+
+def _graph_svg(nodes, edges, deg, pos, mega_pages, mega_links, root_key, links):
+    """Render the node/edge set as inline SVG (dark theme, no external refs)."""
+    elines = []
+    for a, b in edges:
+        if a not in pos or b not in pos:
+            continue
+        x1, y1 = pos[a]
+        x2, y2 = pos[b]
+        elines.append(f'<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}"/>')
+    edges_g = f'<g stroke="#30363d" stroke-opacity=".55" stroke-width=".8">{"".join(elines)}</g>'
+    nitems = []
+    for k in nodes:
+        if k not in pos:
+            continue
+        x, y = pos[k]
+        d = deg.get(k, 0)
+        m = _mega_of(k)
+        if m:
+            r = min(26.0, 13.0 + 1.8 * math.log10(max(mega_pages.get(m, 1), 1)))
+            fill = "#d29922"
+            label = f"{m.split('/')[-1]} · {mega_pages.get(m, 0):,} pp · {mega_links.get(m, 0):,} lk"
+            show = True
+        else:
+            r = min(14.0, 2.5 + 2.2 * math.log10(1 + d))
+            fill = "#3fb950" if k == root_key else "#58a6ff"
+            label = Path(k).stem.replace("-", " ").title()
+            show = d >= 5
+        if show:
+            t = label if len(label) <= 30 else label[:29] + "…"
+            tspan = (f'<text x="{x}" y="{y + r + 11}" text-anchor="middle" '
+                     f'fill="#8b949e" font-size="10">{html.escape(t)}</text>')
+        else:
+            tspan = ""
+        tip = html.escape(f"{k} · degree {d}")
+        nitems.append(
+            f'<a href="{links[k]}"><circle cx="{x}" cy="{y}" r="{r:.1f}" fill="{fill}" '
+            f'stroke="#0d1117" stroke-width="1"><title>{tip}</title></circle>{tspan}</a>')
+    return (f'<svg id="gsvg" viewBox="-700 -450 1400 900" xmlns="http://www.w3.org/2000/svg">'
+            f'<g id="viewport">{edges_g}{"".join(nitems)}</g></svg>')
+
+def _graph_page(title, header, svg_html, footer_note):
+    return f"""<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{html.escape(title)}</title>
+<style>{CSS}
+.gframe{{width:100%;height:calc(100vh - 190px);min-height:520px;background:var(--panel);
+border:1px solid var(--line);border-radius:10px;overflow:hidden}}
+.gframe svg{{width:100%;height:100%;display:block;cursor:grab}}
+.gframe svg text{{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+paint-order:stroke;stroke:#0d1117;stroke-width:2.5px;stroke-linejoin:round}}
+.gframe a circle{{cursor:pointer}}
+.legend{{color:var(--dim);font-size:12px;margin:10px 2px}}
+.legend .sw{{display:inline-block;width:10px;height:10px;border-radius:50%;margin:0 4px 0 12px;vertical-align:-1px}}
+</style></head><body>
+<header class="top"><div class="bar">
+<span class="brand">{html.escape(USER_LABEL)} <span class="user">Reference Library</span></span>
+<form class="search" action="/search" method="get"><input name="q" placeholder="Search this library…" value=""></form>
+</div></header>
+<div class="wrap">
+{header}
+<div class="gframe">{svg_html}</div>
+<div class="legend"><span class="sw" style="background:#58a6ff"></span>page
+<span class="sw" style="background:#d29922"></span>mega-tree (collapsed)
+<span class="sw" style="background:#3fb950"></span>ego root
+&nbsp;·&nbsp; drag to pan · wheel to zoom · click a node to open its page</div>
+<footer>RL Live Viewer · rendered live from {html.escape(str(RL_ROOT))} · {footer_note}</footer>
+</div>
+<script>{GRAPH_JS}</script>
+</body></html>"""
+
+def _render_graph_page(node_set, edge_pairs, root_key, title, header):
+    """graph_core -> layout -> svg -> full page, cached per index generation."""
+    global _INDEX_GEN
+    ckey = ("ego" if root_key else "core", _INDEX_GEN, root_key)
+    with _GRAPH_LOCK:
+        cached = _GRAPH_CACHE.get(ckey)
+    if cached:
+        return HTMLResponse(cached)
+    nodes, edges, omitted, mega_pages, mega_links, deg = graph_core(node_set, edge_pairs, FILES)
+    pos = _fr_layout(nodes, edges, root_key=root_key)
+    links = {k: (f"/browse/{_mega_of(k)}" if _mega_of(k) else f"/page/{k}") for k in nodes}
+    svg = _graph_svg(nodes, edges, deg, pos, mega_pages, mega_links, root_key, links)
+    page = _graph_page(title, header, svg, "graph view")
+    with _GRAPH_LOCK:
+        _GRAPH_CACHE[ckey] = page
+    return HTMLResponse(page)
+
+@app.get("/graph", response_class=HTMLResponse)
+def graph():
+    """Core topology: one node per page with degree >= 1, the three mega-trees
+    collapsed to single labeled nodes; if the visible count exceeds the cap,
+    degree-1 nodes are omitted (count stated in the header)."""
+    reload_if_stale()
+    node_set = {k for k in FILES if k in OUT_EDGES or k in BACKLINKS}
+    edge_pairs = set()
+    for s, dsts in OUT_EDGES.items():
+        for d in dsts:
+            if d != s:
+                edge_pairs.add((s, d) if s < d else (d, s))
+    nodes, edges, omitted, mega_pages, _, _ = graph_core(node_set, edge_pairs, FILES)
+    omitted_note = (f' <span class="badge">{omitted:,} degree-1 nodes omitted '
+                    f'(view them via /graph/ego)</span>' if omitted else "")
+    mega_bits = " ".join(
+        f'<span class="badge" style="color:var(--miss)">{m}: {mega_pages.get(m, 0):,} pages'
+        f' · {sum(1 for a, b in edge_pairs if _mega_of(a) == m or _mega_of(b) == m):,} links</span>'
+        for m in MEGA_TREES if mega_pages.get(m, 0))
+    header = (f'<h1>Graph <span class="badge">{len(nodes):,} nodes · {len(edges):,} edges</span>'
+              f'{omitted_note}</h1>'
+              f'<div class="meta">deterministic server-computed layout (seed 42) · node size ∝ degree · '
+              f'labels at degree ≥ 5 · offline, no external scripts {mega_bits}</div>')
+    return _render_graph_page(node_set, edge_pairs, None, "Graph · " + USER_LABEL + " RL", header)
+
+@app.get("/graph/ego", response_class=HTMLResponse)
+def graph_ego(request: Request):
+    """Neighborhood of one page over explicit wikilinks (in- AND out-edges),
+    ?path=<page>&hops=N (default 2, cap 4)."""
+    reload_if_stale()
+    path = (request.query_params.get("path") or "").strip().lstrip("/")
+    if path.endswith(".md"):
+        path = path[:-3]
+    if path not in FILES:
+        return _404(f"graph/ego {path}")
+    try:
+        hops = int(request.query_params.get("hops", "2"))
+    except (TypeError, ValueError):
+        hops = 2
+    hops = max(1, min(hops, 4))
+    node_set, edge_pairs = ego_graph(path, OUT_EDGES, BACKLINKS, hops)
+    node_set = node_set | {path}
+    title = FILES_TITLES.get(path) or Path(path).stem.replace("-", " ").title()
+    header = (f'<h1>Ego · {html.escape(str(title))} <span class="badge">{hops} hops</span></h1>'
+              f'<div class="meta"><code>{html.escape(path)}</code> · '
+              f'{len(BACKLINKS.get(path, ()))} in · {len(OUT_EDGES.get(path, ()))} out · '
+              f'following explicit wikilinks both directions</div>')
+    return _render_graph_page(node_set, edge_pairs, path, f"Ego: {title} · {USER_LABEL} RL", header)
+
+@app.get("/graph/heat", response_class=HTMLResponse)
+def graph_heat():
+    """Category-pair edge matrix: server-rendered, color-shaded, no JS."""
+    reload_if_stale()
+    cats = sorted((c for c in CAT_COUNTS if CAT_COUNTS.get(c)),
+                  key=lambda c: (-(sum(v for (s, d), v in CAT_MATRIX.items() if s == c or d == c)), c))
+    max_c = max(CAT_MATRIX.values()) if CAT_MATRIX else 0
+    log_max = math.log10(1 + max_c) if max_c else 1.0
+
+    def cell(c):
+        if not c:
+            return ""
+        a = 0.10 + 0.85 * (math.log10(1 + c) / log_max)
+        return f' style="background:rgba(88,166,255,{a:.2f})"'
+
+    col_hdr = "".join(f"<th>{html.escape(c)}</th>" for c in cats)
+    rows = []
+    for rc in cats:
+        tds = "".join(
+            f'<td{cell(CAT_MATRIX.get((rc, cc), 0))}>'
+            f'{CAT_MATRIX.get((rc, cc), 0) or ""}</td>' for cc in cats)
+        tot = sum(v for (s, d), v in CAT_MATRIX.items() if s == rc or d == rc)
+        rows.append(f"<tr><th>{html.escape(rc)}</th>{tds}<td><b>{tot}</b></td></tr>")
+    table = (f'<table style="font-size:12px"><tr><th></th>{col_hdr}<th>total</th></tr>'
+             + "".join(rows) + "</table>")
+    header = (f'<h1>Link Heatmap <span class="badge">{len(CAT_MATRIX)} active pairs · '
+              f'{sum(CAT_MATRIX.values()):,} links</span></h1>'
+              f'<div class="meta">rows = source top-level category · columns = destination · '
+              f'count = resolved wikilink instances · darker = more links (log scale)</div>')
+    return f"""<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Link Heatmap · {html.escape(USER_LABEL)} RL</title>
+<style>{CSS}</style></head><body>
+<header class="top"><div class="bar">
+<span class="brand">{html.escape(USER_LABEL)} <span class="user">Reference Library</span></span>
+<form class="search" action="/search" method="get"><input name="q" placeholder="Search this library…" value=""></form>
+</div></header>
+<div class="wrap" style="max-width:1500px">
+{header}
+<div class="card" style="overflow-x:auto;max-width:none">{table}</div>
+<footer>RL Live Viewer · rendered live from {html.escape(str(RL_ROOT))} · graph view</footer>
 </div></body></html>"""
 
 if __name__ == "__main__":
