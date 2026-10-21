@@ -25,6 +25,9 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import sqlite3
+
+import rerank_client
 
 # Candidate locations for the corpus-index module (user-space operational script).
 _MODULE_CANDIDATES = (
@@ -88,8 +91,39 @@ def check_book_index_ready() -> bool:
         return False
 
 
+def _rerank_docs(m, query: str, rows: list[dict]) -> list[str]:
+    """Build cross-encoder docs for a candidate pool (rerank stage only).
+
+    Reads the body column by rowid (O(1) lookups per the 10/18 FTS5 cost
+    notes) and delegates to ``book_index.rerank_doc``. Any failure degrades
+    to the old title/author/snippet form — the rerank stage is an upgrade,
+    never a breaker.
+    """
+    try:
+        toks = m._fts_tokens(query)
+        rowids = [r["rowid"] for r in rows if r.get("rowid") is not None]
+        bodies: dict[int, str] = {}
+        if rowids:
+            ph = ",".join("?" * len(rowids))
+            con = sqlite3.connect(m.DB)
+            try:
+                cur = con.execute(
+                    f"SELECT rowid, body FROM books_fts WHERE rowid IN ({ph})",
+                    rowids)
+                bodies = {rid: (b or "") for rid, b in cur.fetchall()}
+            finally:
+                con.close()
+        return [
+            m.rerank_doc(r["title"], r.get("author", ""), bodies.get(r["rowid"], ""), toks)
+            for r in rows
+        ]
+    except Exception:  # noqa: BLE001 - degrade, never break the search
+        return [f"{r.get('title', '')} — {r.get('author', '')}. {r.get('snippet', '')}"
+                for r in rows]
+
+
 def book_search(query: str = "", limit: int = 8, source: str = None) -> str:
-    if not query or not query.strip():
+    if not query:
         return json.dumps({"error": "query is required."})
     m = _bi()
     if m is None:
@@ -99,10 +133,37 @@ def book_search(query: str = "", limit: int = 8, source: str = None) -> str:
         })
     if not os.path.exists(m.DB):
         return json.dumps({"error": "corpus index not built yet (no book_index.db)."})
+    use_rerank = rerank_client.enabled()
     try:
-        rows = m.search_structured(query, limit=limit, source=source)
+        if use_rerank:
+            # The reranker needs a candidate pool bigger than the return size.
+            # Buffer stays inside the measured FTS5 fast window (10/18 on the
+            # 260GB index: top-100 = 6.4s, top-150 = 39s — non-linear past 100).
+            fetch = min(max(limit * 5, 40), getattr(m, "SEARCH_BUFFER", 100))
+        else:
+            fetch = limit
+        rows = m.search_structured(query, limit=fetch, source=source)
     except Exception as e:  # noqa: BLE001 - surface as tool error, not a crash
         return json.dumps({"error": f"search failed: {type(e).__name__}: {e}"})
+    if use_rerank and rows:
+        # Second stage: cross-encoder reorders the pool. ``None`` = service
+        # down / failure -> keep the first-stage order verbatim (output shape
+        # and truncation are identical either way).
+        # CE docs = title/author + multi-site windows around the query-term
+        # hit positions (book_index.rerank_doc). A single head/snippet window
+        # let one-line mentions (list pages, chronologies) outscore the target
+        # doc whose matched section sits mid-body (10/20 A/B battery).
+        docs = _rerank_docs(m, query, rows)
+        # Blend (RERANK_BLEND, default 0.5): first-stage rank stays anchored
+        # so a one-line-mention page cannot leapfrog an exact match — pure
+        # CE reorder measured worse on the 10/20 A/B battery.
+        scores = rerank_client.rerank_scored(query, docs)
+        if scores is not None:
+            order = rerank_client.blend(scores)
+            rows = [rows[i] for i in order]
+        rows = rows[:limit]
+    else:
+        rows = rows[:limit]
     return json.dumps({"count": len(rows), "results": rows})
 
 

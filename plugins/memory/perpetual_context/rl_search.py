@@ -20,6 +20,96 @@ RL_FTS5_WEIGHT = 0.6
 RL_COSINE_THRESHOLD = 0.05
 RL_EMBED_DIM = 384
 
+# Second-stage (flag-gated, OFF by default): cross-encoder rerank of a
+# bounded candidate pool. RERANK_POOL bounds both the model cost per query
+# (~40 short docs ≈ 2–3K tokens ≈ <0.5s on the local vLLM) and the DB
+# body-fetch. Any rerank failure falls back to the first-stage order.
+RERANK_POOL = 40
+
+try:
+    import rerank_client
+except Exception:  # pragma: no cover — rerank_client is a flat-root module
+    rerank_client = None  # type: ignore[assignment]
+
+
+def _first_stage(
+    *,
+    conn: Any,
+    query: str,
+    pool: int,
+    category: str | None,
+    semantic_weight: float,
+    fts5_weight: float,
+    embedding_engine: Any | None,
+) -> tuple[list[tuple[str, float]], dict[str, dict[str, Any]]]:
+    """First-stage hybrid: FTS5 + semantic pools -> fused ranking.
+
+    Returns ``(all_ranked, result_cache)`` — ``all_ranked`` is the full
+    fused pool (descending score), ``result_cache`` maps file_path -> the
+    branch msg with branch scores. Stateless and deterministic: the
+    10/20 A/B battery calls it ONCE per query and re-blends the cached pool
+    across RERANK_WEIGHTS (the stage costs ~12s with the in-process MiniLM
+    embed — the CE re-score itself is ~0.1s).
+    """
+    fts_results = _fts_search(
+        conn=conn, query=query, top_k=pool, category=category,
+    )
+    semantic_results = _semantic_search(
+        conn=conn, query=query, top_k=pool, category=category,
+        embedding_engine=embedding_engine,
+    )
+
+    scored: dict[str, float] = {}
+    result_cache: dict[str, dict[str, Any]] = {}
+
+    # Score FTS5 results
+    if fts_results:
+        min_rank = min(m["_rank"] for m in fts_results)
+        max_rank = max(m["_rank"] for m in fts_results)
+        rank_range = (
+            max_rank - min_rank if max_rank != min_rank else 1.0
+        )
+
+        for i, msg in enumerate(fts_results):
+            fp = msg["file_path"]
+            normalized = 1.0 - ((msg["_rank"] - min_rank) / rank_range)
+            score = (
+                fts5_weight * normalized
+                + (1.0 / (i + 1)) * fts5_weight * 0.1
+            )
+            scored[fp] = scored.get(fp, 0) + score
+            msg["_fts5_score"] = round(score, 4)
+            result_cache[fp] = msg
+
+    # Score semantic results. Min-max normalize similarity across the
+    # pool: raw cosine typically tops out near 0.5, which would starve
+    # the semantic branch vs the min-max-normalized FTS branch (0..1).
+    if semantic_results:
+        sims = [m["_similarity"] for m in semantic_results]
+        smin = min(sims)
+        smax = max(sims)
+        srange = (smax - smin) if smax != smin else 1.0
+    for i, msg in enumerate(semantic_results):
+        fp = msg["file_path"]
+        sim_score = (
+            (msg["_similarity"] - smin) / srange if semantic_results else 0.0
+        )
+        score = (
+            semantic_weight * sim_score
+            + (1.0 / (i + 1)) * semantic_weight * 0.1
+        )
+        scored[fp] = scored.get(fp, 0) + score
+        msg["_semantic_score"] = round(score, 4)
+        if fp not in result_cache:
+            result_cache[fp] = msg
+        else:
+            result_cache[fp]["_semantic_score"] = msg.get(
+                "_semantic_score", 0
+            )
+
+    all_ranked = sorted(scored.items(), key=lambda x: -x[1])
+    return all_ranked, result_cache
+
 
 def search(
     *,
@@ -41,65 +131,39 @@ def search(
         # dominant failure mode in the 2026-08 search battery (specific
         # pages drowned out by common-term matches in the small pool).
         pool = max(top_k * 2, 50)
-        fts_results = _fts_search(
-            conn=conn, query=query, top_k=pool, category=category,
-        )
-        semantic_results = _semantic_search(
-            conn=conn, query=query, top_k=pool, category=category,
+        all_ranked, result_cache = _first_stage(
+            conn=conn,
+            query=query,
+            pool=pool,
+            category=category,
+            semantic_weight=semantic_weight,
+            fts5_weight=fts5_weight,
             embedding_engine=embedding_engine,
         )
+        sorted_results = all_ranked[:top_k]
 
-        scored: dict[str, float] = {}
-        result_cache: dict[str, dict[str, Any]] = {}
-
-        # Score FTS5 results
-        if fts_results:
-            min_rank = min(m["_rank"] for m in fts_results)
-            max_rank = max(m["_rank"] for m in fts_results)
-            rank_range = (
-                max_rank - min_rank if max_rank != min_rank else 1.0
-            )
-
-            for i, msg in enumerate(fts_results):
-                fp = msg["file_path"]
-                normalized = 1.0 - ((msg["_rank"] - min_rank) / rank_range)
-                score = (
-                    fts5_weight * normalized
-                    + (1.0 / (i + 1)) * fts5_weight * 0.1
-                )
-                scored[fp] = scored.get(fp, 0) + score
-                msg["_fts5_score"] = round(score, 4)
-                result_cache[fp] = msg
-
-        # Score semantic results. Min-max normalize similarity across the
-        # pool: raw cosine typically tops out near 0.5, which would starve
-        # the semantic branch vs the min-max-normalized FTS branch (0..1).
-        if semantic_results:
-            sims = [m["_similarity"] for m in semantic_results]
-            smin = min(sims)
-            smax = max(sims)
-            srange = (smax - smin) if smax != smin else 1.0
-        for i, msg in enumerate(semantic_results):
-            fp = msg["file_path"]
-            sim_score = (
-                (msg["_similarity"] - smin) / srange if semantic_results else 0.0
-            )
-            score = (
-                semantic_weight * sim_score
-                + (1.0 / (i + 1)) * semantic_weight * 0.1
-            )
-            scored[fp] = scored.get(fp, 0) + score
-            msg["_semantic_score"] = round(score, 4)
-            if fp not in result_cache:
-                result_cache[fp] = msg
-            else:
-                result_cache[fp]["_semantic_score"] = msg.get(
-                    "_semantic_score", 0
-                )
-
-        sorted_results = sorted(
-            scored.items(), key=lambda x: -x[1]
-        )[:top_k]
+        # Second stage (flag-gated, OFF by default): cross-encoder rerank of
+        # the top RERANK_POOL candidates. ``None`` order = service down /
+        # failure -> the first-stage order is kept verbatim (the reranker
+        # must never make a search worse than the first stage).
+        if (
+            rerank_client is not None
+            and rerank_client.enabled()
+            and len(all_ranked) > 1
+        ):
+            pool_n = min(RERANK_POOL, len(all_ranked))
+            pool = all_ranked[:pool_n]
+            docs = _rerank_docs(conn, [fp for fp, _ in pool], query)
+            # Blend (RERANK_BLEND, default 0.5): first-stage rank stays
+            # anchored so a one-line-mention page cannot leapfrog the fused
+            # order — pure CE reorder measured worse on the 10/20 A/B
+            # battery (Merchant of Venice -> actress pages).
+            scores = rerank_client.rerank_scored(query, docs)
+            if scores is not None:
+                order = rerank_client.blend(scores)
+                pool = [pool[i] for i in order]
+                sorted_results = pool + all_ranked[pool_n:]
+            sorted_results = sorted_results[:top_k]
 
         file_paths = [fp for fp, _ in sorted_results]
         snippets = _extract_snippets_batch(conn=conn, file_paths=file_paths, query=query)
@@ -122,6 +186,77 @@ def search(
     except Exception as e:  # noqa: S110 — degradation wrapper, must never fail RL search
         logger.error("RLIndex search failed: %s", e)
         return []
+
+
+RERANK_WINDOWS = 3
+RERANK_WINDOW = 320
+RERANK_DOC_CAP = 1400
+
+
+def _rerank_windows(body: str, query_words: list[str]) -> str:
+    """Multi-site evidence windows for the cross-encoder.
+
+    Up to ``RERANK_WINDOWS`` non-overlapping windows centered on the earliest
+    distinct query-term hit sites (skipping a leading metadata block, ~400
+    chars). A head-of-body window buries deep sections of long pages, and a
+    single matched window lets one-line mentions (chronologies, indexes)
+    outscore the target — both measured in the 10/20 A/B battery
+    (inference-fleet-topology / mail-migration-plan demoted,
+    patrick-daley-chronology promoted). Fallback: head window.
+    """
+    low = (body or "").lower()
+    sites: list[int] = []
+    for w in query_words:
+        if not w:
+            continue
+        i = low.find(w)
+        j = low.find(w, 400)
+        if i != -1 and j != -1:
+            pick = j          # prefer content past the metadata block
+        elif i == -1:
+            pick = j
+        else:
+            pick = i
+        if pick != -1 and all(abs(pick - s) >= RERANK_WINDOW for s in sites):
+            sites.append(pick)
+        if len(sites) >= RERANK_WINDOWS:
+            break
+    if not sites:
+        return (body or "")[:500]
+    sites.sort()
+    parts: list[str] = []
+    for s in sites:
+        start = max(0, s - 100)
+        end = min(len(body), s + RERANK_WINDOW)
+        p = body[start:end].replace("\n", " ").strip()
+        if p:
+            parts.append(p)
+    return (" ... ".join(parts))[:RERANK_DOC_CAP]
+
+
+def _rerank_docs(conn: Any, file_paths: list[str], query: str) -> list[str]:
+    """Cross-encoder input per candidate: title + query-matched windows.
+
+    Bodies are read from the DB (the live connection is ``query_only`` —
+    SELECT only, never the disk). Any failure returns ``[]``, which makes
+    ``rerank_client.rerank`` return ``None`` and the caller keeps the
+    first-stage order.
+    """
+    query_words = [w for w in query.lower().split() if len(w) > 2]
+    try:
+        placeholders = ",".join("?" for _ in file_paths)
+        cursor = conn.execute(
+            f"SELECT file_path, title, body FROM rl_files"
+            f" WHERE file_path IN ({placeholders})",
+            file_paths,
+        )
+        by_path = {
+            fp: (title or "") + ". " + _rerank_windows(body or "", query_words)
+            for fp, title, body in cursor.fetchall()
+        }
+    except Exception:  # noqa: S110 — rerank is an upgrade, never a breaker
+        return []
+    return [by_path.get(fp, "") for fp in file_paths]
 
 
 def _has_chunk_index(conn: Any) -> bool:

@@ -165,3 +165,92 @@ class TestGracefulDegradation:
         mod = _fresh_tool_module(monkeypatch, db)
         out = json.loads(mod.book_search(query="anything"))
         assert "error" in out
+
+
+class TestRerank:
+    """Phase 1b: flag-gated cross-encoder second stage (OFF by default).
+
+    Invariant: when the flag is off, or the rerank service is down, the
+    output is byte-identical to the first-stage (FTS-only) result.
+    """
+
+    def _db(self, tmp_path):
+        return _make_scratch_db(tmp_path, [
+            ("Book Alpha", "A One", "gutenberg", "/x/a.txt",
+             "redemption of the soul and the affections of the heart"),
+            ("Book Beta", "B Two", "gutenberg", "/x/b.txt",
+             "the wilderness soul and a great redemption sea"),
+            ("Book Gamma", "C Three", "gutenberg", "/x/c.txt",
+             "redemption garden of the soul harvest and field"),
+            ("Book Delta", "D Four", "gutenberg", "/x/d.txt",
+             "the soul of the mountain redemption"),
+            ("Book Eps", "E Five", "gutenberg", "/x/e.txt",
+             "wilderness and the soul of redemption"),
+        ])
+
+    def test_flag_off_no_fetch_inflation(self, monkeypatch, tmp_path):
+        mod = _fresh_tool_module(monkeypatch, self._db(tmp_path))
+        monkeypatch.delenv("RERANK_ENABLED", raising=False)
+        seen = {}
+        bi = mod._bi()
+        real = bi.search_structured
+
+        def spy(query, limit=8, source=None):
+            seen["limit"] = limit
+            return real(query, limit=limit, source=source)
+
+        monkeypatch.setattr(bi, "search_structured", spy)
+        out = json.loads(mod.book_search(query="redemption", limit=2))
+        assert seen["limit"] == 2  # no pool inflation when off
+        assert out["count"] == 2
+
+    def test_flag_on_reorders_and_truncates(self, monkeypatch, tmp_path):
+        mod = _fresh_tool_module(monkeypatch, self._db(tmp_path))
+        monkeypatch.setenv("RERANK_ENABLED", "1")
+        seen = {}
+        bi = mod._bi()
+        real = bi.search_structured
+
+        def spy(query, limit=8, source=None):
+            seen["limit"] = limit
+            return real(query, limit=limit, source=source)
+
+        monkeypatch.setattr(bi, "search_structured", spy)
+        import rerank_client
+        # full reversal of the pool: CE scores strictly decreasing in
+        # first-stage order, CE-dominant blend (w=1.0) -> last FTS hit
+        # becomes the top hit. (Production path = rerank_scored + blend.)
+        monkeypatch.setenv("RERANK_BLEND", "1.0")
+        monkeypatch.setattr(
+            rerank_client,
+            "rerank_scored",
+            lambda q, docs: [i for i in range(len(docs))],
+        )
+        out = json.loads(mod.book_search(query="redemption", limit=2))
+        assert seen["limit"] >= 10  # pool inflated (capped by SEARCH_BUFFER)
+        assert out["count"] == 2
+        # reversed pool -> the two LAST FTS-order hits come back first.
+        # Baseline must be computed with the flag OFF (pure FTS order).
+        monkeypatch.delenv("RERANK_ENABLED", raising=False)
+        baseline = json.loads(mod.book_search(query="redemption", limit=5))
+        baseline_paths = [r["path"] for r in baseline["results"]]
+        assert [r["path"] for r in out["results"]] == [
+            baseline_paths[-1], baseline_paths[-2]
+        ]
+
+    def test_flag_on_service_down_keeps_first_stage_order(self, monkeypatch, tmp_path):
+        mod = _fresh_tool_module(monkeypatch, self._db(tmp_path))
+        import rerank_client
+
+        monkeypatch.setenv("RERANK_ENABLED", "1")
+        monkeypatch.setattr(rerank_client, "rerank_scored",
+                            lambda q, docs: None)
+        out_on = json.loads(mod.book_search(query="redemption", limit=5))
+
+        monkeypatch.delenv("RERANK_ENABLED", raising=False)
+        out_off = json.loads(mod.book_search(query="redemption", limit=5))
+
+        assert [r["path"] for r in out_on["results"]] == [
+            r["path"] for r in out_off["results"]
+        ]
+        assert out_on["count"] == out_off["count"]
