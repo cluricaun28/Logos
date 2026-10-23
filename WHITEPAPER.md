@@ -2,7 +2,7 @@
 type: topic
 topic: "Logos — System White Paper"
 created: 2026-05-07
-last_updated: 2026-09-16
+last_updated: 2026-10-22
 confidence: high
 description: "Comprehensive white paper documenting the purpose, architecture, and operation of Logos, a sovereign agentic intelligence system. Explains the 'what,' 'why,' and 'how' of the entire system from first principles."
 ---
@@ -11,7 +11,7 @@ description: "Comprehensive white paper documenting the purpose, architecture, a
 
 *A white paper on sovereign knowledge management through persistent memory, curated truth, and epistemic sovereignty*
 
-**Version:** 3.9  |  **Date:** 2026-09-20  |  **Repository:** cluricaun28/logos (detached, standalone)
+**Version:** 3.10  |  **Date:** 2026-10-22  |  **Repository:** cluricaun28/logos (detached, standalone)
 
 ---
 
@@ -202,7 +202,7 @@ The bridge remains available on every archive regardless of which context engine
 
 **Content structure (when active, up to 4,000 characters):**
 
-1. **Active Tasks** — User requests and pending work from recent turns
+1. **Active Tasks** — A compressed *recall* of user requests and pending work from recent turns (conversation continuity, **not** a work tracker — the active-work index is a separate read-on-demand file, §4.11)
 2. **Files Currently Being Edited** — Paths from `write_file`, `patch`, `read_file` tool calls
 3. **Known Errors/Issues** — Error messages and failure patterns encountered
 4. **Knowledge Gaps** — Unresolved questions flagged for [[system/reference-library-purpose|Reference Library]] building
@@ -447,11 +447,28 @@ An agent pins a project by writing a short brief to `~/.hermes/state/pinned/<pro
 
 - **ON:** write the file → injected from the next turn
 - **OFF:** delete the file → gone next turn — or set `active: false` in the frontmatter to keep the content on disk and re-enable later with a one-char flip
-- **Scope:** per-agent (per `HERMES_HOME`); one active pin per agent at a time
-- **Content rule:** objective + artifact pointers + status + checklist — never details; details live in a state file on disk that the brief references
+- **Scope:** per-agent (per `HERMES_HOME`); **multiple pins** — every brief in `state/pinned/` is injected, deterministically ordered (`priority` frontmatter, then name) so the prompt prefix stays stable across turns (prefix-cache friendly), with per-brief character caps, a total cap, and an activity-based dormant cap (briefs untouched 14+ days shrink to a stub + pointer)
+- **Content rule:** **objective + standing constraints + artifact pointers — never progress** (progress lives in the active-work board / plan of record, never in an injected layer — see §4.11). Briefs stay short; details live on disk that the brief references. Frontmatter toggles: `active: false` keeps a brief on disk without injection; `expires:` archives it on the date
 - **Fail-open:** a malformed brief can never break prompt construction
 
 Proven in the reference deployment (2026-08-20): with a pin, a 200+-item content rewrite + dimensions audit ran as a single 13-minute, 50-message session with **zero "continue" prompts**; the same task unpinned required multi-window stitching. Live on the owner instance, all fleet agents, and the prod candidate (merged 2026-08-20).
+
+### 4.11 Standing Context Layers + The Board — Active-Work Index (new 10/22)
+
+**Purpose:** Make the context architecture explicit — which layers are *injected* (mechanism-guaranteed every turn) versus *read on demand* (discipline-guaranteed) — and keep work *state* out of injected layers so it cannot go stale inside the prompt.
+
+Four carriers, distinguished by injection, never by label (the labels all blur under "memory" / "active tasks"):
+
+1. **Memory block (standing layer)** — injected every turn at top precedence, capped (~2.2K chars). Repurposed 9/28 from a general fact dump to **standing rules + short pointers only**; time-bound state moved out, and stale entries are retired in place (replaced/removed the moment they go stale), never left to decay.
+2. **Pinned project briefs** (§4.10) — injected every turn; the project's *objective* for the life of the project, regardless of how many compressions pass.
+3. **Context bridge** (§4.2) — injected at compression: a compressed *recall* of recent turns ("what did we just say").
+4. **The Board — active-work index** (`active-tasks.md`; read on demand, **never injected**) — the supervisor's single index of running / queued / done work: one thin row per work item (goal pointer, live handle, verification, ETA), fixed sections (RUNNING capped at 3 concurrent · NEXT — approved, awaiting owner window · TRACKED · DELIVERED · DONE as a one-line recovery-handle ledger, newest first).
+
+**The pin↔board split (the design rule):** the pin holds the *objective* (injected, mechanism-guaranteed across compressions); the board row holds the *state* (read on demand, discipline-guaranteed). A row never restates the goal; a pin never carries progress. Cross-referenced both ways (row → pin name; pin data-pointers → row ID); a pinned project with no active work has no row.
+
+**The close-out contract (anti-staleness):** a row is not done until it is DONE — one line, close date, verification, recovery handles (rollback tag / RL page / artifact path). Close-out fires on THREE triggers, not just "I finished": worker return, owner decision/cancel, or **read-time re-measurement** (a board read that finds live state complete or dead closes the row in the same read). DONE rows are *tombstones*: re-raising one requires a NEW measured trigger — recall is not a trigger. A mechanism backstop covers the discipline-guaranteed board: a standing weekly rollup re-measures every RUNNING/NEXT handle (process/cron existence, artifact mtime, git HEAD) and closes or corrects anything that rotted.
+
+Proven live in the reference deployment (2026-10-22): a board read re-measured a row claiming "finish-job closes build+commit ~20:17"; the job had actually run out of budget at 20:47 (tree green, uncommitted, job gone from the scheduler). Read-time re-measurement caught it before it became a stale claim or a double-launch; a scoped close-out job then committed the exact measured remainder within the hour (full build/test/clippy gate green).
 
 ---
 
@@ -660,6 +677,7 @@ The system is designed to run several autonomous jobs that maintain and improve 
 
 | Date | Milestone |
 |------|-----------|
+| 2026-10-22 | **v3.10 — Context-architecture accuracy pass.** §4.10 corrected against the live mechanism: pins are multi-pin (every brief in `state/pinned/` injected, `priority`-then-name ordered, per-brief / total / dormant caps) — the 8/20-era "one active pin per agent" line was stale; content rule tightened to objective + constraints + pointers, never progress. New §4.11 makes the standing context layers explicit (memory block standing layer, pinned briefs, context bridge recall) and documents **The Board** — the read-on-demand, never-injected active-work index — with the pin↔board split (objective vs. state) and the close-out contract (three close-out triggers, tombstone DONE rows, weekly mechanism sweep). §4.2 disambiguates the bridge's "Active Tasks" block (compressed recall, not a work tracker). Companion accuracy pass: README features list (multi-pin + Board bullet) and the RL whitepaper snapshot page. |
 | 2026-09-20 | **v3.9 — Public hygiene pass.** Header version re-synced (was 3.5; the changelog had advanced to v3.8). Sterilization of the changelog itself: the v3.7/v3.8 entries referenced the internal home-PC hostname (×3) and the fleet server by company name, plus a fleet username — all generalized to "home PC" / "a server" / dropped. Wikilink repaired in §4.8: `[[Skill Priority-Based Injection(topics/hermes-agent/skill-priority-injection)]]` (malformed paren form + stale pre-reorg target resolving to nothing) → `[[Skill Priority-Based Injection\|technology/skill-priority-injection]]` (the canonical RL page). Full tracked-file sweep (1,778 files): no personal names, personal emails, LAN IPs, or worldview phrasing outside the intended public-repo references (the public org in clone URLs and issue templates); `.mailmap` carries only upstream contributors' public addresses (unchanged); 192.168.x.x occurrences are generic test-fixture/doc placeholders. Numbers re-verified across README / WHITEPAPER / LEARNINGS: the 55,000+ turns / 5,000+ sessions / 40,000+ pages snapshot claims remain conservative and true as of 2026-09-20 (the live store has grown past them; the dated-snapshot framing covers this); the v3.5/v3.6/v3.7 measurement entries each state their own bounds (prompt-only vs processed tokens; distinct 23-day windows) and are internally consistent (13,175,443 + 68,385 = 13,243,828; 76,647,621 chars ≈ 19.16M tokens; 658K tok/h ⇒ 1M window ≈ 91 min ⇒ 13+ lossy rounds by hour 20). Links: all 3 external URLs live (HTTP 200); all 20 in-repo path references in the three docs resolve; the two `[[system/...]]` wikilink targets exist in the reference library. |
 | 2026-09-16 | **v3.8 — Origin re-anchored (correction to v3.7).** v3.7 attributed the 2025-07-22 home-PC git date to the owner's build; on re-verification that date is the **upstream hermes-agent framework's** first commit (author Teknium / Nous Research — the owner has zero commits in that history). The home PC WSL install, `.hermes`, and first turn all date to **2026-04-09**; a full sweep found **no 2025 user/conversation data on the home PC** (only `.cache/camoufox/` browser binaries carry 2025 dates). So the verifiable start of the system that became Logos is the **2026-04-09 home-PC build** (~5 months of continuous use as of 2026-09-16), which pre-dates the public GitHub fork (2026-04-27) — the owner's point that the start is the home-PC build (not the GitHub posting) holds; the date is April 2026, not 2025. README + LEARNINGS reworded to credit 2025 to the framework and the build to the April 2026 home PC. RL whitepaper (§10 + What This Is) updated with the same provenance note. **Follow-up: verified against the Perpetual Memory record** — the core elements were built into hermes-agent on the home PC 2026-04-19→27 (Perpetual Memory 4/19 `perpetual_context_db.py`, Rolling Window/Context Engine 4/21, Reference Library 4/22, vLLM+DPO 4/19–23), then forked (4/27) and migrated to a server (8/15) — matching the owner's account ("built the features into hermes-agent, then forked, then got the server going"). Home PC = Ryzen 9 + single GPU. README + LEARNINGS build sentence revised to reflect the build-into-hermes-then-fork record. |
 | 2026-09-16 | **v3.7 — Public repo audit (owner steer: operational specifics like ports/versions/checkpoints are not load-bearing — de-emphasize, don't pin). Corrected: (1) "in continuous use for over a year" (README + LEARNINGS) re-anchored to the real start, verified against the home-PC install's git history (home PC: first commit 2025-07-22, 6,770 commits through Apr 2026) — now reads "Built and in continuous use since July 2025 — over a year, starting on my home PC and now scaled to a single-GPU server." An earlier draft's "this deployment in active use since April 2026" read as a start-marker (the public GitHub deployment) and was dropped per owner steer: the home-PC build-out is the start, not the deployment. The 55,000+ verbatim turns is the current server store (2026-04-09 → now); the 2025 build-out turns were on the home PC and predate this store. (2) RL serving mechanism updated Quartz → RL live viewer (rl_viewer.py) in the README port table, the WHITEPAPER architecture box, §RL serving, and §7.2 stack table — the live viewer is the active on-demand, never-stale renderer (the Quartz static-site approach is retired; skill quartz-rl-serving marked retired 2026-08-23). (3) vLLM version de-pinned v0.27.1 → version-agnostic "vLLM (Docker)" (live engines run a 0.26.1 dev build; a pinned version is not load-bearing and goes stale). (4) Inference-row model name simplified "Qwen3.8-27B-Uncensored-FP8" → "Qwen3.8-27B" (the served model id; the checkpoint qualifier is operational detail). Verified against live state: store 56,073 msgs / 5,145 sessions; 23-day window 27,224 / 1,135 (exact); RL 40,334 pages; 47 tables; max_model_len 262144. Hygiene: *.bak added to .gitignore; stray rl_viewer.py.bak-20260910 removed. |
