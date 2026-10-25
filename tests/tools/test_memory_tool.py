@@ -10,6 +10,8 @@ from tools.memory_tool import (
     _scan_memory_content,
     ENTRY_DELIMITER,
     MEMORY_SCHEMA,
+    USER_PROFILE_CORE_MARKER,
+    extract_user_profile_core,
 )
 
 
@@ -277,3 +279,103 @@ class TestMemoryToolDispatcher:
     def test_remove_requires_old_text(self, store):
         result = json.loads(memory_tool(action="remove", store=store))
         assert result["success"] is False
+
+
+# =========================================================================
+# One-file user profile (owner steer 10/25, USER-PROFILE-ONEFILE-1025)
+# =========================================================================
+
+class TestUserProfileCoreExtraction:
+    def test_extracts_core_section(self):
+        text = (
+            "---\ntitle: x\n---\n# Patrick Daley\n\nintro line\n\n"
+            "## Agent Operating Core\n\n"
+            "- rule one\n- rule two\n\n"
+            "## Work & Business\n\n- job detail\n"
+        )
+        section = extract_user_profile_core(text)
+        assert section.startswith("## Agent Operating Core")
+        assert "- rule two" in section
+        assert "intro line" not in section
+        assert "Work & Business" not in section
+        assert "job detail" not in section
+
+    def test_marker_absent_returns_none(self):
+        assert extract_user_profile_core("# Page\n\n## Other\n\ntext") is None
+
+    def test_core_section_at_eof(self):
+        text = "intro\n\n## Agent Operating Core\n\n- only rule\n"
+        section = extract_user_profile_core(text)
+        assert section == "## Agent Operating Core\n\n- only rule"
+
+    def test_empty_section_returns_none(self):
+        text = "## Agent Operating Core\n\n## Next\n\nx\n"
+        assert extract_user_profile_core(text) is None
+
+    def test_h3_inside_core_is_kept(self):
+        text = (
+            "## Agent Operating Core\n\n- rule\n\n### sub\n\n- sub rule\n\n"
+            "## Next\n\nx\n"
+        )
+        section = extract_user_profile_core(text)
+        assert "### sub" in section
+        assert "sub rule" in section
+        assert "Next" not in section
+
+    def test_marker_must_be_a_full_line(self):
+        # A body mention of the marker text is not a section heading.
+        text = "## Other\n\nsee ## Agent Operating Core for rules\n\n## Next\n"
+        assert extract_user_profile_core(text) is None
+
+
+class TestUserTargetRedirect:
+    @pytest.fixture()
+    def steered_store(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("tools.memory_tool.get_memory_dir", lambda: tmp_path)
+        s = MemoryStore(
+            memory_char_limit=500,
+            user_char_limit=300,
+            user_profile_page="people/patrick-daley.md",
+        )
+        s.load_from_disk()
+        return s
+
+    def test_add_user_redirected(self, steered_store):
+        result = steered_store.add("user", "Name: Alice")
+        assert result["success"] is False
+        assert "retired" in result["error"]
+        assert "Agent Operating Core" in result["error"]
+        assert "people/patrick-daley.md" in result["error"]
+
+    def test_add_user_redirect_writes_nothing(self, steered_store, tmp_path):
+        steered_store.add("user", "Name: Alice")
+        assert steered_store.user_entries == []
+        assert not (tmp_path / "USER.md").exists()
+
+    def test_replace_user_redirected(self, steered_store):
+        result = steered_store.replace("user", "Alice", "Bob")
+        assert result["success"] is False
+        assert "retired" in result["error"]
+
+    def test_remove_user_redirected(self, steered_store):
+        result = steered_store.remove("user", "Alice")
+        assert result["success"] is False
+        assert "retired" in result["error"]
+
+    def test_memory_target_unaffected_when_steered(self, steered_store):
+        result = steered_store.add("memory", "still works")
+        assert result["success"] is True
+        assert "still works" in steered_store.memory_entries
+
+    def test_legacy_store_user_target_unchanged(self, store):
+        # No user_profile_page on the fixture -> legacy two-file behavior.
+        result = store.add("user", "Name: Alice")
+        assert result["success"] is True
+        assert "Name: Alice" in store.user_entries
+
+    def test_user_redirect_via_tool_dispatcher(self, steered_store):
+        result = json.loads(
+            memory_tool(action="add", target="user", content="Name: Alice", store=steered_store)
+        )
+        assert result["success"] is False
+        assert "retired" in result["error"]

@@ -1762,6 +1762,12 @@ class AIAgent:
         self._memory_store = None
         self._memory_enabled = False
         self._user_profile_enabled = False
+        # One-file user profile (owner steer 10/25, USER-PROFILE-ONEFILE-1025):
+        # RL page path (relative to reference-library/) that is the sole
+        # user-profile store. "" (default — other fleet instances) = legacy
+        # store-based USER.md block.
+        self._user_profile_page = ""
+        self._user_profile_char_limit = 1375
         self._memory_nudge_interval = 10
         self._turns_since_memory = 0
         self._iters_since_skill = 0
@@ -1778,6 +1784,15 @@ class AIAgent:
                 mem_config = _agent_cfg.get("memory", {})
                 self._memory_enabled = mem_config.get("memory_enabled", False)
                 self._user_profile_enabled = mem_config.get("user_profile_enabled", False)
+                # One-file steer (owner 10/25): when set, the user profile lives
+                # in this RL page and injection = deterministic read of its
+                # Agent Operating Core section.
+                self._user_profile_page = str(
+                    mem_config.get("user_profile_page", "") or ""
+                ).strip()
+                self._user_profile_char_limit = int(
+                    mem_config.get("user_char_limit", 1375)
+                )
                 self._memory_nudge_interval = int(mem_config.get("nudge_interval", 10))
                 self._memory_injection_mode = str(
                     mem_config.get("injection", "bounded")
@@ -1796,6 +1811,7 @@ class AIAgent:
                     self._memory_store = MemoryStore(
                         memory_char_limit=mem_config.get("memory_char_limit", 2200),
                         user_char_limit=mem_config.get("user_char_limit", 1375),
+                        user_profile_page=self._user_profile_page,
                     )
                     self._memory_store.load_from_disk()
             except (OSError, PermissionError, ImportError, AttributeError, TypeError, ValueError):
@@ -3570,6 +3586,12 @@ class AIAgent:
                     review_agent._memory_store = self._memory_store
                     review_agent._memory_enabled = self._memory_enabled
                     review_agent._user_profile_enabled = self._user_profile_enabled
+                    review_agent._user_profile_page = getattr(
+                        self, "_user_profile_page", ""
+                    )
+                    review_agent._user_profile_char_limit = getattr(
+                        self, "_user_profile_char_limit", 1375
+                    )
                     review_agent._memory_nudge_interval = 0
                     review_agent._skill_nudge_interval = 0
 
@@ -4867,6 +4889,44 @@ class AIAgent:
         except Exception:  # noqa: S110 — injection must never break the turn
             return ""
 
+    def _read_user_profile_core(self) -> Optional[str]:
+        """One-file user profile (owner steer 10/25, USER-PROFILE-ONEFILE-1025).
+
+        Deterministic read of the `## Agent Operating Core` section of the
+        configured RL page — the sole user-profile store. No LLM, no relevance
+        ranking (consistent with the memory-block retirement). Over-cap is a
+        trim signal (warning logged), then a hard cap.
+        """
+        try:
+            from tools.memory_tool import extract_user_profile_core
+            page = get_logos_home() / "reference-library" / self._user_profile_page
+            text = page.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError, ValueError) as exc:
+            logger.warning(
+                "user-profile page unreadable (%s): %s",
+                self._user_profile_page,
+                exc,
+            )
+            return None
+        section = extract_user_profile_core(text)
+        if not section:
+            logger.warning(
+                "user-profile page %s has no '## Agent Operating Core' section",
+                self._user_profile_page,
+            )
+            return None
+        limit = self._user_profile_char_limit
+        if len(section) > limit:
+            logger.warning(
+                "Agent Operating Core section is %d chars > %d limit — trim the "
+                "section (this warning is the trim signal, not a silent-OK "
+                "truncation)",
+                len(section),
+                limit,
+            )
+            section = section[:limit].rstrip()
+        return section
+
     def _build_system_prompt(self, system_message: str = None) -> str:
         """
         Assemble the full system prompt from all layers.
@@ -4966,11 +5026,19 @@ class AIAgent:
                     mem_block = self._memory_store.format_for_system_prompt("memory")
                     if mem_block:
                         prompt_parts.append(mem_block)
-            # USER.md is always included when enabled.
-            if self._user_profile_enabled:
+        # User profile — one-file steer (owner 10/25, USER-PROFILE-ONEFILE-1025):
+        # when `user_profile_page` is configured, the profile lives in the RL
+        # page and injection = deterministic read of its Agent Operating Core
+        # section. Legacy fallback (key unset — other fleet instances): the
+        # store-based USER.md block.
+        if self._user_profile_enabled:
+            user_block = None
+            if self._user_profile_page:
+                user_block = self._read_user_profile_core()
+            elif self._memory_store:
                 user_block = self._memory_store.format_for_system_prompt("user")
-                if user_block:
-                    prompt_parts.append(user_block)
+            if user_block:
+                prompt_parts.append(user_block)
 
         # External memory provider system prompt block (additive to built-in)
         if self._memory_manager:

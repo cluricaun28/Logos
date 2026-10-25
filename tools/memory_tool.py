@@ -8,6 +8,14 @@ Provides bounded, file-backed memory that persists across sessions. Two stores:
   - USER.md: what the agent knows about the user (preferences, communication style,
     expectations, workflow habits)
 
+One-file steer (owner 10/25, USER-PROFILE-ONEFILE-1025): when a MemoryStore is
+constructed with `user_profile_page` set, the 'user' target is retired — the RL
+page (e.g. people/patrick-daley.md) is the sole user-profile store, and its
+`## Agent Operating Core` section is what gets injected (deterministic read via
+`extract_user_profile_core`; no LLM, no ranking). Writes to the 'user' target on
+such stores are redirected (nothing is written). Legacy stores (key unset —
+other fleet instances) keep the two-file behavior below.
+
 Both are injected into the system prompt as a frozen snapshot at session start.
 Mid-session writes update files on disk immediately (durable) but do NOT change
 the system prompt -- this preserves the prefix cache for the entire session.
@@ -58,6 +66,40 @@ def get_memory_dir() -> Path:
     return get_logos_home() / "memories"
 
 ENTRY_DELIMITER = "\n§\n"
+
+# One-file user profile (owner steer 10/25): the section of the RL page that
+# is injected. Deterministic marker — no LLM, no relevance ranking.
+USER_PROFILE_CORE_MARKER = "## Agent Operating Core"
+
+
+def extract_user_profile_core(
+    text: str, marker: str = USER_PROFILE_CORE_MARKER
+) -> Optional[str]:
+    """Deterministic section read of the one-file user profile (owner steer 10/25).
+
+    Returns the section starting at the marker heading through the line before
+    the next top-level '## ' heading (or EOF), or None when the marker is
+    absent or the section is empty. No interpretation — the section text is
+    injected verbatim.
+    """
+    lines = text.splitlines()
+    start = None
+    for i, line in enumerate(lines):
+        if line.strip() == marker:
+            start = i
+            break
+    if start is None:
+        return None
+    end = len(lines)
+    for j in range(start + 1, len(lines)):
+        if lines[j].startswith("## "):
+            end = j
+            break
+    # A heading with no body content is treated as absent (injecting a bare
+    # heading would be noise).
+    if not any(line.strip() for line in lines[start + 1 : end]):
+        return None
+    return "\n".join(lines[start:end]).strip()
 
 
 # ---------------------------------------------------------------------------
@@ -116,11 +158,20 @@ class MemoryStore:
         Tool responses always reflect this live state.
     """
 
-    def __init__(self, memory_char_limit: int = 2200, user_char_limit: int = 1375):
+    def __init__(
+        self,
+        memory_char_limit: int = 2200,
+        user_char_limit: int = 1375,
+        user_profile_page: str = "",
+    ):
         self.memory_entries: List[str] = []
         self.user_entries: List[str] = []
         self.memory_char_limit = memory_char_limit
         self.user_char_limit = user_char_limit
+        # One-file steer (owner 10/25): when set, the 'user' target is retired
+        # — the RL page is the sole user-profile store and 'user' writes are
+        # redirected (see _user_target_redirect).
+        self.user_profile_page = user_profile_page
         # Frozen snapshot for system prompt -- set once at load_from_disk()
         self._system_prompt_snapshot: Dict[str, str] = {"memory": "", "user": ""}
         # Frozen snapshot entries (the set per-turn bounded injection selects
@@ -240,8 +291,28 @@ class MemoryStore:
             return self.user_char_limit
         return self.memory_char_limit
 
+    def _user_target_redirect(self) -> Optional[Dict[str, Any]]:
+        """One-file steer (owner 10/25): response redirecting 'user' writes to
+        the RL page, or None when this store is not steered (legacy)."""
+        if not self.user_profile_page:
+            return None
+        return {
+            "success": False,
+            "target": "user",
+            "error": (
+                "user target retired (one-file steer, owner 10/25): the user "
+                "profile lives in the RL page "
+                f"'{self.user_profile_page}' — edit its '## Agent Operating Core' "
+                "section directly (patch/write_file) with a Review History row. "
+                "No entry was written."
+            ),
+        }
+
     def add(self, target: str, content: str) -> Dict[str, Any]:
         """Append a new entry. Returns error if it would exceed the char limit."""
+        redirect = self._user_target_redirect() if target == "user" else None
+        if redirect is not None:
+            return redirect
         content = content.strip()
         if not content:
             return {"success": False, "error": "Content cannot be empty."}
@@ -287,6 +358,9 @@ class MemoryStore:
 
     def replace(self, target: str, old_text: str, new_content: str) -> Dict[str, Any]:
         """Find entry containing old_text substring, replace it with new_content."""
+        redirect = self._user_target_redirect() if target == "user" else None
+        if redirect is not None:
+            return redirect
         old_text = old_text.strip()
         new_content = new_content.strip()
         if not old_text:
@@ -345,6 +419,9 @@ class MemoryStore:
 
     def remove(self, target: str, old_text: str) -> Dict[str, Any]:
         """Remove the entry containing old_text substring."""
+        redirect = self._user_target_redirect() if target == "user" else None
+        if redirect is not None:
+            return redirect
         old_text = old_text.strip()
         if not old_text:
             return {"success": False, "error": "old_text cannot be empty."}
@@ -624,7 +701,7 @@ MEMORY_SCHEMA = {
             "target": {
                 "type": "string",
                 "enum": ["memory", "user"],
-                "description": "Which memory store: 'memory' for personal notes, 'user' for user profile."
+                "description": "Which memory store: 'memory' for personal notes, 'user' for user profile (on one-file-steer instances the 'user' target is retired — writes redirect to the RL page's Agent Operating Core section).",
             },
             "content": {
                 "type": "string",
