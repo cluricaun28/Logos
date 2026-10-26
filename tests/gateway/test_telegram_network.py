@@ -181,15 +181,41 @@ class TestFallbackTransport:
         assert transport._sticky_ip == "149.154.167.220"
 
     @pytest.mark.asyncio
-    async def test_does_not_fallback_on_non_connect_error(self, monkeypatch):
-        """Errors like ReadTimeout are not connection issues — don't retry."""
+    async def test_falls_back_on_read_timeout(self, monkeypatch):
+        """A ReadTimeout on the primary path is a transport failure, not an
+        application error. This is the real-world v6-blackhole case: a host
+        with no working v6 egress gets a blackholing AAAA for api.telegram.org
+        and the read phase times out — the transport must fall through to the
+        known-good IPv4 fallback IP and stick to it."""
         calls = []
         behavior = {"api.telegram.org": httpx.ReadTimeout("read timeout"), "149.154.167.220": "ok"}
         monkeypatch.setattr(tnet.httpx, "AsyncHTTPTransport", _fake_transport_factory(calls, behavior))
 
         transport = tnet.TelegramFallbackTransport(["149.154.167.220"])
+        resp = await transport.handle_async_request(_telegram_request())
 
-        with pytest.raises(httpx.ReadTimeout):
+        assert resp.status_code == 200
+        assert transport._sticky_ip == "149.154.167.220"
+        # First attempt was primary (api.telegram.org → ReadTimeout), second was the IPv4 fallback
+        assert [c["url_host"] for c in calls] == ["api.telegram.org", "149.154.167.220"]
+
+    @pytest.mark.asyncio
+    async def test_does_not_fallback_on_application_error(self, monkeypatch):
+        """Application-level errors (an HTTP status we received) are NOT transport
+        failures — the route is fine, so don't switch IPs. (Contrast with
+        test_falls_back_on_read_timeout: a ReadTimeout IS a transport failure.)"""
+        calls = []
+        err = httpx.HTTPStatusError(
+            "400 Bad Request",
+            request=_telegram_request(),
+            response=httpx.Response(400, request=_telegram_request()),
+        )
+        behavior = {"api.telegram.org": err, "149.154.167.220": "ok"}
+        monkeypatch.setattr(tnet.httpx, "AsyncHTTPTransport", _fake_transport_factory(calls, behavior))
+
+        transport = tnet.TelegramFallbackTransport(["149.154.167.220"])
+
+        with pytest.raises(httpx.HTTPStatusError):
             await transport.handle_async_request(_telegram_request())
 
         assert [c["url_host"] for c in calls] == ["api.telegram.org"]

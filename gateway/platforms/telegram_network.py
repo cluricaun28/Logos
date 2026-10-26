@@ -97,7 +97,7 @@ class TelegramFallbackTransport(httpx.AsyncBaseTransport):
                 return response
             except Exception as exc:
                 last_error = exc
-                if not _is_retryable_connect_error(exc):
+                if not _is_retryable_transport_error(exc):
                     raise
                 if ip is None:
                     logger.warning(
@@ -242,5 +242,14 @@ def _rewrite_request_for_ip(request: httpx.Request, ip: str) -> httpx.Request:
     )
 
 
-def _is_retryable_connect_error(exc: Exception) -> bool:
-    return isinstance(exc, (httpx.ConnectTimeout, httpx.ConnectError))
+def _is_retryable_transport_error(exc: Exception) -> bool:
+    # A transport/network failure on the primary path means the TCP route is
+    # bad — fall through to the known-good fallback IPs. We match the whole
+    # httpx.TransportError family (not just the connect phase) because a dead
+    # IPv6 path — e.g. a host with no working v6 egress whose resolver returns
+    # a blackholing AAAA for api.telegram.org, as flapped by a Tailscale v6
+    # route — surfaces as a ReadTimeout / PoolTimeout on the *read* phase, not
+    # a ConnectError. Application-level errors (httpx.HTTPStatusError, etc.)
+    # are not TransportError and pass straight through (the IP is fine; don't
+    # switch).
+    return isinstance(exc, httpx.TransportError)
