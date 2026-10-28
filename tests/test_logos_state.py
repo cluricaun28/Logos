@@ -1242,7 +1242,7 @@ class TestSchemaInit:
     def test_schema_version(self, db):
         cursor = db._conn.execute("SELECT version FROM schema_version")
         version = cursor.fetchone()[0]
-        assert version == 11
+        assert version == 12
 
     def test_title_column_exists(self, db):
         """Verify the title column was created in the sessions table."""
@@ -1298,12 +1298,20 @@ class TestSchemaInit:
         conn.commit()
         conn.close()
 
-        # Open with SessionDB — should migrate to v11
+        # Open with SessionDB — should migrate to v12
         migrated_db = SessionDB(db_path=db_path)
 
         # Verify migration
         cursor = migrated_db._conn.execute("SELECT version FROM schema_version")
-        assert cursor.fetchone()[0] == 11
+        assert cursor.fetchone()[0] == 12
+
+        # v12: default flag off → trigram table (created unconditionally by
+        # the v10/v11 chain) is dropped again.
+        tri = migrated_db._conn.execute(
+            "SELECT name FROM sqlite_master "
+            "WHERE type='table' AND name='messages_fts_trigram'"
+        ).fetchone()
+        assert tri is None
 
         # Verify title column exists and is NULL for existing sessions
         session = migrated_db.get_session("existing")
@@ -2078,3 +2086,137 @@ class TestAutoMaintenance:
         assert not (sessions_dir / "old.jsonl").exists()
         assert (sessions_dir / "active.jsonl").exists()
 
+
+
+# =========================================================================
+# Trigram FTS5 — opt-in (v12, STATE-DB-TRIGRAM-1027)
+# =========================================================================
+
+class TestTrigramOptIn:
+    """Trigram FTS index (CJK substring search) must be opt-in.
+
+    On the fleet's 33GB state.db the trigram table cost 15.1GB (46% of the
+    file) to index CJK substrings present in 0.07% of rows, with a single
+    English-only live caller (task-name annotation). Default off; CJK
+    queries fall back to the LIKE path that 1-2 char CJK queries already
+    use. Rollback = re-enable the flag (table recreates with backfill).
+    """
+
+    @staticmethod
+    def _has_trigram(d) -> bool:
+        row = d._conn.execute(
+            "SELECT name FROM sqlite_master "
+            "WHERE type='table' AND name='messages_fts_trigram'"
+        ).fetchone()
+        return row is not None
+
+    @staticmethod
+    def _schema_version(d) -> int:
+        return d._conn.execute("SELECT version FROM schema_version").fetchone()[0]
+
+    def test_default_does_not_create_trigram(self, tmp_path):
+        d = SessionDB(db_path=tmp_path / "t.db")
+        try:
+            assert not self._has_trigram(d)
+        finally:
+            d.close()
+
+    def test_flag_on_creates_trigram(self, tmp_path):
+        d = SessionDB(db_path=tmp_path / "t.db", fts_trigram=True)
+        try:
+            assert self._has_trigram(d)
+        finally:
+            d.close()
+
+    def test_v12_migration_drops_legacy_trigram(self, tmp_path):
+        """A v11-era db that has the table must lose it when reopened
+        with the default (flag off)."""
+        legacy = SessionDB(db_path=tmp_path / "t.db", fts_trigram=True)
+        legacy.create_session(session_id="s1", source="cli", model="m")
+        legacy.append_message("s1", "user", "hello trigram world")
+        assert self._has_trigram(legacy)
+        # Simulate a v11-era database — fresh installs land directly at
+        # v12, where the version-gated migration is a no-op.
+        legacy._conn.execute("UPDATE schema_version SET version = 11")
+        legacy.close()
+
+        reopened = SessionDB(db_path=tmp_path / "t.db")
+        try:
+            assert not self._has_trigram(reopened)
+            assert self._schema_version(reopened) >= 12
+        finally:
+            reopened.close()
+
+    def test_v12_migration_keeps_trigram_when_flag_on(self, tmp_path):
+        legacy = SessionDB(db_path=tmp_path / "t.db", fts_trigram=True)
+        legacy.create_session(session_id="s1", source="cli", model="m")
+        legacy.append_message("s1", "user", "hello trigram world")
+        legacy._conn.execute("UPDATE schema_version SET version = 11")
+        legacy.close()
+
+        reopened = SessionDB(db_path=tmp_path / "t.db", fts_trigram=True)
+        try:
+            assert self._has_trigram(reopened)
+        finally:
+            reopened.close()
+
+    def test_cjk_search_falls_back_to_like_when_flag_off(self, tmp_path):
+        d = SessionDB(db_path=tmp_path / "t.db")
+        try:
+            d.create_session(session_id="s1", source="cli", model="m")
+            d.append_message("s1", "user", "大别山项目计划 already recorded")
+            rows = d.search_messages("大别山项目")
+            assert len(rows) == 1
+        finally:
+            d.close()
+
+    def test_cjk_search_trigram_path_when_flag_on(self, tmp_path):
+        d = SessionDB(db_path=tmp_path / "t.db", fts_trigram=True)
+        try:
+            d.create_session(session_id="s1", source="cli", model="m")
+            d.append_message("s1", "user", "大别山项目计划 already recorded")
+            rows = d.search_messages("大别山项目")
+            assert len(rows) == 1
+        finally:
+            d.close()
+
+    def test_v12_enforcement_drops_rebuilt_table_on_v12_db(self, tmp_path):
+        """The drop is enforced every startup (not just at the v11->12
+        migration): an older in-memory process with pre-v12 code recreates
+        the table via its own existence check while the new code is
+        pending a restart (observed 10/27: rebuilt + 40 rows reindexed
+        within minutes of the drop). A flag-off open of an already-v12 db
+        must still drop it."""
+        on = SessionDB(db_path=tmp_path / "t.db", fts_trigram=True)
+        on.create_session(session_id="s1", source="cli", model="m")
+        on.append_message("s1", "user", "some message")
+        assert self._schema_version(on) == 12
+        on.close()
+
+        off = SessionDB(db_path=tmp_path / "t.db")
+        try:
+            assert not self._has_trigram(off)
+        finally:
+            off.close()
+
+    def test_flag_on_recreates_missing_table_with_backfill(self, tmp_path):
+        """Flag off->on transition: the post-migration existence check must
+        recreate the table AND backfill existing rows (a bare
+        executescript leaves prior rows unindexed)."""
+        on = SessionDB(db_path=tmp_path / "t.db", fts_trigram=True)
+        on.create_session(session_id="s1", source="cli", model="m")
+        on.append_message("s1", "user", "旧内容应该可搜索")
+        on._conn.execute("UPDATE schema_version SET version = 11")
+        on.close()
+
+        off = SessionDB(db_path=tmp_path / "t.db")
+        assert not self._has_trigram(off)
+        off.close()
+
+        on2 = SessionDB(db_path=tmp_path / "t.db", fts_trigram=True)
+        try:
+            assert self._has_trigram(on2)
+            rows = on2.search_messages("旧内容应该")
+            assert len(rows) == 1
+        finally:
+            on2.close()

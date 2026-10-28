@@ -2183,7 +2183,13 @@ class LogosCLI:
         self._session_db = None
         try:
             from logos_state import SessionDB
-            self._session_db = SessionDB()
+            _tri = False
+            try:
+                from logos_cli.config import load_config as _lc
+                _tri = bool((_lc().get("sessions") or {}).get("fts_trigram", False))
+            except Exception:
+                pass
+            self._session_db = SessionDB(fts_trigram=_tri)
         except Exception as e:
             logger.warning("Failed to initialize SessionDB — session will NOT be indexed for search: %s", e)
 

@@ -33,7 +33,7 @@ T = TypeVar("T")
 
 DEFAULT_DB_PATH = get_logos_home() / "state.db"
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -194,9 +194,15 @@ class SessionDB:
     # Attempt a PASSIVE WAL checkpoint every N successful writes.
     _CHECKPOINT_EVERY_N_WRITES = 50
 
-    def __init__(self, db_path: Path = None):
+    def __init__(self, db_path: Path = None, fts_trigram: bool = False):
         self.db_path = db_path or DEFAULT_DB_PATH
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        # Trigram FTS5 index for CJK substring search — opt-in (v12). On a
+        # 33GB fleet state.db it cost 15.1GB (46% of the file) to index CJK
+        # content present in 0.07% of rows (measured 10/27). Default off:
+        # CJK queries fall back to the LIKE path that 1-2 char CJK queries
+        # already use.
+        self._fts_trigram = bool(fts_trigram)
 
         self._lock = threading.Lock()
         self._write_count = 0
@@ -496,6 +502,31 @@ class SessionDB:
                     "COALESCE(tool_calls, '') "
                     "FROM messages"
                 )
+            if current_version < 12:
+                # v12: trigram FTS5 becomes opt-in (SessionDB(fts_trigram=),
+                # config sessions.fts_trigram, default off). It cost 15.1GB
+                # (46%) on the 33GB fleet state.db to index CJK substrings
+                # present in 0.07% of rows (measured 10/27), with a single
+                # English-only live caller. Flag off → drop the virtual
+                # table + triggers; CJK search falls back to the LIKE path.
+                # Rollback: re-enable the flag — the post-migration
+                # existence check below recreates the table with backfill.
+                if not self._fts_trigram:
+                    for _trig in (
+                        "messages_fts_trigram_insert",
+                        "messages_fts_trigram_delete",
+                        "messages_fts_trigram_update",
+                    ):
+                        try:
+                            cursor.execute(f"DROP TRIGGER IF EXISTS {_trig}")
+                        except sqlite3.OperationalError:
+                            pass
+                    try:
+                        cursor.execute(
+                            "DROP TABLE IF EXISTS messages_fts_trigram"
+                        )
+                    except sqlite3.OperationalError:
+                        pass
             if current_version < SCHEMA_VERSION:
                 cursor.execute(
                     "UPDATE schema_version SET version = ?",
@@ -517,11 +548,51 @@ class SessionDB:
         except sqlite3.OperationalError:
             cursor.executescript(FTS_SQL)
 
-        # Trigram FTS5 for CJK/substring search
-        try:
-            cursor.execute("SELECT * FROM messages_fts_trigram LIMIT 0")
-        except sqlite3.OperationalError:
-            cursor.executescript(FTS_TRIGRAM_SQL)
+        # Trigram FTS5 for CJK/substring search (opt-in; default off —
+        # see v12 migration). When the flag is on and the table is missing
+        # (fresh install, or off->on transition after a v12 drop), recreate
+        # it AND backfill — a bare executescript would leave existing rows
+        # unindexed.
+        if self._fts_trigram:
+            try:
+                cursor.execute("SELECT * FROM messages_fts_trigram LIMIT 0")
+            except sqlite3.OperationalError:
+                cursor.executescript(FTS_TRIGRAM_SQL)
+                cursor.execute(
+                    "INSERT INTO messages_fts_trigram(rowid, content) "
+                    "SELECT id, "
+                    "COALESCE(content, '') || ' ' || "
+                    "COALESCE(tool_name, '') || ' ' || "
+                    "COALESCE(tool_calls, '') "
+                    "FROM messages"
+                )
+        else:
+            # v12 enforcement — runs every startup, not only at migration:
+            # the flag-off default must win even if the table reappears.
+            # An older in-memory process (pre-v12 code) recreates the table
+            # via its own _init_schema existence check whenever it opens a
+            # fresh SessionDB (observed 10/27: table + triggers rebuilt and
+            # re-indexing within minutes of the v12 drop, pre-restart).
+            try:
+                cursor.execute("SELECT * FROM messages_fts_trigram LIMIT 0")
+            except sqlite3.OperationalError:
+                pass  # absent — nothing to do
+            else:
+                for _trig in (
+                    "messages_fts_trigram_insert",
+                    "messages_fts_trigram_delete",
+                    "messages_fts_trigram_update",
+                ):
+                    try:
+                        cursor.execute(f"DROP TRIGGER IF EXISTS {_trig}")
+                    except sqlite3.OperationalError:
+                        pass
+                try:
+                    cursor.execute(
+                        "DROP TABLE IF EXISTS messages_fts_trigram"
+                    )
+                except sqlite3.OperationalError:
+                    pass
 
         self._conn.commit()
 
@@ -1640,7 +1711,12 @@ class SessionDB:
             raw_query = query.strip('"').strip()
             cjk_count = self._count_cjk(raw_query)
 
-            if cjk_count >= 3:
+            # Trigram FTS5 is opt-in (v12, default off — 15.1GB on the
+            # 33GB fleet db for 0.07% CJK content). When the flag is off
+            # (or the table is absent), every CJK query takes the LIKE
+            # path below — the same fallback 1-2 char CJK queries always
+            # used.
+            if cjk_count >= 3 and self._fts_trigram:
                 # Trigram FTS5 path — quote each non-operator token to handle
                 # FTS5 special chars (%, *, etc.) while preserving boolean
                 # operators (AND, OR, NOT) for multi-term queries.

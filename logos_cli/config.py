@@ -1045,6 +1045,12 @@ DEFAULT_CONFIG = {
         # How many days of ended-session history to keep.  Matches the
         # default of ``hermes sessions prune``.
         "retention_days": 90,
+        # Trigram FTS5 index for CJK substring search in state.db. Off by
+        # default: on a 33GB fleet state.db it cost 15.1GB (46% of the
+        # file) to index CJK content present in 0.07% of rows (measured
+        # 10/27); CJK queries fall back to LIKE. Opt in per instance if
+        # CJK search quality matters more than index cost.
+        "fts_trigram": False,
         # VACUUM after a prune that actually deleted rows.  SQLite does not
         # reclaim disk space on DELETE — freed pages are just reused on
         # subsequent INSERTs — so without VACUUM the file stays bloated
