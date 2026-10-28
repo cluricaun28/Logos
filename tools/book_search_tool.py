@@ -195,7 +195,8 @@ BOOK_SEARCH_SCHEMA = {
                 "type": "string",
                 "description": (
                     "Optional source filter: gutenberg, sefaria, ccel, law, "
-                    "cathen, books, maps. Omit to search all."
+                    "cathen, books, maps, stackoverflow, math-stackexchange, "
+                    "physics-stackexchange, enwiki, arxiv. Omit to search all."
                 ),
             },
         },

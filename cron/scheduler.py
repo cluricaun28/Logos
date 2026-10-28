@@ -1255,7 +1255,23 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
                 or (result.get("final_response") or "").strip()
                 or "agent reported failure"
             )
-            raise RuntimeError(_err_text)
+            # A run whose reply is exactly the [SILENT] sentinel and which
+            # carries no explicit error is a successful no-report, not a
+            # failure (e.g. patrol cron jobs that found nothing). Raising it
+            # as RuntimeError("[SILENT]") logs a false ERROR and marks a
+            # healthy run failed. Re-flag and fall through to normal
+            # handling; the delivery layer already skips [SILENT] replies.
+            if result.get("error") is None and _err_text.upper() == SILENT_MARKER:
+                logger.warning(
+                    "Job '%s' flagged failed/incomplete with no error but "
+                    "reply is the SILENT sentinel — treating as silent "
+                    "success", job_name,
+                )
+                result = dict(result)
+                result["failed"] = False
+                result["completed"] = True
+            else:
+                raise RuntimeError(_err_text)
 
         final_response = result.get("final_response", "") or ""
         # Strip leaked placeholder text that upstream may inject on empty completions.
