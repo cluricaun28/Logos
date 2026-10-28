@@ -163,6 +163,63 @@ class SkillInjectionManager:
         node = self.graph.get(skill_name)
         return node.category if node else "general"
 
+    def demote_stale_skills(
+        self,
+        usage: dict[str, float],
+        demote_cutoff: float,
+    ) -> list[str]:
+        """Demote Core (priority=high) skills whose last use predates the
+        cutoff to the name-only Available tier (tier 1).
+
+        A skill ABSENT from ``usage`` is treated as "never loaded since the
+        backfill ran" and is demoted too — the index is a discovery aid, and
+        an unused Core skill still pays its full-description tax every turn.
+        Callers that don't want that (e.g. ``demote_unused_days: 0``) pass
+        ``demote_cutoff == now`` so nothing qualifies.
+
+        Low-priority skills (already tier 1) are untouched. Returns the list
+        of demoted names (for logging).
+        """
+        if not usage:
+            return []  # no backfill data yet — nothing to judge against
+        demoted: list[str] = []
+        for name, node in self.graph.items():
+            if node.priority != "high":
+                continue
+            last_use = float(usage.get(name, 0.0))
+            if last_use >= demote_cutoff:
+                continue
+            node.tier = 1
+            demoted.append(name)
+        return demoted
+
+    def exclude_dropped(
+        self,
+        usage: dict[str, float],
+        drop_cutoff: float,
+    ) -> list[str]:
+        """Remove Core skills that have been unused past the drop cutoff
+        from the graph entirely (out of the injected index).
+
+        They remain on disk and reachable via skill_view/skills_list — only
+        the injection stops. One fresh load re-stamps them in the usage
+        store, and the next rebuild brings them back. Returns the dropped
+        names (for logging).
+        """
+        if not usage:
+            return []  # no backfill data yet — nothing to judge against
+        dropped: list[str] = []
+        for name, node in list(self.graph.items()):
+            if node.priority != "high":
+                continue
+            last_use = float(usage.get(name, 0.0))
+            if last_use >= drop_cutoff:
+                continue
+            self.graph.pop(name, None)
+            self.categories.setdefault(node.category, set()).discard(name)
+            dropped.append(name)
+        return dropped
+
     def format_injection_block(self, skills: list[str]) -> str:
         """Format the injection block for the system prompt.
 

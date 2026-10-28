@@ -881,6 +881,27 @@ def handle_function_call(
             )
         duration_ms = int((time.monotonic() - _dispatch_start) * 1000)
 
+        # Usage-based skill aging (SKILL-DEMOTE-1028): stamp the per-user
+        # usage store on successful skill_view / skill_manage so the
+        # injected index can age out unused Core skills. Best-effort —
+        # never perturbs the tool call that produced the usage.
+        if function_name in ("skill_view", "skill_manage"):
+            try:
+                _sname = str((function_args or {}).get("name") or "")
+                # Qualified plugin names (namespace:skill) aren't in the
+                # injection graph — don't stamp them.
+                if _sname and ":" not in _sname:
+                    _parsed = json.loads(result) if isinstance(result, str) else result
+                    _ok = (
+                        _parsed is None
+                        or (isinstance(_parsed, dict) and bool(_parsed.get("success")))
+                    )
+                    if _ok:
+                        from agent.skill_usage import record_skill_use
+                        record_skill_use(_sname)
+            except Exception:
+                pass  # usage tracking must never raise into the tool call
+
         try:
             from logos_cli.plugins import invoke_hook
             invoke_hook(

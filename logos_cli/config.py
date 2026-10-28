@@ -898,6 +898,19 @@ DEFAULT_CONFIG = {
         # External hub installs (trusted/community sources) are always
         # scanned regardless of this setting.
         "guard_agent_created": False,
+        # Usage-based aging of the injected skill index (SKILL-DEMOTE-1028).
+        # Core (priority: high) skills not loaded via skill_view / maintained
+        # via skill_manage for this many days drop to the name-only
+        # Available tier — their full description stops paying per-turn
+        # cost on every message. 0 disables aging entirely. The per-user
+        # usage store lives at <HERMES_HOME>/.skill_usage.json and is
+        # backfilled from state.db history on first run.
+        "demote_unused_days": 30,
+        # Unused past this many days the skill leaves the injected index
+        # altogether (still on disk, still reachable via skill_view /
+        # skills_list; one fresh load brings it back next rebuild).
+        # 0 disables the drop phase (demotion-only).
+        "drop_unused_days": 90,
     },
 
     # Honcho AI-native memory -- reads ~/.honcho/config.json as single source of truth.

@@ -890,6 +890,65 @@ def build_skills_system_prompt(
             manager = SkillInjectionManager()
             manager.build_graph(skill_configs)
 
+            # ── Usage-based aging (SKILL-DEMOTE-1028) ─────────────────
+            # Core (priority: high) skills that go unused age out of the
+            # injected index so the index stops growing. Per-user usage
+            # store at <HERMES_HOME>/.skill_usage.json (stamped by
+            # skill_view / skill_manage via the dispatch hook); lazily
+            # backfilled from state.db history on first run. 0 days = off.
+            _demoted_names: set = set()
+            _dropped_names: set = set()
+            try:
+                import time as _time
+                from logos_cli.config import load_config as _lc
+                _sk_cfg = _lc().get("skills") or {}
+                _demote_days = float(_sk_cfg.get("demote_unused_days", 30) or 0)
+                _drop_days = float(_sk_cfg.get("drop_unused_days", 90) or 0)
+                if _demote_days > 0 or _drop_days > 0:
+                    from agent.skill_usage import (
+                        backfill_from_state_db,
+                        load_usage,
+                    )
+                    from logos_constants import get_logos_home as _glh
+                    _usage_store = _glh() / ".skill_usage.json"
+                    if not _usage_store.exists():
+                        backfill_from_state_db(store_path=_usage_store)
+                    _usage = load_usage(_usage_store)
+                    _now = _time.time()
+                    if _demote_days > 0:
+                        _demoted_names = set(
+                            manager.demote_stale_skills(
+                                _usage, _now - _demote_days * 86400.0)
+                        )
+                    if _drop_days > 0:
+                        _dropped_names = set(
+                            manager.exclude_dropped(
+                                _usage, _now - _drop_days * 86400.0)
+                        )
+                    if _demoted_names or _dropped_names:
+                        # Keep the disk-driven <remaining_skills> block
+                        # consistent with the graph: dropped skills leave
+                        # the index entirely; demoted ones go name-only
+                        # there too (their description was the tax).
+                        for _cat in list(skills_by_category.keys()):
+                            _kept = []
+                            for (nm, d, pr) in skills_by_category[_cat]:
+                                if nm in _dropped_names:
+                                    continue
+                                if nm in _demoted_names and pr == "high":
+                                    _kept.append((nm, "", pr))
+                                else:
+                                    _kept.append((nm, d, pr))
+                            skills_by_category[_cat] = _kept
+                        logger.info(
+                            "skill aging: %d demoted, %d dropped "
+                            "(unused %dd+ / %dd+)",
+                            len(_demoted_names), len(_dropped_names),
+                            int(_demote_days), int(_drop_days),
+                        )
+            except Exception as e:  # noqa: BLE001 — aging is best-effort
+                logger.debug("skill aging skipped: %s", e)
+
             # Get tiered injection set
             injected_skills = manager.get_injection_set(task_type=task_type, max_tier=1)
 
